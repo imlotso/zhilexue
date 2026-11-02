@@ -3798,3 +3798,15 @@ table .tag.blue{background:var(--brand-l);color:var(--brand)}
 .pd-rules{font-size:13px;line-height:1.75;background:#f8f9fc;border-radius:10px;padding:10px 14px;margin-bottom:10px}
 .pd-rules p{margin:0 0 6px}.pd-rules code{background:#eaf0ff;color:#2f6bff;border-radius:4px;padding:0 4px}
 @media (max-width:640px){.pd-item{flex-wrap:wrap}.pd-acts{flex-direction:row;width:100%}.pd-batch{margin-left:0}}
+
+/* ---- T5 后台组卷：按章节 / 知识点选范围。只新增 t5- 前缀类 ---- */
+.t5-treebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.t5-tree{border:1px solid var(--line,#e3e8f2);border-radius:10px;background:#fff;max-height:260px;overflow:auto;padding:4px 2px}
+.t5-row{display:flex;align-items:center;gap:6px;min-height:30px;border-radius:6px;padding-right:8px}
+.t5-row:hover{background:#f4f7fd}
+.t5-row label{cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13.5px}
+.t5-tog{width:16px;flex:none;text-align:center;cursor:pointer;color:#5a6a85;user-select:none}
+.t5-tog.leaf{cursor:default;color:#c3cbdb}
+.t5-cnt{font-size:12px;color:#2f6bff;background:#eaf0ff;border-radius:10px;padding:0 8px}
+.t5-pool{margin:6px 0 2px;font-size:13px;color:#5a6a85}
+.t5-pool b{color:#2f6bff}

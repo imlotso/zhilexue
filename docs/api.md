@@ -57,7 +57,13 @@
 |---|---|
 | 题目 | `GET/POST /questions`；`PUT/DELETE /questions/:id`；`POST /questions/batch-delete`；`POST /questions/import`；`GET /questions/template`；`POST /ai-attri`（AI 打标） |
 | 知识点树（旧接口，T4 起读写 `bank_trees` 的知识点树，见 `src/kbtree.js`） | `GET /kbtree`（返回 `{edition, list:[{id,name,points:[{id,name}]}], points:[知识点名]}`，`id` 为树节点 id；旧表有数据且尚未复制时先复制）；`POST /kbtree/unit`；`DELETE /kbtree/unit/:id`；`POST /kbtree/point`（`unit_id` 为单元节点 id）；`DELETE /kbtree/point/:id`；`POST /kbtree/generate`（AI 拆解，**合并**进树：只新增、不删除已有节点；响应带 `created`）；`GET /points`（题库里出现过的知识点文本 ∪ 知识点树叶子节点名，仍是字符串数组） |
-| 组卷 | `GET/POST /papers`；`GET/PUT/DELETE /papers/:id`；`POST /papers/:id/publish`；`POST /papers/:id/assign`；`GET /papers/:id/assignees`；`POST /papers/auto` |
+| 组卷 | `GET/POST /papers`；`GET/PUT/DELETE /papers/:id`；`POST /papers/:id/publish`；`POST /papers/:id/assign`；`GET /papers/:id/assignees`；`POST /papers/pool`；`POST /papers/auto` |
+
+组卷接口补充（T5）：
+- `POST /papers/pool`：`{subject, stage, grade, difficulty, point, node_ids}` → `{total, single, multi, judge, fill, sort}`，范围内各题型有多少题（老师选好范围后看一眼）。
+- `POST /papers/auto`：条件同上 + `counts:{single:10,…}`；`node_ids` 是章节树 / 知识点树里选中的节点，**含全部后代**，且和学科/学段/年级/难度/知识点文字同时生效；选了节点但节点不存在 → 范围为 0 题（不会退化成全库）。题库不够时照样返回能抽的并在 `missing` 里列缺口。
+- `POST /papers/:id/assign`：下发给指定学生并置为已下发。**有下发名单的试卷只对名单里的学生可见**（`GET /tasks`、`GET /papers`、`GET /papers/:id`、`POST /submit kind=paper` 都按此判断）；没有名单的才按年级/学段/册别广播。`POST /papers/:id/publish {publish:0}` 撤回时清空名单。
+- 学生端 `POST /scan-compose`（章节组卷 / 知识点组卷）：`{kind, subject, node_ids}` → 选中节点及后代里每个"最小的有题节点"抽 1 题。与 `papers/auto` 共用 `src/compose.js`。
 | 课文习题 | `GET /chapters`；`GET /chapters/:id/lessons`；`GET /videos/:id/questions`；`POST /videos/:id/bind`；`POST /videos/:id/import-docx` |
 | 反馈 | `GET /feedback`；`PUT /feedback/:id` |
 | 选项 | `GET /branches-options`；`GET /students-options` |
