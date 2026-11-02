@@ -19,7 +19,8 @@ const jwt = require('jsonwebtoken');
 const { db, DATA_DIR } = require('./db');
 const { parseBankWorkbook, makeBankTemplate } = require('./bank-excel');
 const { judgeQ } = require('./bank-judge');
-const kbtree = require('./kbtree');   // T4：知识树统一，旧 kb_* 并入 bank_trees
+const kbtree = require('./kbtree');
+const compose = require('./compose');   // T5：管理端一键组卷 / 学生端自组卷共用的抽题核心   // T4：知识树统一，旧 kb_* 并入 bank_trees
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -450,6 +451,9 @@ admin.post('/papers/:id/publish', (req, res) => {
   ok(res, { status: pub ? 'published' : 'draft' }, pub ? '已下发到学生端' : '已撤回');
 });
 
+// 这份试卷有没有定向下发名单：有名单 = 只对名单里的学生可见
+const paperHasAssignees = (pid) => !!db.prepare('SELECT 1 FROM paper_assignments WHERE paper_id=? LIMIT 1').get(pid);
+
 // ---------- 试卷定向下发：老师单选 / 多选学生，学生端「我的任务」展示 ----------
 admin.get('/papers/:id/assignees', (req, res) => {
   const pid = Number(req.params.id);
@@ -481,39 +485,32 @@ admin.delete('/papers/:id', (req, res) => {
   ok(res, null, '已删除');
 });
 
-// 一键组卷：按条件从题库抽题（题库不足时返回 missing 提示）
+// 组卷范围：学科/学段/年级/难度/知识点文本 + 章节树或知识点树里选中的节点（node_ids，含全部后代）
+const composeScope = (b) => ({
+  subject: b.subject, stage: b.stage, grade: b.grade, difficulty: b.difficulty, point: b.point,
+  nodeIds: Array.isArray(b.node_ids) ? b.node_ids : [],
+});
+
+// 范围内各题型有多少题：老师选好章节/知识点后看一眼，知道能抽多少
+admin.post('/papers/pool', (req, res) => {
+  ok(res, compose.poolCounts(db, composeScope(req.body || {})));
+});
+
+// 一键组卷：按条件从题库抽题（题库不足时返回 missing 提示）。与学生端「章节组卷 / 知识点组卷」共用 compose.js
 admin.post('/papers/auto', (req, res) => {
   const b = req.body || {};
   const counts = b.counts || {};
-  const want = TYPES.map((t) => ({ type: t, n: Math.max(0, Math.min(50, Number(counts[t]) || 0)) })).filter((x) => x.n > 0);
-  if (!want.length) return fail(res, '请至少填写一种题型的数量');
-  const picked = [];
-  const missing = [];
-  const used = new Set();
-  for (const w of want) {
-    let where = ' WHERE q.type=?'; const args = [w.type];
-    if (b.subject) { where += ' AND q.subject=?'; args.push(b.subject); }
-    if (b.stage) { where += " AND IFNULL(q.stage,'')=?"; args.push(b.stage); }
-    if (b.grade) { where += " AND IFNULL(q.grade,'')=?"; args.push(b.grade); }
-    if (b.difficulty) { where += ' AND q.difficulty=?'; args.push(Number(b.difficulty)); }
-    const points = String(b.point || '').split(/&&|,|，/).map((s) => s.trim()).filter(Boolean);
-    if (points.length) {
-      where += ' AND (' + points.map(() => "IFNULL(q.point,'') LIKE ?").join(' OR ') + ')';
-      points.forEach((p) => args.push(`%${p}%`));
-    }
-    if (used.size) { where += ` AND q.id NOT IN (${[...used].map(() => '?').join(',')})`; args.push(...used); }
-    const rows = db.prepare(`SELECT q.* FROM questions q${where} ORDER BY RANDOM() LIMIT ?`).all(...args, w.n);
-    rows.forEach((r) => { used.add(r.id); picked.push(r); });
-    if (rows.length < w.n) missing.push(`${TYPE_NAMES[w.type]} 差 ${w.n - rows.length} 题`);
-  }
+  if (!TYPES.some((t) => Number(counts[t]) > 0)) return fail(res, '请至少填写一种题型的数量');
+  const r = compose.pickByCounts(db, composeScope(b), counts);
+  const missing = r.missing.map((m) => `${TYPE_NAMES[m.type]} 差 ${m.need} 题`);
   // 按题型归组返回（预览按题型分大题）
   ok(res, {
-    list: picked.map(parseQ).map((q) => ({
+    list: r.rows.map(parseQ).map((q) => ({
       id: q.id, type: q.type, stem: q.stem, material: q.material || '', options: q.options,
       difficulty: q.difficulty, subject: q.subject, grade: q.grade, stage: q.stage, point: q.point || '',
     })),
     missing,
-  }, missing.length ? `已抽出 ${picked.length} 题（${missing.join('、')}）` : `已抽出 ${picked.length} 题`);
+  }, missing.length ? `已抽出 ${r.rows.length} 题（${missing.join('、')}）` : `已抽出 ${r.rows.length} 题`);
 });
 
 // 试卷详情（组卷编辑时回显，含答案）
@@ -940,10 +937,12 @@ stu.get('/tasks', (req, res) => {
   const grade = String(u.grade || '').trim();
   const term = String(u.term || '').trim();
   const stage = stageOfGrade(u.stage, grade);
+  // 有下发名单的试卷只对名单里的学生可见（老师定向下发给谁，就只有谁能看到）；没有名单的才按年级/学段/册别广播
   const rows = db.prepare(`SELECT DISTINCT p.* FROM papers p
     WHERE p.status='published' AND (
       EXISTS (SELECT 1 FROM paper_assignments a WHERE a.paper_id=p.id AND a.user_id=?)
-      OR ((IFNULL(p.grade,'')='' OR ?='' OR p.grade=?)
+      OR (NOT EXISTS (SELECT 1 FROM paper_assignments a2 WHERE a2.paper_id=p.id)
+        AND (IFNULL(p.grade,'')='' OR ?='' OR p.grade=?)
         AND (IFNULL(p.stage,'')='' OR ?='' OR p.stage=?)
         AND (IFNULL(p.term,'')='' OR ?='' OR p.term=?))
     ) ORDER BY p.published_at DESC, p.id DESC`)
@@ -970,11 +969,13 @@ stu.get('/papers', (req, res) => {
   const stage = stageOfGrade(u.stage, grade);
   const rows = db.prepare(`SELECT p.* FROM papers p
     WHERE p.status='published'
-      AND (IFNULL(p.grade,'')='' OR ?='' OR p.grade=?)
-      AND (IFNULL(p.stage,'')='' OR ?='' OR p.stage=?)
-      AND (IFNULL(p.term,'')='' OR ?='' OR p.term=?)
+      AND (EXISTS (SELECT 1 FROM paper_assignments a WHERE a.paper_id=p.id AND a.user_id=?)
+        OR (NOT EXISTS (SELECT 1 FROM paper_assignments a2 WHERE a2.paper_id=p.id)
+          AND (IFNULL(p.grade,'')='' OR ?='' OR p.grade=?)
+          AND (IFNULL(p.stage,'')='' OR ?='' OR p.stage=?)
+          AND (IFNULL(p.term,'')='' OR ?='' OR p.term=?)))
     ORDER BY p.published_at DESC, p.id DESC`)
-    .all(grade, grade, stage, stage, term, term);
+    .all(uid, grade, grade, stage, stage, term, term);
   const qTries = db.prepare('SELECT total, correct, score, created_at FROM paper_tries WHERE user_id=? AND paper_id=? ORDER BY id DESC LIMIT 1');
   ok(res, rows.map((p) => {
     const t = qTries.get(uid, p.id);
@@ -993,9 +994,10 @@ stu.get('/papers/:id', (req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE id=?').get(uid);
   const p = db.prepare('SELECT * FROM papers WHERE id=?').get(Number(req.params.id));
   if (!p || p.status !== 'published') return fail(res, '试卷不存在或未下发');
-  const assigned = !!db.prepare('SELECT 1 FROM paper_assignments WHERE paper_id=? AND user_id=?').get(uid, p.id);
+  const assigned = !!db.prepare('SELECT 1 FROM paper_assignments WHERE paper_id=? AND user_id=?').get(p.id, uid);
   const grade = String(u.grade || '').trim(); const term = String(u.term || '').trim();
   const stage = stageOfGrade(u.stage, grade);
+  if (!assigned && paperHasAssignees(p.id)) return fail(res, '这份试卷是老师定向下发给其他同学的');
   if (!assigned && ((p.grade && grade && p.grade !== grade) || (p.stage && stage && p.stage !== stage) || (p.term && term && p.term !== term))) {
     return fail(res, '这份试卷不属于你的年级 / 学段');
   }
@@ -1027,9 +1029,10 @@ stu.post('/submit', (req, res) => {
   if (kind === 'paper') {
     paper = db.prepare('SELECT * FROM papers WHERE id=?').get(paperId);
     if (!paper || paper.status !== 'published') return fail(res, '试卷不存在或未下发');
-    const assigned = !!db.prepare('SELECT 1 FROM paper_assignments WHERE paper_id=? AND user_id=?').get(uid, paperId);
+    const assigned = !!db.prepare('SELECT 1 FROM paper_assignments WHERE paper_id=? AND user_id=?').get(paperId, uid);
     const grade = String(me.grade || '').trim(); const term = String(me.term || '').trim();
     const stage = stageOfGrade(me.stage, grade);
+    if (!assigned && paperHasAssignees(paperId)) return fail(res, '这份试卷是老师定向下发给其他同学的');
     if (!assigned && ((paper.grade && grade && paper.grade !== grade) || (paper.stage && stage && paper.stage !== stage) || (paper.term && term && paper.term !== term))) {
       return fail(res, '这份试卷不属于你的年级 / 学段');
     }
@@ -1156,7 +1159,7 @@ stu.get('/mfpapers/:id', (req, res) => {
   ok(res, { id: p.id, title: p.title, subject: p.subject, stage: p.stage, grade: p.grade, questions: qs.map(serveQ) });
 });
 
-// ---------- 章节测评 / 学段冲刺：取同学段的章节树 / 知识点树 ----------
+// ---------- 章节组卷 / 知识点组卷（学生自己组卷，不能下发）：取同学段的章节树 / 知识点树 ----------
 stu.get('/scan-tree', (req, res) => {
   const me = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
   const stage = stageOfGrade(me.stage, String(me.grade || ''));
@@ -1188,32 +1191,9 @@ stu.post('/scan-compose', (req, res) => {
   const treeIds = trees.map((t) => t.id);
   const ph = treeIds.map(() => '?').join(',');
   const allNodes = db.prepare(`SELECT id, tree_id, parent_id, name FROM bank_tree_nodes WHERE tree_id IN (${ph})`).all(...treeIds);
-  const childrenOf = {};
-  allNodes.forEach((n) => { (childrenOf[n.parent_id || 0] = childrenOf[n.parent_id || 0] || []).push(n); });
-  // 选中节点 + 全部后代（while 完整递归）
-  const sel = new Set(ids);
-  let frontier = ids.slice();
-  while (frontier.length) {
-    const next = [];
-    frontier.forEach((pid) => (childrenOf[pid] || []).forEach((ch) => { if (!sel.has(ch.id)) { sel.add(ch.id); next.push(ch.id); } }));
-    frontier = next;
-  }
-  // 有题的节点里，取「没有更深的有题后代」的节点 = 最小小知识点
-  const qCnt = db.prepare('SELECT COUNT(*) c FROM question_nodes qn JOIN questions q ON q.id=qn.question_id WHERE qn.node_id=?');
-  const qOne = db.prepare('SELECT q.* FROM question_nodes qn JOIN questions q ON q.id=qn.question_id WHERE qn.node_id=? ORDER BY RANDOM() LIMIT 1');
-  const withQ = new Map();
-  [...sel].forEach((nid) => { const c = qCnt.get(nid).c; if (c) withQ.set(nid, c); });
-  const hasQDesc = (nid) => (childrenOf[nid] || []).some((ch) => withQ.has(ch.id) || hasQDesc(ch.id));
-  const items = [];
-  withQ.forEach((cnt, nid) => {
-    if (hasQDesc(nid)) return;   // 更深处还有题：这层不单独出题
-    const node = allNodes.find((n) => n.id === nid);
-    const q = qOne.get(nid);
-    if (!node || !q) return;
-    items.push({ node_id: nid, node_name: node.name, count: cnt, question: { ...serveQ(q), point: node.name } });
-  });
+  // 每个"最小的有题节点"抽 1 题（共用 compose.js）
+  const items = compose.pickPerNode(db, allNodes, ids).map((it) => ({ node_id: it.node_id, node_name: it.node_name, count: it.count, question: { ...serveQ(it.row), point: it.node_name } }));
   if (!items.length) return fail(res, '选中的范围里还没有题目，先去题库管理补题或换个范围');
-  items.sort((a, b2) => b2.count - a.count);
   ok(res, { items, total: items.length });
 });
 

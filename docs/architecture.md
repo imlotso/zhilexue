@@ -47,6 +47,7 @@ zhilexue/
 | `db.js` / `mysql-sync.js` / `mysql-worker.js` / `import-sqlite.js` | 建表、数据库连接与 SQLite→MySQL 转换 |
 | `auth.js` / `delpwd.js` | JWT 鉴权；删除确认密码 |
 | `storage.js` | 文件存储抽象（本地 / OSS / 七牛） |
+| `compose.js` | 组卷核心（T5）：范围（学科/学段/年级/难度/知识点文字 + 章节树/知识点树节点含后代）→ 候选题；`pickByCounts`（管理端按题型数量）、`pickPerNode`（学生端每个最小知识点 1 题）、`poolCounts`（范围内题量）；被 `bank.js` 的 `/papers/auto`、`/papers/pool`、学生端 `/scan-compose` 共用 |
 | `bank.js` | 智能题库：题目、知识点树（kb）、组卷下发、课文习题绑定、学生错题、扫码上传池 |
 | `mfbank.js` / `mfcollect.js` / `mfseed.js` / `mfzip.js` | 「魔方题库」（与 2026-10-29 并入）：目录树、标签、采集批次、录题 intake、试卷管理、AI 配置 profiles、技能包导入 |
 | `bank-excel.js` / `excel.js` / `bank-judge.js` / `docxtext.js` / `tableparse.js` | Excel/Word 导入解析与判分 |

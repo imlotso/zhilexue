@@ -55,6 +55,8 @@ jobs:
         if: ${{ !cancelled() }}   # 知识树统一（T4）：需要启动时种子树，所以放在服务启动之后
       - run: node pending-test.js
         if: ${{ !cancelled() }}   # 待审核题目（T3）：需要服务和种子树
+      - run: node compose-test.js
+        if: ${{ !cancelled() }}   # 组卷（T5）：章节树 / 知识点树组卷、定向下发、学生自组卷
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4

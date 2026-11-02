@@ -475,6 +475,41 @@ function bkImportForm() {
 /* ================================================================
    ② 智能组卷
    ================================================================ */
+/** 下发试卷给学生：单选 / 多选，确认后出现在这些学生的「试卷 → 我的任务」，只有被选中的学生能看到 */
+async function ppAssignDialog(pid, title) {
+  const students = await api('/api/admin/bank/students-options', { silent: true }).catch(() => []);
+  if (!students.length) return toast('还没有学生账号，先去组织管理 → 学生管理开通', 'err');
+  let assigned = [];
+  try { assigned = (await api(`/api/admin/bank/papers/${pid}/assignees`, { silent: true })).map((r) => r.user_id); } catch (e) { assigned = []; }
+  let kw = '';
+  const paint = (w) => {
+    const shown = students.filter((s) => !kw || (s.name || '').includes(kw) || (s.username || '').includes(kw) || (s.grade || '').includes(kw));
+    w.querySelector('#asList').innerHTML = shown.map((s) => `<label class="mf-pickitem"><input type="checkbox" class="as-uid" value="${s.id}" ${assigned.includes(s.id) ? 'checked' : ''}><span>${esc(s.name || s.username)} <i class="hint">${esc([s.grade, s.stage === 'primary' ? '小学' : s.stage === 'junior' ? '初中' : ''].filter(Boolean).join('·'))}</i></span></label>`).join('') || '<span class="hint">没有符合的学生</span>';
+  };
+  const countSel = (w) => { w.querySelector('#asCount').textContent = w.querySelectorAll('.as-uid:checked').length; };
+  modal({
+    title: `下发试卷 · ${title || ''}`, wide: true, okText: '确认下发',
+    body: `<div class="row" style="gap:8px;margin-bottom:8px">
+        <input id="asKw" class="inp" placeholder="搜姓名 / 年级" style="flex:1">
+        <span>已选 <b id="asCount">0</b> 人</span>
+        <label class="hint" style="cursor:pointer"><input type="checkbox" id="asAll"> 全选</label></div>
+      <div id="asList" class="mf-pick" style="max-height:340px"></div>
+      <div class="hint" style="margin-top:6px">下发的试卷出现在学生端「试卷 → 我的任务」，<b>只有勾选的学生能看到</b>（可单选 / 多选）。</div>`,
+    onMount: (w) => {
+      paint(w); countSel(w);
+      w.querySelector('#asKw').oninput = (e) => { kw = e.target.value.trim(); paint(w); };
+      w.addEventListener('change', () => countSel(w));
+      w.querySelector('#asAll').onchange = (e) => { w.querySelectorAll('.as-uid').forEach((c) => { c.checked = e.target.checked; }); countSel(w); };
+    },
+    onOk: async (w) => {
+      const ids = [...w.querySelectorAll('.as-uid:checked')].map((c) => Number(c.value));
+      if (!ids.length) { toast('请至少选择一名学生', 'err'); return false; }
+      await api(`/api/admin/bank/papers/${pid}/assign`, { method: 'POST', body: { user_ids: ids } });
+      toast(`已下发给 ${ids.length} 名学生，他们的「我的任务」里可见`, 'ok'); render();
+    },
+  });
+}
+
 async function viewPaper() {
   const st = ADM.page.pp = ADM.page.pp || { subject: '' };
   const papers = await api('/api/admin/bank/papers' + (st.subject ? '?subject=' + encodeURIComponent(st.subject) : ''));
@@ -490,8 +525,17 @@ async function viewPaper() {
         <div class="field"><label>年级</label><select id="pp-grade"><option value="">不限</option>${BK_GRADES.map((g) => `<option>${g}</option>`).join('')}</select></div>
         <div class="field"><label>册别</label><select id="pp-term"><option value="">不限</option><option>上册</option><option>下册</option></select></div>
       </div>
+      <div class="pp-row t5-scope">
+        <div class="field"><label>组卷范围</label>
+          <select id="pp-scope"><option value="">不限（可用下面的知识点文字筛选）</option><option value="textbook">按章节选题</option><option value="knowledge">按知识点选题</option></select></div>
+        <div class="field" id="pp-treewrap" style="flex:3;display:none">
+          <label>选择节点<span class="hint" style="font-weight:400;margin-left:6px">选中的节点包含它下面所有子节点；可多选</span></label>
+          <div class="t5-treebar"><select id="pp-tree"></select><span class="hint" id="pp-selinfo"></span><button type="button" class="link-btn" id="pp-clearsel">清空选择</button></div>
+          <div class="t5-tree" id="pp-treebox"></div>
+        </div>
+      </div>
       <div class="pp-row">
-        <div class="field" style="flex:1.4"><label>知识点（可空 = 全部，可用 && 连接多个）</label><input id="pp-point" placeholder="如：一次函数" list="ppPointList"><datalist id="ppPointList"></datalist></div>
+        <div class="field" style="flex:1.4"><label>知识点文字（可空 = 全部，可用 && 连接多个；和上面的范围同时生效）</label><input id="pp-point" placeholder="如：一次函数" list="ppPointList"><datalist id="ppPointList"></datalist></div>
         <div class="field"><label>难度</label><select id="pp-difficulty"><option value="">不限</option>${[1, 2, 3, 4, 5].map((d) => `<option value="${d}">${'★'.repeat(d)}</option>`).join('')}</select></div>
         <div class="field" style="width:90px"><label>建议时长</label><input id="pp-duration" type="number" value="90" min="10" max="180"></div>
         <div class="field" style="width:90px"><label>满分</label><input id="pp-score" type="number" value="100" min="10" max="1000"></div>
@@ -500,6 +544,7 @@ async function viewPaper() {
         ${BK_TYPES.map(([k, t]) => `<div class="field pp-n"><label>${t}</label><input id="pp-n-${k}" type="number" min="0" max="50" value="0"></div>`).join('')}
         <div class="field pp-n" style="align-self:flex-end"><button class="btn primary" id="ppGo" style="white-space:nowrap">${ic('flash')} 一键组卷</button></div>
       </div>
+      <div class="t5-pool" id="ppPool"></div>
       <div class="w-tip">组卷说明：按上面的条件从题库随机抽题；题库某题型数量不够时会在预览里提示。抽完可以在预览里移除题目，再保存或下发。学生的「试卷」页面会按年级 / 学段自动匹配能看到哪些卷子。</div>
     </div>
     <div id="ppPreview"></div>
@@ -530,6 +575,7 @@ async function viewPaper() {
     html,
     after: () => {
       let picked = [];   // 组卷方案里的题目
+      const sc = { kind: '', tree: null, nodes: [], sel: new Set(), open: new Set() };   // 树范围：章节树 / 知识点树
       api('/api/admin/bank/points', { silent: true }).then((pts) => {
         document.getElementById('ppPointList').innerHTML = (pts || []).map((p) => `<option value="${esc(p)}">`).join('');
       }).catch(() => {});
@@ -544,7 +590,75 @@ async function viewPaper() {
         difficulty: document.getElementById('pp-difficulty').value,
         duration: Number(document.getElementById('pp-duration').value) || 90,
         total_score: Number(document.getElementById('pp-score').value) || 100,
+        node_ids: [...sc.sel],
       });
+      // ---- 组卷范围：章节树 / 知识点树里勾选节点（含全部子节点）；下方实时显示范围内各题型有多少题 ----
+      const treeBox = document.getElementById('pp-treebox');
+      const selInfo = document.getElementById('pp-selinfo');
+      const subCnt = {};
+      const paintTree = () => {
+        const kids = {};
+        sc.nodes.forEach((n) => { (kids[n.parent_id || 0] = kids[n.parent_id || 0] || []).push(n); });
+        Object.values(kids).forEach((a) => a.sort((x, y) => (x.sort - y.sort) || (x.id - y.id)));
+        const cnt = (n) => { let c = n.qcount || 0; (kids[n.id] || []).forEach((k) => { c += cnt(k); }); subCnt[n.id] = c; return c; };
+        (kids[0] || []).forEach(cnt);
+        const row = (n, d) => {
+          const ks = kids[n.id] || []; const open = sc.open.has(n.id);
+          return `<div class="t5-node"><div class="t5-row" style="padding-left:${6 + d * 18}px">
+            <span class="t5-tog ${ks.length ? '' : 'leaf'}" data-tog="${n.id}">${ks.length ? (open ? '▾' : '▸') : '·'}</span>
+            <label><input type="checkbox" data-nid="${n.id}" ${sc.sel.has(n.id) ? 'checked' : ''}> ${esc(n.name)}</label>
+            ${subCnt[n.id] ? `<span class="t5-cnt" title="这个节点（含子节点）上挂的题目数">${subCnt[n.id]} 题</span>` : ''}</div>
+            ${ks.length && open ? ks.map((k) => row(k, d + 1)).join('') : ''}</div>`;
+        };
+        treeBox.innerHTML = (kids[0] || []).map((r) => row(r, 0)).join('') || '<div class="hint" style="padding:10px">没有可选的树节点</div>';
+        selInfo.textContent = sc.sel.size ? `已选 ${sc.sel.size} 个节点` : '未选择（= 不限制节点）';
+      };
+      let poolSeq = 0, poolTimer = 0;
+      const refreshPool = () => {
+        clearTimeout(poolTimer);
+        poolTimer = setTimeout(async () => {
+          const my = ++poolSeq; const el = document.getElementById('ppPool'); if (!el) return;
+          try {
+            const r = await api('/api/admin/bank/papers/pool', { method: 'POST', silent: true, body: readForm() });
+            if (my !== poolSeq) return;
+            el.innerHTML = r.total ? `题库里符合上面条件的题：<b>${r.total}</b> 道（${BK_TYPES.map(([k, t]) => `${t.replace('题', '')} ${r[k] || 0}`).join(' · ')}）` : '题库里没有符合上面条件的题，请调整范围，或先去题库管理 / 待审核题目录入';
+          } catch (e) { el.textContent = ''; }
+        }, 250);
+      };
+      const loadNodes = async () => {
+        sc.sel.clear(); sc.open.clear(); sc.nodes = [];
+        if (sc.tree) {
+          sc.nodes = ((await api(`/api/admin/bank/mf/trees/${sc.tree.id}/nodes`, { silent: true }).catch(() => ({ list: [] }))) || {}).list || [];
+          sc.nodes.filter((n) => !n.parent_id).forEach((n) => sc.open.add(n.id));
+        }
+        paintTree(); refreshPool();
+      };
+      const loadScope = async () => {
+        sc.kind = document.getElementById('pp-scope').value;
+        const wrap = document.getElementById('pp-treewrap');
+        if (!sc.kind) { wrap.style.display = 'none'; sc.sel.clear(); sc.tree = null; sc.nodes = []; refreshPool(); return; }
+        wrap.style.display = '';
+        const f = readForm();
+        const all = (((await api('/api/admin/bank/mf/trees?kind=' + sc.kind, { silent: true }).catch(() => ({ list: [] }))) || {}).list || []);
+        sc.trees = all.filter((t) => t.subject === f.subject && (!f.stage || t.stage === f.stage));
+        document.getElementById('pp-tree').innerHTML = sc.trees.map((t) => `<option value="${t.id}">${esc(t.name)}${t.stage ? '（' + esc(bkStageName(t.stage)) + '）' : ''}</option>`).join('') || '<option value="">没有符合学科 / 学段的树</option>';
+        sc.tree = sc.trees[0] || null;
+        await loadNodes();
+      };
+      document.getElementById('pp-scope').onchange = loadScope;
+      ['pp-subject', 'pp-stage'].forEach((id) => { document.getElementById(id).addEventListener('change', loadScope); });
+      ['pp-grade', 'pp-difficulty'].forEach((id) => { document.getElementById(id).addEventListener('change', refreshPool); });
+      document.getElementById('pp-point').addEventListener('input', refreshPool);
+      document.getElementById('pp-tree').onchange = (e) => { sc.tree = (sc.trees || []).find((t) => String(t.id) === e.target.value) || null; loadNodes(); };
+      document.getElementById('pp-clearsel').onclick = () => { sc.sel.clear(); paintTree(); refreshPool(); };
+      treeBox.onclick = (e) => { const tg = e.target.closest('[data-tog]'); if (!tg) return; const id = Number(tg.dataset.tog); if (sc.open.has(id)) sc.open.delete(id); else sc.open.add(id); paintTree(); };
+      treeBox.onchange = (e) => {
+        const cb = e.target.closest('[data-nid]'); if (!cb) return;
+        const id = Number(cb.dataset.nid); if (cb.checked) sc.sel.add(id); else sc.sel.delete(id);
+        selInfo.textContent = sc.sel.size ? `已选 ${sc.sel.size} 个节点` : '未选择（= 不限制节点）';
+        refreshPool();
+      };
+      refreshPool();
       const paintPreview = (missing) => {
         if (!picked.length) { previewEl.innerHTML = ''; return; }
         const f = readForm();
@@ -553,8 +667,9 @@ async function viewPaper() {
         previewEl.innerHTML = `
           <div class="pp-prev-h"><b>组卷方案预览</b><span>共 ${picked.length} 题，每题约 ${per} 分${missing && missing.length ? ` · <em style="color:#e5484d">${esc(missing.join('、'))}</em>` : ''}</span>
             <div class="pp-prev-acts">
-              <button class="btn ghost" id="ppSaveDraft">保存草稿</button>
-              <button class="btn primary" id="ppSavePub">保存并下发到学生端</button>
+              <button class="btn ghost" id="ppSaveDraft" style="white-space:nowrap">保存草稿</button>
+              <button class="btn primary" id="ppSaveAssign">保存并下发给指定学生…</button>
+              <button class="btn ghost" id="ppSavePub" style="white-space:nowrap" title="不指定学生：按试卷的年级 / 学段 / 册别，所有符合的学生都能在「我的任务」看到">保存并下发给全部符合年级的学生</button>
             </div></div>
           ${groups.filter(([, , arr]) => arr.length).map(([k, t, arr], gi) => `
             <div class="pp-group"><div class="pp-gt">${['一', '二', '三', '四', '五'][gi] || gi + 1}、${t}</div>
@@ -569,14 +684,22 @@ async function viewPaper() {
         if (window.mtxTypeset) mtxTypeset(previewEl);
         const save = async (publish) => {
           const ff = readForm();
-          if (!ff.title) { toast('请先填写试卷标题', 'err'); return; }
-          await api('/api/admin/bank/papers', { method: 'POST', silent: true, body: { ...ff, q_ids: picked.map((q) => q.id), status: publish ? 'published' : 'draft' } });
-          toast(publish ? '试卷已下发到学生端' : '草稿已保存', 'ok');
-          picked = [];
-          render();
+          if (!ff.title) { toast('请先填写试卷标题', 'err'); return null; }
+          const body = { ...ff, q_ids: picked.map((q) => q.id), status: publish ? 'published' : 'draft' };
+          delete body.node_ids;   // 范围只用来抽题，不存进试卷
+          const r = await api('/api/admin/bank/papers', { method: 'POST', silent: true, body });
+          return r;
         };
-        previewEl.querySelector('#ppSaveDraft').onclick = () => save(false);
-        previewEl.querySelector('#ppSavePub').onclick = () => save(true);
+        previewEl.querySelector('#ppSaveDraft').onclick = async () => { if (await save(false)) { toast('草稿已保存', 'ok'); picked = []; render(); } };
+        previewEl.querySelector('#ppSavePub').onclick = async () => { if (await save(true)) { toast('试卷已下发到学生端（所有符合年级的学生）', 'ok'); picked = []; render(); } };
+        // 先存成草稿，再选学生下发；取消选学生时试卷留在草稿里
+        previewEl.querySelector('#ppSaveAssign').onclick = async () => {
+          const r = await save(false);
+          if (!r) return;
+          const title = readForm().title;
+          picked = [];
+          ppAssignDialog(r.id, title);
+        };
       };
       document.getElementById('ppGo').onclick = async () => {
         const f = readForm();
@@ -598,40 +721,9 @@ async function viewPaper() {
         const p = await api('/api/admin/bank/papers/' + b.dataset.prev);
         bkPaperPreview(p);
       });
-      document.querySelectorAll('[data-pub]').forEach((b) => b.onclick = async () => {
+      document.querySelectorAll('[data-pub]').forEach((b) => b.onclick = () => {
         const pid = Number(b.dataset.pub);
-        const meta = papers.find((x) => x.id === pid) || {};
-        const students = await api('/api/admin/bank/students-options', { silent: true }).catch(() => []);
-        if (!students.length) return toast('还没有学生账号，先去组织管理 → 学生管理开通', 'err');
-        let assigned = [];
-        try { assigned = (await api(`/api/admin/bank/papers/${pid}/assignees`, { silent: true })).map((r) => r.user_id); } catch (e) { assigned = []; }
-        let kw = '';
-        const paint = (w) => {
-          const shown = students.filter((s) => !kw || (s.name || '').includes(kw) || (s.username || '').includes(kw) || (s.grade || '').includes(kw));
-          w.querySelector('#asList').innerHTML = shown.map((s) => `<label class="mf-pickitem"><input type="checkbox" class="as-uid" value="${s.id}" ${assigned.includes(s.id) ? 'checked' : ''}><span>${esc(s.name || s.username)} <i class="hint">${esc([s.grade, s.stage === 'primary' ? '小学' : s.stage === 'junior' ? '初中' : ''].filter(Boolean).join('·'))}</i></span></label>`).join('') || '<span class="hint">没有匹配的学生</span>';
-        };
-        const countSel = (w) => { w.querySelector('#asCount').textContent = w.querySelectorAll('.as-uid:checked').length; };
-        modal({
-          title: `下发试卷 · ${meta.title || ''}`, wide: true, okText: '确认下发',
-          body: `<div class="row" style="gap:8px;margin-bottom:8px">
-              <input id="asKw" class="inp" placeholder="搜姓名 / 年级" style="flex:1">
-              <span>已选 <b id="asCount">0</b> 人</span>
-              <label class="hint" style="cursor:pointer"><input type="checkbox" id="asAll"> 全选</label></div>
-            <div id="asList" class="mf-pick" style="max-height:340px"></div>
-            <div class="hint" style="margin-top:6px">下发的试卷出现在学生端「试卷 → 我的任务」，只有勾选的学生能看到（可单选 / 多选）。</div>`,
-          onMount: (w) => {
-            paint(w); countSel(w);
-            w.querySelector('#asKw').oninput = (e) => { kw = e.target.value.trim(); paint(w); };
-            w.addEventListener('change', () => countSel(w));
-            w.querySelector('#asAll').onchange = (e) => { w.querySelectorAll('.as-uid').forEach((c) => { c.checked = e.target.checked; }); countSel(w); };
-          },
-          onOk: async (w) => {
-            const ids = [...w.querySelectorAll('.as-uid:checked')].map((c) => Number(c.value));
-            if (!ids.length) { toast('请至少选择一名学生', 'err'); return false; }
-            await api(`/api/admin/bank/papers/${pid}/assign`, { method: 'POST', body: { user_ids: ids } });
-            toast('下发成功，学生端「我的任务」可见', 'ok'); render();
-          },
-        });
+        ppAssignDialog(pid, (papers.find((x) => x.id === pid) || {}).title || '');
       });
       document.querySelectorAll('[data-unpub]').forEach((b) => b.onclick = async () => {
         await api(`/api/admin/bank/papers/${b.dataset.unpub}/publish`, { method: 'POST', body: { publish: 0 } });

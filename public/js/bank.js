@@ -595,7 +595,7 @@ const BK_ICONS = {
 const bkIcon = (name, size = 18) => `<span class="bki" style="width:${size}px;height:${size}px">${BK_ICONS[name] || ''}</span>`;
 
 const BankPages = {
-  /* 学生端「试卷」页：我的任务 / 章节测评 / 学段冲刺 / 试卷库 */
+  /* 学生端「试卷」页：我的任务（老师下发）/ 章节组卷 / 知识点组卷（自己组卷，只在本人名下做题，不能下发给别人）/ 试卷库 */
   async papers(host) {
     host.innerHTML = '<div class="loading-page">加载中…</div>';
     let tasks = [], lib = [];
@@ -627,17 +627,17 @@ const BankPages = {
             <div class="pk-body">${ft.length ? ft.map(taskRow).join('') : '<div class="pk-empty"><span style="font-size:26px">🧾</span>老师还没有下发试卷</div>'}</div>
           </div>
           <div class="pk-box pk-entry" id="pkScan">
-            <div class="pk-h">${bkIcon('points', 16)} 章节测评<span class="pk-sub">按章节单元组卷</span></div>
+            <div class="pk-h">${bkIcon('points', 16)} 章节组卷<span class="pk-sub">按章节单元组卷</span></div>
             <div class="pk-entry-b">
               <p>选择教材单元，系统像雷达一样扫描每个小知识点，各出 1 道题，做完出做题报告。</p>
-              <button class="btn primary">开始测评</button>
+              <button class="btn primary">开始组卷</button>
             </div>
           </div>
           <div class="pk-box pk-entry" id="pkSprint">
-            <div class="pk-h">${bkIcon('fav', 16)} 学段冲刺<span class="pk-sub">按知识点组卷</span></div>
+            <div class="pk-h">${bkIcon('fav', 16)} 知识点组卷<span class="pk-sub">按知识点组卷</span></div>
             <div class="pk-entry-b">
-              <p>选择要冲刺的知识点，系统自动组一份冲刺小卷，做完出学情报告。</p>
-              <button class="btn primary">开始冲刺</button>
+              <p>选择想练的知识点，系统自动组一份小卷，做完出学情报告。</p>
+              <button class="btn primary">开始组卷</button>
             </div>
           </div>
         </div>
@@ -662,7 +662,7 @@ const BankPages = {
     paint();
   },
 
-  /** 章节测评 / 学段冲刺：选范围 → 雷达扫描 → 每个小知识点 1 题 → 做题报告 / 学情报告 */
+  /** 章节组卷 / 知识点组卷：选范围 → 雷达扫描 → 每个小知识点 1 题 → 做题报告 / 学情报告 */
   async scanFlow(kind, subject, host) {
     if (!subject) { toast('先在上方选择一个学科', 'err'); return; }
     let t;
@@ -688,7 +688,7 @@ const BankPages = {
     mask.className = 'mask pk-sel-mask';
     mask.innerHTML = `
       <div class="pk-sel-box">
-        <div class="pk-sel-h"><b>${kind === 'knowledge' ? '学段冲刺' : '章节测评'} · ${esc(subject)}</b><button class="close-x" id="pkSelX">&times;</button></div>
+        <div class="pk-sel-h"><b>${kind === 'knowledge' ? '知识点组卷' : '章节组卷'} · ${esc(subject)}</b><button class="close-x" id="pkSelX">&times;</button></div>
         <div class="pk-sel-tip">勾选${kind === 'knowledge' ? '知识点' : '单元'}（勾大项 = 包含里面所有小项），每个小知识点只出 1 道题</div>
         <div class="pk-tree" id="pkTree">${roots.map((n) => nodeRow(n, 0)).join('')}</div>
         <div class="pk-sel-f">
@@ -747,7 +747,7 @@ const BankPages = {
   /** 雷达扫描动画页：小知识点逐个弹出 → 开始做题 → 做题报告 / 学情报告 */
   showRadar(kind, subject, items, host) {
     if (!items.length) { toast('这个范围里还没有题目', 'err'); return; }
-    const title = kind === 'knowledge' ? `学段冲刺 · ${subject}` : `章节测评 · ${subject}`;
+    const title = kind === 'knowledge' ? `知识点组卷 · ${subject}` : `章节组卷 · ${subject}`;
     const reportName = kind === 'knowledge' ? '学情报告' : '做题报告';
     const mask = document.createElement('div');
     mask.className = 'mask pk-radar-mask';
