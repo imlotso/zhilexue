@@ -13,7 +13,7 @@ const multer = require('multer');
 const crypto = require('crypto');
 
 const LETTERS = 'ABCDEFGHIJ';
-const SRC_LABEL = { photo: '拍照识别', word: 'Word导入', excel: 'Excel导入', skill: '技能包', capture: '网络采集', scan: '手机扫码' };
+const SRC_LABEL = { photo: '拍照识别', word: 'Word导入', excel: 'Excel导入', skill: '技能包', capture: '网络采集', scan: '手机扫码（错题）' };
 const SRC_ORDER = ['photo', 'word', 'excel', 'skill', 'capture', 'scan'];
 const KIND_SRC = { image: 'photo', pdf: 'photo', word: 'word', excel: 'excel', skill: 'skill' };
 const TYPE_CN = { single: '单选', multi: '多选', judge: '判断', fill: '填空', sort: '排序', answer: '解答' };

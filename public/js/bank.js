@@ -952,9 +952,9 @@ const BankPages = {
       m.className = 'mask';
       m.innerHTML = `<div class="qr-box">
         <button class="close-x" id="qrClose" title="关闭">&times;</button>
-        <b class="qr-t">📱 微信扫码上传错题</b>
+        <b class="qr-t">📱 手机扫码上传错题</b>
         <div id="qrCanvas"></div>
-        <p class="qr-tip">手机微信扫码 → 拍照上传纸质错题<br>老师审核通过后自动进入你的错题本</p>
+        <p class="qr-tip">用手机扫一扫 → 拍一张纸质错题的照片<br>AI 会自动识别学科、知识点和题型，题目马上进入你的错题本，老师审核后确认</p>
         <p class="qr-exp ok">✓ 二维码长期有效，可截图保存或打印贴在书桌上</p>
       </div>`;
       document.body.appendChild(m);
@@ -1000,48 +1000,99 @@ const BankPages = {
       });
     };
 
-    // ---- 学科页：清爽白卡（时间强化统计 + 功能入口） ----
+    // ---- 学科页（T9 改版）：概览卡 + 三个时间段强化 + 功能入口 ----
+    const ymdStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return ymdStr(d); };
+
+    /** 导出错题 Word：选范围 → 下载 .docx（可编辑；版式见 src/mistake-docx.js） */
+    const exportWord = () => {
+      const RANGES = [
+        ['unresolved', '全部未掌握的错题', {}],
+        ['d2', '2天内的错题', { from: daysAgo(2) }],
+        ['d7', '3-7天内的错题', { from: daysAgo(7), to: daysAgo(3) }],
+        ['d180', '7-180天内的错题', { from: daysAgo(180), to: daysAgo(8) }],
+        ['resolved', '已掌握的错题', { bucket: 'resolved' }],
+        ['all', '全部错题（含已掌握）', { bucket: 'all' }],
+      ];
+      const m = document.createElement('div');
+      m.className = 'mask';
+      m.innerHTML = `<div class="t9-dlg">
+        <button class="close-x" id="t9xClose" title="关闭">&times;</button>
+        <b class="t9-dlg-t">📄 导出${esc(subject)}错题 Word</b>
+        <p class="t9-dlg-s">生成可编辑的 .docx（Word / WPS 都能打开）：先是「错题练习」，后面是「错题解析」（答案、解析、答题记录），带页码，可以直接打印。</p>
+        <div class="t9-dlg-r">${RANGES.map(([k, t], i) => `<label class="t9-radio"><input type="radio" name="t9r" value="${k}" ${i === 0 ? 'checked' : ''}><span>${t}</span></label>`).join('')}</div>
+        <div class="t9-dlg-f"><button class="btn ghost" id="t9xCancel">取消</button><button class="btn primary" id="t9xGo">下载 Word</button></div>
+      </div>`;
+      document.body.appendChild(m);
+      const close = () => m.remove();
+      m.querySelector('#t9xClose').onclick = close; m.querySelector('#t9xCancel').onclick = close;
+      m.addEventListener('click', (e) => { if (e.target === m) close(); });
+      m.querySelector('#t9xGo').onclick = async () => {
+        const key = (m.querySelector('input[name=t9r]:checked') || {}).value || 'unresolved';
+        const range = RANGES.find((r) => r[0] === key)[2];
+        const qs = new URLSearchParams(Object.assign({ subject }, range));
+        const btn = m.querySelector('#t9xGo'); btn.disabled = true; btn.textContent = '生成中…';
+        try {
+          const res = await fetch('/api/stu/mistakes/export-docx?' + qs.toString(), { headers: { Authorization: 'Bearer ' + Auth.token } });
+          const ct = res.headers.get('content-type') || '';
+          if (ct.includes('json')) { const j = await res.json(); throw new Error(j.msg || '导出失败'); }
+          if (!res.ok) throw new Error('导出失败（' + res.status + '）');
+          const blob = await res.blob();
+          const name = `${(Auth.user && Auth.user.name) || '我'}-${subject}-错题集.docx`;
+          const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+          document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+          toast(`已导出 ${res.headers.get('X-Mistake-Count') || ''} 道错题`, 'ok');
+          close();
+        } catch (e) { toast(e.message || '导出失败', 'err'); btn.disabled = false; btn.textContent = '下载 Word'; }
+      };
+    };
+
     const paintSubject = () => {
       const list = data.list.filter((m) => (m.subject || '其他') === subject);
       const cnt = (b) => list.filter((m) => inBucket(m, b)).length;
       const d2 = cnt('d2'), d7 = cnt('d7'), d180 = cnt('d180');
+      const open = list.filter((m) => !m.resolved).length;
+      const mastered = list.filter((m) => m.resolved).length;
       const his = list.filter((m) => m.resolved || ageDays(m) > 180).length;
       const due = data.review.due || 0;
+      const pct = list.length ? Math.round(mastered / list.length * 100) : 0;
       host.innerHTML = `
-        ${due ? `<button class="bk-review-strip" id="bkReview"><i class="ai ai-flash"></i> 今日待复习 <b>${due}</b> 题，点击开始复习</button>` : ''}
-        <div class="bk2-buckets">
-          <button class="bk2-bucket c-red" id="bkD2" ${d2 ? '' : 'disabled'}>
-            <em>${d2}</em><span>2天内错题</span><i>${d2 ? '去强化 ›' : '暂无'}</i>
-          </button>
-          <button class="bk2-bucket c-orange" id="bkD7" ${d7 ? '' : 'disabled'}>
-            <em>${d7}</em><span>3-7天内错题</span><i>${d7 ? '去强化 ›' : '暂无'}</i>
-          </button>
-          <button class="bk2-bucket c-blue" id="bkD180" ${d180 ? '' : 'disabled'}>
-            <em>${d180}</em><span>7-180天内错题</span><i>${d180 ? '去强化 ›' : '暂无'}</i>
-          </button>
-        </div>
-        <div class="bk2-funcs">
-          <button class="bk2-func" id="bkPts">
-            <span class="bkf-ic i-purple">${bkIcon('points', 21)}</span>
-            <span class="bkf-m"><b>薄弱知识点<em class="bkf-ai">AI</em></b><span>AI 自动识别错题考点，归类强化</span></span>
-            <i class="bkf-arrow">›</i>
-          </button>
-          <button class="bk2-func" id="bkHis">
-            <span class="bkf-ic i-blue">${bkIcon('history', 21)}</span>
-            <span class="bkf-m"><b>历史错题</b><span>${his ? `${his} 题 · 已掌握或超期` : '暂无历史错题'}</span></span>
-            <i class="bkf-arrow">›</i>
-          </button>
-          <button class="bk2-func" id="bkFav" disabled>
-            <span class="bkf-ic i-amber">${bkIcon('fav', 21)}</span>
-            <span class="bkf-m"><b>收藏夹</b><span>敬请期待</span></span>
-          </button>
-          <button class="bk2-func" id="bkUps">
-            <span class="bkf-ic i-pink">${bkIcon('upload', 21)}</span>
-            <span class="bkf-m"><b>上传的错题</b><span>自己拍照上传的题</span></span>
-            <i class="bkf-arrow">›</i>
-          </button>
-        </div>
-        <button class="bk-up-fab" id="bkUpBtn">📷 拍照上传错题</button>`;
+        <div class="t9-root">
+          <section class="t9-hero t9-${SUBJ_META[subject] ? SUBJ_META[subject].cls : 'smath'}">
+            <div class="t9-hero-l">
+              <span class="t9-hero-k">${esc(subject)}错题本</span>
+              <div class="t9-hero-n"><em>${open}</em><span>道待攻克</span></div>
+              <div class="t9-hero-bar" title="已掌握 ${mastered} / 共 ${list.length} 题"><i style="width:${pct}%"></i></div>
+              <span class="t9-hero-s">已掌握 ${mastered} 题 · 累计 ${list.length} 题${due ? ` · 今天有 <b>${due}</b> 题到期复习` : ''}</span>
+            </div>
+            <div class="t9-hero-acts">
+              ${due ? '<button class="t9-btn t9-btn-main" id="bkReview"><i class="ai ai-flash"></i> 开始今日复习</button>' : ''}
+              <button class="t9-btn" id="bkUpBtn">📱 手机扫码上传</button>
+              <button class="t9-btn" id="bkDocx">📄 导出 Word</button>
+            </div>
+          </section>
+          <div class="t9-sec">按时间强化</div>
+          <div class="t9-buckets">
+            <button class="t9-bucket c-red" id="bkD2" ${d2 ? '' : 'disabled'}><em>${d2}</em><span>2天内错题</span><i>${d2 ? '去强化 ›' : '暂无'}</i></button>
+            <button class="t9-bucket c-orange" id="bkD7" ${d7 ? '' : 'disabled'}><em>${d7}</em><span>3-7天内错题</span><i>${d7 ? '去强化 ›' : '暂无'}</i></button>
+            <button class="t9-bucket c-blue" id="bkD180" ${d180 ? '' : 'disabled'}><em>${d180}</em><span>7-180天内错题</span><i>${d180 ? '去强化 ›' : '暂无'}</i></button>
+          </div>
+          <div class="t9-sec">更多</div>
+          <div class="t9-funcs">
+            <button class="t9-func" id="bkPts">
+              <span class="t9-func-ic i-purple">${bkIcon('points', 22)}</span>
+              <span class="t9-func-m"><b>薄弱知识点<em class="t9-ai">AI</em></b><span>AI 识别错题考点，同类归在一起强化</span></span><i>›</i>
+            </button>
+            <button class="t9-func" id="bkHis">
+              <span class="t9-func-ic i-blue">${bkIcon('history', 22)}</span>
+              <span class="t9-func-m"><b>历史错题</b><span>${his ? `${his} 题 · 已掌握或超期` : '暂无历史错题'}</span></span><i>›</i>
+            </button>
+            <button class="t9-func" id="bkUps">
+              <span class="t9-func-ic i-pink">${bkIcon('upload', 22)}</span>
+              <span class="t9-func-m"><b>上传的错题</b><span>手机扫码上传的纸质错题和审核进度</span></span><i>›</i>
+            </button>
+          </div>
+        </div>`;
       bindTabs();
       const rb = host.querySelector('#bkReview');
       if (rb) rb.onclick = startReview;
@@ -1052,6 +1103,7 @@ const BankPages = {
       host.querySelector('#bkHis').onclick = () => { sub = 'history'; paint(); };
       host.querySelector('#bkUps').onclick = () => { sub = 'uploads'; paint(); };
       host.querySelector('#bkUpBtn').onclick = showQR;
+      host.querySelector('#bkDocx').onclick = exportWord;
     };
 
     // ---- 学科子页：薄弱知识点（AI 归类）/ 历史错题 / 上传的错题 ----
@@ -1121,7 +1173,7 @@ const BankPages = {
             ${u.status === 'approved' ? '<div class="bu-ok">✓ 老师已确认这道题，继续保持！</div>'
               : u.status === 'rejected' ? `<div class="bu-no">这道题被老师移出了错题本${u.review_note ? '：' + esc(u.review_note) : ''}</div>`
               : '<div class="bu-wait">✓ 已自动进入你的错题本，老师审核中（如题目不合适会被移出）</div>'}
-          </div>`).join('')}</div>` : '<div class="empty">还没有上传过错题，点下方「拍照上传错题」试试</div>');
+          </div>`).join('')}</div>` : '<div class="empty">还没有上传过错题，点上方「手机扫码上传」试试</div>');
         bindImageZoom(host);
         bindTabs();
         host.querySelector('#bkBack').onclick = () => { sub = ''; paint(); };

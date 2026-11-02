@@ -9,6 +9,24 @@ function accRateHTML(a) {
   return `<span class="t6-acc ${cls}">${a.rate}%</span><span class="t6-acc-n">已做 ${a.answered} / ${a.total} 题 · 答对 ${a.correct}</span>`;
 }
 
+/** 导出某个学生的错题 Word（T9）：带登录票据下载，再触发浏览器保存 */
+async function accDownloadMistakes(stu, subject, bucket, btn) {
+  const qs = new URLSearchParams({ user_id: stu.id, bucket: bucket || 'unresolved' });
+  if (subject) qs.set('subject', subject);
+  const old = btn.textContent; btn.disabled = true; btn.textContent = '生成中…';
+  try {
+    const res = await fetch('/api/admin/bank/mistakes/export-docx?' + qs.toString(), { headers: { Authorization: 'Bearer ' + Auth.token } });
+    if ((res.headers.get('content-type') || '').includes('json')) { const j = await res.json(); throw new Error(j.msg || '导出失败'); }
+    if (!res.ok) throw new Error('导出失败（' + res.status + '）');
+    const blob = await res.blob();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `${stu.name || stu.username}-${subject || '全部科目'}-错题集.docx`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast('已导出 ' + (res.headers.get('X-Mistake-Count') || '') + ' 道错题', 'ok');
+  } catch (e) { toast(e.message || '导出失败', 'err'); }
+  btn.disabled = false; btn.textContent = old;
+}
+
 async function viewAcc() {
   const st = ADM.page.acc = ADM.page.acc || { uid: 0, kw: '', open: {} };
   const html = `
@@ -33,8 +51,16 @@ async function viewAcc() {
         let d;
         try { d = await api('/api/admin/bank/accuracy?user_id=' + uid); } catch (e) { out.innerHTML = `<div class="empty">${esc(e.message || '加载失败')}</div>`; return; }
         const s = d.student;
-        const head = `<div class="card-h"><h3>${esc(s.name || s.username)} <small style="font-weight:400;color:#6b7280">${esc([s.grade, s.term].filter(Boolean).join(' '))} · ${esc(s.username)}</small></h3><div>${accRateHTML(d.acc)}</div></div>`;
-        if (!d.courses.length) { out.innerHTML = head + '<div class="empty">还没有给任何视频绑定习题（课文习题里绑定后这里才有数据）</div>'; return; }
+        const head = `<div class="card-h"><h3>${esc(s.name || s.username)} <small style="font-weight:400;color:#6b7280">${esc([s.grade, s.term].filter(Boolean).join(' '))} · ${esc(s.username)}</small></h3>
+          <div style="display:flex;align-items:center;gap:8px">${accRateHTML(d.acc)}
+            <select id="acc-msubj" class="input" style="width:96px"><option value="">全部科目</option>${['数学', '英语', '物理', '化学'].map((x) => `<option>${x}</option>`).join('')}</select>
+            <select id="acc-mbucket" class="input" style="width:120px"><option value="unresolved">未掌握</option><option value="all">全部（含已掌握）</option><option value="resolved">已掌握</option></select>
+            <button class="btn ghost sm" id="acc-mdocx" style="width:auto">📄 导出错题 Word</button></div></div>`;
+        const bindDocx = () => {
+          const btn = document.getElementById('acc-mdocx'); if (!btn) return;
+          btn.onclick = () => accDownloadMistakes(s, document.getElementById('acc-msubj').value, document.getElementById('acc-mbucket').value, btn);
+        };
+        if (!d.courses.length) { out.innerHTML = head + '<div class="empty">还没有给任何视频绑定习题（课文习题里绑定后这里才有数据）</div>'; bindDocx(); return; }
         out.innerHTML = head + d.courses.map((c) => `
           <div class="t6-acc-course">
             <div class="t6-acc-ch"><b>${esc(c.name)}</b><span>${esc([c.subject, c.grade, c.term].filter(Boolean).join(' · '))}</span>${accRateHTML(c.acc)}</div>
@@ -44,6 +70,7 @@ async function viewAcc() {
                 ${g.videos.map((v) => `<div class="t6-acc-v"><span class="t6-acc-vn">${esc(v.title)}</span>${accRateHTML(v.acc)}</div>`).join('')}
               </div>`).join('')}
           </div>`).join('');
+        bindDocx();
       };
       const search = async () => {
         st.kw = document.getElementById('acc-kw').value.trim();
