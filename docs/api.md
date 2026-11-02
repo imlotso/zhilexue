@@ -56,7 +56,7 @@
 | 资源 | 接口 |
 |---|---|
 | 题目 | `GET/POST /questions`；`PUT/DELETE /questions/:id`；`POST /questions/batch-delete`；`POST /questions/import`；`GET /questions/template`；`POST /ai-attri`（AI 打标） |
-| 知识点树（kb） | `GET /kbtree`；`POST /kbtree/unit`；`DELETE /kbtree/unit/:id`；`POST /kbtree/point`；`DELETE /kbtree/point/:id`；`POST /kbtree/generate`（AI 生成）；`GET /points` |
+| 知识点树（旧接口，T4 起读写 `bank_trees` 的知识点树，见 `src/kbtree.js`） | `GET /kbtree`（返回 `{edition, list:[{id,name,points:[{id,name}]}], points:[知识点名]}`，`id` 为树节点 id；旧表有数据且尚未复制时先复制）；`POST /kbtree/unit`；`DELETE /kbtree/unit/:id`；`POST /kbtree/point`（`unit_id` 为单元节点 id）；`DELETE /kbtree/point/:id`；`POST /kbtree/generate`（AI 拆解，**合并**进树：只新增、不删除已有节点；响应带 `created`）；`GET /points`（题库里出现过的知识点文本 ∪ 知识点树叶子节点名，仍是字符串数组） |
 | 组卷 | `GET/POST /papers`；`GET/PUT/DELETE /papers/:id`；`POST /papers/:id/publish`；`POST /papers/:id/assign`；`GET /papers/:id/assignees`；`POST /papers/auto` |
 | 课文习题 | `GET /chapters`；`GET /chapters/:id/lessons`；`GET /videos/:id/questions`；`POST /videos/:id/bind`；`POST /videos/:id/import-docx` |
 | 反馈 | `GET /feedback`；`PUT /feedback/:id` |
@@ -72,7 +72,7 @@
 
 | 资源 | 接口 |
 |---|---|
-| 目录树 | `GET/POST /trees`；`PUT/DELETE /trees/:id`；`GET/POST /trees/:id/nodes`；`PUT/DELETE /nodes/:id`；`GET/POST /questions/:id/nodes` |
+| 目录树 | `GET/POST /trees`；`PUT/DELETE /trees/:id`；`GET/POST /trees/:id/nodes`；`PUT/DELETE /nodes/:id`；`POST /nodes/:id/move`（body `{dir:'up'|'down'}`，同级内上移/下移一位，服务端先把同级顺序规范成 0..n-1 再对调；T4 新增）；`GET/POST /questions/:id/nodes` |
 | 题目 | `GET/POST /questions`；`GET/PUT/DELETE /questions/:id`；`POST /questions/batch`；`GET /tags`；`GET /questions-export`；`POST /ai-clean` |
 | 采集 | `POST /capture/parse`；`GET /capture/token`；`GET /capture/bookmarklet`；`POST /capture/fetch`；`POST /capture/auto`；`POST/GET /capture/batches`；`GET/DELETE /capture/batches/:id`；`DELETE /capture/batches/:id/q/:idx`；`POST /capture/batches/:id/commit`；`POST /api/mfcap/push` |
 | 试卷文件夹 | `GET/POST /paper-folders`；`PUT/DELETE /paper-folders/:id` |

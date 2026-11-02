@@ -49,6 +49,8 @@ jobs:
         if: ${{ !cancelled() }}   # smoke 失败时也要跑出结果，不能被跳过
       - run: node wrong-test.js
         if: ${{ !cancelled() }}   # smoke 失败时也要跑出结果，不能被跳过
+      - run: node kbtree-test.js
+        if: ${{ !cancelled() }}   # 知识树统一（T4）：需要启动时种子树，所以放在服务启动之后
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4

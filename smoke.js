@@ -422,6 +422,47 @@ const fileForm = (fields, fileName, content) => {
   const deny = await req('/api/admin/stats', { token: ST });
   log(deny.code === 403, '学生访问管理接口被拒绝', 'code=' + deny.code);
 
+  // ---------- 知识树统一（T4）：节点上移/下移；旧 /kbtree 接口读写同一棵新树；/points 含知识点树 ----------
+  console.log('【知识树】');
+  const MF = '/api/admin/bank/mf', BK = '/api/admin/bank';
+  const kt = await req(MF + '/trees', { method: 'POST', token: AT, body: { name: 'T4自测树' + uniq, kind: 'knowledge', subject: '物理', stage: 'primary' } });
+  const ktId = kt.data && kt.data.id;
+  const mkNode = async (name) => (await req(MF + `/trees/${ktId}/nodes`, { method: 'POST', token: AT, body: { name } })).data.id;
+  const [nA, nB, nC] = [await mkNode('甲'), await mkNode('乙'), await mkNode('丙')];   // 三个同级节点 sort 都是 0
+  const order = async () => ((await req(MF + `/trees/${ktId}/nodes`, { token: AT })).data.list || []).filter((n) => !n.parent_id).sort((a, b) => a.sort - b.sort || a.id - b.id).map((n) => n.name).join('');
+  log((await order()) === '甲乙丙', '知识树：新建树并加 3 个同级节点', await order());
+  const mvUp = await req(MF + `/nodes/${nC}/move`, { method: 'POST', token: AT, body: { dir: 'up' } });
+  log(mvUp.code === 0 && (await order()) === '甲丙乙', '节点上移一位（同级 sort 相同也能排序）', await order());
+  await req(MF + `/nodes/${nA}/move`, { method: 'POST', token: AT, body: { dir: 'down' } });
+  log((await order()) === '丙甲乙', '节点下移一位', await order());
+  const mvTop = await req(MF + `/nodes/${nC}/move`, { method: 'POST', token: AT, body: { dir: 'up' } });
+  log(mvTop.code === 0 && /最前/.test(mvTop.msg) && (await order()) === '丙甲乙', '已在最前面再上移：不报错、顺序不变', mvTop.msg);
+  const mvBad = await req(MF + `/nodes/${nB}/move`, { method: 'POST', token: AT, body: { dir: 'left' } });
+  const mvNone = await req(MF + '/nodes/99999999/move', { method: 'POST', token: AT, body: { dir: 'up' } });
+  log(mvBad.code !== 0 && mvNone.code !== 0, '上移/下移：方向不对或节点不存在被拒绝', `${mvBad.msg} / ${mvNone.msg}`);
+  await req(MF + `/trees/${ktId}`, { method: 'DELETE', token: AT });
+
+  // 旧 /kbtree 接口现在读写知识点树（bank_trees）：从旧接口加的单元，在新树里能看到，反之亦然
+  const kuAdd = await req(BK + '/kbtree/unit', { method: 'POST', token: AT, body: { subject: '物理', stage: 'primary', grade: 'T4自测年级', name: 'T4自测单元' + uniq } });
+  const kuId = kuAdd.data && kuAdd.data.id;
+  const kpAdd = await req(BK + '/kbtree/point', { method: 'POST', token: AT, body: { unit_id: kuId, name: 'T4自测知识点' + uniq } });
+  const kRead = await req(BK + '/kbtree?subject=' + encodeURIComponent('物理') + '&stage=primary&grade=' + encodeURIComponent('T4自测年级'), { token: AT });
+  const kUnit = ((kRead.data || {}).list || []).find((u) => u.id === kuId);
+  log(kuAdd.code === 0 && kpAdd.code === 0 && !!kUnit && kUnit.points.some((p) => p.name === 'T4自测知识点' + uniq),
+    '旧 /kbtree 接口：加单元 + 知识点后读回，结构不变', kUnit ? kUnit.name + ' / ' + kUnit.points.map((p) => p.name).join(',') : JSON.stringify(kRead).slice(0, 80));
+  const kTrees = ((await req(MF + '/trees?kind=knowledge', { token: AT })).data || {}).list || [];
+  const kTree = kTrees.find((t) => t.subject === '物理' && t.stage === 'primary');
+  const kNodes = kTree ? ((await req(MF + `/trees/${kTree.id}/nodes`, { token: AT })).data || {}).list || [] : [];
+  log(!!kTree && kNodes.some((n) => n.id === kuId) && kNodes.some((n) => n.name === '教材单元知识点' && !n.parent_id),
+    '旧接口写入的内容落在知识点树的「教材单元知识点」分支里（统一编辑源）', kTree ? 'tree#' + kTree.id + '，节点 ' + kNodes.length : '没有找到树');
+  log(((kRead.data || {}).points || []).includes('T4自测知识点' + uniq), '旧 /kbtree 返回的 points 清单含该知识点（录题 AI 补全用）');
+  const ptsAll = await req(BK + '/points?subject=' + encodeURIComponent('物理'), { token: AT });
+  log(Array.isArray(ptsAll.data) && ptsAll.data.includes('T4自测知识点' + uniq), '/points 下拉含知识点树里的知识点（返回仍是字符串数组）');
+  await req(BK + '/kbtree/unit/' + kuId, { method: 'DELETE', token: AT });
+  const kRead2 = await req(BK + '/kbtree?subject=' + encodeURIComponent('物理') + '&stage=primary&grade=' + encodeURIComponent('T4自测年级'), { token: AT });
+  log(!((kRead2.data || {}).list || []).some((u) => u.id === kuId), '旧接口删单元：连同知识点一起删除');
+  if (kTree) await req(MF + `/trees/${kTree.id}`, { method: 'DELETE', token: AT });
+
   // 清理
   await req('/api/admin/students/' + stuId, { method: 'DELETE', token: AT });
   if (sUpId) await req('/api/admin/students/' + sUpId, { method: 'DELETE', token: AT });

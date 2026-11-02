@@ -328,7 +328,7 @@ async function viewBank() {
       });
       document.getElementById('bkf-kw').onkeydown = (e) => { if (e.key === 'Enter') go(); };
       document.getElementById('bkAdd').onclick = () => bkQuestionForm(null);
-      document.getElementById('bkKTree').onclick = () => bkKTreeForm();
+      document.getElementById('bkKTree').onclick = () => { location.hash = '#/ktree'; };   // T4：旧弹窗已并入「知识树管理」页
       document.getElementById('bkTpl').onclick = async () => {
         /* 该接口需要登录票据，window.open 带不上 Authorization，改用 fetch 取流下载 */
         try {
@@ -416,80 +416,6 @@ function bkBindForm(questionIds) {
       }
       toast(unbind ? '已解绑' : '已绑定到知识点', 'ok');
       render();
-    },
-  });
-}
-
-/** 知识点树管理：数/英/物/化 · 小学/初中 · 年级 → 单元 → 知识点（AI 一键拆解 + 手动维护） */
-function bkKTreeForm() {
-  const st = { subject: '数学', stage: 'primary', grade: '三年级' };
-  const GRADES_PRIM = ['三年级', '四年级', '五年级', '六年级'];
-  const GRADES_JUN = ['七年级', '八年级', '九年级'];
-  const gradeList = () => (st.stage === 'primary' ? GRADES_PRIM : GRADES_JUN);
-  modal({
-    title: '教材知识点树',
-    wide: true,
-    body: `
-      <div class="bk-form-row" style="align-items:center">
-        <div class="field"><label>学段</label><select id="kt-stage"><option value="primary">小学</option><option value="junior">初中</option></select></div>
-        <div class="field"><label>学科</label><select id="kt-subject">${SUBJECTS.map((s) => `<option>${s}</option>`).join('')}</select></div>
-        <div class="field"><label>年级</label><select id="kt-grade"></select></div>
-        <div class="field" style="flex:1"><label>教材版本</label><input id="kt-edition" disabled></div>
-        <button class="btn primary sm" id="ktGen" style="align-self:flex-end">${ic('flash')} AI 拆解本册知识点</button>
-      </div>
-      <div class="w-tip" style="margin:0 0 10px">「AI 拆解」按江苏教材版本生成整棵树并<b>覆盖</b>当前 学段+学科+年级 的内容；也可以在下面手动增删。题目录入时「AI 归属建议」会参照这棵树。</div>
-      <div id="ktBody" style="max-height:52vh;overflow:auto"></div>`,
-    onMount: (w) => {
-      const body = w.querySelector('#ktBody');
-      const gSel = w.querySelector('#kt-grade');
-      const fillGrades = () => { gSel.innerHTML = gradeList().map((g) => `<option>${g}</option>`).join(''); st.grade = gSel.value; };
-      w.querySelector('#kt-stage').onchange = () => { st.stage = w.querySelector('#kt-stage').value; fillGrades(); paint(); };
-      w.querySelector('#kt-subject').onchange = () => { st.subject = w.querySelector('#kt-subject').value; paint(); };
-      gSel.onchange = () => { st.grade = gSel.value; paint(); };
-      const paint = async () => {
-        w.querySelector('#kt-edition').value = '加载中…';
-        const d = await api(`/api/admin/bank/kbtree?subject=${encodeURIComponent(st.subject)}&stage=${st.stage}&grade=${encodeURIComponent(st.grade)}`, { silent: true }).catch(() => null);
-        w.querySelector('#kt-edition').value = (d && d.edition) || '—';
-        const list = (d && d.list) || [];
-        body.innerHTML = list.length ? list.map((u) => `
-          <div class="kt-unit" style="border:1px solid #e6ebf2;border-radius:10px;padding:10px 12px;margin-bottom:8px">
-            <div style="display:flex;align-items:center;gap:8px">
-              <b style="flex:1">${esc(u.name)}</b>
-              <input class="input kt-add-pt" data-u="${u.id}" placeholder="加知识点，回车确认" style="width:200px;height:30px;font-size:12px">
-              <button class="link-btn danger" data-del-u="${u.id}">删单元</button>
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
-              ${(u.points || []).map((p) => `<span class="tag blue" style="display:inline-flex;align-items:center;gap:4px">${esc(p.name)}<i class="link-btn danger" style="padding:0" data-del-p="${p.id}">×</i></span>`).join('') || '<span style="color:#c0c9d8;font-size:12px">还没有知识点</span>'}
-            </div>
-          </div>`).join('') : '<div class="empty">这个组合下还没有知识点树，点右上「AI 拆解本册知识点」生成</div>';
-        body.querySelectorAll('.kt-add-pt').forEach((inp) => inp.onkeydown = async (e) => {
-          if (e.key !== 'Enter' || !inp.value.trim()) return;
-          await api('/api/admin/bank/kbtree/point', { method: 'POST', silent: true, body: { unit_id: Number(inp.dataset.u), name: inp.value.trim() } });
-          paint();
-        });
-        body.querySelectorAll('[data-del-p]').forEach((x) => x.onclick = async () => {
-          await api('/api/admin/bank/kbtree/point/' + x.dataset.delP, { method: 'DELETE', silent: true });
-          paint();
-        });
-        body.querySelectorAll('[data-del-u]').forEach((x) => x.onclick = async () => {
-          await api('/api/admin/bank/kbtree/unit/' + x.dataset.delU, { method: 'DELETE', silent: true });
-          paint();
-        });
-        if (window.mtxTypeset) mtxTypeset(body);
-      };
-      fillGrades();
-      w.querySelector('#ktGen').onclick = async () => {
-        if (!(await elConfirm({ title: 'AI 拆解知识点', message: `按江苏教材（${st.subject} · ${st.stage === 'primary' ? '小学' : '初中'} · ${st.grade}）用 AI 生成整棵知识点树，并覆盖现有内容。继续？`, okText: '开始拆解' }))) return;
-        const btn = w.querySelector('#ktGen');
-        btn.disabled = true; btn.textContent = 'AI 拆解中…（约十几秒）';
-        try {
-          await api('/api/admin/bank/kbtree/generate', { method: 'POST', body: { subject: st.subject, stage: st.stage, grade: st.grade } });
-          toast('知识点树已生成', 'ok');
-        } catch (e) { /* api 已提示 */ }
-        btn.disabled = false; btn.innerHTML = `${ic('flash')} AI 拆解本册知识点`;
-        paint();
-      };
-      paint();
     },
   });
 }

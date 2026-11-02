@@ -10,7 +10,7 @@
 | 课程内容 | `chapters`、`sections`、`handouts`、`videos`、`guides`（表保留，接口与前端已不存在，不要再依赖） | 课程目录、分级小节、讲义与习题（`kind`=handout/exercise，`video_id` 关联知识点）、视频、使用说明 |
 | 学习记录 | `records`、`practices`、`mistakes`、`progress` | 学习/练习记录、错题、知识点学习进度 |
 | 旧版题库 | `questions` | 题目主表（新旧题库共用） |
-| 智能题库 | `papers`、`paper_tries`、`paper_assignments`、`bank_feedback`、`kb_units`、`kb_points`、`paper_uploads` | 组卷（`status`=draft/published）、作答记录、下发、题目反馈、教材知识点树（kb）、纸质错题上传池（`status`=pending/reviewed/approved/rejected） |
+| 智能题库 | `papers`、`paper_tries`、`paper_assignments`、`bank_feedback`、`kb_units`、`kb_points`、`paper_uploads` | 组卷（`status`=draft/published）、作答记录、下发、题目反馈、教材知识点树（kb；**T4 起冻结，只读不写**，内容复制进 `bank_trees` 的知识点树，见下）、纸质错题上传池（`status`=pending/reviewed/approved/rejected） |
 | 魔方题库（2026-10-29 并入） | `bank_trees`、`bank_tree_nodes`、`question_nodes`、`question_tags`、`mf_paper_folders`、`mf_papers`、`mf_paper_questions`、`mf_paper_tries`、`mf_capture_batches`、`mf_recog_runs` | 目录树（`bank_trees.kind`=textbook 教材目录 / knowledge 知识点树）、题目与树节点多挂、标签、试卷文件夹、试卷（`status`=basket/composing/done/archived/trashed）、卷内行（`kind`=question/text）、采集批次、录题批次 |
 | 错题重组 | `wrong_batches`、`wrong_items`、`wrong_sets` | 一次扫描=一个批次；切出的题目图；勾选生成的错题集 PDF |
 | 单词训练 | `word_books`、`words`、`word_sentences`、`word_phrases`、`phrase_sentences`、`word_pos`、`word_records`、`word_group_done` | 词书、词、例句、短语、AI 例句缓存、词性、作答记录、分组完成同步 |
@@ -23,3 +23,10 @@
 - 只加不删：不删表、不删列、不改列类型。
 - 需要迁移数据时写幂等脚本放 `scripts/`，先在测试库预演。
 - 加表或加列后，在本文件对应分组补一行。
+
+## 知识树约定（T4，没有加表/加列）
+
+- 知识树只在 `bank_trees` / `bank_tree_nodes` 里编辑（`kind`=textbook 章节树 / knowledge 知识点树，**每个 学段+学科 每种 kind 一棵**，题库管理页按这个假设取第一棵）。题目与节点多对多：`question_nodes`。
+- `kb_units` / `kb_points`（旧教材知识点树）保留表，不再写入。`src/kbtree.js` 把它们**复制**进该 学科+学段 已有的知识点树，作为一个一级分支：`教材单元知识点` → 年级（空则"不分年级"）→ 单元 → 知识点；该 学科+学段 没有知识点树时新建一棵（`source` 形如 `kbtree:物理:primary`）。同父同名不重复建，只增不删。
+- 旧表 `questions.point` 仍是知识点**名称文本**，和树节点是两套关联；按节点关联用 `question_nodes`。
+- 迁移：`node scripts/migrate-kb-to-trees.js [--dry-run]`（先测试库预演）；旧接口 `/kbtree*` 首次用到、旧表有数据且尚未复制时会自动复制该 学科+学段。

@@ -542,7 +542,7 @@ async function mfIntakeWork(runId) {
     ]);
     cats = {
       chapters: (chs.list || chs || []),
-      points: ((kb.list || []).flatMap((u) => (u.points || []).map((p) => p.name))),
+      points: (kb.points && kb.points.length) ? kb.points : ((kb.list || []).flatMap((u) => (u.points || []).map((p) => p.name))),   // T4：来自知识点树
     };
   } catch (e) { /* 分类清单拉不到也不影响录题 */ }
 

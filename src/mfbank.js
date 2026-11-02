@@ -173,6 +173,25 @@ admin.put('/nodes/:id', (req, res) => {
   return ok(res, null, '已保存');
 });
 
+/** 同级内上移 / 下移一位。种子数据里同级 sort 常是同一个值，所以先把同级顺序规范成 0..n-1 再对调 */
+admin.post('/nodes/:id/move', (req, res) => {
+  const id = int(req.params.id);
+  const dir = String((req.body || {}).dir || '');
+  if (dir !== 'up' && dir !== 'down') return fail(res, 'dir 应为 up 或 down');
+  const n = db.prepare('SELECT * FROM bank_tree_nodes WHERE id=?').get(id);
+  if (!n) return fail(res, '节点不存在');
+  const sibs = (n.parent_id == null
+    ? db.prepare('SELECT id FROM bank_tree_nodes WHERE tree_id=? AND parent_id IS NULL ORDER BY sort, id').all(n.tree_id)
+    : db.prepare('SELECT id FROM bank_tree_nodes WHERE tree_id=? AND parent_id=? ORDER BY sort, id').all(n.tree_id, n.parent_id)).map((r) => r.id);
+  const i = sibs.indexOf(id);
+  const j = dir === 'up' ? i - 1 : i + 1;
+  if (j < 0 || j >= sibs.length) return ok(res, null, dir === 'up' ? '已经在最前面了' : '已经在最后面了');
+  [sibs[i], sibs[j]] = [sibs[j], sibs[i]];
+  const up = db.prepare('UPDATE bank_tree_nodes SET sort=? WHERE id=?');
+  sibs.forEach((nid, k) => up.run(k, nid));
+  return ok(res, null, '已移动');
+});
+
 admin.delete('/nodes/:id', (req, res) => {
   const id = int(req.params.id);
   const n = db.prepare('SELECT * FROM bank_tree_nodes WHERE id=?').get(id);
@@ -1570,13 +1589,8 @@ admin.post('/intake/runs/:id/aifill', async (req, res) => {
   const stage = String(run.stage || '');
   const grade = String(run.grade || '');
   const chapters = db.prepare("SELECT id,name,grade,term,category FROM chapters WHERE subject=? AND (IFNULL(stage,'')='' OR stage=?) ORDER BY sort,id").all(subject, stage);
-  const unitRows = grade
-    ? db.prepare('SELECT id,name FROM kb_units WHERE subject=? AND stage=? AND grade=? ORDER BY sort,id').all(subject, stage, grade)
-    : db.prepare('SELECT id,name FROM kb_units WHERE subject=? AND stage=? ORDER BY sort,id').all(subject, stage);
-  const pts = unitRows.length
-    ? db.prepare(`SELECT name FROM kb_points WHERE unit_id IN (${unitRows.map(() => '?').join(',')})`).all(...unitRows.map((u) => u.id))
-    : [];
-  const pointList = [...new Set(pts.map((p) => String(p.name).trim()).filter(Boolean))].slice(0, 200);
+  // 知识点清单：知识点树（bank_trees）里的全部知识点名（T4：与题库管理、组卷共用同一棵树）
+  const pointList = require('./kbtree').pointNames(db, { subject, stage, grade }).slice(0, 200);
 
   const sys = '你是中小学录题助手。对给定的每道题输出 JSON，要求：\n' +
     '1) answer/analysis：仅当题目标注 needAnswer=true / needAnalysis=true 时才作答——answer 给正确答案（填空多空用 ||| 分隔），analysis 给简洁解析；不缺的给空字符串，绝不改写已有内容。\n' +
