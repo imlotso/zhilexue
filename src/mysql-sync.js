@@ -47,6 +47,8 @@ function openMysql(config) {
   const signal = new Int32Array(sab);
   const { port1, port2 } = new MessageChannel();
   const worker = new Worker(path.join(__dirname, 'mysql-worker.js'), { workerData: { sab } });
+  // 不让查询线程阻止进程退出：seed / 测试等一次性脚本跑完要能自动结束（查询都是主线程同步等待的，服务进程由 HTTP 监听保持存活）
+  worker.unref();
   let seq = 0;
   let ready = false;
   let workerError = null;
