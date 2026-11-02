@@ -46,3 +46,20 @@
 
 - 决定：`*-test.js`、`smoke.js`、`seed-words.js` 不移动。
 - 理由：它们依赖根目录相对路径，移动要改多个文件，收益很小。
+
+## D10 CI 里服务进程固定用本地存储（2026-11-02）
+
+- 决定：`.github/workflows/ci.yml` 的 "Start server" 步骤设 `STORAGE_DRIVER=local`。
+- 理由：`src/storage.js` 默认驱动是 `oss`，且 `builtin-config.js` 内置线上桶密钥，不设置的话 CI 里 smoke / word-test 的上传用例会写生产 OSS；同时 smoke 中"播放地址自带登录票据""在线预览走 inline 头"等用例本来就按本地存储的 `/api/file?token=…` 编写。
+- 影响：CI 不再覆盖 OSS 驱动的真实上传；OSS / 七牛逻辑仍由 `storage-test.js`（用假密钥、不联网）覆盖。
+
+## D11 smoke 的部署包检查在仓库缺文件时跳过（2026-11-02）
+
+- 决定：`smoke.js` 部署物料自检中，依赖 `../deploy/`、`*.bat`、收尾清单的 28 项在 `../deploy/` 不存在时汇总成一行"跳过"；仓库自身可检查的 6 项改读仓库根并照常断言。
+- 理由：这些文件只在服务器部署包里，不在本仓库（`docs/cleanup-list.md`）；按任务书要求"不存在则跳过"，但不删除任何用例，原布局下行为不变。
+
+## D12 AI 演示模式用环境变量 AI_MOCK=1 开启（2026-11-02）
+
+- 决定：`src/ai.js` 的 `getConfig().mock` 读取 `process.env.AI_MOCK === '1'`，默认 false；CI 的服务进程设 `AI_MOCK=1`。
+- 理由：`ai.js` 把 mock 写死 false 后，`word-test` 的"演示模式"用例实际调真实 AI（内置 Key），CI 连不上、本地产生费用。用环境变量而不是恢复后台设置项，是为了不与"AI 配置只读 builtin-config.js"的现状冲突，T2 统一 AI 配置时可再调整。
+- 影响：线上不设该变量，行为不变。
