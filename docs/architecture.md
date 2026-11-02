@@ -50,10 +50,11 @@ zhilexue/
 | `accuracy.js` | 习题正确率（T6）：按视频 / 小分组 / 课程聚合某学生的作答（`records` + `questions.video_id`，每题取最近一次），不新增表；被 `app.js` 的 `course-detail`、`bank.js` 的 `submit` 返回和后台 `/accuracy` 共用 |
 | `compose.js` | 组卷核心（T5）：范围（学科/学段/年级/难度/知识点文字 + 章节树/知识点树节点含后代）→ 候选题；`pickByCounts`（管理端按题型数量）、`pickPerNode`（学生端每个最小知识点 1 题）、`poolCounts`（范围内题量）；被 `bank.js` 的 `/papers/auto`、`/papers/pool`、学生端 `/scan-compose` 共用 |
 | `bank.js` | 智能题库：题目、知识点树（kb）、组卷下发、课文习题绑定、学生错题、扫码上传池 |
-| `mfbank.js` / `mfcollect.js` / `mfseed.js` / `mfzip.js` | 「魔方题库」（与 2026-10-29 并入）：目录树、标签、采集批次、录题 intake、试卷管理、AI 配置 profiles、技能包导入 |
+| `mfbank.js` / `mfcollect.js`（含 AI 配置中心档案接口）/ `mfseed.js` / `mfzip.js` | 「魔方题库」（与 2026-10-29 并入）：目录树、标签、采集批次、录题 intake、试卷管理、AI 配置 profiles、技能包导入 |
 | `bank-excel.js` / `excel.js` / `bank-judge.js` / `docxtext.js` / `tableparse.js` | Excel/Word 导入解析与判分 |
 | `wrong.js` / `scanify.js` / `pdfimg.js` | 错题重组：拍照切题、生成错题集 PDF |
-| `ai.js` / `report.js` / `reports.js` | AI 调用（OpenAI 兼容）与 AI 学情报告；学情统计 |
+| `ai-client.js` | AI 客户端（T2）：全站唯一发请求给大模型的地方；按档案的 `format` 走 OpenAI 兼容 / Anthropic Messages / Gemini 三种协议，选档案（角色 → 回落 → 内置配置），图片按各协议的内容块格式送，错误翻译成中文原因；被 `ai.js`、`mfcollect.js` 调用 |
+| `ai.js` / `report.js` / `reports.js` | AI 业务封装（学情报告、整页识别、错题变式、通用对话，都转给 `ai-client.js`）与 AI 学情报告；学情统计 |
 | `word.js` / `phonics.js` / `win-speak.js` / `pos-*.js` | 单词训练、语音基础、TTS 发音、词性词库 |
 | `seed.js` / `config.local.js` / `builtin-config.js` | 初始化数据；MySQL 连接信息；内置配置 |
 

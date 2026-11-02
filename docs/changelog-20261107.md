@@ -212,3 +212,38 @@
 - 问答题不判分（D19）。
 - 公式输入（T8）、听力（T7）尚未做；固定输入框已经给 T8 的公式键盘留好位置（问答框不弹数字键盘）。
 - 学生端手机真机上输入框观感未走查（见待人工确认）。
+
+## T2 AI 配置中心统一（2026-11-02）
+
+### 改动前：AI 调用点清单（任务书步骤 1，grep `aiFetch` / `/chat/completions` / `getConfig` / `mfAiInvoke` 得到）
+| 文件 | 调用点（接口 / 函数） | 改动前怎么取配置、怎么发请求 | 改动后 |
+|---|---|---|---|
+| `ai.js` | `analyzePaper`（学情报告，`report.js` 调用）、`segmentPage` / `analyzeWrongQuestion`（错题重组，`wrong.js` 调用）、通用 `chat`、`testConnection` | `getConfig()` 实际只读 `builtin-config.js`（后台表单存的 `settings` 早已不被读取）；`aiFetch` 只支持 https 的 `${base}/chat/completions` | 配置读启用的档案；请求走 `ai-client.js` |
+| `report.js` | `GET/PUT /config`；学情报告生成 `ai.analyzePaper` | 同上 | `GET` 只读，`PUT` 停用 |
+| `wrong.js` | `analyze`（`ai.analyzeWrongQuestion`）、`segment`（`ai.segmentPage`） | 同上 | 同上 |
+| `bank.js` | `POST /ai-attri`（题目知识点归属）、`POST /kbtree/generate`（AI 拆解教材知识点）、学生端 `POST /ai-explain`（AI 老师分步讲解）、`GET /mistake-points`（错题知识点归纳）、`aiRecognizeUpload`（手机扫码上传的视觉识别） | `ai.chat` / `ai.visionChat`，同上 | 同上（`aiRecognizeUpload` 的有无配置判断改读视觉角色） |
+| `mfbank.js` | `POST /ai-clean`、`/intake/runs/:id/structure`、`/word`、`/aifill`、`visionCall`（整页识别 / OCR）、`POST /ext/ai-attrib`、`aiExtractQuestions` | 先找 `mfAiInvoke`（五角色档案，仅 OpenAI 兼容），找不到回落 `ai.chat` / `ai.visionChat`（内置配置） | 全部走 `ai-client.js`，档案优先、回落规则见 D20 |
+| `mfcollect.js` | `mfAiInvoke`（AI 网关）、`POST /ai-suggest`（批量打标 / 挂树建议）、档案的 `test` / `quick` / `models` | 自己一份 `httpReq` 发 `${base}/chat/completions` | 转 `ai-client.js`；`httpReq` 删除 |
+| `word.js` | 例句 / 短语 AI（`aiRows`、`/phrase-examples`、`/phrase-examples-all`、`genPhraseSentence`、`/phrase-sentence`、`aiStructure`） | `ai.getConfig()` 判断有无密钥 + `ai.chat` | 同上（有无配置按档案判断） |
+| `app.js` | 学生端 `sentStructsHandler`（`/sent-structs`，句子结构 AI） | `ai.chat` | 同上 |
+
+### 改了什么
+- **`src/ai-client.js`（新）**：`chat({ role, messages | system+user, images, json, maxTokens, temperature })` → `{ text, model, via, format }`。三种格式：**OpenAI 兼容**（`/chat/completions`，Bearer）、**Anthropic Messages**（`/v1/messages`，`x-api-key` + `anthropic-version`，`max_tokens` 必填自动补，图片用 `image` 内容块）、**Gemini**（`/v1beta/models/{模型}:generateContent`，`x-goog-api-key`，图片用 `inline_data`，密钥不拼进 URL）。同时支持 http / https（以前只有 https，本机模拟服务也能测）。错误翻译成中文：密钥错 / 地址或模型错 / 连不上 / 域名不存在 / 返回的不是 JSON / 内容为空。
+- **档案加 `format` 列**（默认 `openai`，旧数据不受影响）；后台档案表单新增"格式"下拉（换格式时地址提示跟着变）、表单内"测试连接"（不用先保存）、"获取模型列表"按格式走各自的列表接口。
+- **配置统一**：`ai.js` 的 `getConfig()` 读"当前启用的档案"；后台「设置」页改名「AI 配置中心」，新增"当前生效"和"测试当前配置"；旧的顶栏 AI 配置弹窗改为跳转到这里（`openAiConfig()`）；`PUT /api/admin/ai/config`、`PUT /api/admin/report/config` 停用。
+- 补全 `docs/api.md` 里 `/api/admin/ai` 的路由说明。
+
+### 怎么验证
+- `node aiclient-test.js`：55 项，全程只访问本机起的三个模拟服务，不调真实 AI。
+  - A. 三种格式的请求逐项核对：路径、鉴权头、系统提示位置、图片内容块、`max_tokens` / `temperature`、JSON 模式、多轮 `messages`。
+  - B. 错误提示：401 / 404 / 返回网页 / 空内容 / 端口拒绝连接 / 域名不存在 / 地址不是 http(s) / 没填密钥 / 没填模型名；模型列表（OpenAI 与 Gemini）。
+  - C. 后台接口：新增（选格式）、非法格式被拒、没测通不能启用、**测试连接对错误地址给出带地址的明确报错**（已保存的档案和未保存的表单两条路径）、学生 token 不能访问。
+  - D. 配一个模拟接口并启用后，**学情报告 / AI 补全 / 拍照识别整页识别三处都走到它**；切换到 Anthropic 档案后三处同时切过去（旧档案收到 0 次请求）；视觉角色另配 Gemini 后看图的两处走 Gemini、文字补全仍走 Anthropic；全部停用回落内置；`AI_MOCK=1` 仍优先。
+- 浏览器：AI 配置中心页（当前生效、分组）、新建档案表单换格式时提示变化、错误地址测试报"拒绝连接"、模拟地址测试连通、保存后库里 `format=anthropic`，无页面报错。
+- 回归：smoke 146、word 60、wrong 44（均在 `AI_MOCK=1` 下），其余测试不受影响；`aiclient-test.js` 加入 CI。
+
+### 遗留 / 没做
+- 没有真实密钥，三种格式只用模拟服务验证（见待人工确认）。
+- 没做流式输出；向量角色只支持 OpenAI 兼容格式。
+- `builtin-config.js` 仍作为没有档案时的最后回落（D20）。
+

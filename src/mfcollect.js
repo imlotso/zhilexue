@@ -32,6 +32,7 @@ const now = () => {
 const ok = (res, data = null, msg = 'ok') => res.json({ code: 0, msg, data });
 const fail = (res, msg = '操作失败', code = 1) => res.json({ code, msg });
 const int = (v, d = 0) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : d; };
+const aiClient = require('./ai-client');
 const jstr = (v) => { try { return JSON.stringify(v == null ? [] : v); } catch (e) { return '[]'; } };
 
 // ==================================================================== 建表（幂等）
@@ -72,9 +73,12 @@ function ensureSchema() {
     'CREATE INDEX IF NOT EXISTS idx_mfprof_role ON mf_model_profiles(role)',
     'CREATE INDEX IF NOT EXISTS idx_mfdict_kind ON mf_dict_entries(kind, code)',
   ];
+  // T2：档案增加 format 列（openai / anthropic / gemini），旧数据默认 openai；幂等加列，只加不删
+  stmts.push("ALTER TABLE mf_model_profiles ADD COLUMN format VARCHAR(16) DEFAULT 'openai'");
   stmts.forEach((s) => {
     try { db.exec(s); } catch (e) {
       if (e && (e.code === 'ER_DUP_KEYNAME' || e.errno === 1061)) return; // 索引已存在
+      if (e && (e.code === 'ER_DUP_FIELDNAME' || e.errno === 1060 || /duplicate column/i.test(String(e.message)))) return; // 列已存在
       console.error('[mfcollect] 建表失败:', s.slice(0, 60).replace(/\s+/g, ' '), '→', e.message);
     }
   });
@@ -198,6 +202,7 @@ const QUICK_PRESETS = [
 function rowToProfile(r) {
   return {
     id: r.id, role: r.role, role_name: ROLE_NAME[r.role] || r.role, name: r.name, provider: r.provider,
+    format: aiClient.normFormat(r.format), format_name: aiClient.FORMAT_NAMES[aiClient.normFormat(r.format)],
     base_url: r.base_url, model: r.model, capability: r.capability || '',
     is_enabled: !!r.is_enabled, has_key: !!r.api_key,
     last_test_at: r.last_test_at, last_test_ok: r.last_test_ok == null ? null : !!r.last_test_ok,
@@ -212,6 +217,7 @@ admin.get('/profiles', (req, res) => {
     list,
     roles: MODEL_ROLES,
     presets: QUICK_PRESETS,
+    formats: aiClient.FORMATS.map((f) => ({ key: f, name: aiClient.FORMAT_NAMES[f], hint: aiClient.FORMAT_HINTS[f] })),
     enabled_count: enabled.size,
     total: list.length,
   });
@@ -222,6 +228,8 @@ function validateProfile(b) {
   if (!String(b.name || '').trim()) return '档案名称不能为空';
   if (!String(b.base_url || '').trim()) return '接口地址不能为空';
   if (!String(b.model || '').trim()) return '模型名不能为空';
+  if (b.format !== undefined && !aiClient.FORMATS.includes(String(b.format))) return '格式不合法（只支持 openai / anthropic / gemini）';
+  if (!/^https?:\/\//i.test(String(b.base_url).trim())) return '接口地址要以 http:// 或 https:// 开头';
   return null;
 }
 
@@ -230,10 +238,10 @@ admin.post('/profiles', (req, res) => {
   const err = validateProfile(b);
   if (err) return fail(res, err);
   const info = db.prepare(`INSERT INTO mf_model_profiles
-    (role, name, provider, base_url, model, api_key, capability, is_enabled, created_at, updated_at)
-    VALUES (?,?,?,?,?,?,?,0,?,?)`)
+    (role, name, provider, base_url, model, api_key, capability, format, is_enabled, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,0,?,?)`)
     .run(b.role, String(b.name).trim(), String(b.provider || '').trim(), String(b.base_url).trim().replace(/\/+$/, ''),
-      String(b.model).trim(), String(b.api_key || '').trim(), String(b.capability || ''), now(), now());
+      String(b.model).trim(), String(b.api_key || '').trim(), String(b.capability || ''), aiClient.normFormat(b.format), now(), now());
   return ok(res, { id: info.lastInsertRowid }, '档案已创建（先测连通再启用）');
 });
 
@@ -249,37 +257,42 @@ admin.put('/profiles/:id', (req, res) => {
   const key = b.api_key !== undefined ? String(b.api_key).trim() : p.api_key; // 传空串=不改？显式 null 清除
   const keyVal = b.api_key === null ? '' : key;
   if (!name || !base || !model) return fail(res, '名称 / 接口地址 / 模型名不能为空');
+  if (b.format !== undefined && !aiClient.FORMATS.includes(String(b.format))) return fail(res, '格式不合法（只支持 openai / anthropic / gemini）');
+  const format = b.format !== undefined ? aiClient.normFormat(b.format) : aiClient.normFormat(p.format);
   const cap = b.capability !== undefined ? String(b.capability).trim() : (p.capability || '');
-  db.prepare('UPDATE mf_model_profiles SET name=?, base_url=?, model=?, provider=?, api_key=?, capability=?, updated_at=? WHERE id=?')
-    .run(name, base, model, provider, keyVal, cap, now(), id);
-  // 改了地址/模型/密钥后测通状态失效，需重测再启用；只改名称/供应商/图片标记则保留
-  if (base !== p.base_url || model !== p.model || keyVal !== p.api_key) {
+  db.prepare('UPDATE mf_model_profiles SET name=?, base_url=?, model=?, provider=?, api_key=?, capability=?, format=?, updated_at=? WHERE id=?')
+    .run(name, base, model, provider, keyVal, cap, format, now(), id);
+  // 改了地址/模型/密钥/格式后测通状态失效，需重测再启用；只改名称/供应商/图片标记则保留
+  if (base !== p.base_url || model !== p.model || keyVal !== p.api_key || format !== aiClient.normFormat(p.format)) {
     db.prepare('UPDATE mf_model_profiles SET last_test_ok=0 WHERE id=?').run(id);
   }
   return ok(res, null, '已保存');
 });
 
-/** 拉取平台模型列表（OpenAI 兼容 GET /models） */
+/** 拉取平台模型列表（按格式走各自的列表接口） */
 admin.post('/profiles/models', async (req, res) => {
   const b = req.body || {};
-  const base = String(b.base_url || '').trim().replace(/\/+$/, '');
-  if (!/^https?:\/\//i.test(base)) return fail(res, '接口地址不合法（要以 http(s):// 开头，一般填到 /v1）');
   try {
-    const r = await httpReq(base + '/models', {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${String(b.api_key || '').trim()}` },
-      timeoutMs: 20000,
-    });
-    const txt = await r.text();
-    if (r.status !== 200) throw new Error(`接口返回 ${r.status}${txt ? '：' + txt.slice(0, 140) : ''}`);
-    let j;
-    try { j = JSON.parse(txt); } catch (e) { throw new Error('返回的不是 JSON——检查接口地址是否填到 /v1 为止'); }
-    const ids = (Array.isArray(j.data) ? j.data : (Array.isArray(j.models) ? j.models : []))
-      .map((m) => (typeof m === 'string' ? m : (m.id || m.name || '')))
-      .filter(Boolean).sort();
+    const ids = await aiClient.listModels({ format: b.format, base_url: b.base_url, api_key: b.api_key });
     return ok(res, { models: ids }, `拉到 ${ids.length} 个模型`);
   } catch (e) {
     return fail(res, '获取模型列表失败：' + e.message);
+  }
+});
+
+/** 测试一份还没保存的配置（"新增配置 → 填完 → 测试连接"，不落库） */
+admin.post('/profiles/test-draft', async (req, res) => {
+  const b = req.body || {};
+  if (b.format !== undefined && !aiClient.FORMATS.includes(String(b.format))) return fail(res, '格式不合法（只支持 openai / anthropic / gemini）');
+  if (!/^https?:\/\//i.test(String(b.base_url || '').trim())) return fail(res, '接口地址要以 http:// 或 https:// 开头');
+  // 编辑已有档案时密钥留空 = 沿用库里的密钥
+  let key = String(b.api_key || '').trim();
+  if (!key && b.id) { const p = db.prepare('SELECT api_key FROM mf_model_profiles WHERE id=?').get(int(b.id)); key = p ? String(p.api_key || '') : ''; }
+  try {
+    const r = await aiClient.testProfile({ role: b.role, format: b.format, base_url: b.base_url, model: b.model, api_key: key, name: b.name });
+    return ok(res, { ms: r.ms }, `连接成功：${r.snippet || 'OK'}`);
+  } catch (e) {
+    return fail(res, '测试失败：' + e.message);
   }
 });
 
@@ -288,55 +301,17 @@ admin.delete('/profiles/:id', (req, res) => {
   return ok(res, null, '档案已删除');
 });
 
-/** 最小 https/http 客户端（复用 ai.js 思路，支持 http） */
-function httpReq(url, { method = 'GET', headers = {}, body = null, timeoutMs = 60000 } = {}) {
-  return new Promise((resolve, reject) => {
-    let u;
-    try { u = new URL(url); } catch (e) { return reject(new Error('URL 无效')); }
-    const lib = u.protocol === 'http:' ? http : https;
-    const req = lib.request(u, { method, headers, timeout: timeoutMs }, (r) => {
-      const chunks = [];
-      r.on('data', (c) => chunks.push(c));
-      r.on('end', () => {
-        const buf = Buffer.concat(chunks);
-        resolve({ status: r.statusCode, text: async () => buf.toString('utf8'), json: async () => JSON.parse(buf.toString('utf8')) });
-      });
-    });
-    req.on('timeout', () => req.destroy(Object.assign(new Error('timeout'), { name: 'AbortError' })));
-    req.on('error', reject);
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
 admin.post('/profiles/:id/test', async (req, res) => {
   const id = int(req.params.id);
   const p = db.prepare('SELECT * FROM mf_model_profiles WHERE id=?').get(id);
   if (!p) return fail(res, '档案不存在');
-  const t0 = Date.now();
   try {
-    const isEmbed = p.role === 'embedding';
-    const url = p.base_url.replace(/\/+$/, '') + (isEmbed ? '/embeddings' : '/chat/completions');
-    const body = isEmbed
-      ? { model: p.model, input: '连通性测试' }
-      : { model: p.model, messages: [{ role: 'user', content: '只回复两个字：可用' }], max_tokens: 20, temperature: 0 };
-    const r = await httpReq(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.api_key}` },
-      body: JSON.stringify(body),
-      timeoutMs: 45000,
-    });
-    if (r.status !== 200) {
-      const t = await r.text().catch(() => '');
-      throw new Error(`接口返回 ${r.status}${t ? '：' + t.slice(0, 160) : ''}`);
-    }
-    const j = await r.json();
-    const snippet = isEmbed ? '向量返回正常' : String(j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || '').slice(0, 40);
+    const r = await aiClient.testProfile(p);
     db.prepare('UPDATE mf_model_profiles SET last_test_at=?, last_test_ok=1 WHERE id=?').run(now(), id);
-    return ok(res, { ms: Date.now() - t0 }, `连接成功：${snippet || 'OK'}`);
+    return ok(res, { ms: r.ms }, `连接成功：${r.snippet || 'OK'}`);
   } catch (e) {
     db.prepare('UPDATE mf_model_profiles SET last_test_at=?, last_test_ok=0 WHERE id=?').run(now(), id);
-    return fail(res, '测试失败：' + (e.message === 'timeout' ? '请求超时' : e.message));
+    return fail(res, '测试失败：' + e.message);
   }
 });
 
@@ -359,19 +334,15 @@ admin.post('/profiles/quick', async (req, res) => {
   const base = String(b.base_url || '').trim().replace(/\/+$/, '');
   const model = String(b.model || '').trim();
   const key = String(b.api_key || '').trim();
+  const format = aiClient.normFormat(b.format);
   if (!base || !model || !key) return fail(res, '接口地址 / 模型名 / API Key 都要填');
   const info = db.prepare(`INSERT INTO mf_model_profiles
-    (role, name, provider, base_url, model, api_key, is_enabled, created_at, updated_at)
-    VALUES (?,?,?,?,?,?,0,?,?)`)
-    .run(role, `${ROLE_NAME[role]}·快捷`, 'quick', base, model, key, now(), now());
+    (role, name, provider, base_url, model, api_key, format, is_enabled, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,0,?,?)`)
+    .run(role, `${ROLE_NAME[role]}·快捷`, 'quick', base, model, key, format, now(), now());
   const id = info.lastInsertRowid;
-  // 直接测连通
   try {
-    const isEmbed = role === 'embedding';
-    const url = base + (isEmbed ? '/embeddings' : '/chat/completions');
-    const body = isEmbed ? { model, input: '连通性测试' } : { model, messages: [{ role: 'user', content: '只回复两个字：可用' }], max_tokens: 20, temperature: 0 };
-    const r = await httpReq(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` }, body: JSON.stringify(body), timeoutMs: 45000 });
-    if (r.status !== 200) throw new Error('接口返回 ' + r.status);
+    await aiClient.testProfile({ role, format, base_url: base, model, api_key: key });
     db.prepare('UPDATE mf_model_profiles SET last_test_at=?, last_test_ok=1 WHERE id=?').run(now(), id);
     db.prepare('UPDATE mf_model_profiles SET is_enabled=0 WHERE role=?').run(role);
     db.prepare('UPDATE mf_model_profiles SET is_enabled=1 WHERE id=?').run(id);
@@ -383,51 +354,20 @@ admin.post('/profiles/quick', async (req, res) => {
 });
 
 // ==================================================================== AI 网关
-const PROTOCOL_OPENAI_CHAT = 'openai-chat';
 
 /**
- * 按角色调用模型。优先用启用的五角色档案；该角色没配置时回落内置 AI 配置（ai.js）。
- * 入参：{ role, system, user, images:[base64或dataurl], maxTokens, temperature }
+ * 按角色调用模型（所有走"档案"的 AI 能力的统一入口，转给 ai-client.js）。
+ * 优先用该角色启用的档案；没有就按回落顺序用别的已启用档案；都没有才用内置配置（ai-client 内部处理）。
+ * 入参：{ role, system, user, images:[base64 | dataURL | {buf,mime}], maxTokens, temperature, json }
  */
-async function mfAiInvoke({ role, system, user, images = [], maxTokens = 1200, temperature = 0.3 }) {
-  const p = db.prepare('SELECT * FROM mf_model_profiles WHERE role=? AND is_enabled=1 ORDER BY id LIMIT 1').get(role);
-  if (p) {
-    if (p.protocol && p.protocol !== PROTOCOL_OPENAI_CHAT) {
-      throw new Error(`${ROLE_NAME[p.role]} 档案用了非 ${PROTOCOL_OPENAI_CHAT} 协议，调用未实装`);
-    }
-    let content = String(user || '');
-    if (images && images.length) {
-      content = [{ type: 'text', text: String(user || '') }].concat(images.map((im) => ({
-        type: 'image_url',
-        image_url: { url: im.startsWith('data:') ? im : `data:image/jpeg;base64,${im}` },
-      })));
-    }
-    const r = await httpReq(p.base_url.replace(/\/+$/, '') + '/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.api_key}` },
-      body: JSON.stringify({
-        model: p.model,
-        messages: [...(system ? [{ role: 'system', content: String(system) }] : []), { role: 'user', content }],
-        temperature,
-        max_tokens: maxTokens,
-      }),
-      timeoutMs: 180000,
-    });
-    if (r.status !== 200) {
-      const t = await r.text().catch(() => '');
-      throw new Error(`${ROLE_NAME[role] || role} 接口返回 ${r.status}${t ? '：' + t.slice(0, 160) : ''}`);
-    }
-    const j = await r.json();
-    return { text: String(j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || ''), model: p.model, via: p.name };
-  }
-  // 回落内置 AI 配置（视觉任务走 visionChat，文本走 chat）
+async function mfAiInvoke({ role, system, user, images = [], maxTokens = 1200, temperature = 0.3, json = false }) {
   const aiLib = require('./ai');
   if (images && images.length) {
-    const r = await aiLib.visionChat({ system, user: String(user || ''), images, maxTokens, temperature });
-    return { text: r.text != null ? r.text : String(r), model: '内置视觉模型', via: 'builtin' };
+    const r = await aiLib.visionChat({ role: role || 'vision', system, user: String(user || ''), images, maxTokens, temperature, timeoutMs: 180000 });
+    return { text: r.text, model: r.model, via: r.via };
   }
-  const r = await aiLib.chat({ system, user, maxTokens, temperature });
-  return { text: r.text, model: r.model, via: 'builtin' };
+  const r = await aiLib.chat({ role: role || 'reasoning', system, user, maxTokens, temperature, json, timeoutMs: 180000 });
+  return { text: r.text, model: r.model, via: r.via };
 }
 
 // ==================================================================== AI 建议（批量打标 / 挂树建议，AI 只建议、人来确认）

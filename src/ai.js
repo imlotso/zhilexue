@@ -1,15 +1,12 @@
 'use strict';
 /**
- * AI 能力层：OpenAI 兼容的「视觉理解」调用封装（用于 AI 试卷分析测评报告）
+ * AI 能力层：学情报告 / 错题识别 / 通用对话 等"业务封装"。
  *
- * 配置存在 settings 表（key-value），管理端可在「AI 学情报告」页里直接改：
- *   aiBaseUrl  接口地址，填到 /v1 为止（默认阿里百炼 compatible-mode/v1）
- *              例：https://dashscope.aliyuncs.com/compatible-mode/v1
- *                  https://open.bigmodel.cn/api/paas/v4        （智谱 GLM-4V）
- *                  https://ark.cn-beijing.volces.com/api/v3    （火山方舟 doubao-vision）
- *   aiApiKey   API Key（返回给前端时只给「已配置/未配置」状态，不回传明文）
- *   aiModel    视觉模型名（默认 qwen-vl-max；需支持图片输入）
- *   aiMock     1 = 演示模式：不调用外部接口，返回一份固定结构的示例报告（无 Key 也能跑通流程）
+ * T2 之后这里不再自己发请求、也不再自己存配置：
+ *   · 请求统一走 ai-client.js（OpenAI 兼容 / Anthropic / Gemini 三种格式）
+ *   · 配置统一来自后台「设置 → AI 配置中心」里启用的模型档案（mf_model_profiles）；
+ *     一个档案都没启用时，才回落 builtin-config.js 里写死的那份（与改版前一致，线上不会因此断掉）
+ *   · AI_MOCK=1 环境变量仍是"演示模式"：不调外部接口，返回固定示例（自动化测试用）
  *
  * 报告 JSON 结构（渲染端 aireport.js 按此绘制）：
  * {
@@ -23,39 +20,9 @@
  *   wrongDetails: [{ no, subject, stem }]
  * }
  */
-const crypto = require('crypto');
-const https = require('https');
-const { db } = require('./db');
 const express = require('express');
-const BUILTIN = require('./builtin-config');
+const aiClient = require('./ai-client');
 const { toScanJpeg } = require('./scanify');
-
-/** Node16 没有全局 fetch（18+ 才有，2026-10-26 事故：报告全部「无法连接 AI 接口： fetch is not defined」）。
- * 用 https 模块实现一个最小兼容版：返回 { ok, status, text(), json() }，用法与 fetch 对齐；
- * 超时时 reject 一个 name='AbortError' 的错误，保持上层超时文案不变。 */
-function aiFetch(url, { method = 'GET', headers = {}, body = null, timeoutMs = 300000 } = {}) {
-  return new Promise((resolve, reject) => {
-    let u;
-    try { u = new URL(url); } catch (e) { return reject(new Error('AI 接口地址无效')); }
-    const req = https.request(u, { method, headers, timeout: timeoutMs }, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const buf = Buffer.concat(chunks);
-        resolve({
-          ok: res.statusCode >= 200 && res.statusCode < 300,
-          status: res.statusCode,
-          text: async () => buf.toString('utf8'),
-          json: async () => JSON.parse(buf.toString('utf8')),
-        });
-      });
-    });
-    req.on('timeout', () => req.destroy(Object.assign(new Error('timeout'), { name: 'AbortError' })));
-    req.on('error', reject);
-    if (body) req.write(body);
-    req.end();
-  });
-}
 
 const now = () => {
   const d = new Date();
@@ -63,39 +30,22 @@ const now = () => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 };
 
-const DEFAULTS = {
-  aiBaseUrl: BUILTIN.ai.baseUrl,
-  aiModel: BUILTIN.ai.model,
-};
-
-function getSetting(k) {
-  const r = db.prepare('SELECT v FROM settings WHERE k=?').get(k);
-  return r ? r.v : undefined;
-}
-function setSetting(k, v) {
-  db.prepare('INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v').run(k, v == null ? '' : String(v));
-}
-
-/** 读 AI 配置。地址、模型和密钥写在 builtin-config.js，不读后台表单。 */
-function getConfig() {
+/**
+ * 当前生效的 AI 配置（给"有没有配好 AI"的判断和后台展示用，不含密钥）。
+ * role：想用哪类模型（vision / reasoning / light），默认 reasoning；按 ai-client 的回落顺序选档案。
+ */
+function getConfig(role) {
+  const c = aiClient.resolve(role || 'reasoning');
   return {
-    baseUrl: DEFAULTS.aiBaseUrl,
-    model: DEFAULTS.aiModel,
-    hasKey: !!String(BUILTIN.ai.apiKey || '').trim(),
+    baseUrl: c.base,
+    model: c.model,
+    format: c.format,
+    via: c.via,                 // 档案名；'builtin' = 没启用任何档案，用内置配置
+    profileId: c.profileId,
+    hasKey: !!String(c.key || '').trim(),
     // 演示模式：仅由环境变量 AI_MOCK=1 开启（自动化测试用，不调外部接口）；默认关闭，线上行为不变
     mock: process.env.AI_MOCK === '1',
   };
-}
-function aiKey() {
-  return String(BUILTIN.ai.apiKey || '').trim();
-}
-
-/** 保存 AI 配置（apiKey 传空串 / undefined 表示不修改） */
-function saveConfig({ baseUrl, model, apiKey, mock }) {
-  if (baseUrl !== undefined && String(baseUrl).trim()) setSetting('aiBaseUrl', String(baseUrl).trim().replace(/\/+$/, ''));
-  if (model !== undefined && String(model).trim()) setSetting('aiModel', String(model).trim());
-  if (mock !== undefined) setSetting('aiMock', mock ? '1' : '0');
-  if (apiKey !== undefined && String(apiKey).trim()) setSetting('aiApiKey', String(apiKey).trim());
 }
 
 const SYSTEM_PROMPT = `你是一名资深的江苏地区 K12 试卷分析老师，熟悉江苏省教材与考试体系（数学按苏教版、语文按部编版、英语按译林版、物理化学按苏科版/人教版），了解江苏中高考导向与当地校内教学的难度梯度，为家长出具「学情诊断报告」。
@@ -135,52 +85,28 @@ function extractJson(text) {
   return JSON.parse(body.slice(a, b + 1));
 }
 
-/** 底层：一次视觉对话，返回模型输出的文本（analyzePaper / analyzeWrongQuestion 共用） */
-async function visionChat({ system, userText, images = [], timeoutMs = 300000, temperature = 0.2 }) {
-  const cfg = getConfig();
-  if (!cfg.hasKey) throw new Error('还没有写上 AI 密钥');
-
-  const content = [{ type: 'text', text: userText || '请按要求输出。' }];
+/** 底层：一次视觉对话，返回模型输出的文本（analyzePaper / analyzeWrongQuestion 等共用）。
+ * images: [{buf, mime}] 或 data:URL / base64 字符串；userText 与 user 等价（历史上两种写法都有人用） */
+async function visionChat({ system, userText, user, images = [], timeoutMs = 300000, temperature = 0.2, maxTokens, role = 'vision' }) {
+  if (process.env.AI_MOCK === '1') throw new Error('演示模式（AI_MOCK=1）下不调用视觉模型');
+  const imgs = [];
   for (const im of images) {
-    let buf = Buffer.isBuffer(im.buf) ? im.buf : Buffer.from(im.buf);
-    let mime = im.mime || 'image/jpeg';
-    if (!/pdf/i.test(mime)) {
-      try {
-        const scanned = await toScanJpeg(buf);
-        if (scanned && scanned.length) { buf = scanned; mime = 'image/jpeg'; }
-      } catch (e) { /* 扫描化失败就用原图，不挡住分析 */ }
-    }
-    content.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${buf.toString('base64')}` } });
+    if (im && im.buf) {
+      let buf = Buffer.isBuffer(im.buf) ? im.buf : Buffer.from(im.buf);
+      let mime = im.mime || 'image/jpeg';
+      if (!/pdf/i.test(mime)) {
+        try {
+          const scanned = await toScanJpeg(buf);
+          if (scanned && scanned.length) { buf = scanned; mime = 'image/jpeg'; }
+        } catch (e) { /* 扫描化失败就用原图，不挡住分析 */ }
+      }
+      imgs.push({ buf, mime });
+    } else imgs.push(im);
   }
-
-  let res;
-  try {
-    res = await aiFetch(`${cfg.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${aiKey()}` },
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [
-          ...(system ? [{ role: 'system', content: String(system) }] : []),
-          { role: 'user', content },
-        ],
-        temperature,
-      }),
-      timeoutMs,
-    });
-  } catch (e) {
-    throw new Error(e.name === 'AbortError'
-      ? `AI 分析超时（${Math.round(timeoutMs / 1000)} 秒），请减少题目数量后重试`
-      : '无法连接 AI 接口：' + e.message);
-  }
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`AI 接口返回 ${res.status}${t ? '：' + t.slice(0, 200) : ''}`);
-  }
-  const data = await res.json();
-  const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-  if (!text) throw new Error('AI 返回内容为空');
-  return { text: String(text), model: cfg.model };
+  const r = await aiClient.chat({
+    role, system, user: userText || user || '请按要求输出。', images: imgs, timeoutMs, temperature, maxTokens,
+  });
+  return { text: r.text, model: r.model, via: r.via, format: r.format };
 }
 
 /** OpenAI 兼容的视觉对话。images: [{buf, mime}]；返回解析后的 JSON 对象 */
@@ -433,61 +359,37 @@ async function analyzeWrongQuestion({ buf, mime, hint }) {
   return { info: normalizeWrongAnalysis(extractJson(text)), model };
 }
 
-/** 通用文本对话（非视觉）：给其他 AI 能力复用（AI 配置一次，全站共用） */
-async function chat({ system, user, maxTokens = 800, temperature = 0.3 }) {
-  const cfg = getConfig();
+/** 通用文本对话（非视觉）：给其他 AI 能力复用（AI 配置一次，全站共用）。role 默认 reasoning */
+async function chat({ system, user, maxTokens = 800, temperature = 0.3, role = 'reasoning', json = false, timeoutMs = 120000 }) {
+  const cfg = getConfig(role);
   if (cfg.mock) return { text: '（演示模式）这是一段示例回复，配置 API Key 后即调用真实模型。', model: 'mock（演示模式）' };
-  if (!cfg.hasKey) throw new Error('还没有写上 AI 密钥');
-  let res;
-  try {
-    res = await aiFetch(`${cfg.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${aiKey()}` },
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [
-          ...(system ? [{ role: 'system', content: String(system) }] : []),
-          { role: 'user', content: String(user || '') },
-        ],
-        temperature,
-        max_tokens: maxTokens,
-      }),
-      timeoutMs: 120000,
-    });
-  } catch (e) {
-    throw new Error(e.name === 'AbortError' ? 'AI 请求超时' : '无法连接 AI 接口：' + e.message);
-  }
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`AI 接口返回 ${res.status}${t ? '：' + t.slice(0, 200) : ''}`);
-  }
-  const data = await res.json();
-  const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-  return { text: String(text || ''), model: cfg.model };
+  const r = await aiClient.chat({ role, system, user: String(user || ''), maxTokens, temperature, json, timeoutMs });
+  return { text: r.text, model: r.model, via: r.via, format: r.format };
 }
 
-/** 连通性自检：改动配置后点一下「测试」，不用等真的跑一份报告 */
+/** 连通性自检：测的是"现在生效的配置"（启用的档案，或内置配置） */
 async function testConnection() {
   const cfg = getConfig();
   if (cfg.mock) return { ok: true, mode: 'mock', message: '演示模式已开启：不会调用外部接口，流程可正常走通。' };
-  if (!cfg.hasKey) throw new Error('还没有填写 API Key');
+  if (!cfg.hasKey) throw new Error('还没有可用的 AI 配置：请到「设置 → AI 配置中心」新增并启用一个档案');
   const t0 = Date.now();
   const { text, model } = await chat({ user: '只回复两个字：可用', maxTokens: 20, temperature: 0 });
-  return { ok: true, mode: 'live', model, ms: Date.now() - t0, message: `连接成功（${model}）${text ? '：' + text.slice(0, 40) : ''}` };
+  return { ok: true, mode: 'live', model, ms: Date.now() - t0, message: `连接成功（${cfg.via} · ${model}）${text ? '：' + text.slice(0, 40) : ''}` };
 }
 
-/* ---------------- 后台统一 AI 配置接口（挂在 /api/admin/ai） ---------------- */
+/* ---------------- 后台 AI 接口（挂在 /api/admin/ai） ----------------
+ * 配置本身统一在「设置 → AI 配置中心」（/api/admin/bank/mf/profiles）里维护；这里只留只读查询和"测一下现在生效的配置"。 */
 const router = express.Router();
 const okJson = (res, data = null, msg = 'ok') => res.json({ code: 0, msg, data });
 router.get('/config', (req, res) => okJson(res, getConfig()));
-router.put('/config', (req, res) => { saveConfig(req.body || {}); okJson(res, getConfig(), '已保存'); });
+router.put('/config', (req, res) => res.json({ code: 1, msg: 'AI 配置已统一到「设置 → AI 配置中心」，请在那里新增并启用模型档案' }));
 router.post('/test', async (req, res) => {
   try { okJson(res, await testConnection(), '连接正常'); }
   catch (e) { res.json({ code: 1, msg: String(e.message || e) }); }
 });
 
 module.exports = {
-  getConfig, saveConfig, analyzePaper, normalizeReport, extractJson, mockReport, SYSTEM_PROMPT,
+  getConfig, analyzePaper, normalizeReport, extractJson, mockReport, SYSTEM_PROMPT,
   chat, testConnection, router,
   // 错题重组
   analyzeWrongQuestion, normalizeWrongAnalysis, mockWrongAnalysis, WRONG_SYSTEM_PROMPT, visionChat,

@@ -11,7 +11,7 @@
 | `/api` | `app.js` | 登录、当前用户、改密码、文件代理、TTS |
 | `/api/admin` | `app.js` | 管理端基础接口（分校、学生、目录、视频、讲义、统计、日志） |
 | `/api/stu` | `app.js` | 学生端基础接口 |
-| `/api/admin/ai` | `ai.js` router | AI 配置与调用（待补） |
+| `/api/admin/ai` | `ai.js` router | 只读查询当前生效的 AI 配置、测试当前配置（配置本身在 `/api/admin/bank/mf/ext/profiles`，见下） |
 | `/api/admin/wrong` | `wrong.js` | 错题重组 |
 | `/api/admin/xreport` | `reports.js` | 学情统计（视频、习题） |
 | `/api/admin/report` | `report.js` | AI 学情报告 |
@@ -97,7 +97,11 @@
 ## 采集与 AI 配置（`mfcollect.js`，前缀 `/api/admin/bank/mf/ext`）
 
 - 字典：`GET/POST /dict`；`POST /dict/assign`；`DELETE /dict/:id`
-- AI 配置 profiles：`GET/POST /profiles`；`PUT/DELETE /profiles/:id`；`POST /profiles/models`；`POST /profiles/:id/test`；`POST /profiles/:id/enable`；`POST /profiles/quick`
+- AI 配置中心 profiles（T2，全站唯一的 AI 配置入口）：`GET/POST /profiles`；`PUT/DELETE /profiles/:id`；`POST /profiles/models`；`POST /profiles/test-draft`；`POST /profiles/:id/test`；`POST /profiles/:id/enable`；`POST /profiles/quick`
+  - 档案字段 `format`：`openai`（OpenAI 兼容，默认）/ `anthropic` / `gemini`；`GET /profiles` 另返回 `formats:[{key,name,hint}]`（每种格式的接口地址写法提示）。非法格式、接口地址不是 http(s) 开头会被拒。
+  - `POST /profiles/models` `{format, base_url, api_key}`：按格式走各自的模型列表接口。
+  - `POST /profiles/test-draft` `{role, format, base_url, model, api_key, id?}`：测试一份**还没保存**的配置（新增表单里的"测试连接"），不落库；编辑已有档案时 `api_key` 留空 = 用库里的密钥。错误地址 / 密钥 / 模型会给出明确原因。
+  - `POST /profiles/:id/test`：测已保存档案并记录 `last_test_ok`；`/enable` 要求测通，同角色排他。
 - 其他：`POST /ai-suggest`；`POST /collect-tree`；`GET/PUT /prefs`；`POST /proxy-ticket`；`/api/mfproxy`：`GET /inject.js`、`GET /ck`、`GET|POST /r`；`POST /api/mfcap/tree-push`
 
 ## 错题重组（`wrong.js`，前缀 `/api/admin/wrong`）
@@ -123,4 +127,6 @@
 
 ## AI 配置（`ai.js`）
 
-`/api/admin/ai` 下的具体路由待补。配置存于 `settings` 表（`aiBaseUrl`、`aiModel`、`aiApiKey`），目前只支持 `${baseUrl}/chat/completions`。
+`/api/admin/ai`（`ai.js`）：`GET /config`（当前生效的配置：`baseUrl, model, format, via, profileId, hasKey, mock`，不含密钥）；`POST /test`（测试当前生效的配置）；`PUT /config` **已停用**（返回提示去「设置 → AI 配置中心」）。`/api/admin/report/config` 同理，`GET` 只读、`PUT` 停用。
+
+AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vision` / `reasoning` / `light`）启用的档案 → 按回落顺序用别的已启用档案 → 都没有才用 `builtin-config.js`。`AI_MOCK=1` 环境变量仍优先（演示模式，自动化测试用）。旧的 `settings` 表里的 `aiBaseUrl / aiModel / aiApiKey` 不再被读取（此前就已被 `builtin-config.js` 覆盖，没有行为变化）。
