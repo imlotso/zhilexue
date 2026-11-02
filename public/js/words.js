@@ -2108,7 +2108,7 @@ function wtQuickRead() {
   const w = list[r.i];
   box.innerHTML = `
     ${wtProg(r.i, list.length)}
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">${wtIc('edit')} ${WT_STEPS[0].t.replace('单词', wtNoun())}</div>
       <div class="wq-word big">${esc(w.word)}
         <button class="wq-spk" id="wqSpk" title="读一遍">${wtIc('volume')}</button>
@@ -2143,7 +2143,7 @@ function wtQuickMem() {
   const opts = shuffle(pick(pool, 3).concat([cn]));
   box.innerHTML = `
     ${wtProg(m.i, list.length)}
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">🧠 记忆学习</div>
       <div class="wq-word big" id="wqEn">${esc(w.word)} <button class="wq-spk" id="wqSpk">${wtIc('volume')}</button></div>
       ${w.phonetic ? `<div class="wq-phon">${esc(w.phonetic)}</div>` : ''}
@@ -2314,7 +2314,7 @@ function wtQuickListen() {
 
   box.innerHTML = `
     ${wtProg(g.li, g.lsQueue.length, '第 ' + (g.li + 1) + ' / ' + g.lsQueue.length + ' 词')}
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">${wtIc('sound')} 听音拼选</div>
       ${w.phonetic ? `<div class="wq-phon">${esc(w.phonetic)}</div>` : ''}
       <div class="wq-ls-meanwrap">
@@ -2477,7 +2477,7 @@ function wtPhraseListen() {
 
   box.innerHTML = `
     ${wtProg(g.li, g.lsQueue.length, '第 ' + (g.li + 1) + ' / ' + g.lsQueue.length + ' 条')}
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">${wtIc('sound')} 听音选词</div>
       <div class="wq-ls-meanwrap">
         <button class="wq-ls-meancover" id="wqLsMeanCover">点一下显示释义</button>
@@ -2628,7 +2628,7 @@ function wtQuickSpell() {
   const letters = String(w.word).replace(/[^a-zA-Z]/g, '').length;
   box.innerHTML = `
     ${wtProg(s.i, s.queue.length, `待默写 ${s.queue.length - s.i} 个`)}
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">${q.drill ? (WT_DRILL_REVIEW ? '🎯 SM-2 复习' : '📕 错词重练') : '⌨️ 默写练习'}</div>
       <div class="wq-mean big">${esc(w.meaning || '（没写释义）')}</div>
       <div class="wq-hint">${w.phonetic ? esc(w.phonetic) + ' · ' : ''}${letters} 个字母</div>
@@ -2720,7 +2720,7 @@ function wtCtxItem(w) {
   const wlen = String(w.word).trim().split(/\s+/).filter(Boolean).length;
   box.innerHTML = `
     ${wtProg(s.i, s.queue.length, `待填空 ${s.queue.length - s.i} 条`)}
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">${wtIc('doc')} 语境填空</div>
       <div id="ctxBody"><div class="loading-page">正在生成例句…</div></div>
       <div class="wq-feedback" id="wsFb"></div>
@@ -3012,7 +3012,7 @@ function wtPosLearn() {
   const words = [ch.base].concat(ch.targets.map((t) => t.word));
   box.innerHTML = `
     <div class="wt-prog"><i style="width:${Math.round(p.i / p.list.length * 100)}%"></i><span>第 ${p.i + 1} / ${p.list.length} 条</span></div>
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">📖 背诵学习</div>
       <p class="wq-title">大声跟着读这条词形转换链，每个词都可以点着听</p>
       <div class="pos-chain">${wtPosChainHTML(ch, null)}</div>
@@ -3047,7 +3047,7 @@ function wtPosDict() {
   }
   box.innerHTML = `
     <div class="wt-prog"><i style="width:${Math.round(p.i / p.list.length * 100)}%"></i><span>第 ${p.i + 1} / ${p.list.length} 条 · 第 ${p.ti + 1} / ${ch.targets.length} 空</span></div>
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">✍️ 词形默写</div>
       <p class="wq-title">在括号里的中文提示下，敲出对应的词形变换</p>
       <div class="pos-chain">${wtPosChainHTML(ch, p.ti)}</div>
@@ -3108,7 +3108,7 @@ function wtPosQ() {
   const q = p.list[p.i];
   box.innerHTML = `
     <div class="wt-prog"><i style="width:${Math.round(p.i / p.list.length * 100)}%"></i><span>第 ${p.i + 1} / ${p.list.length} 题</span></div>
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">词性判断</div>
       <p class="wq-title">${q.title}</p>
       <div class="wq-word big">${esc(q.word)} <button class="wq-spk" id="wpSpk">${wtIc('volume')}</button></div>
@@ -3296,7 +3296,7 @@ function renderBuild() {
   const b = WT.build, s = b.list[b.i], box = document.getElementById('wtBuildBox');
   box.innerHTML = `
     <div class="wt-prog"><i style="width:${Math.round(b.i / b.list.length * 100)}%"></i><span>第 ${b.i + 1} / ${b.list.length} 句</span></div>
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">连词成句</div>
       <p class="wq-title">按顺序点击下面的词，拼成完整句子</p>
       ${s.translation ? `<div class="wq-note cn-big">${esc(s.translation)}</div>` : ''}
@@ -3411,7 +3411,7 @@ function renderListenWait(playing) {
   if (!box) return;   // 模块已切走（兜底定时器晚到的场景）
   box.innerHTML = `
     <div class="wt-prog"><i style="width:${Math.round(b.i / b.list.length * 100)}%"></i><span>第 ${b.i + 1} / ${b.list.length} 句</span></div>
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">听音拼句</div>
       <div class="wl-listen${playing ? ' playing' : ''}">
         <div class="wl-ic">${playing ? '🔊' : '🎧'}</div>
@@ -3429,7 +3429,7 @@ function renderListen() {
   const b = WT.listen, s = b.list[b.i], box = document.getElementById('wtListenBox');
   box.innerHTML = `
     <div class="wt-prog"><i style="width:${Math.round(b.i / b.list.length * 100)}%"></i><span>第 ${b.i + 1} / ${b.list.length} 句</span></div>
-    <div class="wt-card center">
+    <div class="wt-card center t13-card">
       <div class="wt-tag">听音拼句</div>
       <div class="wl-count${b.left <= 5 ? ' urgent' : ''}" id="wlCount">⏱ 还剩 <b>${b.left}</b> 秒</div>
       <p class="wq-title">按听到的顺序，点词块拼出句子</p>
@@ -4071,7 +4071,7 @@ function sylQuizRender() {
       }).join('')}</div>
       <div class="wq-feedback" id="sylFb">${s.fb || ''}</div>`;
   box.innerHTML = `${bar}
-    <div class="wt-card center syl-quiz-card">
+    <div class="wt-card center syl-quiz-card t13-card">
       <div class="wt-tag">${head}</div>
       ${qHtml}
     </div>`;
@@ -4137,7 +4137,7 @@ function sylQuizResultHTML() {
     : s.stage === 'test' ? `📝 第 ${WT.groupIdx + 1} 组 · 学后检测结果` : '🔁 错词重练完成';
   const bads = [];
   s.bad.forEach((w) => { if (!bads.some((x) => String(x.id) === String(w.id))) bads.push(w); });
-  return `<div class="wt-card center syl-quiz-card">
+  return `<div class="wt-card center syl-quiz-card t13-card">
       <div class="wt-tag">${title}</div>
       ${sylStatHTML('', { correct: s.right, wrong: s.wrong })}
       <div class="syl-result-fb">${rate >= 90 ? '🏆 太棒了，这组词掌握得很牢！' : rate >= 70 ? '👍 不错，把下面的错词再念几遍就更稳了' : '💪 刚学完还没记牢很正常，重点看看下面的错词'}</div>
