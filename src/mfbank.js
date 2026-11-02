@@ -784,15 +784,11 @@ admin.delete('/capture/batches/:id/q/:idx', (req, res) => {
 });
 
 /** 采集入库：按 site+questionId 去重；已有则只补缺（答案/解析/知识点），不覆盖老师改过的题干 */
-admin.post('/capture/batches/:id/commit', (req, res) => {
-  const id = int(req.params.id);
-  const b = req.body || {};
-  const batch = db.prepare('SELECT * FROM mf_capture_batches WHERE id=?').get(id);
-  if (!batch) return fail(res, '批次不存在');
-  const all = parseArr(batch.payload);
-  const picked = Array.isArray(b.selected) && b.selected.length
-    ? all.filter((_, i) => b.selected.includes(i))
-    : all;
+/** 把采集到的题入库（整批提交与待审核页逐题入库共用）。picked 为 payload 里选中的题；已存在的题只补缺（答案/解析/知识点）。
+ *  返回 { created, updated, skipped, ids } */
+function commitCaptureItems(batch, picked, b) {
+  b = b || {};
+  const nodeIds = [].concat(b.node_id ? [b.node_id] : [], Array.isArray(b.node_ids) ? b.node_ids : []).map((x) => int(x)).filter(Boolean);
   const existRows = db.prepare("SELECT id, source_detail, source_type FROM questions WHERE source_type='capture'").all();
   const map = new Map();
   existRows.forEach((r) => {
@@ -843,10 +839,23 @@ admin.post('/capture/batches/:id/commit', (req, res) => {
       created++;
       ids.push(newId);
       (q.meta && q.meta.knowledgePoints || []).forEach((t) => t && insTag.run(newId, String(t).trim()));
-      if (b.node_id) insNode.run(newId, int(b.node_id));
+      nodeIds.forEach((n) => insNode.run(newId, n));
     }
     (b.tags || []).forEach((t) => t && insTag.run(ids[ids.length - 1], String(t).trim()));
   });
+  return { created, updated, skipped, ids };
+}
+
+admin.post('/capture/batches/:id/commit', (req, res) => {
+  const id = int(req.params.id);
+  const b = req.body || {};
+  const batch = db.prepare('SELECT * FROM mf_capture_batches WHERE id=?').get(id);
+  if (!batch) return fail(res, '批次不存在');
+  const all = parseArr(batch.payload);
+  const picked = Array.isArray(b.selected) && b.selected.length
+    ? all.filter((_, i) => b.selected.includes(i))
+    : all;
+  const { created, updated, skipped, ids } = commitCaptureItems(batch, picked, b);
   db.prepare('UPDATE mf_capture_batches SET status=? WHERE id=?').run('done', id);
   // 需要的话顺手挂进某张试卷
   if (b.paper_id) {
@@ -1569,7 +1578,7 @@ admin.put('/intake/runs/:id/drafts', (req, res) => {
 
 const TYPE_MAP = {
   '单选': 'single', '多选': 'multi', '判断': 'judge', '填空': 'fill',
-  '解答': 'answer', '计算': 'answer', '简答': 'answer', '实验': 'answer', '作图': 'answer', '综合': 'answer',
+  '排序': 'sort', '解答': 'answer', '计算': 'answer', '简答': 'answer', '实验': 'answer', '作图': 'answer', '综合': 'answer',
 };
 
 /** AI 补全：答案/解析为空的题卡自动补；并按题库管理的分类体系（课本章节/知识点/难度）给出建议填入卡片 */
@@ -1625,6 +1634,53 @@ admin.post('/intake/runs/:id/aifill', async (req, res) => {
 });
 
 /** 题卡入库：勾选的题写入 questions（source_type=recog），可顺手打标、挂树、进试卷 */
+/** 把题卡入库：整批提交（intake/runs/:id/commit）与待审核页逐题入库共用。
+ *  b: { subject, stage, grade, difficulty, tags, node_id, node_ids }；题卡带 _q（技能包转写）时按转写包规则入库并按 source_detail 去重。
+ *  返回新题 id 数组（技能包里已存在的题返回库里原有的 id）。 */
+function commitRunCards(run, cards, b) {
+  b = b || {};
+  const ins = db.prepare(`INSERT INTO questions (chapter_id, subject, stage, grade, type, stem, stem_html, options, answer, analysis,
+    difficulty, point, material, source, year, images, source_type, source_detail, sort, created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recog', ?,0,?)`);
+  const insPack = db.prepare(`INSERT INTO questions (subject, stage, grade, type, stem, stem_html, options, answer, analysis,
+    difficulty, point, material, source, year, images, source_type, source_detail, sort, created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`);
+  const insTag = db.prepare('INSERT OR IGNORE INTO question_tags (question_id, tag) VALUES (?,?)');
+  const insNode = db.prepare('INSERT OR IGNORE INTO question_nodes (question_id, node_id) VALUES (?,?)');
+  const nodeIds = [].concat(b.node_id ? [b.node_id] : [], Array.isArray(b.node_ids) ? b.node_ids : []).map((x) => int(x)).filter(Boolean);
+  const ids = [];
+  cards.forEach((d) => {
+    let qid;
+    if (d._q) {   // 技能包转写：字段已在导入时算好
+      const q = d._q;
+      const dupRow = q.detail ? db.prepare('SELECT id FROM questions WHERE source_detail = ? LIMIT 1').get(jstr(q.detail)) : null;
+      if (dupRow) { ids.push(dupRow.id); return; }
+      const info = insPack.run(String(b.subject || q.subject || run.subject || '').trim(), String(b.stage || q.stage || run.stage || '').trim(), String(b.grade || q.grade || run.grade || '').trim(),
+        q.type, q.stem, q.stem_html || '', jstr(q.options || []), String(q.answer || ''), String(q.analysis || ''),
+        Math.min(5, Math.max(1, int(q.difficulty, 3))), String(d.point || q.point || ''), '', '', '', jstr(q.images || []), 'capture', jstr(q.detail || {}), now());
+      qid = info.lastInsertRowid;
+    } else {
+      const type = TYPE_MAP[String(d.questionType || '')] || (d.options && d.options.length >= 2 ? 'single' : 'answer');
+      const stem = String(d.stem || '').trim();
+      const options = (d.options || []).map((o) => ({ label: String(o.label || ''), text: String(o.content || '') })).filter((o) => o.text);
+      const info = ins.run(
+        int(d.chapter_id, 0) || null,
+        String(b.subject || d.subject || run.subject || '').trim(), String(b.stage || d.stage || run.stage || '').trim(), String(b.grade || d.grade || run.grade || '').trim(),
+        type, stem.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+        /<[a-z][\s\S]*>/i.test(stem) ? stem : '',
+        jstr(options), String(d.answer || '').trim(), String(d.analysis || '').trim(),
+        Math.min(5, Math.max(1, int(d.difficulty, int(b.difficulty, 3)))), String(d.point || '').trim(), String(d.material || '').trim(), String(run.source_name || '录题工作台'), '',
+        jstr((d.figures || []).map((x) => (x && x.url) || x).filter(Boolean)),
+        jstr({ runId: run.id, kind: run.source_kind, page: d.page, qno: d.qno, collectedAt: now() }), now());
+      qid = info.lastInsertRowid;
+    }
+    ids.push(qid);
+    (d.suggestedTags || []).concat(b.tags || []).map((t) => String(t).trim()).filter(Boolean).forEach((t) => insTag.run(qid, t));
+    nodeIds.forEach((n) => insNode.run(qid, n));
+  });
+  return ids;
+}
+
 admin.post('/intake/runs/:id/commit', (req, res) => {
   const id = int(req.params.id);
   const b = req.body || {};
@@ -1632,33 +1688,9 @@ admin.post('/intake/runs/:id/commit', (req, res) => {
   if (!run) return fail(res, '批次不存在');
   const drafts = parseArr(run.drafts);
   const picked = drafts.filter((_, i) => (Array.isArray(b.selected) ? b.selected.includes(i) : true))
-    .filter((d) => d.checked !== false && String(d.stem || '').trim());
+    .filter((d) => d.checked !== false && String(d.stem || '').trim() && !d.committed);
   if (!picked.length) return fail(res, '没有勾选任何题卡');
-  const ins = db.prepare(`INSERT INTO questions (chapter_id, subject, stage, grade, type, stem, stem_html, options, answer, analysis,
-    difficulty, point, material, source, year, images, source_type, source_detail, sort, created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recog', ?,0,?)`);
-  const insTag = db.prepare('INSERT OR IGNORE INTO question_tags (question_id, tag) VALUES (?,?)');
-  const insNode = db.prepare('INSERT OR IGNORE INTO question_nodes (question_id, node_id) VALUES (?,?)');
-  const ids = [];
-  picked.forEach((d) => {
-    const type = TYPE_MAP[String(d.questionType || '')] || (d.options && d.options.length >= 2 ? 'single' : 'answer');
-    const stem = String(d.stem || '').trim();
-    const options = (d.options || []).map((o) => ({ label: String(o.label || ''), text: String(o.content || '') })).filter((o) => o.text);
-    const info = ins.run(
-      int(d.chapter_id, 0) || null,
-      String(b.subject || run.subject || '').trim(), String(b.stage || run.stage || '').trim(), String(b.grade || run.grade || '').trim(),
-      type, stem.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
-      /<[a-z][\s\S]*>/i.test(stem) ? stem : '',
-      jstr(options), String(d.answer || '').trim(), String(d.analysis || '').trim(),
-      Math.min(5, Math.max(1, int(d.difficulty, int(b.difficulty, 3)))), String(d.point || '').trim(), '', String(run.source_name || '录题工作台'), '',
-      jstr((d.figures || []).map((x) => (x && x.url) || x).filter(Boolean)),
-      jstr({ runId: id, page: d.page, qno: d.qno, collectedAt: now() }), now());
-    const qid = info.lastInsertRowid;
-    ids.push(qid);
-    (d.suggestedTags || []).concat(b.tags || []).map((t) => String(t).trim()).filter(Boolean)
-      .forEach((t) => insTag.run(qid, t));
-    if (b.node_id) insNode.run(qid, int(b.node_id));
-  });
+  const ids = commitRunCards(run, picked, b);
   if (b.paper_id) {
     const pid = int(b.paper_id);
     const pos = db.prepare('SELECT COALESCE(MAX(position),0) AS m FROM mf_paper_questions WHERE paper_id=?').get(pid).m;
@@ -1761,10 +1793,8 @@ admin.post('/import-pack', upBig.single('file'), async (req, res) => {
 
     const assetById = {};
     (pack.assets || []).forEach((a) => { assetById[a.id] = a; });
-    const insQ = db.prepare(`INSERT INTO questions (subject, stage, grade, type, stem, stem_html, options, answer, analysis,
-      difficulty, point, material, source, year, images, source_type, source_detail, sort, created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`);
-    const insTag = db.prepare('INSERT OR IGNORE INTO question_tags (question_id, tag) VALUES (?,?)');
+    // T3：转写包里的题不再直接入库，先放进"待审核题目"（一个 skill 批次），老师逐题看过再入库；重复题（同一转写包 + recordKey）仍然跳过/补图
+    const cards = [];
     let imported = 0, skipped = 0, updated = 0; const errors = [];
     for (const it of qs) {
       const rk = String(it.recordKey || '').slice(0, 160);
@@ -1811,20 +1841,29 @@ admin.post('/import-pack', upBig.single('file'), async (req, res) => {
         const grade = mfMapGrade(meta.stage && meta.stage.label);
         const type = mfMapType(meta.questionType && meta.questionType.label, opts.length);
         const diff = mfMapDiff(meta.difficulty && meta.difficulty.raw);
-        const info = insQ.run(subject, stage, grade, type, stem, '', jstr(opts), answer.slice(0, 10000), analysis.slice(0, 10000),
-          diff, '', '', '', '', jstr(urls), 'capture', jstr(detail), now());
-        const qid = info.lastInsertRowid;
         const tags = [].concat(Array.isArray(meta.knowledgePoints) ? meta.knowledgePoints : [],
           Array.isArray(meta.suggestedTags) ? meta.suggestedTags : []);
-        [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20).forEach((t) => insTag.run(qid, t));
+        cards.push({
+          qno: rk, questionType: ({ single: '单选', multi: '多选', judge: '判断', fill: '填空', sort: '排序', answer: '解答' })[type] || '解答',
+          stem, options: opts.map((o) => ({ label: o.label, content: o.text })), answer: answer.slice(0, 10000), analysis: analysis.slice(0, 10000),
+          suggestedTags: [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20),
+          figures: urls.map((u) => ({ url: u })), difficulty: diff, subject, stage, grade, checked: true,
+          _q: { subject, stage, grade, type, stem, stem_html: '', options: opts, answer: answer.slice(0, 10000), analysis: analysis.slice(0, 10000), difficulty: diff, images: urls, detail },
+        });
         imported++;
       } catch (e) {
         errors.push({ recordKey: rk || `#${imported + skipped + errors.length + 1}`, msg: e.message });
       }
     }
-    let msg = `导入完成：成功 ${imported}，跳过 ${skipped}，失败 ${errors.length}`;
+    let runId = 0;
+    if (cards.length) {
+      runId = db.prepare(`INSERT INTO mf_recog_runs (title, subject, stage, grade, source_kind, source_name, status, pages, drafts, ocr_texts, error, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(`技能包导入 ${String(pack.packageId || (req.file && req.file.originalname) || '').slice(0, 60)}`, '', '', '', 'skill',
+        String((req.file && req.file.originalname) || pack.packageId || '转写包'), 'recognized', '[]', jstr(cards), '[]', '', now()).lastInsertRowid;
+    }
+    let msg = `已放入待审核：${imported} 题，跳过 ${skipped}，失败 ${errors.length}`;
     if (updated) msg += `，补图 ${updated}`;
-    return ok(res, { total: qs.length, imported, skipped, updated, failed: errors.length, errors: errors.slice(0, 20), warnings }, msg);
+    return ok(res, { total: qs.length, imported, staged: imported, run_id: runId, skipped, updated, failed: errors.length, errors: errors.slice(0, 20), warnings }, msg);
   } catch (e) {
     return fail(res, '导入失败：' + e.message);
   }
@@ -1860,13 +1899,15 @@ admin.put('/config', (req, res) => {
 });
 
 // ==================================================================== 未分类 / 待审核（题库管理左栏两个入口）
+let pendingApi = null;   // 待审核题目（T3）聚合模块，文件末尾挂载
 admin.get('/ext/badge-counts', (req, res) => {
   const uncat = Number(db.prepare(`SELECT COUNT(*) n FROM questions q
     WHERE NOT EXISTS (SELECT 1 FROM question_nodes qn JOIN bank_tree_nodes bn ON bn.id=qn.node_id JOIN bank_trees bt ON bt.id=bn.tree_id WHERE qn.question_id=q.id AND bt.kind='textbook')
     AND NOT EXISTS (SELECT 1 FROM question_nodes qn2 JOIN bank_tree_nodes bn2 ON bn2.id=qn2.node_id JOIN bank_trees bt2 ON bt2.id=bn2.tree_id WHERE qn2.question_id=q.id AND bt2.kind='knowledge')
     AND NOT EXISTS (SELECT 1 FROM paper_uploads pu WHERE pu.question_id=q.id AND pu.status IN ('pending','reviewed'))`).get().n) || 0;
   const review = Number(db.prepare("SELECT COUNT(*) n FROM paper_uploads WHERE status IN ('pending','reviewed') AND question_id>0").get().n) || 0;
-  return ok(res, { uncat, review });
+  const pending = pendingApi ? pendingApi.counts() : { all: 0 };   // 各入口入库前的题目总数（待审核题目页角标）
+  return ok(res, { uncat, review, pending: pending.all, pending_by: pending });
 });
 
 /** 待审核列表：学生上传的错题（paper_uploads pending/reviewed）带题目详情，逐条核对 */
@@ -1948,5 +1989,8 @@ admin.post('/ext/ai-attrib', async (req, res) => {
 
 // ==================================================================== 知识树种子（幂等，启动时自动补齐）
 try { require('./mfseed').ensureSeed(db); } catch (e) { console.error('[mfbank] 种子导入异常:', e.message); }
+
+// ==================================================================== 待审核题目（T3）：各入口入库前的题目统一列表（src/mfpending.js）
+pendingApi = require('./mfpending')({ admin, db, ok, fail, now, int, parseArr, parseObj, jstr, TYPE_MAP, TYPES, commitRunCards, commitCaptureItems, store, bankFolder });
 
 module.exports = { admin, cap };
