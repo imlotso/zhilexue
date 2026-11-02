@@ -82,7 +82,8 @@ function getConfig() {
     baseUrl: DEFAULTS.aiBaseUrl,
     model: DEFAULTS.aiModel,
     hasKey: !!String(BUILTIN.ai.apiKey || '').trim(),
-    mock: false,
+    // 演示模式：仅由环境变量 AI_MOCK=1 开启（自动化测试用，不调外部接口）；默认关闭，线上行为不变
+    mock: process.env.AI_MOCK === '1',
   };
 }
 function aiKey() {
