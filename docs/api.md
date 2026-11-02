@@ -82,6 +82,7 @@
 - 版式（沿用客户《错题集》样本）：封面（错题集 / 共 N 道错题 / 日期范围 / 姓名·科目·日期）→「错题练习」（日期、多次答错标记、题号、题干、图片、选项、知识点）→「错题解析」（答案、解析、答题记录）；页脚「第 X 页 / 共 Y 页」。公式按 LaTeX 文本原样写入；图片只支持 JPEG / PNG。
 
 上传真题试卷（T10）：
+- 公式输入（T8）没有新接口：后台粘贴 / 拖拽图片走已有的 `POST /api/admin/bank/mf/asset`；学生端所有出题接口（`serveQ`）与错题本题目的返回里多了 `subject`（前端据此决定要不要显示「公式」按钮）。填空题判分前会抹平 `\( \)`、`\left \right`、`\dfrac` 等写法差异（见 D25）。
 - 后台 `POST /api/admin/bank/mf/papers/import-word`（multipart：`file`=.docx，`title`、`subject`、`stage`、`grade`、`year`（4 位数字）、`folder_id`、`publish`=1/0、`dry_run`=1）。格式同 Word 导入（题号、选项 A.、答案另起一行，见 `src/wordq.js`）。
   - `dry_run=1`：只解析，返回 `{total, big_count, error_count, errors, warnings, sections:[{name,count}], title, year}`，**不写库**（老师确认用）。
   - 否则：① 题目写入题库（`source='真题试卷'`，学科 / 年级 / 学段 / 年份随卷）② 新建试卷（`status=done`，`published` 按 `publish`），按题型分「一、单选题 …」文本块（大题先后 = 各题型第一次出现的先后）③ 每题默认分值 = 100 ÷ 题数 ④ 返回 `{paper_id, question_ids, published, score_each, …}`。

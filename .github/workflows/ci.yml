@@ -68,6 +68,8 @@ jobs:
         if: ${{ !cancelled() }}   # 试卷管理（T10）：上传真题试卷 → 题库 → 学生搜索并做完
       - run: node listening-test.js
         if: ${{ !cancelled() }}   # 听力题（T7）：音频上传 / TTS → 题目带音频 → 待审核补音频 → 学生端播放并作答
+      - run: node formula-test.js
+        if: ${{ !cancelled() }}   # 公式输入（T8）：本地 MathLive、题目存 \( … \)、学生用公式键盘作答判分、有浏览器时点一遍
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4
