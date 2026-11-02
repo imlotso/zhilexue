@@ -449,7 +449,7 @@ admin.post('/upload', upload.single('file'), async (req, res) => {
           const key = rec.phrase.toLowerCase() + '|' + (rec.unit || '');
           if (seen.has(key)) { skipped++; continue; }
           seen.add(key);
-          insert.run(bookId, rec.phrase, rec.meaning, rec.unit, now());
+          insert.run(bookId, rec.phrase, rec.meaning, rec.example, rec.example_cn, rec.unit, now());
         } else {
           rec.target_pos = normPos(rec.target_pos);
           rec.affix = rec.affix || suggestAffix(rec.base_word, rec.target_word);
