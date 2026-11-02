@@ -34,3 +34,7 @@
 ## T6 习题正确率：没有加表
 
 正确率从现有表聚合：`records`（user_id, question_id, is_correct, created_at，每次作答一行）× `questions.video_id`（题目绑定的视频）× `videos.section_id`（视频所属小分组）。口径：每题取该学生**最近一次**作答（`records.id` 最大的那行），小分组 / 课程是把下面所有视频的题合并后再算。`practices`、`paper_tries` 只存整次交卷的汇总，不含每题明细，所以没用它们。没有新增 `question_attempts`（任务书允许"必须时才加"）：`records` 已经是每次作答的明细。
+
+## T2 AI 配置中心：`mf_model_profiles` 加一列
+
+`mf_model_profiles.format VARCHAR(16) DEFAULT 'openai'`（`openai` / `anthropic` / `gemini`），在 `mfcollect.js` 的 `ensureSchema` 里幂等 `ALTER TABLE … ADD COLUMN`（已存在则忽略），旧档案自动按 OpenAI 兼容处理，不受影响。密钥 `api_key` 仍明文存储（与现状一致）。`settings` 表里的 `aiBaseUrl / aiModel / aiApiKey / aiMock` 不再被读取，没有删除。

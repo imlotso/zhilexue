@@ -117,3 +117,14 @@
 - 问答题（`type=answer`）：学生端此前没有输入框，根本答不了。现在给了固定大小的解答框，但**不自动判分**——不写 `records`、不进错题本、不计入总数和正确率，交卷后只展示参考答案让学生对照。备选"和标准答案做字符串比较"几乎必错，会把错题本灌满；"调 AI 判分"属于新能力、会产生费用，留给 BOBO 决定。
 - 输入框：填空 / 问答统一用 `textarea.t6-input` 固定宽高（单空 96px、多空每空 56px、问答 176px，`resize:none`，内容多时框内滚动）；填空是单行答案，回车和粘贴的换行都转成空格。没动其它页面里的 input / textarea。
 - 没做：公式输入法（T8）、听力题（T7）。
+
+## D20 AI 配置统一：档案为准，请求只走一个客户端（2026-11-02）
+
+- 决定：全站 AI 配置只剩「设置 → AI 配置中心」（`mf_model_profiles` 档案）一个入口；所有 AI 请求统一走 `src/ai-client.js`，按档案 `format` 选协议（OpenAI 兼容 / Anthropic / Gemini）。`ai.js` 的 `getConfig()` 改为读"当前启用的档案"，旧的顶栏「AI 配置」弹窗和 `/api/admin/ai/config`、`/report/config` 的 PUT 停用。
+- 选档案的规则：该角色启用的档案 → 按 `vision→reasoning→light` 等顺序回落到别的已启用档案 → 都没有才用 `builtin-config.js`。理由：任务书验收要求"配一个接口并启用后三处都能用"，不能要求老师把五个角色都配齐；而回落内置配置保证没配置任何档案时线上行为和改版前完全一样。
+- 改动面小：业务封装（`analyzePaper`、`segmentPage`、`chat` 等）的函数签名和 prompt 都没动，只换了底层请求；`mfAiInvoke` 变成 `ai.chat / visionChat` 的薄封装。
+- 顺带修了 `mfAiInvoke` 回落路径的老 bug：它给 `visionChat` 传的是 `user` 和 base64 字符串，而 `visionChat` 读的是 `userText` 和 `{buf,mime}`，一旦走到回落（没配档案又带图片）就会抛错。现在 `visionChat` 同时接受两种写法。
+- `AI_MOCK=1`（演示模式）仍然优先于档案——CI 靠它不调真实 AI；`visionChat` 在演示模式下直接报"演示模式下不调用视觉模型"，避免测试环境误打真实接口。
+- 密钥：任务书要求保留明文存储，没动。后台界面只写不回显（`GET /profiles` 只返回 `has_key`）。
+- 没做：不预置任何厂商的 Anthropic / Gemini 快捷项（任务书"不要选择或绑定具体 AI 厂商"），表单里只给各协议官方的地址写法做提示；向量角色（embedding）只支持 OpenAI 兼容格式；没有做流式输出。
+- 没有真实密钥，三种格式用本机模拟服务（`aiclient-test.js`）验证请求格式；真实厂商的差异（比如个别"OpenAI 兼容"接口不支持 `response_format`，所以现有调用点都没有开 JSON 模式）需要 BOBO 拿真实密钥试一次（见 pending-human-actions）。

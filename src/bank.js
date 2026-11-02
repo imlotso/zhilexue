@@ -800,7 +800,7 @@ async function aiRecognizeUpload(id) {
   const imgPath = path.join(__dirname, '..', 'public', String(row.images[0]).replace(/^\//, ''));
   if (!fs.existsSync(imgPath)) return;
   const { visionChat, extractJson, getConfig } = require('./ai');
-  const cfg = getConfig();
+  const cfg = getConfig('vision');
   if (cfg.mock || !cfg.hasKey) return;
   const buf = fs.readFileSync(imgPath);
   const mime = UP_MIME[path.extname(imgPath).toLowerCase()] || 'image/jpeg';

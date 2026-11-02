@@ -971,6 +971,7 @@ async function viewMfCapture() {
 async function viewMfSet() {
   const prof = await api(MFX + '/profiles', { silent: true }).catch(() => ({ list: [], roles: [], presets: [], total: 0, enabled_count: 0 }));
   const dict = await api(MFX + '/dict', { silent: true }).catch(() => ({ counts: { total: 0, unknown: 0, trees: 0 } }));
+  const cur = await api('/api/admin/ai/config', { silent: true }).catch(() => null);   // 现在实际生效的配置（T2）
 
   // AI 能力清单：学生端 + 管理后台所有用到 AI 大模型的接口，按「可共用一个模型」分组
   const AI_GROUPS = [
@@ -1007,16 +1008,18 @@ async function viewMfSet() {
     const on = ps.find((p) => p.is_enabled);
     if (on) return `<span class="tag ok">已启用：${esc(on.name)} · ${esc(on.model)}</span>`;
     if (ps.length) return `<span class="tag warn">已建 ${ps.length} 个档案 · 未启用</span>`;
-    return '<span class="tag err">未配置（回落全站基础 AI）</span>';
+    return '<span class="tag err">未配置（用其它已启用的档案；都没有就用内置配置）</span>';
   };
 
   const html = `<div class="card" style="max-width:980px;margin:0 auto">
-    <div class="card-h"><h3>${ic('setting')} 设置</h3></div>
+    <div class="card-h"><h3>${ic('setting')} AI 配置中心</h3></div>
     <div class="card-b">
 
       <div class="mf-setcard">
-        <div class="mf-sett"><b>AI 配置管理</b></div>
-        <div class="hint">学生端 + 管理后台<b>所有用到 AI 大模型的能力</b>都在这里，按「能不能共用一个模型」分组 —— 同一组配置一次即全部生效。Key 加密托管于服务器，界面只写不回显。</div>
+        <div class="mf-sett"><b>AI 配置（全站唯一入口）</b></div>
+        <div class="hint">学生端 + 管理后台<b>所有用到 AI 大模型的能力</b>都读这里启用的档案，按「能不能共用一个模型」分组 —— 配置一次全部生效，切换档案后立即全站切换。一个档案 = 一个接口：选<b>格式</b>（OpenAI 兼容 / Anthropic / Gemini）→ 填接口地址、密钥、模型 → 测试连接 → 启用。密钥保存在服务器数据库里，界面只写不回显。</div>
+        <div class="mf-prole" style="margin-top:10px"><div class="mf-prole-t"><b>⚡ 当前生效</b>　${cur ? (cur.mock ? '<span class="tag warn">演示模式（AI_MOCK=1，不调外部接口）</span>' : (cur.hasKey ? `<span class="tag ok">${esc(cur.via === 'builtin' ? '内置配置（没有启用任何档案）' : cur.via)} · ${esc(cur.model)} · ${esc({ openai: 'OpenAI 兼容', anthropic: 'Anthropic', gemini: 'Gemini' }[cur.format] || cur.format)}</span>` : '<span class="tag err">没有可用配置</span>')) : '<span class="tag">读取失败</span>'}
+          <button class="btn ghost xs" id="mfTestCur" style="margin-left:8px">测试当前配置</button><span id="mfTestCurMsg" class="hint" style="margin-left:8px"></span></div></div>
         ${AI_GROUPS.map((g) => `
           <div class="mf-prole" style="margin-top:10px">
             <div class="mf-prole-t"><b>${g.icon} ${g.name}</b>　${roleStatus(g.role)}</div>
@@ -1028,7 +1031,7 @@ async function viewMfSet() {
               <span class="hint">　新建档案 / 快捷设置 / 测试 / 启用</span></div>` : ''}
           </div>`).join('')}
         <div class="hint" style="margin-top:12px;border-top:1px dashed #e5e7eb;padding-top:10px">
-          未配置或未启用时，以上能力自动回落到「全站基础 AI 配置」：<a href="javascript:;" id="mfOpenAiBase" style="color:#6366f1">⚙️ 全站基础 AI 配置</a>（接口地址 / 模型 / Key / 演示模式）。
+          某个角色没有启用的档案时，会自动用别的已启用档案（所以只配一个模型也能全站通用）；一个档案都没启用时才用服务器内置配置。
           <a href="javascript:;" id="mfAiHelp" style="color:#6366f1;margin-left:8px">📖 配置教程（去哪个网站、怎么拿 Key）</a></div>
       </div>
 
@@ -1045,7 +1048,11 @@ async function viewMfSet() {
     after: () => {
       document.querySelectorAll('[data-aigroup]').forEach((b) => { b.onclick = () => mfProfileDialog(b.dataset.aigroup); });
       document.getElementById('mfOpenDict').onclick = () => mfDictDialog();
-      document.getElementById('mfOpenAiBase').onclick = () => { if (typeof openAiConfig === 'function') openAiConfig(); else location.hash = '#/dash'; };
+      document.getElementById('mfTestCur').onclick = async () => {
+        const box = document.getElementById('mfTestCurMsg'); box.style.color = ''; box.textContent = '测试中…';
+        try { const r = await api('/api/admin/ai/test', { method: 'POST', silent: true }); box.style.color = '#0e9f5f'; box.textContent = '✅ ' + ((r && r.message) || '连接正常'); }
+        catch (e) { box.style.color = '#e0343f'; box.textContent = '❌ ' + (e.message || '连接失败'); }
+      };
       document.getElementById('mfAiHelp').onclick = () => mfHelpDialog();
     },
   };
@@ -1065,7 +1072,7 @@ async function mfProfileDialog(onlyRole) {
         ${on ? `<span class="tag ok">已启用：${esc(on.name)} · ${esc(on.model)}</span>` : `<span class="tag">${ps.length ? '未启用（测通后启用）' : '未配置'}</span>`}
         <button class="btn ghost xs" data-new="${rk}">新建档案</button>
         <button class="btn ghost xs" data-quick="${rk}">快捷设置</button>
-        ${ps.map((p) => `<span class="mf-pitem">${esc(p.name)}（${esc(p.model)}）${p.last_test_ok ? '<span class="tag ok">测通</span>' : (p.last_test_ok === false ? '<span class="tag err">未测通</span>' : '<span class="tag">未测</span>')}
+        ${ps.map((p) => `<span class="mf-pitem">${esc(p.name)}（${esc(p.model)}）<span class="tag">${esc(p.format_name || 'OpenAI 兼容')}</span>${p.last_test_ok ? '<span class="tag ok">测通</span>' : (p.last_test_ok === false ? '<span class="tag err">未测通</span>' : '<span class="tag">未测</span>')}
           <a href="javascript:;" data-test="${p.id}">测试</a><a href="javascript:;" data-edit="${p.id}">编辑</a>${p.is_enabled ? '' : `<a href="javascript:;" data-en="${p.id}">启用</a>`}<a href="javascript:;" data-rm="${p.id}">删</a></span>`).join('')}
       </div></div>`;
   };
@@ -1562,15 +1569,23 @@ function mfNodePickMulti(nodes, onDone) {
 
 /** 新建 / 编辑模型档案（魔方式：可拉取平台模型列表自由接入任何 OpenAI 兼容模型） */
 const MF_ROLE_NAME = { reasoning: 'R1 推理', vision: 'R2 OCR', light: 'R3 轻', embedding: 'R4 向量', specialty: 'R5 专用' };
+/** 档案格式（与 src/ai-client.js 的 FORMATS / FORMAT_HINTS 对应）：不绑定厂商，只给各协议标准的地址写法做提示 */
+const MF_FORMATS = [
+  ['openai', 'OpenAI 兼容', 'https://你的服务商/v1', '填到 /v1 为止，系统自动补 /chat/completions。通义、DeepSeek、智谱、Moonshot、OpenAI 等都选这一类。'],
+  ['anthropic', 'Anthropic Messages', 'https://api.anthropic.com', '填到域名为止，系统自动补 /v1/messages（填了 /v1 也行）。'],
+  ['gemini', 'Google Gemini', 'https://generativelanguage.googleapis.com', '填到域名为止，系统自动补 /v1beta/models/{模型名}:generateContent。'],
+];
 function mfProfileForm(role, prof, fromRole) {
   const isEdit = !!prof;
+  const curFmt = (isEdit && prof.format) || 'openai';
   modal({
     title: `${isEdit ? '编辑档案' : '新建档案'} · ${MF_ROLE_NAME[role] || role}`,
     body: `<div class="mf-form" style="flex-direction:column;align-items:stretch">
       <div class="field"><label>名称</label><input id="pfName" class="inp" placeholder="如：DeepSeek 官方" value="${isEdit ? esc(prof.name) : ''}"></div>
       <div class="field"><label>供应商</label><input id="pfProv" class="inp" placeholder="如：deepseek" value="${isEdit ? esc(prof.provider || '') : ''}"></div>
-      <div class="field"><label>Base URL</label><input id="pfBase" class="inp" placeholder="https://api.deepseek.com/v1" value="${isEdit ? esc(prof.base_url) : ''}"></div>
-      <div class="field"><label>协议类型</label><select id="pfProto" class="inp"><option value="openai-chat" selected>openai-chat（OpenAI 兼容）</option></select></div>
+      <div class="field"><label>格式</label><select id="pfFormat" class="inp">${MF_FORMATS.map(([k, t]) => `<option value="${k}" ${k === curFmt ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div class="field"><label>接口地址</label><input id="pfBase" class="inp" placeholder="${esc((MF_FORMATS.find((f) => f[0] === curFmt) || MF_FORMATS[0])[2])}" value="${isEdit ? esc(prof.base_url) : ''}">
+        <div class="hint" id="pfFmtHint">${esc((MF_FORMATS.find((f) => f[0] === curFmt) || MF_FORMATS[0])[3])}</div></div>
       <div class="field"><label>API Key</label><input id="pfKey" class="inp" type="password" placeholder="${isEdit ? '留空 = 不修改原 Key' : '粘贴 API Key（sk-…，加密托管于本机）'}"></div>
       <div class="field"><label>模型</label><div style="display:flex;gap:8px;align-items:center">
         <input id="pfModel" class="inp" list="pfModelList" placeholder="如：deepseek-chat（可直接输入 id）" style="flex:1" value="${isEdit ? esc(prof.model) : ''}">
@@ -1586,6 +1601,7 @@ function mfProfileForm(role, prof, fromRole) {
       const key = w.querySelector('#pfKey').value.trim();
       const body = {
         name, base_url: base, model,
+        format: w.querySelector('#pfFormat').value,
         provider: w.querySelector('#pfProv').value.trim(),
         capability: w.querySelector('#pfVision').checked ? 'vision' : '',
       };
@@ -1601,6 +1617,25 @@ function mfProfileForm(role, prof, fromRole) {
       toast(isEdit ? '已保存，请重新测试连通' : '档案已建，先测连通再启用', 'ok'); mfProfileDialog(fromRole);
     },
     onMount: (w) => {
+      // 换格式：更新地址提示（只换提示，不改用户已经填的地址）
+      w.querySelector('#pfFormat').onchange = () => {
+        const f = MF_FORMATS.find((x) => x[0] === w.querySelector('#pfFormat').value) || MF_FORMATS[0];
+        w.querySelector('#pfBase').placeholder = f[2];
+        w.querySelector('#pfFmtHint').textContent = f[3];
+      };
+      // 测试连接：不用先保存，填完直接测
+      const testRow = document.createElement('div');
+      testRow.style.cssText = 'margin:2px 0 0;display:flex;gap:10px;align-items:center';
+      testRow.innerHTML = '<button type="button" class="btn ghost xs" id="pfTest">测试连接</button><span id="pfTestMsg" class="hint"></span>';
+      w.querySelector('#pfModel').closest('.field').appendChild(testRow);
+      w.querySelector('#pfTest').onclick = async () => {
+        const msgEl = w.querySelector('#pfTestMsg');
+        const body = { role, id: isEdit ? prof.id : undefined, name: w.querySelector('#pfName').value.trim(), format: w.querySelector('#pfFormat').value,
+          base_url: w.querySelector('#pfBase').value.trim(), model: w.querySelector('#pfModel').value.trim(), api_key: w.querySelector('#pfKey').value.trim() };
+        msgEl.style.color = ''; msgEl.textContent = '测试中…';
+        try { const r = await api(MFX + '/profiles/test-draft', { method: 'POST', body, silent: true }); msgEl.style.color = '#0e9f5f'; msgEl.textContent = '✅ ' + (r && r.ms != null ? `连接成功（${r.ms} ms）` : '连接成功'); }
+        catch (e) { msgEl.style.color = '#e0343f'; msgEl.textContent = '❌ ' + (e.message || '连接失败'); }
+      };
       w.querySelector('#pfFetch').onclick = async () => {
         const base = w.querySelector('#pfBase').value.trim();
         const key = w.querySelector('#pfKey').value.trim();
@@ -1609,7 +1644,7 @@ function mfProfileForm(role, prof, fromRole) {
         const btn = w.querySelector('#pfFetch');
         btn.textContent = '拉取中…'; btn.disabled = true;
         try {
-          const r = await api(MFX + '/profiles/models', { method: 'POST', body: { base_url: base, api_key: key } });
+          const r = await api(MFX + '/profiles/models', { method: 'POST', body: { format: w.querySelector('#pfFormat').value, base_url: base, api_key: key } });
           w.querySelector('#pfModelList').innerHTML = (r.models || []).map((m) => `<option value="${esc(m)}">`).join('');
           toast(`拉到 ${(r.models || []).length} 个模型——点模型输入框即可从下拉选择`, 'ok');
         } catch (e) { toast(e.message || '拉取失败', 'err'); }

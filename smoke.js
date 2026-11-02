@@ -314,6 +314,13 @@ const fileForm = (fields, fileName, content) => {
     log(accAdmin.code === 0 && Array.isArray(accAdmin.data.courses) && accAdmin.data.student.id === stuId, '后台：按学生查看视频 / 小分组正确率接口可用', accAdmin.msg);
     const accStu = await req(`/api/admin/bank/accuracy?user_id=${stuId}`, { token: ST });
     log(accStu._status === 403 || accStu.code !== 0, '学生 token 不能看后台正确率接口');
+    // T2：AI 配置中心（唯一入口）
+    const aiCfg = await req('/api/admin/ai/config', { token: AT });
+    log(aiCfg.code === 0 && aiCfg.data && ['openai', 'anthropic', 'gemini'].includes(aiCfg.data.format) && aiCfg.data.apiKey === undefined && aiCfg.data.key === undefined, 'AI：当前生效配置可读（带格式，不含密钥）', aiCfg.data && aiCfg.data.via);
+    const aiPut = await req('/api/admin/ai/config', { method: 'PUT', token: AT, body: { baseUrl: 'http://x/v1' } });
+    log(aiPut.code !== 0 && /AI 配置中心/.test(aiPut.msg || ''), 'AI：旧的 PUT /ai/config 已停用，提示去 AI 配置中心', aiPut.msg);
+    const aiDraft = await req('/api/admin/bank/mf/ext/profiles/test-draft', { method: 'POST', token: AT, body: { role: 'reasoning', format: 'openai', base_url: 'http://127.0.0.1:1/v1', model: 'm', api_key: 'k' } });
+    log(aiDraft.code !== 0 && /测试失败/.test(aiDraft.msg || '') && /127\.0\.0\.1:1/.test(aiDraft.msg || ''), 'AI：测试连接对错误地址给出明确报错', aiDraft.msg);
     const l0 = (d.lessons || [])[0] || {};
     log(!!l0.handout && l0.handout.id === handoutId, '一个视频对应一个讲义（同一个框）', l0.handout ? l0.handout.title : '未配对');
     log(!!l0.handout && l0.handout.file_name === cnName, '知识点里带回讲义文件名', l0.handout ? l0.handout.file_name : '');

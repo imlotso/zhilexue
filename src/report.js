@@ -52,10 +52,7 @@ function reportGet(user, id) {
 
 // ------------------------------------------------------------------ AI 配置
 admin.get('/config', (req, res) => ok(res, ai.getConfig()));
-admin.put('/config', (req, res) => {
-  ai.saveConfig(req.body || {});
-  ok(res, ai.getConfig(), '已保存');
-});
+admin.put('/config', (req, res) => res.json({ code: 1, msg: 'AI 配置已统一到「设置 → AI 配置中心」，请在那里新增并启用模型档案' }));
 
 // ------------------------------------------------------------------ 试卷照片
 admin.post('/papers', upload.array('images', 6), async (req, res) => {

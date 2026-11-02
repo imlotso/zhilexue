@@ -25,7 +25,7 @@ const NAV = [
   { k: 'mfp', t: '试卷管理', i: 'folder' },
   { k: 'mfi', t: '录题上传', i: 'upload' },
   { k: 'bkfb', t: '错题反馈', i: 'chat' },
-  { k: 'mfset', t: '设置', i: 'setting' },
+  { k: 'mfset', t: 'AI 配置中心', i: 'setting' },
   { k: 'words', t: '词书管理', i: 'book' },
   { k: 'letters', t: '字母乐园', i: 'english' },
   { k: 'phonics', t: '音标训练', i: 'volume' },
@@ -44,7 +44,7 @@ const NAV_GROUPS = [
 ];
 const navItem = (k) => NAV.find((n) => n.k === k);
 const navOf = () => NAV.filter((n) => !n.principalOnly || (Auth.user && Auth.user.role === 'admin'));
-const TITLE = { acc: '知识点正确率', mfq: '题库管理', pending: '待审核题目', ktree: '知识树管理', mfset: '设置', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '首页', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
+const TITLE = { acc: '知识点正确率', mfq: '题库管理', pending: '待审核题目', ktree: '知识树管理', mfset: 'AI 配置中心', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '首页', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
 function sideFoldGet() { try { return localStorage.getItem('xuexi_admin_side') === '1'; } catch (e) { return false; } }
 function sideFoldSet(v) { try { localStorage.setItem('xuexi_admin_side', v ? '1' : '0'); } catch (e) { /* 忽略 */ } }
 function openGroupsGet() {
@@ -321,55 +321,11 @@ function askPwd(title, tip, onOk) {
 }
 
 /**
- * 统一的 AI 配置弹窗：全站 AI 能力（学情诊断报告 / 单词速记…）共用这一份配置。
- * 顶栏「⚙️ AI 配置」在任何模块都能打开，不需要各模块单独设置。
+ * AI 配置的唯一入口（T2）：顶栏「⚙️ AI 配置」、错题重组页的「AI 配置」都跳到「设置 → AI 配置中心」。
+ * 全站所有 AI 能力（学情报告 / AI 补全 / 拍照识别 / 单词 AI…）读的是那里启用的模型档案，不再有第二份配置。
  */
-async function openAiConfig(onSaved) {
-  let cfg;
-  try { cfg = await api('/api/admin/ai/config'); } catch (e) { toast('读取 AI 配置失败：' + e.message, 'err'); return; }
-  const readForm = (w) => {
-    const body = {
-      baseUrl: w.querySelector('#cBase').value.trim(),
-      model: w.querySelector('#cModel').value.trim(),
-      mock: w.querySelector('#cMock').checked,
-    };
-    // 密钥留空表示不修改，避免保存其它项时把已配好的 Key 清掉
-    const key = w.querySelector('#cKey').value.trim();
-    if (key) body.apiKey = key;
-    return body;
-  };
-  modal({
-    title: 'AI 配置',
-    okText: '保存',
-    body: `
-      <div class="field"><label>接口地址</label>
-        <input class="input" id="cBase" value="${esc(cfg.baseUrl)}" placeholder="OpenAI 兼容 /v1"></div>
-      <div class="field"><label>模型名</label>
-        <input class="input" id="cModel" value="${esc(cfg.model)}" placeholder="qwen-vl-max"></div>
-      <div class="field"><label>API Key ${cfg.hasKey ? '<span class="tag ok">已配置</span>' : '<span class="tag gray">未配置</span>'}</label>
-        <input class="input" id="cKey" type="password" placeholder="${cfg.hasKey ? '••••••••' : 'sk-…'}"></div>
-      <label class="w-chk"><input type="checkbox" id="cMock" ${cfg.mock ? 'checked' : ''}> 演示模式</label>
-      <div style="margin-top:12px"><button class="btn ghost" id="cTest">测试连接</button>
-        <span id="cTestMsg" style="margin-left:10px;font-size:12px;color:#909399"></span></div>`,
-    onMount: (w) => {
-      w.querySelector('#cTest').onclick = async () => {
-        const box = w.querySelector('#cTestMsg');
-        box.innerHTML = '测试中…';
-        try {
-          // 先保存当前填写的内容再测，否则测的还是旧配置
-          await api('/api/admin/ai/config', { method: 'PUT', body: readForm(w), silent: true });
-          const r = await api('/api/admin/ai/test', { method: 'POST', silent: true });
-          box.innerHTML = `<span style="color:#0e9f5f">✅ ${esc((r && r.message) || '连接正常')}</span>`;
-          if (onSaved) onSaved();
-        } catch (e) { box.innerHTML = `<span style="color:#e0343f">❌ ${esc(e.message || '连接失败')}</span>`; }
-      };
-    },
-    onOk: async (w) => {
-      await api('/api/admin/ai/config', { method: 'PUT', body: readForm(w) });
-      toast('AI 配置已保存，全站 AI 功能生效', 'ok');
-      if (onSaved) onSaved();
-    },
-  });
+function openAiConfig() {
+  if (location.hash === '#/mfset') render(); else location.hash = '#/mfset';
 }
 
 /**
