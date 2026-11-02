@@ -1,0 +1,275 @@
+/* ============================================================================
+   后台统一主题（T11）
+   在 admin/index.html 里放在所有样式之后加载；所有规则都挂在 body.t11 下，只覆盖、不改旧选择器，
+   想退回旧样式：把 <body class="t11"> 的 t11 去掉即可。
+   只管外观（颜色 / 圆角 / 间距 / 字号 / 控件样式），不碰业务 JS；新增的类名一律 t11- 开头。
+   ============================================================================ */
+
+body.t11{
+  /* —— 色彩：主色沿用侧栏的蓝（ruoyi 主色），其余按语义分 —— */
+  --t11-primary:#1E88E5;
+  --t11-primary-d:#1565C0;
+  --t11-primary-l:#ecf5ff;
+  --t11-primary-line:#b3d8ff;
+  --t11-danger:#e5484d;
+  --t11-danger-d:#c9363b;
+  --t11-danger-l:#fef0f0;
+  --t11-danger-line:#fbc4c4;
+  --t11-ok:#2f9e44;
+  --t11-ok-l:#f0f9eb;
+  --t11-warn:#d9822b;
+  --t11-warn-l:#fdf6ec;
+  --t11-text:#1f2d3d;
+  --t11-text2:#5b6b7f;
+  --t11-text3:#8a97a8;
+  --t11-line:#e3e8ef;
+  --t11-line2:#edf0f5;
+  --t11-bg:#f0f2f5;
+  --t11-card:#fff;
+  --t11-head:#f5f7fa;
+  --t11-side:#0F2A44;
+  /* —— 形状 / 间距 / 字号 —— */
+  --t11-r:6px;          /* 控件圆角 */
+  --t11-r-lg:8px;       /* 卡片 / 弹窗圆角 */
+  --t11-h:34px;         /* 控件标准高度 */
+  --t11-h-sm:28px;
+  --t11-gap:12px;
+  --t11-pad:18px;
+  --t11-fs:13px;
+  --t11-shadow:0 1px 3px rgba(31,45,61,.06);
+  --t11-shadow-lg:0 12px 32px rgba(31,45,61,.18);
+  /* 让旧样式里引用 --ry-* / --brand 的地方也跟着统一 */
+  --ry-primary:var(--t11-primary);
+  --ry-primary-d:var(--t11-primary-d);
+  --ry-danger:var(--t11-danger);
+  --ry-success:var(--t11-ok);
+  --ry-border:var(--t11-line);
+  --ry-text:var(--t11-text);
+  --ry-text2:var(--t11-text2);
+  --ry-text3:var(--t11-text3);
+  --ry-bg:var(--t11-bg);
+  --brand:var(--t11-primary);
+  --brand-d:var(--t11-primary-d);
+  --brand-l:var(--t11-primary-l);
+  --radius:var(--t11-r-lg);
+  font-size:var(--t11-fs);
+  color:var(--t11-text);
+}
+
+/* ================= 外壳：侧栏 / 顶栏 ================= */
+body.t11 .admin-app,body.t11 .admin-app .main{background:var(--t11-bg)!important}
+body.t11 .admin-app .side{background:var(--t11-side)!important}
+body.t11 .admin-app .nav a{height:46px;font-size:14px;border-radius:0}
+body.t11 .admin-app .nav .nav-group .ng-t{font-size:14px;font-weight:600;letter-spacing:.3px}
+body.t11 .admin-app .nav .nav-group .ng-sub a{font-size:13.5px;font-weight:400!important;padding-left:46px!important}
+body.t11 .admin-app .nav a.on{background:var(--t11-primary)!important}
+/* 菜单项右侧的数字角标（待审核题目） */
+body.t11 .t11-badge{margin-left:auto;min-width:18px;height:18px;padding:0 6px;border-radius:9px;background:var(--t11-danger);color:#fff;font-size:11px;font-weight:600;line-height:18px;text-align:center;font-style:normal}
+body.t11 .admin-app.side-fold .t11-badge{display:none}
+body.t11 .admin-app .topbar{height:52px!important;min-height:52px!important;box-shadow:0 1px 0 var(--t11-line)}
+body.t11 .admin-app .content{padding:16px 18px 28px!important}
+body.t11 .admin-app .tb-crumb b{font-weight:600}
+
+/* ================= 卡片 / 区块标题 ================= */
+body.t11 .admin-app .card{
+  background:var(--t11-card);border:1px solid var(--t11-line);border-radius:var(--t11-r-lg);
+  box-shadow:var(--t11-shadow);padding:var(--t11-pad);margin-bottom:var(--t11-gap);
+}
+body.t11 .admin-app .card-h{margin-bottom:var(--t11-gap);padding-bottom:var(--t11-gap);border-bottom:1px solid var(--t11-line2);gap:12px;flex-wrap:wrap}
+body.t11 .admin-app .card-h h3{font-size:15px;font-weight:600;color:var(--t11-text)}
+body.t11 .admin-app .card-h h3 .ai{color:var(--t11-primary)}
+body.t11 .admin-app .grid{gap:var(--t11-gap)}
+
+/* ================= 按钮：主 / 次 / 危险 / 小 ================= */
+body.t11 .admin-app .btn,
+body.t11 .admin-app .btn.primary-sm,
+body.t11 .modal .btn,body.t11 .el-dialog .btn{
+  height:var(--t11-h);padding:0 16px;border-radius:var(--t11-r);font-size:var(--t11-fs);font-weight:500;
+  background:var(--t11-primary);border:1px solid var(--t11-primary);color:#fff;box-shadow:none;
+  display:inline-flex;align-items:center;justify-content:center;gap:4px;line-height:1;cursor:pointer;white-space:nowrap;
+  transition:background .15s,border-color .15s,color .15s;
+}
+body.t11 .admin-app .btn:hover,body.t11 .modal .btn:hover,body.t11 .el-dialog .btn:hover{background:var(--t11-primary-d);border-color:var(--t11-primary-d);transform:none}
+body.t11 .admin-app .btn.sm,body.t11 .admin-app .btn.xs,body.t11 .modal .btn.sm,body.t11 .modal .btn.xs{height:var(--t11-h-sm);padding:0 10px;font-size:12px}
+body.t11 .admin-app .btn.ghost,body.t11 .modal .btn.ghost,body.t11 .el-dialog .btn.ghost{
+  background:#fff;color:var(--t11-text2);border:1px solid var(--t11-line);
+}
+body.t11 .admin-app .btn.ghost:hover,body.t11 .modal .btn.ghost:hover,body.t11 .el-dialog .btn.ghost:hover{
+  color:var(--t11-primary);border-color:var(--t11-primary-line);background:var(--t11-primary-l);
+}
+/* 危险：红字红框（和「次要」同形，不抢主按钮的风头） */
+body.t11 .admin-app .btn.danger,body.t11 .modal .btn.danger,body.t11 .el-dialog .btn.danger{
+  background:#fff;color:var(--t11-danger);border:1px solid var(--t11-danger-line);
+}
+body.t11 .admin-app .btn.danger:hover,body.t11 .modal .btn.danger:hover,body.t11 .el-dialog .btn.danger:hover{
+  background:var(--t11-danger-l);border-color:var(--t11-danger);color:var(--t11-danger-d);
+}
+/* app.css 里还有一条 .admin-app .card .btn.ghost（圆角 12px、浅灰底）比上面更具体，这里对齐 */
+body.t11 .admin-app .card .btn,body.t11 .admin-app .card .btn.ghost,body.t11 .admin-app .card .btn.sm,body.t11 .admin-app .card .btn.xs{border-radius:var(--t11-r)}
+body.t11 .admin-app .card .btn.ghost{background:#fff}
+body.t11 .admin-app .card .btn.ghost:hover{background:var(--t11-primary-l)}
+body.t11 .admin-app .card .btn.danger:hover{background:var(--t11-danger-l)}
+body.t11 .admin-app .btn:disabled,body.t11 .modal .btn:disabled{opacity:.5;cursor:not-allowed}
+body.t11 .admin-app .btn .ai{margin-right:0}
+/* 表格行内操作：文字链 */
+body.t11 .admin-app .link-btn{height:var(--t11-h-sm);padding:0 10px;border-radius:var(--t11-r);font-size:12px;border:1px solid var(--t11-line);background:#fff;color:var(--t11-text2)}
+body.t11 .admin-app .link-btn:hover{color:var(--t11-primary);border-color:var(--t11-primary-line);background:var(--t11-primary-l)}
+body.t11 .admin-app .link-btn.danger{color:var(--t11-danger);border-color:var(--t11-danger-line)}
+body.t11 .admin-app .link-btn.danger:hover{background:var(--t11-danger-l)}
+body.t11 .admin-app .acts .link-btn{border:none;background:transparent;color:var(--t11-primary);padding:0 6px;height:auto}
+body.t11 .admin-app .acts .link-btn:hover{background:transparent;text-decoration:underline}
+body.t11 .admin-app .acts .link-btn.danger{color:var(--t11-danger)}
+
+/* ================= 表单：输入框 / 下拉 / 文本域 ================= */
+body.t11 .admin-app .field label,body.t11 .modal .field label,body.t11 .el-dialog .field label{font-size:12.5px;font-weight:500;color:var(--t11-text2);margin-bottom:6px}
+body.t11 .admin-app .input,body.t11 .admin-app .inp,
+body.t11 .admin-app select,body.t11 .admin-app textarea,
+body.t11 .admin-app input[type=text],body.t11 .admin-app input[type=number],body.t11 .admin-app input[type=password],
+body.t11 .admin-app input[type=search],body.t11 .admin-app input[type=date],body.t11 .admin-app input[type=tel],
+body.t11 .admin-app input:not([type]),
+body.t11 .modal .input,body.t11 .modal .inp,body.t11 .modal select,body.t11 .modal textarea,
+body.t11 .modal input[type=text],body.t11 .modal input[type=number],body.t11 .modal input[type=password],body.t11 .modal input[type=date],body.t11 .modal input:not([type]){
+  height:var(--t11-h);border:1px solid #d5dbe4;border-radius:var(--t11-r);padding:0 10px;background:#fff;color:var(--t11-text);
+  font-size:var(--t11-fs);transition:border-color .15s,box-shadow .15s;
+}
+/* 弹窗里的表单：app.css 里有一条更具体的 .el-dialog .field … 规则（圆角 10px），在这里对齐成统一的控件样式 */
+body.t11 .el-dialog .field select,
+body.t11 .el-dialog .field input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+body.t11 .el-dialog .field textarea{height:var(--t11-h);border:1px solid #d5dbe4;border-radius:var(--t11-r);font-size:var(--t11-fs)}
+body.t11 .el-dialog .field textarea{height:auto;padding:8px 10px}
+body.t11 .el-dialog .field select:focus,body.t11 .el-dialog .field input:focus,body.t11 .el-dialog .field textarea:focus{border-color:var(--t11-primary);box-shadow:0 0 0 3px rgba(30,136,229,.14)}
+body.t11 .admin-app textarea,body.t11 .modal textarea{height:auto;min-height:72px;padding:8px 10px;line-height:1.6}
+body.t11 .admin-app select,body.t11 .modal select{padding-right:26px;cursor:pointer}
+body.t11 .admin-app .input:hover,body.t11 .admin-app .inp:hover,body.t11 .admin-app select:hover,body.t11 .admin-app textarea:hover{border-color:#b9c3d0}
+body.t11 .admin-app .input:focus,body.t11 .admin-app .inp:focus,body.t11 .admin-app select:focus,body.t11 .admin-app textarea:focus,
+body.t11 .admin-app input:focus,body.t11 .modal input:focus,body.t11 .modal select:focus,body.t11 .modal textarea:focus{
+  border-color:var(--t11-primary);box-shadow:0 0 0 3px rgba(30,136,229,.14);outline:none;
+}
+body.t11 .admin-app input[type=checkbox],body.t11 .admin-app input[type=radio],body.t11 .modal input[type=checkbox],body.t11 .modal input[type=radio]{
+  height:auto;width:auto;padding:0;accent-color:var(--t11-primary);box-shadow:none;
+}
+body.t11 .admin-app input[type=file]{height:auto;padding:5px 8px;border-style:dashed}
+body.t11 .admin-app .toolbar{gap:8px;margin-bottom:var(--t11-gap)}
+body.t11 .admin-app .toolbar .input,body.t11 .admin-app .toolbar select{height:var(--t11-h);font-size:var(--t11-fs)}
+body.t11 .admin-app .hint,body.t11 .admin-app .mf-tip{color:var(--t11-text3);font-size:12px;line-height:1.6}
+
+/* ================= 表格 ================= */
+body.t11 .admin-app table{font-size:var(--t11-fs)}
+body.t11 .admin-app table th{background:var(--t11-head);color:var(--t11-text2);font-weight:600;padding:10px 8px;border-bottom:1px solid var(--t11-line)}
+body.t11 .admin-app table td{padding:10px 8px;border-bottom:1px solid var(--t11-line2);color:var(--t11-text);min-width:4.6em}
+/* 一格里放了 4 个以上的小标签（学习报告的各模块作答）：给够宽度，别竖着一列排下去 */
+body.t11 .admin-app table td:has(>*:nth-child(4)){min-width:210px}
+body.t11 .admin-app .link-btn,body.t11 .admin-app .tag{white-space:nowrap}
+body.t11 .admin-app table td:has(>input[type=checkbox]),body.t11 .admin-app table td:first-child:has(input[type=checkbox]){min-width:0}
+body.t11 .admin-app table tr:hover td{background:#f7f9fc}
+body.t11 .admin-app table tr.on td{background:var(--t11-primary-l)}
+body.t11 .admin-app .empty{color:var(--t11-text3);padding:44px 0}
+/* 宽表格在窄屏上自己横向滚动，不撑破页面 */
+body.t11 .admin-app .card{min-width:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+body.t11 .admin-app .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* 日期选择框：左边留出图标的位置（app.css 的 .el-dialog .field 规则把它盖掉了） */
+body.t11 .el-dialog .field .el-date-editor .el-input__inner{padding-left:32px}
+
+/* ================= 标签 / 状态点 ================= */
+body.t11 .admin-app .tag{display:inline-block;height:22px;line-height:20px;padding:0 8px;border-radius:4px;font-size:12px;font-weight:500;
+  background:var(--t11-primary-l);color:var(--t11-primary);border:1px solid var(--t11-primary-line)}
+body.t11 .admin-app .tag.ok{background:var(--t11-ok-l);color:var(--t11-ok);border-color:#cdeab8}
+body.t11 .admin-app .tag.warn{background:var(--t11-warn-l);color:var(--t11-warn);border-color:#f5dab1}
+body.t11 .admin-app .tag.no,body.t11 .admin-app .tag.err,body.t11 .admin-app .tag.danger{background:var(--t11-danger-l);color:var(--t11-danger);border-color:var(--t11-danger-line)}
+body.t11 .admin-app .tag.gray{background:#f4f5f7;color:var(--t11-text3);border-color:#e6e9ee}
+
+/* ================= 标签页 / 分段按钮（题库管理左栏的"章节 / 知识点"等原来用另一种靛蓝，统一成主色） ================= */
+body.t11 .admin-app .mf-tabs .btn,body.t11 .admin-app .tabs .btn{height:var(--t11-h)}
+body.t11 .admin-app .mf-segbox{border-color:var(--t11-line);border-radius:var(--t11-r-lg)}
+body.t11 .admin-app .mf-segit{border-radius:var(--t11-r)}
+body.t11 .admin-app .mf-segit:hover b{color:var(--t11-primary)}
+body.t11 .admin-app .mf-segit.on{background:var(--t11-primary);box-shadow:0 1px 4px rgba(30,136,229,.35)}
+body.t11 .admin-app .mf-tip{border-radius:var(--t11-r);background:#f7f9fc;border-color:var(--t11-line)}
+body.t11 .admin-app .mf-box{border-radius:var(--t11-r-lg);border-color:var(--t11-line)}
+body.t11 .admin-app .mf-treebox{border-radius:var(--t11-r);border-color:var(--t11-line)}
+
+/* ================= 弹窗（Element Dialog） ================= */
+body.t11 .el-dialog.modal{border-radius:var(--t11-r-lg)!important;box-shadow:var(--t11-shadow-lg)!important;overflow:hidden auto}
+body.t11 .el-dialog__header.modal-h{padding:14px 20px!important;border-bottom:1px solid var(--t11-line2);border-radius:var(--t11-r-lg) var(--t11-r-lg) 0 0}
+body.t11 .el-dialog__title{font-size:16px;font-weight:600;color:var(--t11-text)}
+body.t11 .el-dialog__body.modal-b{padding:18px 20px!important;color:var(--t11-text)}
+body.t11 .el-dialog__footer.modal-f{padding:12px 20px!important;border-top:1px solid var(--t11-line2);gap:10px;border-radius:0 0 var(--t11-r-lg) var(--t11-r-lg)}
+body.t11 .el-dialog__footer.modal-f .btn{min-width:84px}
+body.t11 .el-message.toast{border-radius:var(--t11-r-lg);box-shadow:var(--t11-shadow-lg)}
+
+/* ================= 首页：数据概览 ================= */
+body.t11 .admin-app .stat{border:1px solid var(--t11-line);border-radius:var(--t11-r-lg);box-shadow:var(--t11-shadow);padding:16px;gap:14px;border-left-width:3px;
+  transition:box-shadow .15s,transform .15s}
+body.t11 .admin-app .stat .ic{border-radius:var(--t11-r-lg);background:var(--t11-primary-l);color:var(--t11-primary)}
+body.t11 .admin-app .stat .v{font-size:26px;font-weight:700;color:var(--t11-text);font-variant-numeric:tabular-nums}
+body.t11 .admin-app .stat .l{font-size:12.5px;color:var(--t11-text3)}
+body.t11 .admin-app .t11-statlink{cursor:pointer}
+body.t11 .admin-app .t11-statlink:hover{box-shadow:0 4px 14px rgba(31,45,61,.1);transform:translateY(-1px)}
+body.t11 .admin-app .t11-dash-grid{display:grid;grid-template-columns:minmax(260px,1fr) minmax(0,2fr);gap:var(--t11-gap);align-items:start}
+body.t11 .admin-app .t11-quick{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+body.t11 .admin-app .t11-quick .btn{height:auto;min-height:64px;flex-direction:column;gap:6px;padding:10px 8px;font-size:13px;white-space:normal;text-align:center}
+body.t11 .admin-app .t11-quick .btn .ai{width:22px;height:22px;color:var(--t11-primary)}
+body.t11 .admin-app .t11-todo{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--t11-line);border-radius:var(--t11-r);margin-top:10px;
+  background:var(--t11-warn-l);border-color:#f5dab1;cursor:pointer}
+body.t11 .admin-app .t11-todo b{color:var(--t11-warn);font-size:18px}
+
+/* ================= 学习报告页 / 学情管理页：筛选条 + 表格 ================= */
+body.t11 .admin-app .t11-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--t11-gap)}
+body.t11 .admin-app .xr-tabs,body.t11 .admin-app .rp-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--t11-gap)}
+body.t11 .admin-app .grades-frame{border-radius:var(--t11-r-lg);border:1px solid var(--t11-line);background:#fff}
+
+/* ================= 手机宽度：侧栏变抽屉，内容不横向撑破 ================= */
+body.t11 .t11-scrim{display:none}
+@media (max-width:820px){
+  body.t11 .admin-app .main,body.t11 .admin-app.side-fold .main{margin-left:0!important}
+  body.t11 .admin-app .side,body.t11 .admin-app.side-fold .side{
+    width:248px!important;transform:translateX(-100%);transition:transform .22s ease;z-index:3000;box-shadow:none;
+  }
+  body.t11 .admin-app.t11-drawer .side{transform:none;box-shadow:6px 0 24px rgba(0,0,0,.28)}
+  /* 抽屉里恢复文字（旧规则在窄屏会把它们藏成纯图标） */
+  body.t11 .admin-app .nav a .txt,body.t11 .admin-app .brand b,body.t11 .admin-app .side-foot,
+  body.t11 .admin-app .txt,body.t11 .admin-app .zx-txt,body.t11 .admin-app .ng-arrow{display:revert}
+  body.t11 .admin-app .nav-group .ng-t{display:flex}
+  body.t11 .admin-app .nav-group .ng-sub{display:none!important}
+  body.t11 .admin-app .nav-group.open .ng-sub{display:block!important}
+  body.t11 .admin-app .nav a,body.t11 .admin-app .nav-leaf{justify-content:flex-start;padding:0 18px!important}
+  body.t11 .admin-app .nav .nav-group .ng-sub a{padding-left:46px!important}
+  body.t11 .admin-app .nav-group .ng-t{padding:0 18px}
+  body.t11 .admin-app.t11-drawer .t11-scrim{display:block;position:fixed;inset:0;background:rgba(15,42,68,.45);z-index:2990}
+  body.t11 .admin-app .topbar{padding:0 10px!important;gap:6px}
+  body.t11 .admin-app .tb-crumb{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  body.t11 .admin-app .who{gap:6px!important;flex:none}
+  body.t11 .admin-app .who .link-btn{padding:0 8px}
+  /* 顶栏右侧：改成纯图标按钮（文字藏起来，title 里还有提示），一行放得下 */
+  body.t11 .admin-app .who #btnPwd,body.t11 .admin-app .who #btnStu,body.t11 .admin-app .who #btnOut{font-size:0;width:32px;min-width:32px;height:32px;padding:0;gap:0;justify-content:center;display:inline-flex;align-items:center}
+  body.t11 .admin-app .who #btnPwd .ai,body.t11 .admin-app .who #btnStu .ai,body.t11 .admin-app .who #btnOut .ai{width:15px;height:15px;font-size:15px;margin:0}
+  body.t11 .admin-app .who-user{margin-left:0;padding-left:6px}
+  body.t11 .admin-app .who-user span{display:none}
+  body.t11 .admin-app .card{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  body.t11 .admin-app .card table th,body.t11 .admin-app .card table td{white-space:nowrap}
+  body.t11 .admin-app .mf-wrap{gap:10px}
+  body.t11 .admin-app .mf-card,body.t11 .admin-app .mf-card.grow{min-width:0;flex:1 1 100%;width:100%}
+  body.t11 .admin-app .mf-form .field,body.t11 .admin-app .mf-form .field.wide{min-width:0;flex:1 1 100%}
+  body.t11 .admin-app .mf-stem{max-width:100%}
+  body.t11 .admin-app .bk-mods{flex-wrap:wrap}
+  body.t11 .admin-app .content{padding:12px 10px 24px!important}
+  body.t11 .admin-app .card{padding:14px 12px}
+  body.t11 .admin-app .t11-dash-grid{grid-template-columns:minmax(0,1fr)}
+  body.t11 .admin-app .grid.g4,body.t11 .admin-app .grid.g3,body.t11 .admin-app .grid.g2,body.t11 .admin-app .dash-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body.t11 .admin-app .grid.g2:not(.dash-stats){grid-template-columns:minmax(0,1fr)}
+  body.t11 .admin-app .stat{padding:12px;gap:10px}
+  body.t11 .admin-app .stat .ic{width:38px;height:38px}
+  body.t11 .admin-app .stat .v{font-size:22px}
+  body.t11 .admin-app .toolbar{flex-direction:row}
+  body.t11 .admin-app .toolbar .input,body.t11 .admin-app .toolbar select{flex:1 1 140px;min-width:0;width:auto!important}
+  body.t11 .admin-app .field{min-width:0}
+  body.t11 .el-dialog__wrapper.mask{padding:8px}
+  body.t11 .el-dialog.modal,body.t11 .el-dialog.modal.wide{width:100%!important;max-width:100%!important;max-height:94vh}
+  body.t11 .el-dialog__body.modal-b{padding:14px!important}
+  body.t11 .admin-app img,body.t11 .admin-app canvas{max-width:100%}
+}
+@media (max-width:480px){
+  body.t11 .admin-app .dash-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body.t11 .admin-app .card-h{align-items:flex-start}
+}

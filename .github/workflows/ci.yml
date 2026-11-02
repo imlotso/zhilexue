@@ -72,6 +72,8 @@ jobs:
         if: ${{ !cancelled() }}   # 公式输入（T8）：本地 MathLive、题目存 \( … \)、学生用公式键盘作答判分、有浏览器时点一遍
       - run: node bankstore-test.js
         if: ${{ !cancelled() }}   # 题库与视频存储解耦（T12）：bank/ 前缀、BANK_BUCKET 口子、删视频不删题
+      - run: node theme-test.js
+        if: ${{ !cancelled() }}   # 后台 UI 统一（T11）：theme.css 作用范围、菜单分组、手机宽度抽屉侧栏、页面不横向撑破
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4

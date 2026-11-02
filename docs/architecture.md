@@ -27,6 +27,7 @@ zhilexue/
 │   ├── index.html + js/vue-app.js   学生端入口（Vue 3）
 │   │   admin/audioui.js         后台题目的听力音频字段（上传 / 文字生成朗读 / 试听），题目编辑、新建、待审核编辑共用（T7）
 │   │   js/t13-fit.js            单词学习卡片里的单词 / 释义 / 选项放不下时缩字号（T13，只改显示，在 words.js 之后加载）
+│   │   admin/theme.css          后台统一主题（T11）：所有规则挂在 body.t11 下，用 --t11-* 变量统一主色 / 圆角 / 控件高度 / 间距，在 admin/index.html 里最后加载
 │   │   js/mlive.js              公式输入（T8）：懒加载本地 MathLive，`MLive.dialog` 弹公式编辑框 + 虚拟键盘，学生端和后台共用
 │   │   admin/formulaui.js       后台「插入公式」按钮 + 题目输入框粘贴 / 拖拽图片（T8）
 │   │   vendor/mathlive/         MathLive 0.109.2（MIT）本地文件和字体，不走 CDN；点公式按钮时才加载
