@@ -7,6 +7,16 @@
 - 存储：`src/storage.js`，阿里云 OSS / 七牛 / 本地磁盘三选一（环境变量 `STORAGE_DRIVER`）。视频走前端分片直传 OSS（单个上限 4GB），可配 `CDN_DOMAIN`。`LOCAL_FOLDERS` 默认 `wrong,guidedocs` 留在本地。
 - 前端：原生 JS，无构建。
 
+## 数据库如何选择（MySQL / SQLite）
+
+**没有"选择"：运行时永远是 MySQL。** README 里写的 SQLite 已过时。
+
+- 连接信息读取顺序（`src/db.js`）：环境变量 `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` → `src/config.local.js` 的 `mysql` 字段；库名默认 `xuexi`。
+- `better-sqlite3` 只用于一件事：启动时（`db.js` 末尾 `importIfEmpty`）若 MySQL 里还没有用户，且 `data/xuexi.db`（旧 SQLite 文件）存在，则一次性导入到 MySQL；没有该文件或没装 `better-sqlite3` 则直接以空库启动。当前仓库没有 `data/xuexi.db`。
+- SQL 一律写 SQLite 方言，由 `db.js`（建表 `toMysqlDdl`）和 `mysql-sync.js`（查询）转换成 MySQL；改表结构只能走 `db.js` 的幂等建表/加列，只加不删。
+- **连不上 MySQL 时（实测）：没有回退也没有重试。** 密码错误报 `Access denied`，端口不通报 `ECONNREFUSED`，都在 `require('./src/db')` 阶段抛出未捕获异常，进程直接退出。所以服务启动前 MySQL 必须可用；`npm run seed`、各测试脚本同理。
+- 空库初始化：`runSchema` 先建表，再执行加列 `ALTER`，最后建依赖这些列的索引（全新空库已在 CI 验证通过）。
+
 ## 目录结构
 
 ```

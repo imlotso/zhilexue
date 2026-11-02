@@ -42,4 +42,4 @@
 
 ### 遗留
 - `ui-test.js`、`wrong-ui-test.js`、`report-test.js`、`guide-test.js` 不在 CI 中，保持"基线已失败"，后续任务不得让它们比现在更差。
-- 任务书 T0-2 要求的"MySQL / SQLite 选择条件、连不上时的行为"尚未补进 `docs/architecture.md`。
+- 已补：`docs/architecture.md` 新增"数据库如何选择"一节（运行时只有 MySQL；连不上直接崩溃）。
