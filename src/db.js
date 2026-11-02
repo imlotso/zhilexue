@@ -83,31 +83,6 @@ function runSchema(sql) {
   }
 }
 
-// ---- 智能题库（2026-10）：题目表扩展，支持 完形填空/阅读理解原文、知识点、来源、年份、绑定知识点视频 ----
-// 注意：必须先加列再建索引（runSchema 里 idx_q_video 依赖 questions.video_id）
-try { db.exec("ALTER TABLE questions ADD COLUMN stage TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
-try { db.exec("ALTER TABLE questions ADD COLUMN point TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
-try { db.exec("ALTER TABLE questions ADD COLUMN material MEDIUMTEXT"); } catch (e) { /* 列已存在 */ }
-try { db.exec("ALTER TABLE questions ADD COLUMN source TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
-try { db.exec("ALTER TABLE questions ADD COLUMN year TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
-try { db.exec("ALTER TABLE questions ADD COLUMN video_id INTEGER DEFAULT NULL"); } catch (e) { /* 列已存在 */ }
-try { db.exec("ALTER TABLE questions ADD COLUMN images MEDIUMTEXT"); } catch (e) { /* 列已存在 */ }
-// 录题批次：半自动 OCR 转写全文（按页存 JSON 数组）
-try { db.exec('ALTER TABLE mf_recog_runs ADD COLUMN ocr_texts MEDIUMTEXT'); } catch (e) { /* 列已存在 */ }
-// 错题复习（艾宾浩斯简化版）字段
-try { db.exec("ALTER TABLE mistakes ADD COLUMN review_stage INTEGER DEFAULT 0"); } catch (e) { /* 列已存在 */ }
-try { db.exec("ALTER TABLE mistakes ADD COLUMN next_review TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
-// 薄弱知识点：AI 自动识别的错题知识点（题目本身 point 为空时由 AI 归类，存在错题维度）
-try { db.exec("ALTER TABLE mistakes ADD COLUMN ai_point TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
-// 纸质上传扩展字段：题干文字描述 / 学生写的答案 / 错误类型 / 所属章节
-try { db.exec("ALTER TABLE paper_uploads ADD COLUMN stem_text TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
-try { db.exec("ALTER TABLE paper_uploads ADD COLUMN answer TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
-try { db.exec("ALTER TABLE paper_uploads ADD COLUMN error_type TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
-try { db.exec("ALTER TABLE paper_uploads ADD COLUMN chapter TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
-// 老库列宽修复：这几列内容可能超过 VARCHAR(255)，扩成 MEDIUMTEXT（SQLite 无此语法，失败即忽略）
-try { db.exec("ALTER TABLE word_group_done MODIFY fp MEDIUMTEXT"); } catch (e) { /* 忽略 */ }
-try { db.exec("ALTER TABLE phonics_items MODIFY samples MEDIUMTEXT"); } catch (e) { /* 忽略 */ }
-try { db.exec("ALTER TABLE phonics_items MODIFY files MEDIUMTEXT"); } catch (e) { /* 忽略 */ }
 
 runSchema(`
 CREATE TABLE IF NOT EXISTS users (
@@ -435,8 +410,6 @@ CREATE TABLE IF NOT EXISTS word_group_done (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_w_grp_uniq ON word_group_done(student_id, book_id, module, unit, gi);
 
 CREATE INDEX IF NOT EXISTS idx_q_chapter ON questions(chapter_id);
-CREATE INDEX IF NOT EXISTS idx_q_video ON questions(video_id);
-CREATE INDEX IF NOT EXISTS idx_q_bank ON questions(subject, stage, grade);
 
 -- 语音基础（字母乐园 / 音标训练）：条目内容由管理端「训练管理 → 词书管理」里维护
 CREATE TABLE IF NOT EXISTS phonics_items (
@@ -736,6 +709,38 @@ CREATE INDEX IF NOT EXISTS idx_w_sent_book ON word_sentences(book_id);
 CREATE INDEX IF NOT EXISTS idx_w_pos_book ON word_pos(book_id);
 CREATE INDEX IF NOT EXISTS idx_w_rec_user ON word_records(student_id);
 CREATE INDEX IF NOT EXISTS idx_w_rec_book ON word_records(student_id, book_id);
+`);
+
+// ---- 智能题库（2026-10）：题目表扩展，支持 完形填空/阅读理解原文、知识点、来源、年份、绑定知识点视频 ----
+// 注意：这批加列必须放在建表（runSchema）之后；空库初始化时表是刚建出来的，靠它补齐列，并且依赖这些列的索引要在它之后再建
+try { db.exec("ALTER TABLE questions ADD COLUMN stage TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE questions ADD COLUMN point TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE questions ADD COLUMN material MEDIUMTEXT"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE questions ADD COLUMN source TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE questions ADD COLUMN year TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE questions ADD COLUMN video_id INTEGER DEFAULT NULL"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE questions ADD COLUMN images MEDIUMTEXT"); } catch (e) { /* 列已存在 */ }
+// 录题批次：半自动 OCR 转写全文（按页存 JSON 数组）
+try { db.exec('ALTER TABLE mf_recog_runs ADD COLUMN ocr_texts MEDIUMTEXT'); } catch (e) { /* 列已存在 */ }
+// 错题复习（艾宾浩斯简化版）字段
+try { db.exec("ALTER TABLE mistakes ADD COLUMN review_stage INTEGER DEFAULT 0"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE mistakes ADD COLUMN next_review TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+// 薄弱知识点：AI 自动识别的错题知识点（题目本身 point 为空时由 AI 归类，存在错题维度）
+try { db.exec("ALTER TABLE mistakes ADD COLUMN ai_point TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+// 纸质上传扩展字段：题干文字描述 / 学生写的答案 / 错误类型 / 所属章节
+try { db.exec("ALTER TABLE paper_uploads ADD COLUMN stem_text TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE paper_uploads ADD COLUMN answer TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE paper_uploads ADD COLUMN error_type TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE paper_uploads ADD COLUMN chapter TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+// 老库列宽修复：这几列内容可能超过 VARCHAR(255)，扩成 MEDIUMTEXT（SQLite 无此语法，失败即忽略）
+try { db.exec("ALTER TABLE word_group_done MODIFY fp MEDIUMTEXT"); } catch (e) { /* 忽略 */ }
+try { db.exec("ALTER TABLE phonics_items MODIFY samples MEDIUMTEXT"); } catch (e) { /* 忽略 */ }
+try { db.exec("ALTER TABLE phonics_items MODIFY files MEDIUMTEXT"); } catch (e) { /* 忽略 */ }
+
+// 依赖上面 ALTER 才存在的列的索引：必须在加列之后建（空库初始化时 questions 表刚建出来，还没有 video_id / stage 列）
+runSchema(`
+CREATE INDEX IF NOT EXISTS idx_q_video ON questions(video_id);
+CREATE INDEX IF NOT EXISTS idx_q_bank ON questions(subject, stage, grade);
 `);
 
 // 老库升级：记录学生账号由哪个校长/分校开通（已存在则跳过）
