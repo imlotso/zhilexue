@@ -38,12 +38,18 @@ jobs:
       - run: npm run seed
       - run: node storage-test.js
       - name: Start server
+        # CI 必须用本地存储：默认驱动是 oss 且内置了线上桶的密钥，smoke/word-test 的上传用例会写进生产 OSS
+        env:
+          STORAGE_DRIVER: local
+          AI_MOCK: '1'   # AI 走演示模式：CI 不调真实 AI 接口（需要 ai.js 支持 AI_MOCK）
         run: |
           nohup npm start > server.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://localhost:3000/ >/dev/null && break; sleep 1; done
       - run: node smoke.js
       - run: node word-test.js
+        if: ${{ !cancelled() }}   # smoke 失败时也要跑出结果，不能被跳过
       - run: node wrong-test.js
+        if: ${{ !cancelled() }}   # smoke 失败时也要跑出结果，不能被跳过
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4
