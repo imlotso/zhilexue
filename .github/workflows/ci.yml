@@ -16,7 +16,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node bank-test.js
-      - run: node storage-test.js
 
   api:
     runs-on: ubuntu-latest
@@ -35,6 +34,7 @@ jobs:
           SQL="ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$PW'; CREATE DATABASE IF NOT EXISTS xuexi CHARACTER SET utf8mb4;"
           sudo mysql -e "$SQL" || mysql -uroot -proot -e "$SQL"
       - run: npm run seed
+      - run: node storage-test.js
       - name: Start server
         run: |
           nohup npm start > server.log 2>&1 &
