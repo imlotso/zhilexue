@@ -43,3 +43,47 @@
 ### 遗留
 - `ui-test.js`、`wrong-ui-test.js`、`report-test.js`、`guide-test.js` 不在 CI 中，保持"基线已失败"，后续任务不得让它们比现在更差。
 - 已补：`docs/architecture.md` 新增"数据库如何选择"一节（运行时只有 MySQL；连不上直接崩溃）。
+
+## T1 手机端视频无法播放（2026-11-02）
+
+### 排查结果（D1–D7）
+云环境没有真实视频、生产 OSS/CDN 和手机，下表区分"已实测"和"待 BOBO"。实测环境：无头 Chromium（带 H.264，不带 H.265 解码）+ 手机视口/触屏/iPhone UA，样本视频用 ffmpeg 生成（H.264+AAC 带/不带 faststart、H.265、VP9、竖屏 9:16），上传到本地存储的测试课程。
+
+| 步骤 | 结论 | 依据 |
+|---|---|---|
+| D1 编码 | **能复现客户症状**；真实库视频未核对 | H.265 样本：声音正常、画面全黑、时间在走，`readyState=4`、`error=null`、`videoWidth=0`，**浏览器不触发 error 事件**。H.264、VP9 正常。真实库视频编码分布待 BOBO 提供只读连接（见 pending） |
+| D2 moov 位置 | 检测手段已就绪；真实视频待核对 | `scripts/check-video.sh` 对样本正确区分 faststart（moov 在前）与非 faststart（mdat 在前），并识别 H.265/VP9 |
+| D3 响应头 | 本地存储模式**正常**；OSS/CDN 待 BOBO | 本地 `/api/file`：`206 Partial Content`、`Accept-Ranges: bytes`、`Content-Type: video/mp4`、无 attachment |
+| D4 CDN 防盗链 | 待 BOBO | 云环境访问不到生产 CDN |
+| D5 手机内置浏览器 | 待 BOBO 真机 | 待测清单已写入 pending |
+| D6 弹窗布局 | **未命中**；但发现一个次要问题 | 375×667、414×896、360×560、横屏 667×375：弹窗无溢出；`.mask` z-index 140 高于底部导航 40，导航中心点最上层元素是遮罩，控制条不被遮挡。次要问题：没有画面（出错/H.265）时播放区塌成默认 150px |
+| D7 签名过期 | 记录 | OSS 签名 1 小时过期；"重新加载"会重新请求 `/play` 取新链接，已兼容 |
+
+**结论**：客户说的"放不了"，在能复现的范围内最符合 **D1（H.265 等浏览器解不了的画面编码）**：声音正常、画面黑屏、没有任何提示。是否是线上真实原因，取决于 BOBO 核对真实库视频编码和真机结果。
+
+### 改了什么
+- `public/js/vue-app.js`（`playVideo`）：
+  - `<video>` 去掉 `autoplay`，加 `webkit-playsinline x5-playsinline x5-video-player-type="h5-page" x5-video-player-fullscreen="false"`；由脚本发起 `play()`，被浏览器拒绝时显示"▶ 点击视频开始播放"（不会盖掉真实错误：`NotSupportedError` / `AbortError` 不触发该提示）。
+  - 监听 `error`（按 `video.error.code` 区分网络/解码/格式或链接失效）、`stalled` / `waiting` / `abort`（10 秒仍未缓冲好显示"加载很慢"软提示，恢复播放后自动消失）。
+  - **`videoWidth === 0` 检测**：识别"只有声音没有画面"（见 D13）。
+  - 提示层带"重新加载"（重新请求 `/play` 取新链接）和"用浏览器打开"（`target="_blank"`）。
+  - 竖屏视频（高>宽）加 `t1-portrait`，保持按视频比例显示。
+- `public/css/app.css`：新增 `t1-` 前缀类；`max-width:640px` 下播放区固定 16:9，视频铺满并按比例留黑边。不改桌面样式、不改旧选择器。
+- `public/admin/vcodec.js`（新）：把 `phonics.js` 里的 H.265 检测抽成 `checkVideoCodec(file)`；`phonics.js` 改用它；`admin.js` 的 `uploadVideoDirect()`（后台通用视频上传唯一入口，新增/编辑视频两处都走它）在 `direct/init` 之前调用，H.265 被拦截。
+- `scripts/check-video.sh`（新）：输出视频/音频编码、是否 faststart，并打印 ffmpeg 修复命令。
+- 静态资源版本号：`index.html`、`admin/index.html` 里 `vue-app.js`、`app.css`、`admin.js`、`phonics.js` 的 `?v=` 已更新，避免手机浏览器吃旧缓存。
+
+### 验证
+都在云环境用无头 Chromium（手机视口 + 触屏）实测，**不能代替真机**：
+- 播放：H.264、VP9 正常播放；H.265 显示"只有声音、没有可显示的画面…"+ 两个按钮，不再黑屏无提示。
+- 错误路径（9 项）：`play()` 被拒显示点按提示并可恢复；视频地址 404 显示"不支持该格式或链接已失效"；点"重新加载"重新请求 `/play` 并恢复；"用浏览器打开"是新窗口链接；卡住 10 秒出软提示并在恢复后自动消失；关闭弹窗后无残留提示层。
+- 布局：手机横屏视频 375×211（16:9），竖屏视频 195×347（与改前一致），桌面 1000×496 不变。
+- 后台：H.265 被 `checkVideoCodec` 与 `uploadVideoDirect` 拦截，且**没有**发出 `direct/init` 请求；H.264 放行；后台页面无脚本错误。
+- 回归：smoke 130/0、word-test 60/0、wrong-test 44/0、bank-test 29/0、storage-test 34/0（与 T0 基线一致）。
+- 验证用的 Playwright 脚本没有提交到仓库（依赖 Playwright 且需要测试库里的样本视频）。
+
+### 遗留 / 需要 BOBO
+- 真机（iOS Safari、Android Chrome、微信）验证、真实库视频编码与 faststart 核对、生产 OSS/CDN 响应头检查：见 `docs/pending-human-actions.md`。
+- 若真实库里确有 H.265/非 faststart 视频，需 BOBO 决定是否让客户重传；本次**没有做服务器端转码**（任务书明确不做）。
+- 前端编码检测只拦 H.265（读文件头尾 2MB 找 `hev1/hvc1`）；VP9/AV1、非 AAC 音频不拦。
+- 后台视频预览弹窗（`admin.js` 里的 `<video ... autoplay>`）未改。

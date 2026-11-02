@@ -1803,6 +1803,7 @@ function openPlayer(title, src) {
 
 /** 视频从浏览器分片直传 OSS，不经过本服务器。每个分片临上传前再要一次 6 小时有效的地址。 */
 async function uploadVideoDirect(file, onProgress) {
+  await checkVideoCodec(file);   // H.265 会黑屏只有声音：上传前拦下，不占用云存储（vcodec.js）
   const partSize = 8 * 1024 * 1024;
   const init = await api('/api/admin/videos/direct/init', { method: 'POST', body: { name: file.name, size: file.size }, silent: true });
   const total = Math.max(1, Math.ceil(file.size / partSize));

@@ -444,8 +444,8 @@ const App = {
       wrap.className = 'mask video-mask';
       wrap.innerHTML = `<div class="video-box">
         <div class="video-h"><b>${esc(lesson.title || v.title)}</b><button class="close-x">&times;</button></div>
-        <div class="player-wrap">${isFile
-          ? `<video id="stVideo" src="${esc(withTicket(v.src))}" controls autoplay playsinline preload="metadata"></video>`
+        <div class="player-wrap t1-pw">${isFile
+          ? `<video id="stVideo" src="${esc(withTicket(v.src))}" controls playsinline webkit-playsinline x5-playsinline x5-video-player-type="h5-page" x5-video-player-fullscreen="false" preload="metadata"></video><div class="t1-vp-layer" hidden></div>`
           : `<iframe src="${esc(withTicket(v.src))}" allowfullscreen></iframe>`}</div>
         <div class="st-player-bar"><div class="pb-title">${esc(lesson.title || v.title)}</div>
           <div class="pb-right">${isFile && canSpeed
@@ -454,10 +454,83 @@ const App = {
       </div>`;
       document.body.appendChild(wrap);
       const vid = wrap.querySelector('#stVideo');
-      const close = () => { if (vid) vid.pause(); wrap.remove(); };
+      let closed = false, stallTimer = 0;
+      const close = () => { closed = true; clearTimeout(stallTimer); if (vid) vid.pause(); wrap.remove(); };
       wrap.querySelector('.close-x').onclick = close;
       wrap.onclick = (e) => { if (e.target === wrap) close(); };
       if (!vid) return;
+      // ---- 手机播放兜底：播放被拒 / 加载出错 / 卡住 / 只有声音没有画面（H.265 等），都给出明确提示 ----
+      const layer = wrap.querySelector('.t1-vp-layer');
+      const hideLayer = () => { layer.hidden = true; layer.innerHTML = ''; layer.className = 't1-vp-layer'; };
+      const tryPlay = () => {
+        // 只有"浏览器不让脚本播放"才提示点按；NotSupportedError（没有可播放的源）由 error 事件给出真实原因，
+        // AbortError 是被新的加载/暂停打断，都不能用点按提示盖掉错误层
+        const fail = (e) => {
+          const n = e && e.name;
+          if (closed || n === 'AbortError' || n === 'NotSupportedError' || /t1-vp-err/.test(layer.className)) return;
+          showTap();
+        };
+        try { const p = vid.play(); if (p && p.catch) p.catch(fail); } catch (e) { fail(e); }
+      };
+      const showTap = () => {   // 浏览器拒绝了脚本发起的播放（常见于 iOS Safari / 微信内置浏览器）
+        layer.className = 't1-vp-layer t1-vp-tap';
+        layer.innerHTML = '<button type="button" class="t1-vp-btn t1-vp-go">▶ 点击视频开始播放</button>';
+        layer.hidden = false;
+        layer.querySelector('.t1-vp-go').onclick = () => { hideLayer(); tryPlay(); };
+      };
+      const showErr = (msg, soft) => {   // soft=true：可能只是网络慢，恢复播放后自动消失
+        if (closed) return;
+        clearTimeout(stallTimer);
+        layer.className = 't1-vp-layer t1-vp-err' + (soft ? ' t1-vp-soft' : '');
+        layer.innerHTML = `<div class="t1-vp-msg">${esc(msg)}</div><div class="t1-vp-acts"><button type="button" class="t1-vp-btn t1-vp-reload">重新加载</button><a class="t1-vp-btn t1-vp-open" target="_blank" rel="noopener" href="${esc(withTicket(v.src))}">用浏览器打开</a></div>`;
+        layer.hidden = false;
+        layer.querySelector('.t1-vp-reload').onclick = reload;
+      };
+      const reload = async () => {   // 重新请求播放地址（兼容一小时签名过期）
+        hideLayer();
+        const nv = await api('/api/stu/videos/' + videoId + '/play').catch(() => null);
+        if (closed) return;
+        if (!nv || !nv.src) { showErr('重新获取播放地址失败，请检查网络后再试'); return; }
+        v.src = nv.src;
+        noPic = false;
+        vid.src = withTicket(nv.src);
+        vid.load();
+        tryPlay();
+      };
+      const ERR_TEXT = {
+        2: '网络出错，视频加载中断了',
+        3: '视频解码失败：这个视频的编码当前浏览器无法解码',
+        4: '当前浏览器不支持这个视频格式，或视频链接已失效',
+      };
+      vid.addEventListener('error', () => {
+        const c = vid.error && vid.error.code;
+        if (c === 1) return;   // 1 = 用户主动中止，不算错误
+        showErr(ERR_TEXT[c] || '视频播放出错了');
+      });
+      const armStall = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => { if (!closed && vid.readyState < 3 && !vid.error) showErr('视频加载很慢或网络中断了，可以点“重新加载”', true); }, 10000);
+      };
+      vid.addEventListener('stalled', armStall);
+      vid.addEventListener('waiting', armStall);
+      vid.addEventListener('abort', () => { if (!closed && vid.readyState === 0 && !vid.error) armStall(); });
+      ['canplay', 'canplaythrough'].forEach((ev) => vid.addEventListener(ev, () => clearTimeout(stallTimer)));
+      vid.addEventListener('playing', () => {
+        clearTimeout(stallTimer);
+        if (/t1-vp-(soft|tap)/.test(layer.className)) hideLayer();
+      });
+      // H.265 等浏览器解不了的画面编码：声音正常播放、画面全黑，而且浏览器不会触发 error 事件，只能靠 videoWidth===0 识别
+      let noPic = false;
+      const checkNoPicture = () => {
+        if (closed || noPic || !(vid.duration > 0) || vid.videoWidth !== 0) return;
+        noPic = true;
+        vid.pause();
+        showErr('这个视频只有声音、没有可显示的画面：画面编码（如 H.265）当前浏览器不支持。可以点“用浏览器打开”换个浏览器试试，或联系老师重新上传 H.264 编码的 MP4');
+      };
+      vid.addEventListener('loadeddata', checkNoPicture);
+      // 竖屏视频（高>宽）不套固定 16:9，保持按视频比例显示，否则在手机上会缩成一条
+      vid.addEventListener('loadedmetadata', () => { if (vid.videoHeight > vid.videoWidth) wrap.querySelector('.player-wrap').classList.add('t1-portrait'); });
+      vid.addEventListener('timeupdate', () => { if (vid.currentTime > 0.5) checkNoPicture(); });
       const apply = (r) => { try { vid.playbackRate = r; } catch (e) { /* 忽略 */ } };
       if (canSpeed) {
         apply(this.speed || 1);
@@ -480,6 +553,7 @@ const App = {
       };
       vid.addEventListener('ended', mark);
       vid.addEventListener('timeupdate', () => { if (vid.duration && vid.currentTime / vid.duration >= 0.9) mark(); });
+      tryPlay();
     },
     recount() {
       const c = this.course;
