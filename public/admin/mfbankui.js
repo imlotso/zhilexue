@@ -86,8 +86,11 @@ async function viewMfPapers() {
       <div class="card-h"><h3>${ic('doc')} 试卷管理</h3>
         <div class="card-h-r">
           <input id="mpKw" class="inp" placeholder="搜卷名" value="${esc(st.kw)}">
+          <select id="mpSub"><option value="">全部学科</option>${MF_SUBJECTS.map((s) => `<option ${st.subject === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+          <input id="mpYear" class="inp" style="width:84px" placeholder="年份" maxlength="4" value="${esc(st.year || '')}">
           <select id="mpStatus"><option value="">全部状态</option>${groups.map((s) => `<option value="${s}" ${st.status === s ? 'selected' : ''}>${STATUS[s] || s}</option>`).join('')}</select>
-          <button class="btn primary sm" id="mpNew">${ic('plus')} 新建试卷</button>
+          <button class="btn primary sm" id="mpImport">${ic('upload')} 上传真题试卷</button>
+          <button class="btn ghost sm" id="mpNew">${ic('plus')} 新建试卷</button>
         </div></div>
       <div class="card-b">
         ${groups.map((s) => {
@@ -96,7 +99,7 @@ async function viewMfPapers() {
           return `<h4 class="mf-seg">${STATUS[s] || s}（${list.length}）</h4>
           <div class="mf-papers">${list.map((p) => `<div class="mf-paper">
             <div class="mf-pt">${esc(p.title)} ${Number(p.published) ? '<span class="tag ok">已发布到试卷库</span>' : ''}</div>
-            <div class="hint">${esc(p.subject || '通用')} · ${p.qcount || 0} 题 · ${esc(p.created_at || '')}</div>
+            <div class="hint">${esc(p.subject || '通用')}${p.grade ? ' · ' + esc(p.grade) : ''}${p.year ? ' · ' + esc(p.year) + '年' : ''} · ${p.qcount || 0} 题 · ${esc(p.created_at || '')}</div>
             <div class="mf-pbtns">
               <button class="btn ghost xs" data-open="${p.id}">打开</button>
               <button class="btn ghost xs" data-prev="${p.id}">预览打印</button>
@@ -115,17 +118,21 @@ async function viewMfPapers() {
         modal({
           title: '新建试卷', body: `<div class="mf-form">
             <div class="field"><label>卷名</label><input id="npTitle" class="inp" placeholder="如：七年级上册期中卷"></div>
+            <div class="field"><label>年份</label><input id="npYear" class="inp" placeholder="如 2024（选填）" maxlength="4"></div>
             <div class="field"><label>学科</label><select id="npSub">${MF_SUBJECTS.map((s) => `<option>${s}</option>`).join('')}</select></div>
             <div class="field"><label>学段</label><select id="npStage">${MF_STAGES.slice(1).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
             <div class="field"><label>年级</label><select id="npGrade"><option value="">不限</option>${MF_GRADES.map((g) => `<option>${g}</option>`).join('')}</select></div>
             <div class="field"><label>文件夹</label><select id="npFolder"><option value="">未分类</option>${folders.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></div></div>`,
           onOk: async (w) => {
-            await api(MF_API + '/papers', { method: 'POST', body: { title: w.querySelector('#npTitle').value.trim(), subject: w.querySelector('#npSub').value, stage: w.querySelector('#npStage').value, grade: w.querySelector('#npGrade').value, folder_id: w.querySelector('#npFolder').value || null } });
+            await api(MF_API + '/papers', { method: 'POST', body: { year: w.querySelector('#npYear').value.trim(), title: w.querySelector('#npTitle').value.trim(), subject: w.querySelector('#npSub').value, stage: w.querySelector('#npStage').value, grade: w.querySelector('#npGrade').value, folder_id: w.querySelector('#npFolder').value || null } });
             toast('已创建', 'ok'); render();
           },
         });
       };
       document.getElementById('mpKw').onkeydown = (e) => { if (e.key === 'Enter') { st.kw = e.target.value.trim(); render(); } };
+      document.getElementById('mpSub').onchange = (e) => { st.subject = e.target.value; render(); };
+      document.getElementById('mpYear').onkeydown = (e) => { if (e.key === 'Enter') { st.year = e.target.value.trim(); render(); } };
+      document.getElementById('mpImport').onclick = () => mfImportPaperDialog(folders);
       document.getElementById('mpStatus').onchange = (e) => { st.status = e.target.value; render(); };
       document.querySelectorAll('[data-folder]').forEach((a) => { a.onclick = () => { st.folder = a.dataset.folder; render(); }; });
       document.getElementById('mpFolderNew').onclick = () => {
@@ -155,6 +162,56 @@ async function viewMfPapers() {
       }; });
     },
   };
+}
+
+/** 上传真题试卷（T10）：选 Word → 先识别预览 → 确认后生成试卷，题目同时入题库 */
+function mfImportPaperDialog(folders) {
+  const yr = new Date().getFullYear();
+  let previewed = false;
+  modal({
+    title: '上传真题试卷', wide: true, okText: '识别预览',
+    body: `<div class="mf-form">
+      <div class="field wide"><label>试卷文件（.docx，格式同「Word 导入」：题号、选项 A.、答案另起一行）</label><input id="ipFile" type="file" accept=".docx"></div>
+      <div class="field wide"><label>卷名（留空用文件名）</label><input id="ipTitle" class="inp" placeholder="如：2024年南京市中考数学真题"></div>
+      <div class="field"><label>学科</label><select id="ipSub">${MF_SUBJECTS.map((s) => `<option>${s}</option>`).join('')}</select></div>
+      <div class="field"><label>学段</label><select id="ipStage">${MF_STAGES.slice(1).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
+      <div class="field"><label>年级</label><select id="ipGrade"><option value="">不限</option>${MF_GRADES.map((g) => `<option>${g}</option>`).join('')}</select></div>
+      <div class="field"><label>年份</label><input id="ipYear" class="inp" maxlength="4" placeholder="${yr - 1}"></div>
+      <div class="field"><label>文件夹</label><select id="ipFolder"><option value="">未分类</option>${folders.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>发布</label><select id="ipPub"><option value="1">生成后立即发布到学生端试卷库</option><option value="0">先不发布</option></select></div>
+      <div class="field wide" id="ipSum"><span class="hint">选好文件后点「识别预览」：先看识别出多少题、哪些格式不对，确认没问题再生成。题目会同时进入题库（来源：真题试卷）。</span></div>
+    </div>`,
+    onMount: (w) => {
+      w.querySelector('#ipFile').onchange = () => { previewed = false; w.querySelector('#mOk').textContent = '识别预览'; };
+    },
+    onOk: async (w, showErr) => {
+      const f = w.querySelector('#ipFile').files[0];
+      if (!f) return showErr('请先选择 .docx 试卷文件');
+      const fd = new FormData();
+      fd.append('file', f);
+      fd.append('title', w.querySelector('#ipTitle').value.trim());
+      fd.append('subject', w.querySelector('#ipSub').value);
+      fd.append('stage', w.querySelector('#ipStage').value);
+      fd.append('grade', w.querySelector('#ipGrade').value);
+      fd.append('year', w.querySelector('#ipYear').value.trim());
+      fd.append('folder_id', w.querySelector('#ipFolder').value);
+      fd.append('publish', w.querySelector('#ipPub').value);
+      fd.append('dry_run', previewed ? '0' : '1');
+      let r;
+      try { r = await api(MF_API + '/papers/import-word', { method: 'POST', body: fd, raw: true, silent: true }); }
+      catch (e) { return showErr(e.message || '识别失败'); }
+      if (!previewed) {
+        const errs = (r.errors || []).slice(0, 8).map((e) => `<li>第 ${e.para} 段（第 ${e.no} 题）：${esc(e.msg)}</li>`).join('');
+        w.querySelector('#ipSum').innerHTML = `<div class="mf-tip"><b>识别出 ${r.total} 题</b>（${r.big_count} 道大题）：${(r.sections || []).map((x) => `${esc(x.name)} ${x.count} 题`).join('，')}。
+          ${r.error_count ? `<br><span style="color:#d93025">另有 ${r.error_count} 题格式不对，不会导入：</span><ul style="margin:4px 0 0 18px">${errs}</ul>` : '<br>格式全部通过。'}
+          <br>确认无误后点「生成试卷」。每题默认分值 = 100 ÷ 题数，可以在试卷里再改。</div>`;
+        previewed = true; w.querySelector('#mOk').textContent = '生成试卷';
+        return false;
+      }
+      toast(`已生成试卷，${r.question_ids.length} 题同时入题库${r.published ? '，学生端试卷库已可见' : ''}`, 'ok');
+      render();
+    },
+  });
 }
 
 /** 试卷详情：题序 / 分值 / 文本块 / 排版 / 预览导出 */

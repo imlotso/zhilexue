@@ -366,33 +366,91 @@ module.exports = function mountPending(d) {
   });
 
   // ------------------------------------------------------------ 导入：Word（按客户《word (1).docx》规则，不调 AI）
-  admin.post('/ext/import-word', upFile.single('file'), async (req, res) => {
-    if (!req.file) return fail(res, '请选择 .docx 文件');
-    const name = fileNameOf(req.file);
-    if (!/\.docx$/i.test(name)) return fail(res, '只支持 .docx（老 .doc 请先用 Word 另存为 .docx）');
+  /** 读 .docx → 规则解析 → { r, cards, name }；失败返回 { err } */
+  async function parseWordUpload(file) {
+    if (!file) return { err: '请选择 .docx 文件' };
+    const name = fileNameOf(file);
+    if (!/\.docx$/i.test(name)) return { err: '只支持 .docx（老 .doc 请先用 Word 另存为 .docx）' };
     let doc;
     try {
-      doc = await require('./docxtext').parseDocx(req.file.buffer, {
+      doc = await require('./docxtext').parseDocx(file.buffer, {
         saveImage: async (buf, fname) => {
           try { const saved = await store.saveFile(buf, fname, `${bankFolder()}/img`); return await store.getUrl(saved.key); } catch (e) { return ''; }
         },
       });
-    } catch (e) { return fail(res, '文档解析失败：' + e.message); }
+    } catch (e) { return { err: '文档解析失败：' + e.message }; }
     const r = require('./wordq').parseWordQuestions(doc.paras);
     const lines = r.errors.slice(0, 5).map((e) => `第 ${e.para} 段（第 ${e.no} 题）：${e.msg}`);
     if (!r.list.length) {
-      return fail(res, r.errors.length ? `没有可导入的题目。${lines.join('；')}` : '没认出题目。请确认格式：题目要有序号（1. 2. 3、），选项用 A. 或 A、，答案和解析各另起一行（见「Word 导入格式要求」）');
+      return { err: r.errors.length ? `没有可导入的题目。${lines.join('；')}` : '没认出题目。请确认格式：题目要有序号（1. 2. 3、），选项用 A. 或 A、，答案和解析各另起一行（见「Word 导入格式要求」）' };
     }
     const figs = doc.figs || [];
     const cards = r.list.map((q) => ({
       qno: q.sub ? `${q.no}(${q.sub})` : String(q.no), questionType: TYPE_FROM_CODE(q.type), stem: q.stem, material: q.material,
       options: q.options.map((o) => ({ label: o.label, content: o.content })), answer: q.answer, analysis: q.analysis,
       suggestedTags: [], figures: q.imgRefs.map((n) => figs[n - 1]).filter((f) => f && f.url).map((f) => ({ url: f.url })), checked: true,
+      _type: q.type,
     }));
+    return { r, cards, name };
+  }
+
+  admin.post('/ext/import-word', upFile.single('file'), async (req, res) => {
+    const pw = await parseWordUpload(req.file);
+    if (pw.err) return fail(res, pw.err);
+    const { r, cards, name } = pw;
     const b = req.body || {};
     const runId = createRun({ title: `Word导入 ${name}`, kind: 'word', name, subject: str(b.subject).trim(), stage: str(b.stage).trim(), grade: str(b.grade).trim(), cards });
     return ok(res, { run_id: runId, total: cards.length, big_count: r.bigCount, errors: r.errors.slice(0, 50), error_count: r.errors.length, warnings: r.warnings.slice(0, 20) },
       `已放入待审核：${r.bigCount} 道大题，共 ${cards.length} 题${r.errors.length ? `；${r.errors.length} 题格式不对没导入` : ''}`);
+  });
+
+  // ------------------------------------------------------------ 上传真题试卷（T10）：Word → 一张试卷 + 题目同时入题库
+  const CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  const SEC_TITLE = { single: '单选题', multi: '多选题', judge: '判断题', fill: '填空题', sort: '排序题', answer: '解答题' };
+  /**
+   * POST /papers/import-word（multipart: file + title / subject / stage / grade / year / folder_id / publish / dry_run）
+   *   dry_run=1：只解析，返回识别结果（题数、大题分布、不合规的题）给老师确认，什么都不写
+   *   否则：① 题目写入题库（来源=真题试卷，年份 / 学科 / 年级随卷）② 新建试卷（已定稿），按题型分「一、单选题 …」文本块 ③ 每题默认分值 = 100 ÷ 题数（可在试卷里改）
+   *   ④ publish=1 时同时发布到学生端「试卷库」
+   */
+  admin.post('/papers/import-word', upFile.single('file'), async (req, res) => {
+    const pw = await parseWordUpload(req.file);
+    if (pw.err) return fail(res, pw.err);
+    const { r, cards, name } = pw;
+    const b = req.body || {};
+    const title = str(b.title).trim() || name.replace(/\.docx$/i, '');
+    const subject = str(b.subject).trim(), stage = str(b.stage).trim(), grade = str(b.grade).trim();
+    const year = /^\d{4}$/.test(str(b.year).trim()) ? str(b.year).trim() : '';
+    // 按题型归成大题：大题的先后 = 各题型第一次出现的先后，同一大题里保持文档里的原顺序
+    // （规范的试卷本来就是按题型分段的；题型交错的文档（如从题库导出的一批题）也能得到整齐的"一、单选题 二、填空题 …"）
+    const sections = [];
+    cards.forEach((c, i) => {
+      let sec = sections.find((x) => x.type === c._type);
+      if (!sec) { sec = { type: c._type, idx: [] }; sections.push(sec); }
+      sec.idx.push(i);
+    });
+    const summary = { total: cards.length, big_count: r.bigCount, error_count: r.errors.length, errors: r.errors.slice(0, 50), warnings: r.warnings.slice(0, 20),
+      sections: sections.map((sec, i) => ({ name: `${CN_NUM[i] || i + 1}、${SEC_TITLE[sec.type] || '题目'}`, count: sec.idx.length })), title, year };
+    if (String(b.dry_run) === '1') return ok(res, summary, `识别出 ${cards.length} 题${r.errors.length ? `，${r.errors.length} 题格式不对（不会导入）` : ''}`);
+
+    const run = { id: 0, source_name: '真题试卷', source_kind: 'paper', subject, stage, grade };
+    const ids = commitRunCards(run, cards.map((c) => { const x = Object.assign({}, c); delete x._type; return x; }), { subject, stage, grade });
+    if (year) db.prepare(`UPDATE questions SET year=? WHERE id IN (${ids.map(() => '?').join(',')})`).run(year, ...ids);
+    const folderId = int(b.folder_id) || null;
+    const publish = String(b.publish) === '1' || b.publish === true;
+    const pid = db.prepare(`INSERT INTO mf_papers (title, subject, stage, grade, year, status, paper_type, layout_json, folder_id, trashed_from, published, created_at)
+      VALUES (?,?,?,?,?,'done','uniform',?,?,'',?,?)`)
+      .run(title, subject, stage, grade, year, jstr(Object.assign({}, require('./mfbank').defaultLayout(), { header: { style: 'exam', title, lines: [] } })), folderId, publish ? 1 : 0, now()).lastInsertRowid;
+    const each = Math.round(100 / ids.length * 10) / 10;
+    const insQ = db.prepare("INSERT INTO mf_paper_questions (paper_id, question_id, position, score, kind, created_at) VALUES (?,?,?,?, 'question',?)");
+    const insT = db.prepare("INSERT INTO mf_paper_questions (paper_id, question_id, position, kind, text_body, style, text_align, created_at) VALUES (?,NULL,?, 'text',?, 'title','left',?)");
+    let pos = 0;
+    sections.forEach((sec, i) => {
+      insT.run(pid, ++pos, `${CN_NUM[i] || i + 1}、${SEC_TITLE[sec.type] || '题目'}`, now());
+      sec.idx.forEach((ci) => insQ.run(pid, ids[ci], ++pos, each, now()));
+    });
+    return ok(res, Object.assign({ paper_id: pid, question_ids: ids, published: publish ? 1 : 0, score_each: each }, summary),
+      `已生成试卷「${title}」：${ids.length} 题已同时入题库${publish ? '，已发布到学生端试卷库' : '（还没发布，在试卷管理里点「发布」）'}`);
   });
 
   return { counts: () => countBy(allItems()) };

@@ -42,7 +42,7 @@ zhilexue/
 |---|---|
 | `app.js` | 主服务：登录、文件代理、管理端基础接口（分校/学生/目录/视频/讲义）、学生端基础接口、路由挂载 |
 | `kbtree.js` | 知识树统一（T4）：旧 `kb_*` 复制进 `bank_trees` 知识点树、旧 `/kbtree*` 接口的读写、知识点名清单（供 AI 补全/下拉用）；被 `bank.js`、`mfbank.js` 调用 |
-| `mfpending.js` | 待审核题目（T3）：把拍照识别 / Word / Excel / 技能包（都是 `mf_recog_runs` 批次）、网络采集批次、手机扫码上传统一成一个列表，逐题编辑/入库/删除，以及 Excel、Word 导入入口；由 `mfbank.js` 末尾挂载，复用它抽出的 `commitRunCards` / `commitCaptureItems` |
+| `mfpending.js` | 待审核题目（T3）：把拍照识别 / Word / Excel / 技能包（都是 `mf_recog_runs` 批次）、网络采集批次、手机扫码上传统一成一个列表，逐题编辑/入库/删除，以及 Excel、Word 导入入口；由 `mfbank.js` 末尾挂载，复用它抽出的 `commitRunCards` / `commitCaptureItems`；T10 的「上传真题试卷」`POST /papers/import-word`（Word → 试卷 + 入题库）也在这里 |
 | `wordq.js` | Word 题目规则解析（T3）：按客户《word (1).docx》的格式规则解析，不调 AI，不合规的题给出段号和原因 |
 | `db.js` / `mysql-sync.js` / `mysql-worker.js` / `import-sqlite.js` | 建表、数据库连接与 SQLite→MySQL 转换 |
 | `auth.js` / `delpwd.js` | JWT 鉴权；删除确认密码 |

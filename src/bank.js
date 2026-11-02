@@ -1136,6 +1136,7 @@ stu.post('/submit', (req, res) => {
   const getQ = db.prepare('SELECT * FROM questions WHERE id=?');
   const misStage = new Map();   // question_id -> 当前复习轮次（review / redo 用）
   const detail = [];
+  let paperScore = null, paperTotal = null;   // 试卷类交卷：得分 / 满分（回传给学生端显示）
   const tx = db.transaction(() => {
     for (const a of answers) {
       const q = getQ.get(Number(a.question_id));
@@ -1191,6 +1192,7 @@ stu.post('/submit', (req, res) => {
     if (kind === 'paper') {
       const total = detail.length;
       const score = paper.total_score && total ? Math.round(correct / total * paper.total_score) : 0;
+      paperScore = score; paperTotal = Number(paper.total_score) || null;
       db.prepare('INSERT INTO paper_tries (user_id,paper_id,total,correct,score,detail,created_at) VALUES (?,?,?,?,?,?,?)')
         .run(uid, paperId, total, correct, score, JSON.stringify(detail), now());
     } else if (kind === 'mfpaper') {
@@ -1198,6 +1200,7 @@ stu.post('/submit', (req, res) => {
       db.prepare("SELECT question_id, score FROM mf_paper_questions WHERE paper_id=? AND kind='question'").all(paperId)
         .forEach((r) => { scoreMap[r.question_id] = num(r.score, 0); });
       const score = Math.round(detail.reduce((s, d) => s + (d.is_correct ? (scoreMap[d.question_id] || 0) : 0), 0));
+      paperScore = score; paperTotal = Math.round(Object.values(scoreMap).reduce((s, v) => s + v, 0)) || null;
       db.prepare('INSERT INTO mf_paper_tries (user_id,paper_id,total,correct,score,detail,created_at) VALUES (?,?,?,?,?,?,?)')
         .run(uid, paperId, detail.length, correct, score, JSON.stringify(detail), now());
     } else {
@@ -1227,18 +1230,34 @@ stu.post('/submit', (req, res) => {
       section: sec ? { id: sec.id, name: sec.name, ...accuracy.sum(secVids.map((id) => accuracy.ofVideo(stats, id))) } : null,
     };
   }
-  ok(res, { total: detail.length, correct, wrong, list: results, by_point: [...byPoint.values()], mastery },
+  ok(res, { total: detail.length, correct, wrong, list: results, by_point: [...byPoint.values()], mastery, score: paperScore, score_total: paperTotal },
     kind === 'paper' ? `交卷成功：答对 ${correct} / ${detail.length}` : `本次共 ${detail.length} 题，答对 ${correct} 题`);
 });
 
 // ---------- 试卷库：试卷管理里「发布」的 mf 试卷 ----------
+// 搜索（T10）：q = 名称关键字（同时匹配年份）；subject / grade / year 精确筛选；都不传 = 全部。
+const MFP_OPEN = "p.published=1 AND p.status NOT IN ('basket','trashed')";
 stu.get('/mfpapers', (req, res) => {
   const uid = req.user.id;
-  const rows = db.prepare(`SELECT p.id, p.title, p.subject, p.stage, p.grade, p.created_at,
+  const qy = req.query || {};
+  let where = ` WHERE ${MFP_OPEN}`; const args = [];
+  const kw = String(qy.q || '').trim().slice(0, 60);
+  if (kw) { where += " AND (p.title LIKE ? OR IFNULL(p.year,'')=? OR p.subject LIKE ? OR p.grade LIKE ?)"; args.push(`%${kw}%`, kw, `%${kw}%`, `%${kw}%`); }
+  if (qy.subject) { where += ' AND p.subject=?'; args.push(String(qy.subject)); }
+  if (qy.grade) { where += ' AND p.grade=?'; args.push(String(qy.grade)); }
+  if (qy.year) { where += " AND IFNULL(p.year,'')=?"; args.push(String(qy.year)); }
+  const size = Math.min(200, Math.max(1, Number(qy.size) || 200));
+  const rows = db.prepare(`SELECT p.id, p.title, p.subject, p.stage, p.grade, p.year, p.created_at,
     (SELECT COUNT(*) FROM mf_paper_questions r WHERE r.paper_id=p.id AND r.kind='question') AS q_count
-    FROM mf_papers p WHERE p.published=1 AND p.status NOT IN ('basket','trashed') ORDER BY p.id DESC LIMIT 200`).all();
+    FROM mf_papers p${where} ORDER BY IFNULL(p.year,'') DESC, p.id DESC LIMIT ${size}`).all(...args);
   const qT = db.prepare('SELECT total, correct, score, created_at FROM mf_paper_tries WHERE user_id=? AND paper_id=? ORDER BY id DESC LIMIT 1');
   ok(res, rows.map((p) => { const t = qT.get(uid, p.id); return { ...p, tried: !!t, last: t || null }; }));
+});
+
+// 搜索下拉选项：试卷库里实际有的学科 / 年级 / 年份
+stu.get('/mfpapers/filters', (req, res) => {
+  const col = (c) => db.prepare(`SELECT DISTINCT p.${c} AS v FROM mf_papers p WHERE ${MFP_OPEN} AND IFNULL(p.${c},'')<>'' ORDER BY p.${c} DESC`).all().map((r) => r.v);
+  ok(res, { subjects: col('subject'), grades: col('grade'), years: col('year') });
 });
 
 stu.get('/mfpapers/:id', (req, res) => {
@@ -1246,7 +1265,8 @@ stu.get('/mfpapers/:id', (req, res) => {
   if (!p || !Number(p.published)) return fail(res, '试卷不存在或未发布');
   const qs = db.prepare(`SELECT q.* FROM mf_paper_questions r JOIN questions q ON q.id=r.question_id
     WHERE r.paper_id=? AND r.kind='question' ORDER BY r.position, r.id`).all(p.id);
-  ok(res, { id: p.id, title: p.title, subject: p.subject, stage: p.stage, grade: p.grade, questions: qs.map(serveQ) });
+  const total = db.prepare("SELECT COALESCE(SUM(score),0) AS s FROM mf_paper_questions WHERE paper_id=? AND kind='question'").get(p.id).s;
+  ok(res, { id: p.id, title: p.title, subject: p.subject, stage: p.stage, grade: p.grade, year: p.year || '', total_score: Math.round(Number(total) || 0), questions: qs.map(serveQ) });
 });
 
 // ---------- 章节组卷 / 知识点组卷（学生自己组卷，不能下发）：取同学段的章节树 / 知识点树 ----------

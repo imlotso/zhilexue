@@ -81,6 +81,12 @@
 - 后台 `GET /api/admin/bank/mistakes/export-docx?user_id=`：同样的参数 + `user_id`；分校只能导出自己校区的学生（否则 403 / `无权导出该学生的错题`）。后台入口：学情管理 → 知识点正确率 → 选学生 → 「导出错题 Word」。
 - 版式（沿用客户《错题集》样本）：封面（错题集 / 共 N 道错题 / 日期范围 / 姓名·科目·日期）→「错题练习」（日期、多次答错标记、题号、题干、图片、选项、知识点）→「错题解析」（答案、解析、答题记录）；页脚「第 X 页 / 共 Y 页」。公式按 LaTeX 文本原样写入；图片只支持 JPEG / PNG。
 
+上传真题试卷（T10）：
+- 后台 `POST /api/admin/bank/mf/papers/import-word`（multipart：`file`=.docx，`title`、`subject`、`stage`、`grade`、`year`（4 位数字）、`folder_id`、`publish`=1/0、`dry_run`=1）。格式同 Word 导入（题号、选项 A.、答案另起一行，见 `src/wordq.js`）。
+  - `dry_run=1`：只解析，返回 `{total, big_count, error_count, errors, warnings, sections:[{name,count}], title, year}`，**不写库**（老师确认用）。
+  - 否则：① 题目写入题库（`source='真题试卷'`，学科 / 年级 / 学段 / 年份随卷）② 新建试卷（`status=done`，`published` 按 `publish`），按题型分「一、单选题 …」文本块（大题先后 = 各题型第一次出现的先后）③ 每题默认分值 = 100 ÷ 题数 ④ 返回 `{paper_id, question_ids, published, score_each, …}`。
+- 学生端试卷库搜索：`GET /api/stu/bank/mfpapers?q=&subject=&grade=&year=&size=`（`q` 匹配卷名 / 学科 / 年级 / 年份；都不传 = 全部；只含已发布且不在试题篮 / 回收站的）；`GET /api/stu/bank/mfpapers/filters` → `{subjects, grades, years}`（下拉选项）。`GET /mfpapers/:id` 另返回 `year`、`total_score`（各题分值之和）；`POST /submit kind=mfpaper` / `kind=paper` 的返回多了 `score`、`score_total`。
+
 学生端 `/api/stu/bank`：`GET /lesson-questions`、`/tasks`、`/papers`、`/papers/:id`、`/mfpapers`、`/mfpapers/:id`、`/scan-tree`、`/mistakes`、`/mistake-count`、`/mistake-points`、`/review-queue`、`/uploads`；`POST /submit`、`/scan-compose`、`/check`、`/feedback`、`/ai-explain`、`/upload-token`
 
 扫码上传 `/api/up`：`GET /info`、`POST /submit`、`GET /mine`
@@ -93,7 +99,7 @@
 | 题目 | `GET/POST /questions`；`GET/PUT/DELETE /questions/:id`；`POST /questions/batch`；`GET /tags`；`GET /questions-export`；`POST /ai-clean` |
 | 采集 | `POST /capture/parse`；`GET /capture/token`；`GET /capture/bookmarklet`；`POST /capture/fetch`；`POST /capture/auto`；`POST/GET /capture/batches`；`GET/DELETE /capture/batches/:id`；`DELETE /capture/batches/:id/q/:idx`；`POST /capture/batches/:id/commit`；`POST /api/mfcap/push` |
 | 试卷文件夹 | `GET/POST /paper-folders`；`PUT/DELETE /paper-folders/:id` |
-| 试卷管理 | `GET/POST /papers`；`GET/PUT/DELETE /papers/:id`；`POST /papers/:id/questions`；`POST /papers/:id/text`；`PUT /papers/:id/reorder`；`PUT/DELETE /papers/:id/rows/:rowId`；`GET /papers/:id/preview`；`GET /papers/:id/export`；`POST /papers/:id/archive` |
+| 试卷管理 | `GET/POST /papers`（`GET` 支持 `kw`、`subject`、`grade`、`year`、`published=0/1`、`status`、`folder` 筛选；`POST/PUT` 带 `year`，不是 4 位数字会被忽略）；**`POST /papers/import-word`（T10，上传真题试卷）**；`GET/PUT/DELETE /papers/:id`；`POST /papers/:id/questions`；`POST /papers/:id/text`；`PUT /papers/:id/reorder`；`PUT/DELETE /papers/:id/rows/:rowId`；`GET /papers/:id/preview`；`GET /papers/:id/export`；`POST /papers/:id/archive` |
 | 录题 intake | `GET/POST /intake/runs`；`GET/DELETE /intake/runs/:id`；`POST /intake/runs/:id/pages|recognize|ocr|structure|word|aifill|commit`；`PUT /intake/runs/:id/drafts` |
 | 导入 | `GET /import-skill`；`POST /import-pack`（**T3 起不再直接入库**：解析 + 去重/补图照旧，新题放进一个 `skill` 批次进待审核；响应带 `staged`、`run_id`）；`POST /asset` |
 | 待审核题目（T3，`mfpending.js`） | `GET /ext/pending`（`source`=all/photo/word/excel/skill/capture/scan、`kw`、`page`、`size`；响应 `{total,page,size,list,counts}`，每项带 `id`、`source`、`source_label`、题目内容）；`PUT /ext/pending/item`（`{id, patch}` 编辑单题）；`POST /ext/pending/commit`（`{ids, subject, stage, grade, node_ids, tags}` 逐题/批量入库，响应 `{committed, question_ids, failed:[{id,msg}]}`）；`POST /ext/pending/delete`（`{ids}`）；`POST /ext/import-excel`（multipart `file` + 默认 `subject/stage/grade`，按客户 9 个 sheet 模板，忽略【例题】行）；`POST /ext/import-word`（multipart `file` .docx，规则解析不调 AI，响应带 `errors:[{para,no,msg}]` 段号）；`GET /ext/import-template`（客户《习题导入模板》逐字节原文件）。id 形如 `run:批次:序号:指纹` / `cap:批次:序号:指纹` / `up:上传记录`，**指纹**是题干的 md5 前 8 位：别人删改过之后序号会前移，旧 id 对不上指纹会被拒绝（提示刷新），避免入库/删掉另一道题 |

@@ -479,7 +479,7 @@ const BankQuiz = {
         bodyEl.innerHTML = `
           <div class="qz-score ${r.correct >= r.total / 2 ? 'good' : 'bad'}">
             <div class="v">${r.correct}<span> / ${r.total}</span></div>
-            <div class="l">答对 ${r.correct} 题 · 答错 ${r.wrong} 题${opt.scoreTotal ? ` · 得分 ${Math.round(r.correct / Math.max(1, r.total) * opt.scoreTotal)} / ${opt.scoreTotal}` : ''}</div>
+            <div class="l">答对 ${r.correct} 题 · 答错 ${r.wrong} 题${opt.scoreTotal ? ` · 得分 ${r.score != null ? r.score : Math.round(r.correct / Math.max(1, r.total) * opt.scoreTotal)} / ${r.score_total || opt.scoreTotal}` : ''}</div>
             ${r.wrong ? '<div class="tip">答错的题已自动收进错题本，可以在错题本里重练</div>' : '<div class="tip">全对，太棒了！继续保持 🎉</div>'}
           </div>
           ${reportHTML(r)}
@@ -638,12 +638,22 @@ const BankPages = {
   /* 学生端「试卷」页：我的任务（老师下发）/ 章节组卷 / 知识点组卷（自己组卷，只在本人名下做题，不能下发给别人）/ 试卷库 */
   async papers(host) {
     host.innerHTML = '<div class="loading-page">加载中…</div>';
-    let tasks = [], lib = [];
+    let tasks = [], lib = [], flt = { subjects: [], grades: [], years: [] };
+    const find = { q: '', grade: '', year: '' };   // 试卷库搜索条件（T10）
     try {
-      const r = await Promise.all([api('/api/stu/bank/tasks'), api('/api/stu/bank/mfpapers')]);
-      tasks = r[0] || []; lib = r[1] || [];
+      const r = await Promise.all([api('/api/stu/bank/tasks'), api('/api/stu/bank/mfpapers'), api('/api/stu/bank/mfpapers/filters').catch(() => flt)]);
+      tasks = r[0] || []; lib = r[1] || []; flt = r[2] || flt;
     } catch (e) { host.innerHTML = `<div class="empty">${esc(e.message || '加载失败')}</div>`; return; }
     let subject = '';
+    const searchLib = async () => {
+      const qs = new URLSearchParams();
+      if (find.q) qs.set('q', find.q);
+      if (find.grade) qs.set('grade', find.grade);
+      if (find.year) qs.set('year', find.year);
+      try { lib = await api('/api/stu/bank/mfpapers' + (qs.toString() ? '?' + qs.toString() : '')) || []; }
+      catch (e) { toast(e.message || '搜索失败', 'err'); return; }
+      paint();
+    };
 
     const taskRow = (p) => `
       <div class="pk-task" data-task="${p.id}">
@@ -683,15 +693,27 @@ const BankPages = {
         </div>
         <div class="pk-lib">
           <div class="pk-h">${bkIcon('math', 16)} 试卷库<span class="pk-sub">${fl.length} 份试卷</span></div>
+          <div class="t10-search">
+            <input id="pkQ" class="t10-q" placeholder="搜索试卷名称 / 年份，如 2024 中考" value="${esc(find.q)}" maxlength="60">
+            <select id="pkGrade"><option value="">全部年级</option>${(flt.grades || []).map((g) => `<option ${find.grade === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
+            <select id="pkYear"><option value="">全部年份</option>${(flt.years || []).map((y) => `<option value="${esc(y)}" ${find.year === y ? 'selected' : ''}>${esc(y)} 年</option>`).join('')}</select>
+            <button class="btn primary sm" id="pkSearch">搜索</button>
+            ${find.q || find.grade || find.year ? '<button class="btn ghost sm" id="pkClear">清除</button>' : ''}
+          </div>
           ${fl.length ? `<div class="pk-lib-grid">${fl.map((p) => `
             <div class="pk-libcard" data-lib="${p.id}">
               <b>${esc(p.title)}</b>
-              <span class="hint">${esc(p.subject || '通用')}${p.grade ? ' · ' + esc(p.grade) : ''} · ${p.q_count} 题</span>
+              <span class="hint">${esc(p.subject || '通用')}${p.grade ? ' · ' + esc(p.grade) : ''}${p.year ? ' · ' + esc(p.year) + ' 年' : ''} · ${p.q_count} 题</span>
               <div class="pk-lib-acts">${p.tried && p.last ? `<span class="tag ok">上次 ${p.last.score} 分</span>` : '<span class="tag gray">未做过</span>'}
                 <button class="btn primary sm">${p.tried ? '重新做' : '开始作答'}</button></div>
-            </div>`).join('')}</div>` : '<div class="pk-empty"><span style="font-size:26px">📚</span>试卷库暂无试卷，老师发布后出现在这里</div>'}
+            </div>`).join('')}</div>` : `<div class="pk-empty"><span style="font-size:26px">📚</span>${find.q || find.grade || find.year ? '没有找到符合条件的试卷，换个关键字试试' : '试卷库暂无试卷，老师发布后出现在这里'}</div>`}
         </div>`;
       host.querySelectorAll('.bk-tabs a').forEach((a) => a.onclick = () => { subject = a.dataset.s; paint(); });
+      const doSearch = () => { find.q = host.querySelector('#pkQ').value.trim(); find.grade = host.querySelector('#pkGrade').value; find.year = host.querySelector('#pkYear').value; searchLib(); };
+      host.querySelector('#pkSearch').onclick = doSearch;
+      host.querySelector('#pkQ').onkeydown = (e) => { if (e.key === 'Enter') doSearch(); };
+      host.querySelector('#pkGrade').onchange = doSearch; host.querySelector('#pkYear').onchange = doSearch;
+      const clr = host.querySelector('#pkClear'); if (clr) clr.onclick = () => { find.q = find.grade = find.year = ''; searchLib(); };
       host.querySelectorAll('[data-task]').forEach((el) => el.onclick = () => BankPages.openPaper(Number(el.dataset.task)));
       host.querySelectorAll('[data-lib]').forEach((el) => el.onclick = () => BankPages.openLibPaper(Number(el.dataset.lib)));
       const scanBtn = host.querySelector('#pkScan .btn');
@@ -847,8 +869,9 @@ const BankPages = {
     if (!p.questions || !p.questions.length) { toast('这份试卷还没有题目'); return; }
     BankQuiz.open({
       title: p.title,
-      subtitle: [p.subject, p.questions.length + ' 题'].filter(Boolean).join(' · '),
+      subtitle: [p.subject, p.year ? p.year + ' 年' : '', p.questions.length + ' 题'].filter(Boolean).join(' · '),
       questions: p.questions,
+      scoreTotal: p.total_score || 0,
       submit: (answers, duration) => api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'mfpaper', paper_id: p.id, answers, duration } }),
       onDone: () => { if (window.__stuVm) window.__stuVm.courses = null; },
     });
