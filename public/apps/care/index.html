@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>班主任工作台 · 谈话谈心与家校沟通</title>
+<link rel="stylesheet" href="assets/css/app.css?v=20261022c">
+</head>
+<body>
+
+<div class="app">
+  <!-- ============ 内容（左侧导航已去除，入口移至顶栏） ============ -->
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-l">
+        <div class="tt">
+          <h1 class="page-title" id="pageTitle">谈话谈心</h1>
+        </div>
+        <span class="count-tag" id="pageCount"></span>
+        <select id="topCampus" class="top-campus" title="切换校区" hidden></select>
+      </div>
+      <div class="topbar-r">
+        <div class="today-chip" id="todayChip">—</div>
+        <a class="top-link" href="#/students" data-nav="students" title="学生信息">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>学生信息</span>
+          <span class="nav-badge" id="navCountStudents">0</span>
+        </a>
+        <a class="top-link sq" href="#/settings" data-nav="settings" title="系统设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <div class="content" id="content">
+
+      <!-- ---------- 谈话谈心 ---------- -->
+      <section class="page" id="page-talks">
+        <div class="stats" id="talkStats"></div>
+
+        <div class="card toolbar">
+          <div class="toolbar-row">
+            <div class="filters">
+              <label class="field inline">
+                <span class="field-lab">日期范围</span>
+                <input type="date" id="tkFrom" class="input">
+                <span class="sep">至</span>
+                <input type="date" id="tkTo" class="input">
+              </label>
+              <label class="field inline">
+                <span class="field-lab">学生姓名</span>
+                <input type="text" id="tkStudent" class="input w140" placeholder="输入姓名筛选">
+              </label>
+              <label class="field inline">
+                <span class="field-lab">谈话类别</span>
+                <select id="tkType" class="input w140">
+                  <option value="">全部类别</option>
+                  <option>日常谈心</option>
+                  <option>成绩分析</option>
+                  <option>心理辅导</option>
+                  <option>纪律谈话</option>
+                </select>
+              </label>
+              <button class="btn" id="tkReset">重置筛选</button>
+            </div>
+            <div class="toolbar-right">
+              <button class="btn" id="tkXlsx">导出 Excel</button>
+              <button class="btn" id="tkPdf">导出 PDF</button>
+              <button class="btn btn-primary" id="tkAdd">
+                <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                添加谈话
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">谈话记录</div>
+            <div class="card-meta" id="tkMeta">—</div>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th class="w-date">日期</th>
+                  <th class="w-name">学生</th>
+                  <th class="w-type">类型</th>
+                  <th>谈话内容</th>
+                  <th class="w-follow">跟进</th>
+                  <th class="w-act">操作</th>
+                </tr>
+              </thead>
+              <tbody id="tkBody"></tbody>
+            </table>
+          </div>
+          <div class="empty" id="tkEmpty" hidden>暂无谈话记录，点击右上角「添加谈话」开始记录。</div>
+        </div>
+      </section>
+
+      <!-- ---------- 家校沟通 ---------- -->
+      <section class="page" id="page-contacts">
+        <div class="stats" id="ctStats"></div>
+
+        <div class="card toolbar">
+          <div class="toolbar-row">
+            <div class="filters">
+              <label class="field inline">
+                <span class="field-lab">日期范围</span>
+                <input type="date" id="ctFrom" class="input">
+                <span class="sep">至</span>
+                <input type="date" id="ctTo" class="input">
+              </label>
+              <label class="field inline">
+                <span class="field-lab">学生姓名</span>
+                <input type="text" id="ctStudent" class="input w140" placeholder="输入姓名筛选">
+              </label>
+              <label class="field inline">
+                <span class="field-lab">沟通方式</span>
+                <select id="ctWay" class="input w120">
+                  <option value="">全部</option>
+                  <option>电话</option>
+                  <option>面谈</option>
+                </select>
+              </label>
+              <label class="field inline">
+                <span class="field-lab">联系人</span>
+                <select id="ctContact" class="input w120">
+                  <option value="">全部</option>
+                  <option value="爸爸">爸爸</option>
+                  <option value="妈妈">妈妈</option>
+                  <option value="其他亲属">其他亲属</option>
+                </select>
+              </label>
+              <button class="btn" id="ctReset">重置筛选</button>
+            </div>
+            <div class="toolbar-right">
+              <button class="btn" id="ctXlsx">导出 Excel</button>
+              <button class="btn" id="ctPdf">导出 PDF</button>
+              <button class="btn btn-primary" id="ctAdd">
+                <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                添加沟通记录
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">家校沟通记录</div>
+            <div class="card-meta" id="ctMeta">—</div>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th class="w-date">日期</th>
+                  <th class="w-name">学生</th>
+                  <th class="w-contact">联系人</th>
+                  <th class="w-way">方式</th>
+                  <th>沟通内容</th>
+                  <th class="w-result">跟进结果</th>
+                  <th class="w-act">操作</th>
+                </tr>
+              </thead>
+              <tbody id="ctBody"></tbody>
+            </table>
+          </div>
+          <div class="empty" id="ctEmpty" hidden>暂无沟通记录，点击右上角「添加沟通记录」开始记录。</div>
+        </div>
+      </section>
+
+      <!-- ---------- 学生信息 ---------- -->
+      <section class="page" id="page-students">
+        <div class="card toolbar">
+          <div class="toolbar-row">
+            <div class="filters">
+              <label class="field inline">
+                <span class="field-lab">关键词</span>
+                <input type="text" id="stKeyword" class="input w160" placeholder="姓名 / 学号 / 班级">
+              </label>
+              <label class="field inline">
+                <span class="field-lab">班级</span>
+                <select id="stClass" class="input w140"><option value="">全部班级</option></select>
+              </label>
+            </div>
+            <div class="toolbar-right">
+              <button class="btn" id="stXlsx">导出 Excel</button>
+              <button class="btn" id="stPdf">导出 PDF</button>
+              <button class="btn btn-primary" id="stAdd">
+                <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                添加学生
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">学生档案</div>
+            <div class="card-meta" id="stMeta">—</div>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th class="w-name">姓名</th>
+                  <th class="w-sex">性别</th>
+                  <th class="w-no">学号</th>
+                  <th class="w-cls">班级</th>
+                  <th>家长联系人</th>
+                  <th class="w-act">操作</th>
+                </tr>
+              </thead>
+              <tbody id="stBody"></tbody>
+            </table>
+          </div>
+          <div class="empty" id="stEmpty" hidden>暂无学生档案，请先添加学生。</div>
+        </div>
+      </section>
+
+      <!-- ---------- 系统设置 ---------- -->
+      <section class="page" id="page-settings">
+        <div class="card">
+          <div class="card-head"><div class="card-title">AI 整理引擎</div><div class="card-meta">用于谈话录音的结构化整理</div></div>
+          <div class="form-grid pad">
+            <label class="field">
+              <span class="field-lab">整理方式</span>
+              <select id="setAiMode" class="input">
+                <option value="local">本地引擎（离线，无需配置）</option>
+                <option value="remote">远程大模型（需配置接口）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-lab">接口地址（兼容 OpenAI /chat/completions）</span>
+              <input type="text" id="setAiUrl" class="input" placeholder="https://xxx/v1/chat/completions">
+            </label>
+            <label class="field">
+              <span class="field-lab">API Key</span>
+              <input type="password" id="setAiKey" class="input" placeholder="sk-...">
+            </label>
+            <label class="field">
+              <span class="field-lab">模型名称</span>
+              <input type="text" id="setAiModel" class="input" placeholder="gpt-4o-mini">
+            </label>
+            <div class="field full">
+              <div class="hint">
+                本地引擎基于规则完成口语清洗与要点归类，可离线运行；远程模式需可访问的接口地址，密钥仅保存在本机浏览器。
+                语音识别依赖浏览器内置的 Web Speech API，请使用 Chrome / Edge 并通过 https 或 localhost 访问。
+              </div>
+            </div>
+            <div class="field full"><button class="btn btn-primary" id="setAiSave">保存 AI 设置</button></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><div class="card-title">语音识别（ASR）接口</div><div class="card-meta">用于手机扫码录音与文件上传后的自动转写</div></div>
+          <div class="form-grid pad">
+            <label class="field">
+              <span class="field-lab">ASR 接口地址（兼容 OpenAI /v1/audio/transcriptions）</span>
+              <input type="text" id="setAsrUrl" class="input" placeholder="https://xxx/v1/audio/transcriptions">
+            </label>
+            <label class="field">
+              <span class="field-lab">ASR API Key</span>
+              <input type="password" id="setAsrKey" class="input" placeholder="sk-...">
+            </label>
+            <label class="field">
+              <span class="field-lab">ASR 模型名称</span>
+              <input type="text" id="setAsrModel" class="input" placeholder="whisper-1">
+            </label>
+            <div class="field full">
+              <div class="hint">
+                配置后，手机扫码录音和文件上传的音频会自动转写为文字并触发 AI 整理。<br>
+                若不配置，录音仍可上传保存，但需手动输入文字内容。密钥仅保存在本机浏览器。
+              </div>
+            </div>
+            <div class="field full"><button class="btn btn-primary" id="setAsrSave">保存 ASR 设置</button></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><div class="card-title">数据管理</div><div class="card-meta">全部数据保存在本机浏览器</div></div>
+          <div class="pad row-gap">
+            <button class="btn" id="setBackup">导出 JSON 备份</button>
+            <button class="btn" id="setRestore">导入 JSON 备份</button>
+            <button class="btn" id="setDemo">载入示例数据</button>
+            <button class="btn btn-danger" id="setClear">清空全部数据</button>
+            <input type="file" id="setFile" accept="application/json" hidden>
+          </div>
+          <div class="pad muted" id="setStat">—</div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<!-- 模态框容器 -->
+<div id="modalRoot"></div>
+<!-- 打印（PDF）容器 -->
+<div id="printRoot"></div>
+
+<script src="assets/js/xlsx.js?v=20261022c"></script>
+<script src="assets/js/store.js?v=20261022c"></script>
+<script src="assets/js/common.js?v=20261022c"></script>
+<script src="assets/js/ai.js?v=20261022c"></script>
+<script src="assets/js/students.js?v=20261022c"></script>
+<script src="assets/js/talks.js?v=20261022c"></script>
+<script src="assets/js/contacts.js?v=20261022c"></script>
+<script src="assets/js/app.js?v=20261022c"></script>
+</body>
+</html>

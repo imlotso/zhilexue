@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>键盘指法练习</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="school.css" />
+  <link rel="stylesheet" href="gestures.css" />
+  <link rel="stylesheet" href="course-modes.css" />
+  <link rel="stylesheet" href="game-island.css" />
+</head>
+<body>
+  <section id="schoolPage" hidden aria-label="学习中心"></section>
+  <header class="toolbar">
+    <div class="toolbar-left">
+      <button class="school-return" id="schoolReturn" title="返回学习中心">‹ 返回</button>
+      <button class="tool menu" id="menuBtn" title="课程列表"><span></span><span></span><span></span></button>
+      <span class="lesson-name" id="lessonName">练习 f和j</span>
+    </div>
+    <div class="toolbar-right">
+      <button class="tool" id="pauseBtn" title="暂停"><svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zm6 0h4v14h-4z"/></svg></button>
+      <button class="tool" id="restartBtn" title="重新开始"><svg viewBox="0 0 24 24"><path d="M12 5V2L8 6l4 4V7a6 6 0 1 1-5.65 4H4.26A8 8 0 1 0 12 5z"/></svg></button>
+      <button class="tool" id="soundBtn" title="声音"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zm11.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 15.5 12zm-2.5-8.5v2.06a7 7 0 0 1 0 12.88v2.06a9 9 0 0 0 0-17z"/></svg></button>
+      <button class="tool" id="gearBtn" title="设置"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 .05-1 7.6 7.6 0 0 0-.05-1l2.1-1.65-2-3.46-2.55 1.03a8 8 0 0 0-1.73-1L14.83 3h-4l-.4 2.92a8 8 0 0 0-1.72 1L6.15 5.9l-2 3.46L6.25 11a7.6 7.6 0 0 0-.05 1 7.6 7.6 0 0 0 .05 1l-2.1 1.65 2 3.46 2.56-1.03a8 8 0 0 0 1.72 1l.4 2.92h4l.39-2.92a8 8 0 0 0 1.73-1l2.55 1.03 2-3.46L19.4 13zM12.83 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button>
+      <button class="tool" id="themeBtn" title="高亮颜色"><svg viewBox="0 0 24 24"><path d="m7 16 5-12 5 12H7zm-3 3h16v2H4v-2zM5 6l3 3-1.4 1.4-3-3L5 6z"/></svg></button>
+      <button class="tool" id="fullscreenBtn" title="全屏"><svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4V4zm10 0h6v6h-2V6h-4V4zM4 14h2v4h4v2H4v-6zm14 0h2v6h-6v-2h4v-4z"/></svg></button>
+      <button class="tool" id="goalBtn" title="速度目标"><svg viewBox="0 0 24 24"><path d="M12 4a9 9 0 0 0-9 9c0 2.1.72 4.03 1.93 5.56l1.56-1.25A7 7 0 1 1 17.5 17.3l1.57 1.25A9 9 0 0 0 12 4zm5.2 5.2-6.05 3.45a2 2 0 1 0 1.98 2.48L18.6 10.6l-1.4-1.4z"/></svg></button>
+    </div>
+  </header>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head"><b>键盘指法课程</b><button id="closeDrawer">×</button></div>
+    <div class="lesson-list" id="lessonList"></div>
+  </aside>
+  <div class="drawer-shade" id="drawerShade"></div>
+  <div class="settings-panel" id="settingsPanel" hidden><b>练习设置</b><span>错字继续前进</span><span>动态手势已开启</span><small>声音和高亮颜色可在工具栏调整</small></div>
+  <main class="workspace" id="workspace" tabindex="0">
+    <section class="practice-text">
+      <div class="words" id="words"></div>
+      <div class="paused" id="paused" hidden><b>已暂停</b><span>按任意键继续练习</span></div>
+    </section>
+    <div class="divider"></div>
+    <section class="keyboard-area">
+      <div class="keyboard-wrap">
+        <div class="keyboard" id="keyboard"></div>
+        <svg class="pose-hands" id="poseHands" viewBox="0 0 590 400" aria-hidden="true">
+          <g class="hand-palms">
+            <path class="hand-palm left" d="M62 400 C68 342 75 276 91 224 C105 186 142 168 185 170 C228 171 265 194 281 232 C292 259 291 329 288 400 Z"/>
+            <path class="hand-palm right" d="M302 400 C299 329 298 259 309 232 C325 194 362 171 405 170 C448 168 485 186 499 224 C515 276 522 342 528 400 Z"/>
+          </g>
+          <g class="pose-fingers">
+            <path class="pose-finger" data-finger="左手小指"/><path class="pose-finger" data-finger="左手无名指"/><path class="pose-finger" data-finger="左手中指"/><path class="pose-finger" data-finger="左手食指"/>
+            <path class="pose-finger" data-finger="右手食指"/><path class="pose-finger" data-finger="右手中指"/><path class="pose-finger" data-finger="右手无名指"/><path class="pose-finger" data-finger="右手小指"/>
+            <path class="pose-finger thumb" data-finger="左手拇指"/><path class="pose-finger thumb" data-finger="右手拇指"/>
+          </g>
+        </svg>
+      </div>
+      <div class="metrics">
+        <div><span>速率</span><strong><b id="speed">0</b></strong><small>字/分钟</small></div>
+        <div><span>准确性</span><strong><b id="accuracy">100</b>%</strong></div>
+      </div>
+    </section>
+  </main>
+  <footer class="bottom-progress"><i id="progressBar"></i></footer>
+  <div class="finish" id="finish" hidden><div class="finish-box"><div class="finish-icon">✓</div><h2>练习完成</h2><p>速率 <b id="finishSpeed">0</b> 字/分钟　·　准确性 <b id="finishAccuracy">100</b>%</p><button id="againBtn">再练一次</button><button id="nextBtn">下一课</button></div></div>
+  <script src="ht-store.js"></script>
+  <script src="catalog.js?v=2"></script>
+  <script src="course-content.js"></script>
+  <script src="app.js"></script>
+  <script src="gestures.js"></script>
+  <script src="course-modes.js"></script>
+  <script src="school.js"></script>
+  <script src="release-support.js"></script>
+</body>
+</html>

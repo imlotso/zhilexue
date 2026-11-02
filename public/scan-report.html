@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>试卷上传 · AI学情诊断</title>
+<link rel="icon" href="/img/logo.jpg" type="image/jpeg">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:linear-gradient(160deg,#1940c2,#2860dd 55%,#3c8bee);min-height:100vh;color:#1f2d3d}
+.wrap{max-width:520px;margin:0 auto;padding:22px 16px 40px}
+.hd{text-align:center;color:#fff;padding:14px 0 20px}
+.hd img{width:56px;height:56px;border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.22)}
+.hd h1{font-size:20px;margin-top:10px;letter-spacing:1px}
+.hd p{font-size:12.5px;opacity:.85;margin-top:5px}
+.card{background:#fff;border-radius:16px;padding:20px 18px;box-shadow:0 10px 30px rgba(9,30,80,.25);margin-bottom:14px}
+.card h2{font-size:15px;margin-bottom:14px;color:#2457d6}
+.f{margin-bottom:13px}
+.f label{display:block;font-size:13px;font-weight:700;color:#5a6b85;margin-bottom:6px}
+.f input{width:100%;height:44px;border:1.5px solid #dde5f2;border-radius:10px;padding:0 12px;font-size:15px;
+  background:#f8faff;color:#1f2d3d;outline:none}
+.f input:focus{border-color:#2f6bff;background:#fff}
+.zone{border:1.5px dashed #b9cdf4;border-radius:12px;background:#f4f8ff;padding:20px 16px;text-align:center}
+.zone .zi{font-size:30px}
+.zone b{display:block;font-size:15px;margin-top:6px;color:#1f2d3d}
+.zone p{font-size:12px;color:#8a99b5;margin-top:4px}
+.zone .pick{display:inline-block;margin-top:12px;height:42px;line-height:42px;padding:0 26px;border-radius:999px;
+  background:linear-gradient(135deg,#2f6bff,#5a8dff);color:#fff;font-size:14.5px;font-weight:700}
+.thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.th{position:relative;border-radius:10px;overflow:hidden;border:1.5px solid #e6ecf7;background:#fafcff}
+.th img{width:100%;height:86px;object-fit:cover;display:block}
+.th .nm{font-size:10.5px;color:#8a99b5;padding:4px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th .rm{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:none;
+  background:rgba(224,52,63,.92);color:#fff;font-size:13px;line-height:22px}
+.go{width:100%;height:52px;border:none;border-radius:14px;font-size:17px;font-weight:800;color:#fff;
+  background:linear-gradient(135deg,#2f6bff,#5a8dff);box-shadow:0 8px 20px rgba(47,107,255,.35)}
+.go:disabled{opacity:.6}
+.tips{font-size:12px;color:#8a99b5;line-height:1.7;text-align:center;margin-top:10px}
+.done{text-align:center;padding:30px 10px}
+.done .di{font-size:52px}
+.done h2{color:#0e9f5f;font-size:19px;margin:12px 0 8px}
+.done p{font-size:13.5px;color:#5a6b85;line-height:1.8}
+.err{text-align:center;padding:30px 10px}
+.err .di{font-size:52px}
+.err h2{color:#e0343f;font-size:18px;margin:12px 0 8px}
+.err p{font-size:13.5px;color:#5a6b85;line-height:1.8}
+.spin{display:inline-block;width:16px;height:16px;border:2.5px solid rgba(255,255,255,.4);border-top-color:#fff;
+  border-radius:50%;vertical-align:-3px;margin-right:7px;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd">
+    <img src="/img/logo.jpg" alt="logo">
+    <h1>AI 学情诊断</h1>
+    <p>拍摄试卷上传，AI 自动生成江苏地区学情诊断报告</p>
+  </div>
+
+  <div class="card" id="formCard">
+    <h2>📋 学生信息</h2>
+    <div class="f"><label>学生姓名</label><input id="student" placeholder="如：陈同学"></div>
+    <div class="f"><label>学科</label><input id="subject" placeholder="如：数学"></div>
+    <div class="f"><label>年级</label><input id="grade" placeholder="如：五年级"></div>
+    <div class="f"><label>报告标题（选填）</label><input id="title" placeholder="留空自动生成"></div>
+
+    <h2 style="margin-top:18px">📄 试卷照片</h2>
+    <div class="zone">
+      <div class="zi">📷</div>
+      <b>拍摄或选择试卷照片</b>
+      <p>支持拍照 / 相册 / PDF，最多 6 张</p>
+      <label class="pick">拍照 / 选择文件<input type="file" id="files" accept="image/*,.pdf,application/pdf" multiple style="display:none"></label>
+    </div>
+    <div class="thumbs" id="thumbs"></div>
+
+    <button class="go" id="go" style="margin-top:18px">提交并开始分析</button>
+    <p class="tips">提交后 AI 分析约 30 秒～3 分钟<br>分析完成后，老师在电脑端「AI学情诊断」里查看报告</p>
+  </div>
+
+  <div class="card" id="doneCard" style="display:none">
+    <div class="done">
+      <div class="di">✅</div>
+      <h2>提交成功</h2>
+      <p>AI 正在分析这份试卷（约 30 秒～3 分钟）<br>请老师回到电脑端「AI学情诊断 → 分析报告」查看结果</p>
+    </div>
+  </div>
+
+  <div class="card" id="errCard" style="display:none">
+    <div class="err">
+      <div class="di">⚠️</div>
+      <h2 id="errTitle">无法上传</h2>
+      <p id="errMsg">请重新扫码再试</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var token = '';
+  try {
+    var m = location.search.match(/[?&]token=([^&]+)/);
+    if (m) token = decodeURIComponent(m[1]);
+  } catch (e) {}
+  if (!token) {
+    document.getElementById('formCard').style.display = 'none';
+    document.getElementById('errCard').style.display = '';
+    document.getElementById('errTitle').textContent = '链接无效';
+    document.getElementById('errMsg').textContent = '缺少上传凭证，请让老师在电脑端重新生成二维码';
+    return;
+  }
+
+  var files = [];
+  var MAX = 6;
+
+  function renderThumbs() {
+    var box = document.getElementById('thumbs');
+    if (!files.length) { box.innerHTML = ''; return; }
+    box.innerHTML = files.map(function (f, i) {
+      var url = URL.createObjectURL(f);
+      return '<div class="th"><img src="' + url + '"><div class="nm">' + (f.name || ('照片 ' + (i + 1))) + '</div>' +
+        '<button class="rm" data-i="' + i + '">×</button></div>';
+    }).join('');
+    box.querySelectorAll('.rm').forEach(function (b) {
+      b.onclick = function () { files.splice(Number(b.dataset.i), 1); renderThumbs(); };
+    });
+  }
+
+  document.getElementById('files').onchange = function (e) {
+    var list = Array.prototype.slice.call(e.target.files || []);
+    e.target.value = '';
+    for (var i = 0; i < list.length; i++) {
+      if (files.length >= MAX) break;
+      files.push(list[i]);
+    }
+    if (list.length > MAX) alert('一次最多 ' + MAX + ' 张，超出部分未加入');
+    renderThumbs();
+  };
+
+  document.getElementById('go').onclick = function () {
+    if (!files.length) return alert('请先拍摄或选择试卷照片');
+    var btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span>正在上传…';
+    var fd = new FormData();
+    fd.append('student', document.getElementById('student').value.trim());
+    fd.append('subject', document.getElementById('subject').value.trim());
+    fd.append('grade', document.getElementById('grade').value.trim());
+    fd.append('title', document.getElementById('title').value.trim());
+    files.forEach(function (f) { fd.append('images', f, f.name || 'paper.jpg'); });
+    fetch('/api/report-scan?token=' + encodeURIComponent(token), { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.code === 0) {
+          document.getElementById('formCard').style.display = 'none';
+          document.getElementById('doneCard').style.display = '';
+          window.scrollTo(0, 0);
+        } else {
+          btn.disabled = false;
+          btn.textContent = '提交并开始分析';
+          alert(d.msg || '上传失败，请重试');
+        }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = '提交并开始分析';
+        alert('网络异常，请重试');
+      });
+  };
+})();
+</script>
+</body>
+</html>

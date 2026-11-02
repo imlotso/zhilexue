@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>拍照上传错题</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;background:#f2f5fb;min-height:100vh;color:#1f2733}
+  .wrap{max-width:520px;margin:0 auto;padding:20px 16px 48px}
+  .hero{background:linear-gradient(120deg,#2f6bff,#6c4dff);border-radius:18px;padding:20px;color:#fff;margin-bottom:16px;box-shadow:0 8px 24px rgba(76,92,255,.28)}
+  .hero h1{font-size:19px;font-weight:800;margin-bottom:5px}
+  .hero p{font-size:13px;opacity:.92;line-height:1.6}
+  .card{background:#fff;border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(20,40,80,.06)}
+  .fld{padding:2px 0}
+  .fld + .fld{border-top:1px solid #f1f4fa;margin-top:12px;padding-top:14px}
+  .fld label{display:block;font-size:14px;font-weight:700;margin-bottom:10px}
+  .fld label .opt{font-size:12px;color:#98a2b3;font-weight:400;margin-left:6px}
+  .fld label .req{color:#e5484d;margin-left:2px}
+  .subj-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .subj-chip{border:1.5px solid #dfe6f3;background:#fbfcff;border-radius:10px;padding:9px 0;font-size:14px;font-weight:600;color:#5b6779;cursor:pointer;transition:.15s;font-family:inherit}
+  .subj-chip.on{border-color:#2f6bff;background:#e8f1ff;color:#2f6bff;font-weight:700}
+  .tip{font-size:12.5px;color:#7a8699;line-height:1.65;margin-bottom:8px}
+  .files{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:10px}
+  .fslot{position:relative;aspect-ratio:1;border-radius:12px;overflow:hidden;border:1px dashed #c9d4ea;background:#f7f9fe}
+  .fslot img{width:100%;height:100%;object-fit:cover}
+  .fslot .del{position:absolute;right:4px;top:4px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:14px;line-height:22px;cursor:pointer}
+  .fslot.add{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:#5b8cff;font-size:12px;cursor:pointer;border:1.5px dashed #9db8f5}
+  .fslot.add .plus{font-size:24px;line-height:1}
+  input[type=text],textarea{width:100%;border:1px solid #dfe6f3;border-radius:10px;padding:10px 12px;font-size:14px;font-family:inherit;background:#fbfcff;color:#1f2733}
+  textarea{resize:none;min-height:60px}
+  input:focus,textarea:focus{outline:none;border-color:#2f6bff;background:#fff}
+  .picker{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #dfe6f3;border-radius:10px;padding:10px 12px;font-size:14px;cursor:pointer;background:#fbfcff;margin-bottom:9px}
+  .picker:active{border-color:#2f6bff}
+  .picker .ph{color:#98a2b3}
+  .picker .v{color:#1f2733;font-weight:600}
+  .picker .arr{color:#c0c9d8;font-weight:700}
+  .btn{display:block;width:100%;border:none;border-radius:999px;padding:14px;font-size:16px;font-weight:700;cursor:pointer;transition:.15s}
+  .btn-primary{background:linear-gradient(135deg,#2f6bff,#6c4dff);color:#fff;box-shadow:0 6px 16px rgba(47,107,255,.32)}
+  .btn:disabled{opacity:.5;box-shadow:none}
+  .ok-box{text-align:center;padding:30px 10px}
+  .ok-box .ic{font-size:52px}
+  .ok-box b{display:block;font-size:18px;margin:12px 0 8px}
+  .ok-box p{font-size:13px;color:#7a8699;line-height:1.7}
+  .ulist{display:flex;flex-direction:column;gap:10px}
+  .uitem{display:flex;align-items:center;gap:10px}
+  .uitem img{width:52px;height:52px;border-radius:8px;object-fit:cover;border:1px solid #eef1f8}
+  .uitem .m{flex:1;min-width:0}
+  .uitem .m b{font-size:13px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .uitem .m span{font-size:12px;color:#98a2b3}
+  .badge{font-size:11px;border-radius:999px;padding:3px 10px;font-weight:600;flex-shrink:0}
+  .b-wait{background:#fff4e0;color:#c47b0a}
+  .b-ok{background:#e2f9ec;color:#0e9f5d}
+  .b-no{background:#ffe8e8;color:#d5323a}
+  .err{background:#ffecec;color:#d5323a;border-radius:12px;padding:12px 14px;font-size:14px;margin-bottom:14px;display:none}
+  .foot{text-align:center;font-size:12px;color:#a5aec0;margin-top:22px}
+  /* 错误类型 / 年级 底部选择弹层 */
+  .sheet-mask{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:60;display:flex;align-items:flex-end;justify-content:center}
+  .sheet{background:#fff;border-radius:18px 18px 0 0;width:100%;max-width:520px;padding:10px 0 calc(14px + env(safe-area-inset-bottom));animation:sheetUp .2s ease-out}
+  @keyframes sheetUp{from{transform:translateY(40%);opacity:.4}to{transform:none;opacity:1}}
+  .sheet .st{display:flex;align-items:center;justify-content:space-between;padding:10px 18px 6px}
+  .sheet .st b{font-size:15px}
+  .sheet .st .x{border:none;background:none;font-size:20px;color:#98a2b3;cursor:pointer;padding:4px}
+  .sheet .so{display:block;width:100%;text-align:center;border:none;background:none;font-size:15px;color:#1f2733;padding:13px;cursor:pointer}
+  .sheet .so:active{background:#f2f6ff}
+  .sheet .so.on{color:#2f6bff;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <div class="hero">
+    <h1>📷 拍照上传错题</h1>
+    <p id="greet">正在验证访问凭证…</p>
+  </div>
+  <div class="err" id="err"></div>
+  <div id="main" style="display:none">
+    <div class="card">
+      <div class="fld">
+        <label>学科<span class="req">*</span></label>
+        <div class="subj-row" id="subjRow"></div>
+      </div>
+      <div class="fld">
+        <label>题干</label>
+        <p class="tip">一次上传 <b>一道题</b>（最多 4 张照片），拍清楚一点，老师才能看懂题目哦。也可以补充文字描述。</p>
+        <div class="files" id="files"></div>
+        <input type="file" id="picker" accept="image/*" capture="environment" multiple style="display:none">
+        <textarea id="stemText" maxlength="500" placeholder="输入文字描述题目（选填）"></textarea>
+      </div>
+    </div>
+    <div class="card">
+      <div class="fld">
+        <label>答案<span class="opt">选填</span></label>
+        <input type="text" id="answer" maxlength="500" placeholder="写下你的答案或卡住的地方（选填）">
+      </div>
+    </div>
+    <div class="card">
+      <div class="fld">
+        <label>所属学期 / 章节<span class="opt">选填</span></label>
+        <div class="picker" id="gradePick"><span class="ph">选择年级</span><span class="arr">›</span></div>
+        <input type="text" id="chapter" maxlength="200" placeholder="如：三年级上 / 苏教版 / 两、三位数乘一位数（选填）">
+      </div>
+      <div class="fld">
+        <label>所属知识点<span class="opt">选填</span></label>
+        <input type="text" id="point" maxlength="100" placeholder="如：两位数乘一位数（选填，老师会核对）">
+      </div>
+      <div class="fld">
+        <label>错误类型<span class="opt">选填</span></label>
+        <div class="picker" id="errPick"><span class="ph">选择错误类型</span><span class="arr">›</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="fld">
+        <label>给老师的留言<span class="opt">选填</span></label>
+        <textarea id="note" maxlength="200" placeholder="比如：这道题想不明白了，帮我讲讲～"></textarea>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="submit">提交给老师审核</button>
+    <div class="card" style="margin-top:16px">
+      <h2 style="font-size:15px;font-weight:700;margin-bottom:12px">我上传的错题</h2>
+      <div class="ulist" id="ulist"><p class="tip">加载中…</p></div>
+    </div>
+  </div>
+  <div class="foot">智学课堂 · 错题本上传通道</div>
+</div>
+<script>
+(function () {
+  var token = new URLSearchParams(location.search).get('t') || '';
+  var files = [];            // File 对象
+  var MAX = 4, MAXMB = 10;
+  var $ = function (s) { return document.querySelector(s); };
+  var showErr = function (msg) { var e = $('#err'); e.textContent = msg; e.style.display = 'block'; window.scrollTo(0, 0); };
+
+  var GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级'];
+  var ERR_TYPES = ['题型生疏', '审题错误', '看错抄错', '未按要求', '概念不清', '步骤不全', '计算失误', '其他'];
+  var SUBJS = ['数学', '英语', '物理', '化学'];
+  var grade = '', errorType = '';
+  var subject = SUBJS.indexOf(new URLSearchParams(location.search).get('subject') || '') >= 0
+    ? new URLSearchParams(location.search).get('subject') : '';
+
+  if (!token) { $('#greet').textContent = '链接无效，请回到错题本重新获取二维码'; return; }
+
+  api('info', null, function (d) {
+    $('#greet').textContent = '你好，' + (d.name || '同学') + (d.grade ? '（' + d.grade + '）' : '') + '，把不会的题拍下来交给老师吧！';
+    if (!grade && d.grade && GRADES.indexOf(d.grade) >= 0) { grade = d.grade; paintPicks(); }
+    $('#main').style.display = '';
+    loadMine();
+  }, function (msg) { $('#greet').textContent = msg || '二维码已过期，请回到错题本重新获取'; });
+
+  function api(path, body, onOk, onErr, isForm) {
+    var opt = { method: body ? 'POST' : 'GET', headers: {} };
+    if (body) opt.body = isForm ? body : JSON.stringify(body);
+    if (!isForm && body) opt.headers['Content-Type'] = 'application/json';
+    var sep = path.indexOf('?') >= 0 ? '&' : '?';
+    fetch('/api/up/' + path + sep + 't=' + encodeURIComponent(token), opt)
+      .then(function (r) { return r.json().catch(function () { throw new Error('网络异常，请稍后重试'); }); })
+      .then(function (j) {
+        if (j.code === 0) onOk && onOk(j.data);
+        else {
+          if (j.code === 401) { $('#main').style.display = 'none'; }
+          onErr && onErr(j.msg || '操作失败'); if (!onErr) showErr(j.msg || '操作失败');
+        }
+      })
+      .catch(function (e) { onErr && onErr(e.message); if (!onErr) showErr(e.message || '网络异常'); });
+  }
+
+  // ---- 底部选择弹层 ----
+  function openSheet(title, options, current, onPick) {
+    var mask = document.createElement('div'); mask.className = 'sheet-mask';
+    var html = '<div class="sheet"><div class="st"><b>' + title + '</b><button class="x">✕</button></div>';
+    if (current) html += '<button class="so" data-v="">不填</button>';
+    options.forEach(function (o) { html += '<button class="so' + (o === current ? ' on' : '') + '" data-v="' + o + '">' + o + '</button>'; });
+    html += '</div>';
+    mask.innerHTML = html;
+    document.body.appendChild(mask);
+    mask.addEventListener('click', function (e) { if (e.target === mask) mask.remove(); });
+    mask.querySelector('.x').onclick = function () { mask.remove(); };
+    mask.querySelectorAll('.so').forEach(function (b) {
+      b.onclick = function () { onPick(b.dataset.v || ''); mask.remove(); };
+    });
+  }
+
+  function paintPicks() {
+    $('#subjRow').innerHTML = SUBJS.map(function (s) {
+      return '<button type="button" class="subj-chip' + (subject === s ? ' on' : '') + '" data-s="' + s + '">' + s + '</button>';
+    }).join('');
+    $('#subjRow').querySelectorAll('.subj-chip').forEach(function (b) {
+      b.onclick = function () { subject = b.dataset.s; paintPicks(); };
+    });
+    $('#gradePick').innerHTML = '<span class="' + (grade ? 'v' : 'ph') + '">' + (grade || '选择年级') + '</span><span class="arr">›</span>';
+    $('#errPick').innerHTML = '<span class="' + (errorType ? 'v' : 'ph') + '">' + (errorType || '选择错误类型') + '</span><span class="arr">›</span>';
+  }
+  paintPicks();
+  $('#gradePick').onclick = function () { openSheet('所属年级', GRADES, grade, function (v) { grade = v; paintPicks(); }); };
+  $('#errPick').onclick = function () { openSheet('错误类型', ERR_TYPES, errorType, function (v) { errorType = v; paintPicks(); }); };
+
+  // ---- 图片选择 ----
+  function paintFiles() {
+    var box = $('#files');
+    box.innerHTML = '';
+    files.forEach(function (f, i) {
+      var d = document.createElement('div'); d.className = 'fslot';
+      d.innerHTML = '<img src="' + f.url + '"><button class="del" data-i="' + i + '">×</button>';
+      box.appendChild(d);
+    });
+    if (files.length < MAX) {
+      var a = document.createElement('div'); a.className = 'fslot add';
+      a.innerHTML = '<span class="plus">＋</span>拍照 / 选图';
+      a.onclick = function () { $('#picker').click(); };
+      box.appendChild(a);
+    }
+    box.querySelectorAll('.del').forEach(function (b) {
+      b.onclick = function (e) { e.stopPropagation(); files.splice(Number(b.dataset.i), 1); paintFiles(); };
+    });
+  }
+  paintFiles();
+  $('#picker').onchange = function () {
+    var list = Array.prototype.slice.call(this.files || []);
+    this.value = '';
+    list.forEach(function (f) {
+      if (!/^image\//.test(f.type)) return;
+      if (f.size > MAXMB * 1024 * 1024) { showErr('图片太大（超过 ' + MAXMB + 'MB），请拍小一点再试'); return; }
+      if (files.length >= MAX) return;
+      files.push({ file: f, url: URL.createObjectURL(f) });
+    });
+    paintFiles();
+  };
+
+  // ---- 提交 ----
+  $('#submit').onclick = function () {
+    if (!files.length) return showErr('请先拍照或选择至少 1 张图片');
+    if (!subject) return showErr('请先选择学科');
+    var btn = this; btn.disabled = true; btn.textContent = '上传中…';
+    var fd = new FormData();
+    files.forEach(function (f) { fd.append('images', f.file); });
+    fd.append('subject', subject);
+    fd.append('stem_text', $('#stemText').value.trim());
+    fd.append('answer', $('#answer').value.trim());
+    fd.append('grade', grade);
+    fd.append('chapter', $('#chapter').value.trim());
+    fd.append('point', $('#point').value.trim());
+    fd.append('error_type', errorType);
+    fd.append('note', $('#note').value.trim());
+    api('submit', fd, function () {
+      $('#main').innerHTML = '<div class="card ok-box"><div class="ic">🎉</div><b>上传成功！</b><p>题目已自动进入你的错题本，可以先去做一做～<br>老师审核确认后会一直保留，题目不合适会被移出。</p></div>';
+    }, function (msg) {
+      btn.disabled = false; btn.textContent = '提交给老师审核';
+      showErr(msg || '上传失败，请重试');
+    }, true);
+  };
+
+  // ---- 我的上传 ----
+  function loadMine() {
+    api('mine', null, function (d) {
+      var box = $('#ulist');
+      var ST = { pending: ['待审核', 'b-wait'], reviewed: ['已核对', 'b-ok'], approved: ['已入库', 'b-ok'], rejected: ['未通过', 'b-no'] };
+      if (!d.list || !d.list.length) { box.innerHTML = '<p class="tip">还没有上传记录，上面拍完点提交吧。</p>'; return; }
+      box.innerHTML = d.list.map(function (u) {
+        var st = ST[u.status] || ['未知', 'b-wait'];
+        var img = (u.images && u.images[0]) || '';
+        var name = u.stem_text || u.point || u.error_type || (u.grade ? u.grade + '错题' : '错题照片');
+        return '<div class="uitem">' + (img ? '<img src="' + img + '">' : '')
+          + '<div class="m"><b>' + escHtml(name) + '</b>'
+          + '<span>' + [u.error_type, u.point, String(u.created_at || '').slice(0, 16)].filter(Boolean).join(' · ') + '</span></div>'
+          + '<span class="badge ' + st[1] + '">' + st[0] + '</span></div>';
+      }).join('');
+    });
+  }
+  function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+})();
+</script>
+</body>
+</html>

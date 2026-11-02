@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>成绩上报 · 家长端</title>
+<link rel="stylesheet" href="assets/css/style.css" />
+<style>
+  body{background:#f2f5fb}
+  .pu-wrap{max-width:520px;margin:0 auto;padding:18px 14px 40px}
+  .pu-head{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+  .pu-head .brand-mark{width:38px;height:38px;border-radius:10px}
+  .pu-card{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:18px}
+  .pu-title{font-size:17px;font-weight:700;margin:0 0 4px}
+  .pu-sub{font-size:12.5px;color:var(--text-3);margin-bottom:16px;line-height:1.7}
+  .pu-form{display:flex;flex-direction:column;gap:12px}
+  .pu-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .pu-ok{text-align:center;padding:26px 10px}
+  .pu-ok .ico{font-size:40px}
+  .pu-note{font-size:11.5px;color:var(--text-3);line-height:1.75;background:var(--panel-2);border:1px dashed var(--line);border-radius:9px;padding:10px 12px;margin-top:14px}
+  .pu-err{color:var(--down);font-size:12px;margin-top:6px}
+  .pu-thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .pu-thumb{position:relative;width:72px;height:92px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--panel-2)}
+  .pu-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .pu-thumb button{position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;border:none;font-size:11px;line-height:1}
+</style>
+</head>
+<body>
+<div class="pu-wrap">
+  <div class="pu-head">
+    <span class="brand-mark">成</span>
+    <div class="brand-text">
+      <strong style="font-size:15px">成绩上报</strong>
+      <span style="font-size:11px;color:var(--text-3)">家长端 · 提交后由老师审核</span>
+    </div>
+  </div>
+
+  <div class="pu-card" id="puCard">
+    <h2 class="pu-title">填写本次考试成绩</h2>
+    <div class="pu-sub" id="puCampusLine">请如实填写，老师审核后计入学生成绩档案。</div>
+    <div class="pu-form" id="puForm">
+      <div class="field"><label>学生姓名 <span class="hint">*</span></label>
+        <input type="text" id="pName" placeholder="与报名时一致的姓名" /></div>
+      <div class="pu-row">
+        <div class="field"><label>学段</label>
+          <select id="pStage"><option>小学</option><option>初中</option><option>高中</option></select></div>
+        <div class="field"><label>年级</label>
+          <input type="text" id="pGrade" placeholder="如：七年级" /></div>
+      </div>
+      <div class="field"><label>考试名称 <span class="hint">*</span></label>
+        <input type="text" id="pExam" placeholder="如：期中考试 / 第三次单元测" /></div>
+      <div class="pu-row">
+        <div class="field"><label>考试年月</label>
+          <div class="mp"><select id="pYear"></select><span class="mp-unit">年</span>
+            <select id="pMonth"></select><span class="mp-unit">月</span></div>
+        </div>
+        <div class="field"><label>科目 <span class="hint">*</span></label>
+          <input type="text" id="pSubject" placeholder="数学 / 英语 / 物理 / 化学" /></div>
+      </div>
+      <div class="pu-row">
+        <div class="field"><label>满分 <span class="hint">*</span></label><input type="number" id="pFull" placeholder="120" /></div>
+        <div class="field"><label>得分 <span class="hint">*</span></label><input type="number" id="pScore" placeholder="105" /></div>
+      </div>
+      <div class="pu-row">
+        <div class="field"><label>班级名次（选填）</label><input type="number" id="pClassRank" placeholder="如：8" /></div>
+        <div class="field"><label>年级名次（选填）</label><input type="number" id="pGradeRank" placeholder="如：35" /></div>
+      </div>
+
+      <div class="field">
+        <label>试卷照片（选填）
+          <span class="hint">上传后老师端自动生成知识点诊断与 AI 提升建议</span></label>
+        <button class="btn btn-sm" type="button" id="pAddImg" style="justify-content:center">📷 拍照 / 选择试卷图片</button>
+        <div class="pu-thumbs" id="pThumbs"></div>
+        <input type="file" id="pImg" accept="image/*" capture="environment" multiple hidden />
+      </div>
+
+      <div class="field"><label>备注（选填）</label>
+        <textarea id="pNote" rows="2" placeholder="如：班级排名、失分说明"></textarea></div>
+
+      <button class="btn btn-primary" id="pSubmit" style="height:42px;font-size:15px;justify-content:center">提交给老师</button>
+      <div class="pu-err" id="pErr"></div>
+    </div>
+    <div class="pu-note">
+      提交后老师会在后台「待审核」中确认，确认后计入成绩档案；若上传了试卷照片，系统会同步生成该科知识点诊断。<br>
+      当前为测试版：页面数据保存在本机浏览器；正式上线后由服务器统一收集，多端实时同步。
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const KEY = 'campus_grade_db_v1';
+  const qs = new URLSearchParams(location.search);
+  const campusId = qs.get('c') || '';
+  const campusName = qs.get('n') || '';
+  let images = [];
+
+  if (campusName) document.getElementById('puCampusLine').textContent = `校区：${campusName} · 请如实填写，老师审核后计入学生成绩档案。`;
+
+  // 年月下拉（与其他下拉样式一致）
+  (function initMonth() {
+    const t = new Date();
+    const ySel = document.getElementById('pYear'), mSel = document.getElementById('pMonth');
+    for (let i = t.getFullYear() + 1; i >= t.getFullYear() - 5; i--) {
+      const o = document.createElement('option');
+      o.value = String(i); o.textContent = String(i);
+      if (i === t.getFullYear()) o.selected = true;
+      ySel.appendChild(o);
+    }
+    for (let i = 1; i <= 12; i++) {
+      const o = document.createElement('option');
+      o.value = String(i).padStart(2, '0'); o.textContent = String(i);
+      if (i === t.getMonth() + 1) o.selected = true;
+      mSel.appendChild(o);
+    }
+  })();
+  function monthValue() {
+    return document.getElementById('pYear').value + '-' + String(document.getElementById('pMonth').value).padStart(2, '0');
+  }
+
+  function readDB() {
+    try { return JSON.parse(localStorage.getItem(KEY) || 'null') || { campuses: [], exams: [], records: [], students: [], papers: [], parentUploads: [] }; }
+    catch (e) { return { campuses: [], exams: [], records: [], students: [], papers: [], parentUploads: [] }; }
+  }
+  function writeDB(d) {
+    try { localStorage.setItem(KEY, JSON.stringify(d)); return true; } catch (e) { return false; }
+  }
+
+  function compress(file, maxW, q) {
+    return new Promise(function (res, rej) {
+      const fr = new FileReader();
+      fr.onerror = function () { rej(new Error('读取失败')); };
+      fr.onload = function () {
+        const img = new Image();
+        img.onerror = function () { rej(new Error('解析失败')); };
+        img.onload = function () {
+          const s = Math.min(1, maxW / img.width);
+          const cv = document.createElement('canvas');
+          cv.width = Math.round(img.width * s);
+          cv.height = Math.round(img.height * s);
+          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          res(cv.toDataURL('image/jpeg', q));
+        };
+        img.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+
+  const thumbs = document.getElementById('pThumbs');
+  function renderThumbs() {
+    thumbs.innerHTML = images.map(function (im, i) {
+      return '<div class="pu-thumb"><img src="' + im.dataUrl + '" alt="" /><button type="button" data-i="' + i + '">✕</button></div>';
+    }).join('');
+    Array.prototype.forEach.call(thumbs.querySelectorAll('[data-i]'), function (b) {
+      b.onclick = function () { images.splice(Number(b.dataset.i), 1); renderThumbs(); };
+    });
+  }
+
+  document.getElementById('pAddImg').onclick = function () {
+    if (images.length >= 3) { document.getElementById('pErr').textContent = '最多上传 3 张试卷照片'; return; }
+    document.getElementById('pImg').value = '';
+    document.getElementById('pImg').click();
+  };
+  document.getElementById('pImg').onchange = async function (e) {
+    const files = Array.prototype.slice.call(e.target.files || []);
+    for (const f of files.slice(0, 3 - images.length)) {
+      try { images.push({ name: f.name, dataUrl: await compress(f, 1000, 0.6) }); }
+      catch (err) { document.getElementById('pErr').textContent = '图片处理失败：' + f.name; }
+    }
+    renderThumbs();
+  };
+
+  document.getElementById('pSubmit').onclick = function () {
+    const err = document.getElementById('pErr');
+    err.textContent = '';
+    const v = function (id) { return document.getElementById(id).value.trim(); };
+    const name = v('pName'), exam = v('pExam'), subject = v('pSubject');
+    const full = Number(v('pFull')), score = Number(v('pScore'));
+    if (!name) return err.textContent = '请填写学生姓名';
+    if (!exam) return err.textContent = '请填写考试名称';
+    if (!subject) return err.textContent = '请填写科目';
+    if (!v('pFull') || isNaN(full)) return err.textContent = '请填写满分';
+    if (v('pScore') === '' || isNaN(score)) return err.textContent = '请填写得分';
+    if (score < 0 || score > full) return err.textContent = '得分应在 0 ~ 满分之间';
+
+    const db = readDB();
+    db.parentUploads = db.parentUploads || [];
+    let cid = campusId;
+    if (!cid && db.campuses && db.campuses.length) cid = db.campuses[0].id;
+
+    db.parentUploads.push({
+      id: 'pu_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      campusId: cid,
+      studentName: name,
+      stage: v('pStage'),
+      grade: v('pGrade'),
+      subject, examName: exam, date: monthValue(),
+      type: '其他',
+      fullScore: full, score: score,
+      classRank: v('pClassRank') === '' ? null : Number(v('pClassRank')),
+      gradeRank: v('pGradeRank') === '' ? null : Number(v('pGradeRank')),
+      note: v('pNote'),
+      images: images.slice(),
+      createdAt: Date.now(),
+      status: 'pending'
+    });
+    if (!writeDB(db)) return err.textContent = '保存失败，请截图后发给老师';
+
+    document.getElementById('puCard').innerHTML =
+      '<div class="pu-ok">' +
+      '<div class="ico">✅</div>' +
+      '<h2 class="pu-title" style="margin-top:10px">提交成功</h2>' +
+      '<div class="pu-sub" style="margin-top:6px">' + name + ' · ' + subject + ' ' + score + '/' + full + ' 分' +
+      (v('pClassRank') ? '<br>班级第 ' + v('pClassRank') + ' 名' : '') +
+      (v('pGradeRank') ? ' · 年级第 ' + v('pGradeRank') + ' 名' : '') +
+      (images.length ? '<br>已附 ' + images.length + ' 张试卷照片，老师审核后生成知识点诊断' : '') +
+      '<br>老师审核后即会计入成绩档案</div>' +
+      '<button class="btn btn-sm" style="margin-top:12px" onclick="location.reload()">再提交一条</button>' +
+      '</div>';
+  };
+})();
+</script>
+</body>
+</html>

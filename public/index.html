@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#2f6bff">
+<title>智学课堂 · 学生端</title>
+<link rel="stylesheet" href="./css/app.css?v=20261030c">
+<link rel="stylesheet" href="./css/ali-icons.css">
+<link rel="stylesheet" href="./vendor/element-ui.css">
+<link rel="stylesheet" href="./css/ruoyi.css?v=20261026a">
+<link rel="icon" href="./img/logo.jpg" type="image/jpeg">
+</head>
+<body>
+<div id="app"><div class="loading-page">加载中…</div></div>
+<script>
+/* MathJax 3 配置：题干 LaTeX 分隔符（\( \) 内联 / \[ \] 与 $$ $$ 展示 / $ $ 内联），页面加载不自动排版（由 mtxTypeset 按需排版） */
+window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]'], ['$$', '$$$']] }, svg: { fontCache: 'global' }, options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'input'] }, startup: { typeset: false } };
+</script>
+<script defer src="./vendor/mathjax-tex-svg.js"></script>
+<script src="./vendor/qrcode.min.js"></script>
+<script src="./vendor/vue.global.prod.js"></script>
+<script src="./vendor/html2canvas.min.js"></script>
+<script src="./js/api.js"></script>
+<script src="./js/fx.js"></script>
+<script src="./js/mathlib.js?v=20261028a"></script>
+<script src="./js/bank.js?v=20261030d"></script>
+<script src="./js/words.js?v=67"></script>
+<script src="./js/vue-app.js?v=20261101b"></script>
+</body>
+</html>

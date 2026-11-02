@@ -1,0 +1,103 @@
+[hidden]{display:none!important}
+.backup-tools{margin:25px 0;text-align:center;font-size:12px;color:#9099ad}.backup-tools button,.backup-tools a{border:1px solid #dbe2ee;background:white;padding:8px 12px;border-radius:6px;color:#4b5bcc;font:inherit;text-decoration:none;margin:5px;cursor:pointer}.backup-tools span{display:inline-block;margin:8px}
+.catalog-group{grid-column:1/-1;position:sticky;top:0;z-index:2;margin:0 0 2px;padding:5px 2px 5px;font-size:15px;color:#354463;display:flex;gap:12px;align-items:center;background:#f7f8fc;border-bottom:1px solid #e9ecf3}.catalog-group small{font-size:12px;font-weight:400;color:#8793a7}
+.drawer-group{font-size:14px;color:#4b5bcc;margin:18px 10px 5px}.lesson-item small{color:#9a9fa9;font-size:11px}
+.course-details{max-width:480px;width:calc(100% - 40px);border:1px solid #dbe1ef;border-radius:14px;padding:28px;color:#354463}.course-details::backdrop{background:#17254666}.course-details h2{font-size:21px;line-height:1.5}.course-details p{line-height:1.8;color:#7a859a}.course-details button{border:0;background:#4b5bcc;color:white;border-radius:6px;padding:10px 20px;cursor:pointer}
+.school-return{border:1px solid #c3cdf3;background:#eef1ff;color:#3a49c8;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;padding:6px 16px;border-radius:8px;transition:.15s;box-shadow:0 2px 6px #263b7218}
+.school-return:hover{background:#4b5bcc;border-color:#4b5bcc;color:#fff}
+body.school-mode{overflow:hidden;background:#f7f8fc;color:#28314b}
+.school-mode>.toolbar,.school-mode>.workspace,.school-mode>.bottom-progress,.school-mode>.finish,.school-mode>.settings-panel{display:none!important}
+/* 单页布局：整个学习中心固定一屏，仅课程栏内部滚动 */
+#schoolPage{height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:14px}
+#schoolPage button,#schoolPage a{cursor:pointer}
+/* 顶部导航：仅保留品牌标识 */
+.school-nav{height:54px;flex:none;background:white;border-bottom:1px solid #e9ecf3;display:flex;align-items:center;gap:24px;padding:0 max(24px,calc((100% - 1160px)/2));white-space:nowrap}
+.school-logo{display:flex;align-items:center;gap:10px;font-size:19px;font-weight:700;color:#3e4fc4;text-decoration:none}
+.school-logo span{background:#4958d0;color:white;border-radius:10px;padding:6px 9px;font-size:18px}
+.school-local{margin-left:auto;color:#8991a5;font-size:12px}
+.school-content{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;max-width:1400px;margin:0 auto;padding:8px 20px 12px}
+/* 顶部横幅：压缩高度 */
+.school-hero{flex:none;border-radius:16px;background:#eaf0ff;padding:18px 26px;display:flex;align-items:center;justify-content:space-between;gap:24px;overflow:hidden}
+.school-eyebrow{color:#5364bb;font-size:12px;letter-spacing:2px}
+.school-hero h1{font-size:25px;line-height:1.3;margin:6px 0;color:#27355d}
+.school-hero p{color:#697795;font-size:13px;line-height:1.6;margin:0 0 14px}
+.school-primary{border:0;border-radius:8px;background:#4b5bcc;color:white;padding:9px 20px;font-size:14px;font-weight:600}.school-primary:hover{background:#3949b7}
+.school-keys{display:grid;grid-template-columns:repeat(4,44px);gap:8px;transform:rotate(-7deg);padding:10px 24px;flex-shrink:0}.school-keys span{display:grid;place-items:center;background:white;border:1px solid #d5def4;border-bottom:4px solid #cbd5ed;border-radius:9px;height:46px;color:#607099;font:19px Consolas,monospace}.school-keys span:nth-child(4),.school-keys span:nth-child(5){background:#5668d9;border-color:#4254c2;color:white}
+/* 分区小标题 */
+.school-section-title{font-size:15px;font-weight:600;color:#3d465e;margin:0;white-space:nowrap;display:flex;align-items:center}
+/* 学习记录 */
+.school-records{flex:none;display:flex;align-items:center;gap:16px;margin-top:14px}
+.school-summary{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.school-stat{background:white;border:1px solid #e6eaf3;border-radius:12px;padding:9px 14px;display:flex;gap:10px;align-items:center}
+.school-stat strong{font-size:20px;color:#4858bf}
+.school-stat span{color:#7b849a;font-size:11.5px;line-height:1.6}.school-stat b{display:block;color:#3d465e;font-weight:500}
+/* 资料打印框 */
+.school-print-links{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:2px}
+.school-print-links a{color:#4b5bcc;font-size:11.5px;text-decoration:none;white-space:nowrap}
+.school-print-links a:hover{text-decoration:underline}
+.school-print-links a.school-print-all{font-weight:600}
+/* 课程分类 + 课程栏（独立下滑条） */
+.school-filter{flex:none;display:flex;align-items:center;gap:14px;margin:16px 0 8px}
+.school-tabs{flex:1;display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:thin}
+.school-tab{flex:1 1 auto;min-width:max-content;border:1px solid #e4e8f0;background:white;color:#68728b;border-radius:7px;padding:7px 15px;font-size:13px}.school-tab.selected{background:#4c5ccd;color:white;border-color:#4c5ccd}
+.school-grid{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;align-content:start;padding:0 6px 10px 0}
+.school-grid::-webkit-scrollbar{width:8px}
+.school-grid::-webkit-scrollbar-thumb{background:#c9d2e8;border-radius:8px}
+.school-grid::-webkit-scrollbar-track{background:transparent}
+/* 课程小卡片 */
+.school-card{border:1px solid #e4e8f1;background:white;border-radius:11px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;text-align:left;color:#303d58;transition:box-shadow .15s,transform .15s}
+.school-card:hover{transform:translateY(-2px);box-shadow:0 7px 18px #263b7212;border-color:#b9c5ee}
+.school-card-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.school-card-icon{padding:4px 8px;background:#eef1ff;border-radius:7px;color:#5263c5;font:14px Consolas,monospace}
+.school-card-status{font-size:11px;color:#9099ac;white-space:nowrap}
+.school-card-status.done{color:#27a279}
+.school-card h3{font-size:14px;margin:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.school-card p{font-size:12px;color:#8a94a7;line-height:1.5;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.school-card-bottom{display:flex;justify-content:space-between;gap:8px;border-top:1px solid #f0f2f7;padding-top:9px;font-size:11px;color:#9aa2b1;white-space:nowrap}
+.school-card-bottom b{color:#5464c4;font-weight:500}
+.school-empty{grid-column:1/-1;text-align:center;padding:48px;color:#8993a6}
+.school-progress{height:5px;background:#edf0f7;border-radius:5px;margin-top:8px;overflow:hidden}.school-progress i{height:100%;display:block;background:#596bd2}
+/* 低高度视口：整体再压缩，保证课程栏有足够滚动空间 */
+@media (max-height:760px){
+  .school-content{padding:12px 24px 14px}
+  .school-hero{padding:14px 22px}
+  .school-hero h1{font-size:22px;margin:4px 0}
+  .school-hero p{margin:0 0 10px}
+  .school-eyebrow{font-size:11px}
+  .school-primary{padding:8px 18px;font-size:13px}
+  .school-keys{grid-template-columns:repeat(4,38px);gap:7px;padding:8px 18px}
+  .school-keys span{height:40px;font-size:17px;border-bottom-width:3px}
+  .school-records{margin-top:10px}
+  .school-stat{padding:10px 14px}
+  .school-stat strong{font-size:20px}
+  .school-filter{margin:12px 0 8px}
+  .school-tab{padding:6px 13px;font-size:12px}
+  .school-card{padding:11px 13px;gap:6px}
+  .school-card-icon{padding:4px 8px;font-size:13px}
+  .catalog-group{padding:4px 2px 4px}
+}
+@media(max-width:850px){
+  body.school-mode{overflow:auto}
+  #schoolPage{height:auto;min-height:100vh}
+  .school-content{overflow:visible}
+  .school-grid{overflow:visible}
+  .school-nav{gap:22px;padding:0 20px}
+  .school-local{display:none}
+  .school-hero{padding:20px}
+  .school-keys{padding:0;grid-template-columns:repeat(4,36px)}
+  .school-keys span{height:38px;font-size:16px}
+  .school-summary{gap:10px;grid-template-columns:repeat(2,1fr)}
+  .school-stat{padding:10px 12px}
+}
+@media(max-width:560px){
+  .school-nav{height:60px;gap:18px}
+  .school-logo{font-size:17px}
+  .school-content{padding:16px}
+  .school-hero h1{font-size:21px}
+  .school-keys{display:none}
+  .school-records{flex-direction:column;align-items:stretch;gap:10px}
+  .school-summary{grid-template-columns:1fr}
+  .school-filter{flex-direction:column;align-items:stretch;gap:10px}
+  .school-tabs{flex-wrap:wrap}
+  .school-return{font-size:11px}
+}

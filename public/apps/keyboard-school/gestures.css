@@ -1,0 +1,11 @@
+.gesture-fill{fill:rgba(225,227,231,.22);stroke:none}
+.pose-hands>g{transition:transform 100ms ease-out}
+.gesture-outline,.gesture-digit{fill:none;stroke:#999b9e;stroke-width:2.7;stroke-linecap:round;stroke-linejoin:round;transition:d 100ms ease-out,stroke 60ms}
+.gesture-digit.active{stroke:var(--blue);stroke-width:3.7}
+.gesture-digit.tapping{stroke-width:4.4}
+.gesture-nail{fill:none;stroke:#b4b7bb;stroke-width:.7;opacity:.45;transition:d 100ms ease-out}
+.gesture-demo-button{border:1px solid #d1d9e9;border-radius:5px;padding:4px 9px;font-size:12px;background:white;color:#52618a;cursor:pointer;white-space:nowrap}
+.gesture-demo-button[aria-pressed=true]{color:white;background:#4265c1;border-color:#4265c1}
+.gesture-hint{position:absolute;left:0;right:0;top:55px;text-align:center;font-size:13px;color:#597297;pointer-events:none}
+.key{cursor:pointer;touch-action:none}
+@media(prefers-reduced-motion:reduce){.pose-hands>g,.gesture-outline,.gesture-digit,.gesture-nail{transition:none}}

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node bank-test.js
+      - run: node word-test.js
+      - run: node storage-test.js
+
+  api:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Start MySQL and create database
+        run: |
+          sudo systemctl start mysql.service
+          PW=$(node -p "require('./src/config.local').mysql.password")
+          sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$PW'; CREATE DATABASE IF NOT EXISTS xuexi CHARACTER SET utf8mb4;"
+      - run: npm run seed
+      - name: Start server
+        run: |
+          nohup npm start > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:3000/ >/dev/null && break; sleep 1; done
+      - run: node smoke.js
+      - run: node wrong-test.js
+      - name: Upload server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-log
+          path: server.log

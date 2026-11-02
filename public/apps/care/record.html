@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>语音录入 · 班主任工作台</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f0f2f5;
+    min-height: 100vh;
+    color: #1a1a2e;
+  }
+
+  .wrap {
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 24px 20px 40px;
+    text-align: center;
+  }
+
+  .header {
+    margin-bottom: 28px;
+  }
+
+  .head-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1a1a2e;
+  }
+
+  .head-sub {
+    font-size: 13px;
+    color: #8b95a7;
+    margin-top: 4px;
+  }
+
+  /* ---- 大圆圈 ---- */
+  .circle-stage {
+    margin: 36px 0 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .big-circle {
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    border: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform .2s, box-shadow .2s;
+    user-select: none;
+    font-family: inherit;
+  }
+
+  /* 待录入：渐变绿 */
+  .big-circle.ready {
+    background: linear-gradient(135deg, #07c160, #06ad56);
+    box-shadow: 0 8px 28px rgba(7, 193, 96, .30);
+  }
+
+  /* 录音中：红色脉冲 */
+  .big-circle.recording {
+    background: linear-gradient(135deg, #fa5151, #e83232);
+    box-shadow: 0 8px 28px rgba(250, 81, 81, .35);
+    animation: pulse 1.2s infinite;
+  }
+
+  /* 上传中 */
+  .big-circle.uploading {
+    background: linear-gradient(135deg, #5a6cf0, #4052cc);
+    box-shadow: 0 8px 28px rgba(90, 108, 240, .30);
+    cursor: default;
+  }
+
+  /* 成功 */
+  .big-circle.done {
+    background: linear-gradient(135deg, #07c160, #06ad56);
+    box-shadow: 0 8px 28px rgba(7, 193, 96, .25);
+    cursor: default;
+  }
+
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+  }
+
+  .big-circle:active:not(.uploading):not(.done) {
+    transform: scale(.97);
+  }
+
+  .circle-txt {
+    color: #fff;
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  .circle-ico {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 6px;
+    fill: none;
+    stroke: #fff;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .state-tips {
+    font-size: 13px;
+    color: #8b95a7;
+    margin-top: 14px;
+    min-height: 18px;
+  }
+
+  .timer {
+    font-variant-numeric: tabular-nums;
+    font-size: 20px;
+    font-weight: 600;
+    color: #1a1a2e;
+    margin-top: 8px;
+    min-height: 24px;
+  }
+
+  /* ---- 上传进度 ---- */
+  .progress-wrap {
+    width: 280px;
+    height: 6px;
+    background: #e5e9f0;
+    border-radius: 3px;
+    margin: 10px auto 0;
+    overflow: hidden;
+  }
+
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #5a6cf0, #4052cc);
+    border-radius: 3px;
+    transition: width .1s;
+  }
+  .audio-wrap { margin-top: 20px; }
+  .audio-wrap audio { width: 100%; max-width: 320px; }
+
+  /* ---- 按钮 ---- */
+  .action-row {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 24px;
+  }
+
+  .btn {
+    height: 40px;
+    padding: 0 20px;
+    border: none;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+
+  .btn-primary { background: #07c160; color: #fff; }
+  .btn-outline { background: #fff; color: #1a1a2e; border: 1px solid #e5e9f0; }
+
+  .btn:active { opacity: .7; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  .hint {
+    margin-top: 32px;
+    font-size: 12px;
+    color: #b0b8c8;
+    line-height: 1.8;
+  }
+
+  .err-box {
+    display: none;
+    margin-top: 20px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: #fef0ef;
+    border: 1px solid #fdd9d6;
+    color: #d0453b;
+    font-size: 13px;
+    line-height: 1.7;
+    text-align: left;
+  }
+
+  .err-box.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="header">
+    <div class="head-title">语音录入</div>
+    <div class="head-sub" id="headSub">班主任工作台 · 谈话/沟通速记</div>
+  </div>
+
+  <div class="circle-stage">
+    <button class="big-circle ready" id="recBtn">
+      <svg class="circle-ico" viewBox="0 0 24 24">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <path d="M12 19v4M8 23h8"/>
+      </svg>
+      <span class="circle-txt" id="recBtnTxt">点击录入</span>
+    </button>
+    <div class="timer" id="timer"></div>
+    <div class="state-tips" id="stateTips">点击绿色按钮开始录音</div>
+  </div>
+
+  <div class="err-box" id="errBox"></div>
+
+  <div class="audio-wrap" id="audioWrap" hidden>
+    <audio id="audioPlayer" controls></audio>
+  </div>
+
+  <div class="action-row" id="actionRow" hidden>
+    <button class="btn btn-outline" id="reRecordBtn">重新录入</button>
+  </div>
+
+  <div class="hint">
+    录音完成后音频将自动上传至电脑端<br>
+    电脑端会自动接收并进行 AI 整理<br>
+    请保持手机与电脑在同一局域网下
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var params = new URLSearchParams(location.search);
+  var sid = params.get('sid');
+  var module = params.get('module') || 'talks';
+
+  // 标记会话为"已扫码"
+  if (sid) {
+    fetch('/api/voice/scanned', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sid: sid })
+    }).catch(function () {});
+  }
+
+  var recBtn = document.getElementById('recBtn');
+  var recTxt = document.getElementById('recBtnTxt');
+  var timerEl = document.getElementById('timer');
+  var tips = document.getElementById('stateTips');
+  var errBox = document.getElementById('errBox');
+  var audioWrap = document.getElementById('audioWrap');
+  var audioPlayer = document.getElementById('audioPlayer');
+  var actionRow = document.getElementById('actionRow');
+  var reRecordBtn = document.getElementById('reRecordBtn');
+
+  var mediaRecorder = null;
+  var chunks = [];
+  var recStart = 0;
+  var timerInt = null;
+  var uploaded = false;
+
+  function error(msg) {
+    errBox.textContent = msg;
+    errBox.classList.add('show');
+  }
+
+  function setUI(state) {
+    recBtn.className = 'big-circle ' + state;
+    switch (state) {
+      case 'ready':
+        recTxt.textContent = '点击录入';
+        tips.textContent = '点击绿色按钮开始录音';
+        break;
+      case 'recording':
+        recTxt.textContent = '停止录音';
+        tips.textContent = '正在录音… 再次点击结束';
+        break;
+      case 'uploading':
+        recTxt.textContent = '上传中…';
+        tips.textContent = '正在将录音上传至电脑端';
+        break;
+      case 'done':
+        recTxt.textContent = '上传完成';
+        tips.textContent = '录音已发送至电脑端，请返回查看';
+        break;
+    }
+  }
+
+  function fmtSec(s) {
+    var m = Math.floor(s / 60), sec = s % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
+  }
+
+  var MAX_SEC = 300; // 5 分钟上限
+
+  function startTimer() {
+    recStart = Date.now();
+    timerInt = setInterval(function () {
+      var sec = Math.floor((Date.now() - recStart) / 1000);
+      timerEl.textContent = fmtSec(sec);
+      if (sec >= MAX_SEC) stop();
+    }, 200);
+  }
+
+  function stopTimer() {
+    if (timerInt) { clearInterval(timerInt); timerInt = null; }
+  }
+
+  function upload(blob) {
+    setUI('uploading');
+    var fd = new FormData();
+    fd.append('sid', sid);
+    fd.append('audio', blob, 'recording.' + (blob.type.includes('webm') ? 'webm' : 'm4a'));
+
+    fetch('/api/voice/upload', { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        uploaded = true;
+        setUI('done');
+        audioPlayer.src = URL.createObjectURL(blob);
+        audioWrap.hidden = false;
+        actionRow.hidden = false;
+      })
+      .catch(function (e) {
+        error('上传失败：' + e.message + '。请检查网络连接后重试，或直接使用电脑端录入。');
+        setUI('ready');
+      });
+  }
+
+  function start() {
+    errBox.classList.remove('show');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      error('当前浏览器不支持录音。请使用微信内置浏览器打开，或换用最新版 Chrome / Safari。');
+      return;
+    }
+
+    var mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+
+    navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000 } })
+      .then(function (stream) {
+        try {
+          mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
+        } catch (e) { mediaRecorder = new MediaRecorder(stream); }
+        chunks = [];
+
+        mediaRecorder.ondataavailable = function (e) {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = function () {
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          stopTimer();
+          var blob = new Blob(chunks, { type: chunks[0] && chunks[0].type || mime });
+          if (blob.size < 100) {
+            error('录音内容过短，请重新录入。');
+            setUI('ready');
+            return;
+          }
+          upload(blob);
+        };
+
+        mediaRecorder.start();
+        setUI('recording');
+        startTimer();
+      })
+      .catch(function (e) {
+        var map = {
+          'NotAllowedError': '麦克风权限被拒绝。请长按页面右上角「...」→ 设置 → 允许麦克风后重试。',
+          'NotFoundError': '未检测到麦克风设备。',
+          'NotReadableError': '麦克风被其他程序占用，请关闭后重试。'
+        };
+        error(map[e.name] || '无法启动录音：' + (e.message || e.name));
+      });
+  }
+
+  function stop() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+  }
+
+  recBtn.addEventListener('click', function () {
+    if (mediaRecorder && mediaRecorder.state === 'recording') { stop(); return; }
+    start();
+  });
+
+  reRecordBtn.addEventListener('click', function () {
+    uploaded = false;
+    audioWrap.hidden = true;
+    actionRow.hidden = true;
+    timerEl.textContent = '';
+    setUI('ready');
+  });
+
+  setUI('ready');
+})();
+</script>
+
+</body>
+</html>

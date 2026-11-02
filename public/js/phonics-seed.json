@@ -1,0 +1,1942 @@
+{
+ "phonemes": [
+  {
+   "code": "i:",
+   "title": "/iː/",
+   "type": "vowel",
+   "group": "front",
+   "groupName": "前元音",
+   "sub": "单元音",
+   "len": "长元音",
+   "cue": "咦—",
+   "mnemonic": "满脸嫌弃音",
+   "emoji": "😒",
+   "tip": "嘴角向两边拉开呈微笑状，舌尖轻抵下齿，舌前部抬高，声带振动，声音拉长。",
+   "spell": "ee · ea · ie · e",
+   "samples": [
+    {
+     "w": "see",
+     "ipa": "/siː/",
+     "zh": "看见",
+     "hl": "ee"
+    },
+    {
+     "w": "tea",
+     "ipa": "/tiː/",
+     "zh": "茶",
+     "hl": "ea"
+    },
+    {
+     "w": "key",
+     "ipa": "/kiː/",
+     "zh": "钥匙",
+     "hl": "ey"
+    }
+   ],
+   "audio": "/audio/phonemes/i_long.mp3",
+   "sort": 0
+  },
+  {
+   "code": "i",
+   "title": "/ɪ/",
+   "type": "vowel",
+   "group": "front",
+   "groupName": "前元音",
+   "sub": "单元音",
+   "len": "短元音",
+   "cue": "121",
+   "mnemonic": "喊口号音",
+   "emoji": "📣",
+   "tip": "嘴唇扁平微开，舌前部稍抬，比 /iː/ 更短更松，注意不要拖长。",
+   "spell": "i · y · e · ui",
+   "samples": [
+    {
+     "w": "sit",
+     "ipa": "/sɪt/",
+     "zh": "坐",
+     "hl": "i"
+    },
+    {
+     "w": "fish",
+     "ipa": "/fɪʃ/",
+     "zh": "鱼",
+     "hl": "i"
+    },
+    {
+     "w": "busy",
+     "ipa": "/ˈbɪzi/",
+     "zh": "忙碌的",
+     "hl": "u"
+    }
+   ],
+   "audio": "/audio/phonemes/i_short.mp3",
+   "sort": 1
+  },
+  {
+   "code": "e",
+   "title": "/e/",
+   "type": "vowel",
+   "group": "front",
+   "groupName": "前元音",
+   "sub": "单元音",
+   "len": "短元音",
+   "cue": "（微笑）",
+   "mnemonic": "一指微笑音",
+   "emoji": "😊",
+   "tip": "嘴角向两边微拉，开口度约一指宽，舌尖抵下齿，舌前部抬起。",
+   "spell": "e · ea · a",
+   "samples": [
+    {
+     "w": "bed",
+     "ipa": "/bed/",
+     "zh": "床",
+     "hl": "e"
+    },
+    {
+     "w": "pen",
+     "ipa": "/pen/",
+     "zh": "钢笔",
+     "hl": "e"
+    },
+    {
+     "w": "head",
+     "ipa": "/hed/",
+     "zh": "头",
+     "hl": "ea"
+    }
+   ],
+   "audio": "/audio/phonemes/e.mp3",
+   "sort": 2
+  },
+  {
+   "code": "ae",
+   "title": "/æ/",
+   "type": "vowel",
+   "group": "front",
+   "groupName": "前元音",
+   "sub": "单元音",
+   "len": "短元音",
+   "cue": "（张口）",
+   "mnemonic": "三指梅花音",
+   "emoji": "😮",
+   "tip": "嘴巴张大到约三指宽，嘴角向两边，舌前部压低，舌尖仍抵下齿。",
+   "spell": "a",
+   "samples": [
+    {
+     "w": "cat",
+     "ipa": "/kæt/",
+     "zh": "猫",
+     "hl": "a"
+    },
+    {
+     "w": "hand",
+     "ipa": "/hænd/",
+     "zh": "手",
+     "hl": "a"
+    },
+    {
+     "w": "apple",
+     "ipa": "/ˈæpl/",
+     "zh": "苹果",
+     "hl": "a"
+    }
+   ],
+   "audio": "/audio/phonemes/ae.mp3",
+   "sort": 3
+  },
+  {
+   "code": "e:",
+   "title": "/ɜː/",
+   "type": "vowel",
+   "group": "mid",
+   "groupName": "中元音",
+   "sub": "单元音",
+   "len": "长元音",
+   "cue": "呃—",
+   "mnemonic": "尴尬无语音",
+   "emoji": "😅",
+   "tip": "舌身平放，舌中部抬起，双唇中性微扁，声音拉长，不要卷舌。",
+   "spell": "ir · er · ur · or",
+   "samples": [
+    {
+     "w": "bird",
+     "ipa": "/bɜːd/",
+     "zh": "鸟",
+     "hl": "ir"
+    },
+    {
+     "w": "girl",
+     "ipa": "/ɡɜːl/",
+     "zh": "女孩",
+     "hl": "ir"
+    },
+    {
+     "w": "nurse",
+     "ipa": "/nɜːs/",
+     "zh": "护士",
+     "hl": "ur"
+    }
+   ],
+   "audio": "/audio/phonemes/e_long.mp3",
+   "sort": 4
+  },
+  {
+   "code": "schwa",
+   "title": "/ə/",
+   "type": "vowel",
+   "group": "mid",
+   "groupName": "中元音",
+   "sub": "单元音",
+   "len": "短元音",
+   "cue": "饿",
+   "mnemonic": "饥饿音",
+   "emoji": "🍞",
+   "tip": "口腔完全放松，舌中部略抬，是最短最轻的弱读音，常出现在非重读音节。",
+   "spell": "a · er · or · e",
+   "samples": [
+    {
+     "w": "about",
+     "ipa": "/əˈbaʊt/",
+     "zh": "关于",
+     "hl": "a"
+    },
+    {
+     "w": "teacher",
+     "ipa": "/ˈtiːtʃə/",
+     "zh": "老师",
+     "hl": "er"
+    },
+    {
+     "w": "sofa",
+     "ipa": "/ˈsəʊfə/",
+     "zh": "沙发",
+     "hl": "a"
+    }
+   ],
+   "audio": "/audio/phonemes/schwa.mp3",
+   "sort": 5
+  },
+  {
+   "code": "uh",
+   "title": "/ʌ/",
+   "type": "vowel",
+   "group": "mid",
+   "groupName": "中元音",
+   "sub": "单元音",
+   "len": "短元音",
+   "cue": "啊!",
+   "mnemonic": "疼痛音",
+   "emoji": "😣",
+   "tip": "开口度中等，舌中部稍后抬起，双唇自然，发音短促有力。",
+   "spell": "u · o · ou",
+   "samples": [
+    {
+     "w": "cup",
+     "ipa": "/kʌp/",
+     "zh": "杯子",
+     "hl": "u"
+    },
+    {
+     "w": "love",
+     "ipa": "/lʌv/",
+     "zh": "爱",
+     "hl": "o"
+    },
+    {
+     "w": "money",
+     "ipa": "/ˈmʌni/",
+     "zh": "钱",
+     "hl": "o"
+    }
+   ],
+   "audio": "/audio/phonemes/uh.mp3",
+   "sort": 6
+  },
+  {
+   "code": "u:",
+   "title": "/uː/",
+   "type": "vowel",
+   "group": "back",
+   "groupName": "后元音",
+   "sub": "单元音",
+   "len": "长元音",
+   "cue": "呜—",
+   "mnemonic": "火车鸣笛音",
+   "emoji": "🚂",
+   "tip": "双唇收圆并向前突出，舌后部抬高，声音拉长。",
+   "spell": "oo · ue · u · ew",
+   "samples": [
+    {
+     "w": "food",
+     "ipa": "/fuːd/",
+     "zh": "食物",
+     "hl": "oo"
+    },
+    {
+     "w": "blue",
+     "ipa": "/bluː/",
+     "zh": "蓝色",
+     "hl": "ue"
+    },
+    {
+     "w": "school",
+     "ipa": "/skuːl/",
+     "zh": "学校",
+     "hl": "oo"
+    }
+   ],
+   "audio": "/audio/phonemes/u_long.mp3",
+   "sort": 7
+  },
+  {
+   "code": "u",
+   "title": "/ʊ/",
+   "type": "vowel",
+   "group": "back",
+   "groupName": "后元音",
+   "sub": "单元音",
+   "len": "短元音",
+   "cue": "呜呜呜",
+   "mnemonic": "小声哭泣音",
+   "emoji": "😢",
+   "tip": "双唇略圆但不突出，舌后部抬起，比 /uː/ 更短更松。",
+   "spell": "oo · u · ou",
+   "samples": [
+    {
+     "w": "book",
+     "ipa": "/bʊk/",
+     "zh": "书",
+     "hl": "oo"
+    },
+    {
+     "w": "good",
+     "ipa": "/ɡʊd/",
+     "zh": "好的",
+     "hl": "oo"
+    },
+    {
+     "w": "put",
+     "ipa": "/pʊt/",
+     "zh": "放置",
+     "hl": "u"
+    }
+   ],
+   "audio": "/audio/phonemes/u_short.mp3",
+   "sort": 8
+  },
+  {
+   "code": "aw:",
+   "title": "/ɔː/",
+   "type": "vowel",
+   "group": "back",
+   "groupName": "后元音",
+   "sub": "单元音",
+   "len": "长元音",
+   "cue": "噢—",
+   "mnemonic": "恍然大悟音",
+   "emoji": "💡",
+   "tip": "双唇收圆略突，舌后部抬起，开口度中等，声音拉长。",
+   "spell": "or · oor · aw · a",
+   "samples": [
+    {
+     "w": "door",
+     "ipa": "/dɔː/",
+     "zh": "门",
+     "hl": "oor"
+    },
+    {
+     "w": "ball",
+     "ipa": "/bɔːl/",
+     "zh": "球",
+     "hl": "a"
+    },
+    {
+     "w": "short",
+     "ipa": "/ʃɔːt/",
+     "zh": "短的",
+     "hl": "or"
+    }
+   ],
+   "audio": "/audio/phonemes/aw_long.mp3",
+   "sort": 9
+  },
+  {
+   "code": "o",
+   "title": "/ɒ/",
+   "type": "vowel",
+   "group": "back",
+   "groupName": "后元音",
+   "sub": "单元音",
+   "len": "短元音",
+   "cue": "噢!",
+   "mnemonic": "敷衍答应音",
+   "emoji": "😐",
+   "tip": "双唇稍圆，开口度较大，舌后部略抬，发音短促（英式读法）。",
+   "spell": "o · a",
+   "samples": [
+    {
+     "w": "hot",
+     "ipa": "/hɒt/",
+     "zh": "热的",
+     "hl": "o"
+    },
+    {
+     "w": "dog",
+     "ipa": "/dɒɡ/",
+     "zh": "狗",
+     "hl": "o"
+    },
+    {
+     "w": "box",
+     "ipa": "/bɒks/",
+     "zh": "盒子",
+     "hl": "o"
+    }
+   ],
+   "audio": "/audio/phonemes/o.mp3",
+   "sort": 10
+  },
+  {
+   "code": "a:",
+   "title": "/ɑː/",
+   "type": "vowel",
+   "group": "back",
+   "groupName": "后元音",
+   "sub": "单元音",
+   "len": "长元音",
+   "cue": "啊—",
+   "mnemonic": "大声呼喊音",
+   "emoji": "🙌",
+   "tip": "嘴巴张大，舌身平放后缩，舌尖离开下齿，声音拉长。",
+   "spell": "ar · a · al",
+   "samples": [
+    {
+     "w": "car",
+     "ipa": "/kɑː/",
+     "zh": "汽车",
+     "hl": "ar"
+    },
+    {
+     "w": "far",
+     "ipa": "/fɑː/",
+     "zh": "远的",
+     "hl": "ar"
+    },
+    {
+     "w": "father",
+     "ipa": "/ˈfɑːðə/",
+     "zh": "父亲",
+     "hl": "a"
+    }
+   ],
+   "audio": "/audio/phonemes/a_long.mp3",
+   "sort": 11
+  },
+  {
+   "code": "ei",
+   "title": "/eɪ/",
+   "type": "vowel",
+   "group": "dipClosing",
+   "groupName": "开合双元音",
+   "sub": "双元音",
+   "len": "双元音",
+   "cue": "诶?",
+   "mnemonic": "应答音",
+   "emoji": "🤔",
+   "tip": "由 /e/ 滑向 /ɪ/，前重后轻，口型由半开变扁，一气呵成。",
+   "spell": "a · ay · ai · eigh",
+   "samples": [
+    {
+     "w": "day",
+     "ipa": "/deɪ/",
+     "zh": "天",
+     "hl": "ay"
+    },
+    {
+     "w": "name",
+     "ipa": "/neɪm/",
+     "zh": "名字",
+     "hl": "a"
+    },
+    {
+     "w": "eight",
+     "ipa": "/eɪt/",
+     "zh": "八",
+     "hl": "eigh"
+    }
+   ],
+   "audio": "/audio/phonemes/ei.mp3",
+   "sort": 12
+  },
+  {
+   "code": "ai",
+   "title": "/aɪ/",
+   "type": "vowel",
+   "group": "dipClosing",
+   "groupName": "开合双元音",
+   "sub": "双元音",
+   "len": "双元音",
+   "cue": "唉!",
+   "mnemonic": "唉声叹气音",
+   "emoji": "😮‍💨",
+   "tip": "由 /a/ 滑向 /ɪ/，开口度由大到小，尾音轻而短。",
+   "spell": "i · y · igh",
+   "samples": [
+    {
+     "w": "my",
+     "ipa": "/maɪ/",
+     "zh": "我的",
+     "hl": "y"
+    },
+    {
+     "w": "time",
+     "ipa": "/taɪm/",
+     "zh": "时间",
+     "hl": "i"
+    },
+    {
+     "w": "light",
+     "ipa": "/laɪt/",
+     "zh": "光",
+     "hl": "igh"
+    }
+   ],
+   "audio": "/audio/phonemes/ai.mp3",
+   "sort": 13
+  },
+  {
+   "code": "oi",
+   "title": "/ɔɪ/",
+   "type": "vowel",
+   "group": "dipClosing",
+   "groupName": "开合双元音",
+   "sub": "双元音",
+   "len": "双元音",
+   "cue": "噢咦",
+   "mnemonic": "“噢咦”起哄音",
+   "emoji": "😜",
+   "tip": "由 /ɔ/ 滑向 /ɪ/，双唇由圆到扁，前长后短。",
+   "spell": "oi · oy",
+   "samples": [
+    {
+     "w": "boy",
+     "ipa": "/bɔɪ/",
+     "zh": "男孩",
+     "hl": "oy"
+    },
+    {
+     "w": "coin",
+     "ipa": "/kɔɪn/",
+     "zh": "硬币",
+     "hl": "oi"
+    },
+    {
+     "w": "voice",
+     "ipa": "/vɔɪs/",
+     "zh": "声音",
+     "hl": "oi"
+    }
+   ],
+   "audio": "/audio/phonemes/oi.mp3",
+   "sort": 14
+  },
+  {
+   "code": "au",
+   "title": "/aʊ/",
+   "type": "vowel",
+   "group": "dipClosing",
+   "groupName": "开合双元音",
+   "sub": "双元音",
+   "len": "双元音",
+   "cue": "嗷呜",
+   "mnemonic": "老虎怒吼音",
+   "emoji": "🐯",
+   "tip": "由 /a/ 滑向 /ʊ/，双唇由大张到收圆，像老虎吼叫。",
+   "spell": "ou · ow",
+   "samples": [
+    {
+     "w": "cow",
+     "ipa": "/kaʊ/",
+     "zh": "奶牛",
+     "hl": "ow"
+    },
+    {
+     "w": "house",
+     "ipa": "/haʊs/",
+     "zh": "房子",
+     "hl": "ou"
+    },
+    {
+     "w": "mouth",
+     "ipa": "/maʊθ/",
+     "zh": "嘴",
+     "hl": "ou"
+    }
+   ],
+   "audio": "/audio/phonemes/au.mp3",
+   "sort": 15
+  },
+  {
+   "code": "ou",
+   "title": "/əʊ/",
+   "type": "vowel",
+   "group": "dipClosing",
+   "groupName": "开合双元音",
+   "sub": "双元音",
+   "len": "双元音",
+   "cue": "呕",
+   "mnemonic": "“呕”吐音",
+   "emoji": "🤢",
+   "tip": "由 /ə/ 滑向 /ʊ/，双唇逐渐收圆，前轻后重。",
+   "spell": "o · oa · ow",
+   "samples": [
+    {
+     "w": "go",
+     "ipa": "/ɡəʊ/",
+     "zh": "去",
+     "hl": "o"
+    },
+    {
+     "w": "home",
+     "ipa": "/həʊm/",
+     "zh": "家",
+     "hl": "o"
+    },
+    {
+     "w": "boat",
+     "ipa": "/bəʊt/",
+     "zh": "船",
+     "hl": "oa"
+    }
+   ],
+   "audio": "/audio/phonemes/ou.mp3",
+   "sort": 16
+  },
+  {
+   "code": "ia",
+   "title": "/ɪə/",
+   "type": "vowel",
+   "group": "dipCentering",
+   "groupName": "集中双元音",
+   "sub": "双元音",
+   "len": "双元音",
+   "cue": "一鹅",
+   "mnemonic": "“一鹅”音",
+   "emoji": "🦢",
+   "tip": "由 /ɪ/ 滑向 /ə/，前重后轻，尾音放松。",
+   "spell": "ear · eer · ere",
+   "samples": [
+    {
+     "w": "ear",
+     "ipa": "/ɪə/",
+     "zh": "耳朵",
+     "hl": "ear"
+    },
+    {
+     "w": "near",
+     "ipa": "/nɪə/",
+     "zh": "近的",
+     "hl": "ear"
+    },
+    {
+     "w": "idea",
+     "ipa": "/aɪˈdɪə/",
+     "zh": "主意",
+     "hl": "ea"
+    }
+   ],
+   "audio": "/audio/phonemes/ia.mp3",
+   "sort": 17
+  },
+  {
+   "code": "ea",
+   "title": "/eə/",
+   "type": "vowel",
+   "group": "dipCentering",
+   "groupName": "集中双元音",
+   "sub": "双元音",
+   "len": "双元音",
+   "cue": "挨饿",
+   "mnemonic": "“挨饿”音",
+   "emoji": "🧍",
+   "tip": "由 /e/ 滑向 /ə/，开口度由中到松，舌位向前后回收。",
+   "spell": "air · are · ear",
+   "samples": [
+    {
+     "w": "hair",
+     "ipa": "/heə/",
+     "zh": "头发",
+     "hl": "air"
+    },
+    {
+     "w": "where",
+     "ipa": "/weə/",
+     "zh": "哪里",
+     "hl": "ere"
+    },
+    {
+     "w": "bear",
+     "ipa": "/beə/",
+     "zh": "熊",
+     "hl": "ear"
+    }
+   ],
+   "audio": "/audio/phonemes/ea.mp3",
+   "sort": 18
+  },
+  {
+   "code": "ua",
+   "title": "/ʊə/",
+   "type": "vowel",
+   "group": "dipCentering",
+   "groupName": "集中双元音",
+   "sub": "双元音",
+   "len": "双元音",
+   "cue": "五鹅",
+   "mnemonic": "“五鹅”音",
+   "emoji": "🦆",
+   "tip": "由 /ʊ/ 滑向 /ə/，双唇由圆到松，多见于英式发音。",
+   "spell": "our · ure · oor",
+   "samples": [
+    {
+     "w": "tour",
+     "ipa": "/tʊə/",
+     "zh": "旅行",
+     "hl": "our"
+    },
+    {
+     "w": "poor",
+     "ipa": "/pʊə/",
+     "zh": "贫穷的",
+     "hl": "oor"
+    },
+    {
+     "w": "sure",
+     "ipa": "/ʃʊə/",
+     "zh": "确定的",
+     "hl": "ure"
+    }
+   ],
+   "audio": "/audio/phonemes/ua.mp3",
+   "sort": 19
+  },
+  {
+   "code": "p",
+   "title": "/p/",
+   "type": "consonant",
+   "group": "plosive",
+   "groupName": "爆破音",
+   "sub": "清辅音",
+   "len": "",
+   "cue": "泼",
+   "mnemonic": "“发”水音",
+   "emoji": "💦",
+   "tip": "双唇紧闭，气流冲开双唇爆破而出，送气强，声带不振动。",
+   "spell": "p · pp",
+   "samples": [
+    {
+     "w": "pen",
+     "ipa": "/pen/",
+     "zh": "钢笔",
+     "hl": "p"
+    },
+    {
+     "w": "apple",
+     "ipa": "/ˈæpl/",
+     "zh": "苹果",
+     "hl": "pp"
+    },
+    {
+     "w": "stop",
+     "ipa": "/stɒp/",
+     "zh": "停止",
+     "hl": "p"
+    }
+   ],
+   "audio": "/audio/phonemes/p.mp3",
+   "sort": 20
+  },
+  {
+   "code": "t",
+   "title": "/t/",
+   "type": "consonant",
+   "group": "plosive",
+   "groupName": "爆破音",
+   "sub": "清辅音",
+   "len": "",
+   "cue": "特特特",
+   "mnemonic": "拖拉机音",
+   "emoji": "🚜",
+   "tip": "舌尖抵住上齿龈，突然放开让气流爆破，送气强，声带不振动。",
+   "spell": "t · tt",
+   "samples": [
+    {
+     "w": "ten",
+     "ipa": "/ten/",
+     "zh": "十",
+     "hl": "t"
+    },
+    {
+     "w": "water",
+     "ipa": "/ˈwɔːtə/",
+     "zh": "水",
+     "hl": "t"
+    },
+    {
+     "w": "cat",
+     "ipa": "/kæt/",
+     "zh": "猫",
+     "hl": "t"
+    }
+   ],
+   "audio": "/audio/phonemes/t.mp3",
+   "sort": 21
+  },
+  {
+   "code": "k",
+   "title": "/k/",
+   "type": "consonant",
+   "group": "plosive",
+   "groupName": "爆破音",
+   "sub": "清辅音",
+   "len": "",
+   "cue": "咳咳",
+   "mnemonic": "轻声咳嗽音",
+   "emoji": "🤧",
+   "tip": "舌后部抵住软腭再放开，气流爆破，送气强，声带不振动。",
+   "spell": "k · c · ck",
+   "samples": [
+    {
+     "w": "cat",
+     "ipa": "/kæt/",
+     "zh": "猫",
+     "hl": "c"
+    },
+    {
+     "w": "book",
+     "ipa": "/bʊk/",
+     "zh": "书",
+     "hl": "k"
+    },
+    {
+     "w": "key",
+     "ipa": "/kiː/",
+     "zh": "钥匙",
+     "hl": "k"
+    }
+   ],
+   "audio": "/audio/phonemes/k.mp3",
+   "sort": 22
+  },
+  {
+   "code": "b",
+   "title": "/b/",
+   "type": "consonant",
+   "group": "plosive",
+   "groupName": "爆破音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "拨",
+   "mnemonic": "“拨”动琴弦音",
+   "emoji": "🎸",
+   "tip": "双唇紧闭后突然放开，送气弱，声带振动。",
+   "spell": "b · bb",
+   "samples": [
+    {
+     "w": "bag",
+     "ipa": "/bæɡ/",
+     "zh": "包",
+     "hl": "b"
+    },
+    {
+     "w": "baby",
+     "ipa": "/ˈbeɪbi/",
+     "zh": "婴儿",
+     "hl": "b"
+    },
+    {
+     "w": "job",
+     "ipa": "/dʒɒb/",
+     "zh": "工作",
+     "hl": "b"
+    }
+   ],
+   "audio": "/audio/phonemes/b.mp3",
+   "sort": 23
+  },
+  {
+   "code": "d",
+   "title": "/d/",
+   "type": "consonant",
+   "group": "plosive",
+   "groupName": "爆破音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "嘚嘚",
+   "mnemonic": "马蹄“嘚嘚”音",
+   "emoji": "🐴",
+   "tip": "舌尖抵上齿龈后放开，声带振动，送气弱。",
+   "spell": "d · dd",
+   "samples": [
+    {
+     "w": "dog",
+     "ipa": "/dɒɡ/",
+     "zh": "狗",
+     "hl": "d"
+    },
+    {
+     "w": "ladder",
+     "ipa": "/ˈlædə/",
+     "zh": "梯子",
+     "hl": "dd"
+    },
+    {
+     "w": "red",
+     "ipa": "/red/",
+     "zh": "红色",
+     "hl": "d"
+    }
+   ],
+   "audio": "/audio/phonemes/d.mp3",
+   "sort": 24
+  },
+  {
+   "code": "g",
+   "title": "/ɡ/",
+   "type": "consonant",
+   "group": "plosive",
+   "groupName": "爆破音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "咯咯",
+   "mnemonic": "“咯咯”笑音",
+   "emoji": "😄",
+   "tip": "舌后部抵住软腭再放开，声带振动，送气弱。",
+   "spell": "g · gg",
+   "samples": [
+    {
+     "w": "go",
+     "ipa": "/ɡəʊ/",
+     "zh": "去",
+     "hl": "g"
+    },
+    {
+     "w": "bigger",
+     "ipa": "/ˈbɪɡə/",
+     "zh": "更大的",
+     "hl": "gg"
+    },
+    {
+     "w": "bag",
+     "ipa": "/bæɡ/",
+     "zh": "包",
+     "hl": "g"
+    }
+   ],
+   "audio": "/audio/phonemes/g.mp3",
+   "sort": 25
+  },
+  {
+   "code": "f",
+   "title": "/f/",
+   "type": "consonant",
+   "group": "fricative",
+   "groupName": "摩擦音",
+   "sub": "清辅音",
+   "len": "",
+   "cue": "拂",
+   "mnemonic": "清风吹“拂”音",
+   "emoji": "🍃",
+   "tip": "上齿轻触下唇，气流从缝隙摩擦而出，声带不振动。",
+   "spell": "f · ff · ph",
+   "samples": [
+    {
+     "w": "fish",
+     "ipa": "/fɪʃ/",
+     "zh": "鱼",
+     "hl": "f"
+    },
+    {
+     "w": "coffee",
+     "ipa": "/ˈkɒfi/",
+     "zh": "咖啡",
+     "hl": "ff"
+    },
+    {
+     "w": "life",
+     "ipa": "/laɪf/",
+     "zh": "生活",
+     "hl": "f"
+    }
+   ],
+   "audio": "/audio/phonemes/f.mp3",
+   "sort": 26
+  },
+  {
+   "code": "s",
+   "title": "/s/",
+   "type": "consonant",
+   "group": "fricative",
+   "groupName": "摩擦音",
+   "sub": "清辅音",
+   "len": "",
+   "cue": "撕",
+   "mnemonic": "“撕”纸音",
+   "emoji": "📄",
+   "tip": "舌尖接近上齿龈，气流从窄缝摩擦而出，声带不振动。",
+   "spell": "s · ss · c",
+   "samples": [
+    {
+     "w": "sun",
+     "ipa": "/sʌn/",
+     "zh": "太阳",
+     "hl": "s"
+    },
+    {
+     "w": "sister",
+     "ipa": "/ˈsɪstə/",
+     "zh": "姐妹",
+     "hl": "s"
+    },
+    {
+     "w": "bus",
+     "ipa": "/bʌs/",
+     "zh": "公交车",
+     "hl": "s"
+    }
+   ],
+   "audio": "/audio/phonemes/s.mp3",
+   "sort": 27
+  },
+  {
+   "code": "sh",
+   "title": "/ʃ/",
+   "type": "consonant",
+   "group": "fricative",
+   "groupName": "摩擦音",
+   "sub": "清辅音",
+   "len": "",
+   "cue": "嘘",
+   "mnemonic": "吟“诗”音",
+   "emoji": "📜",
+   "tip": "双唇稍前突，舌前部接近齿龈后部，摩擦出气，声带不振动。",
+   "spell": "sh · ti · ci",
+   "samples": [
+    {
+     "w": "she",
+     "ipa": "/ʃiː/",
+     "zh": "她",
+     "hl": "sh"
+    },
+    {
+     "w": "fish",
+     "ipa": "/fɪʃ/",
+     "zh": "鱼",
+     "hl": "sh"
+    },
+    {
+     "w": "station",
+     "ipa": "/ˈsteɪʃn/",
+     "zh": "车站",
+     "hl": "ti"
+    }
+   ],
+   "audio": "/audio/phonemes/sh.mp3",
+   "sort": 28
+  },
+  {
+   "code": "th",
+   "title": "/θ/",
+   "type": "consonant",
+   "group": "fricative",
+   "groupName": "摩擦音",
+   "sub": "清辅音",
+   "len": "",
+   "cue": "嘶",
+   "mnemonic": "小蛇吐信音",
+   "emoji": "🐍",
+   "tip": "舌尖轻放在上下齿之间，气流从缝隙摩擦而出，声带不振动。",
+   "spell": "th",
+   "samples": [
+    {
+     "w": "think",
+     "ipa": "/θɪŋk/",
+     "zh": "想",
+     "hl": "th"
+    },
+    {
+     "w": "three",
+     "ipa": "/θriː/",
+     "zh": "三",
+     "hl": "th"
+    },
+    {
+     "w": "bath",
+     "ipa": "/bɑːθ/",
+     "zh": "洗澡",
+     "hl": "th"
+    }
+   ],
+   "audio": "/audio/phonemes/th.mp3",
+   "sort": 29
+  },
+  {
+   "code": "h",
+   "title": "/h/",
+   "type": "consonant",
+   "group": "fricative",
+   "groupName": "摩擦音",
+   "sub": "清辅音",
+   "len": "",
+   "cue": "呵",
+   "mnemonic": "“呵呵”音",
+   "emoji": "😮",
+   "tip": "气流从喉咙呼出，口型随后面的元音变化，声带不振动。",
+   "spell": "h · wh",
+   "samples": [
+    {
+     "w": "hat",
+     "ipa": "/hæt/",
+     "zh": "帽子",
+     "hl": "h"
+    },
+    {
+     "w": "hello",
+     "ipa": "/həˈləʊ/",
+     "zh": "你好",
+     "hl": "h"
+    },
+    {
+     "w": "behind",
+     "ipa": "/bɪˈhaɪnd/",
+     "zh": "在后面",
+     "hl": "h"
+    }
+   ],
+   "audio": "/audio/phonemes/h.mp3",
+   "sort": 30
+  },
+  {
+   "code": "v",
+   "title": "/v/",
+   "type": "consonant",
+   "group": "fricative",
+   "groupName": "摩擦音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "嗡嗡",
+   "mnemonic": "蜜蜂振翅音",
+   "emoji": "🐝",
+   "tip": "上齿轻触下唇，摩擦出气并振动声带，注意不要读成 /w/。",
+   "spell": "v · f",
+   "samples": [
+    {
+     "w": "very",
+     "ipa": "/ˈveri/",
+     "zh": "非常",
+     "hl": "v"
+    },
+    {
+     "w": "love",
+     "ipa": "/lʌv/",
+     "zh": "爱",
+     "hl": "v"
+    },
+    {
+     "w": "seven",
+     "ipa": "/ˈsevn/",
+     "zh": "七",
+     "hl": "v"
+    }
+   ],
+   "audio": "/audio/phonemes/v.mp3",
+   "sort": 31
+  },
+  {
+   "code": "z",
+   "title": "/z/",
+   "type": "consonant",
+   "group": "fricative",
+   "groupName": "摩擦音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "嗡",
+   "mnemonic": "手机振动音",
+   "emoji": "📱",
+   "tip": "口型同 /s/，但声带振动，像蜜蜂持续的低声嗡鸣。",
+   "spell": "z · s",
+   "samples": [
+    {
+     "w": "zoo",
+     "ipa": "/zuː/",
+     "zh": "动物园",
+     "hl": "z"
+    },
+    {
+     "w": "music",
+     "ipa": "/ˈmjuːzɪk/",
+     "zh": "音乐",
+     "hl": "s"
+    },
+    {
+     "w": "nose",
+     "ipa": "/nəʊz/",
+     "zh": "鼻子",
+     "hl": "s"
+    }
+   ],
+   "audio": "/audio/phonemes/z.mp3",
+   "sort": 32
+  },
+  {
+   "code": "zh",
+   "title": "/ʒ/",
+   "type": "consonant",
+   "group": "fricative",
+   "groupName": "摩擦音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "日",
+   "mnemonic": "红“日”音",
+   "emoji": "☀️",
+   "tip": "口型同 /ʃ/，但声带振动，舌尖不要卷起。",
+   "spell": "s · si · g",
+   "samples": [
+    {
+     "w": "vision",
+     "ipa": "/ˈvɪʒn/",
+     "zh": "视力",
+     "hl": "si"
+    },
+    {
+     "w": "usually",
+     "ipa": "/ˈjuːʒuəli/",
+     "zh": "通常",
+     "hl": "s"
+    },
+    {
+     "w": "treasure",
+     "ipa": "/ˈtreʒə/",
+     "zh": "宝藏",
+     "hl": "s"
+    }
+   ],
+   "audio": "/audio/phonemes/zh.mp3",
+   "sort": 33
+  },
+  {
+   "code": "dh",
+   "title": "/ð/",
+   "type": "consonant",
+   "group": "fricative",
+   "groupName": "摩擦音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "啧",
+   "mnemonic": "咬舌震动音",
+   "emoji": "👅",
+   "tip": "舌尖轻放齿间，摩擦出气并振动声带，常出现在虚词中。",
+   "spell": "th",
+   "samples": [
+    {
+     "w": "this",
+     "ipa": "/ðɪs/",
+     "zh": "这个",
+     "hl": "th"
+    },
+    {
+     "w": "mother",
+     "ipa": "/ˈmʌðə/",
+     "zh": "母亲",
+     "hl": "th"
+    },
+    {
+     "w": "they",
+     "ipa": "/ðeɪ/",
+     "zh": "他们",
+     "hl": "th"
+    }
+   ],
+   "audio": "/audio/phonemes/dh.mp3",
+   "sort": 34
+  },
+  {
+   "code": "ch",
+   "title": "/tʃ/",
+   "type": "consonant",
+   "group": "affricate",
+   "groupName": "破擦音",
+   "sub": "清辅音",
+   "len": "",
+   "cue": "吃",
+   "mnemonic": "贪“吃”音",
+   "emoji": "🍽️",
+   "tip": "舌尖抵齿龈后部，先阻塞再摩擦放出，送气，声带不振动。",
+   "spell": "ch · tch",
+   "samples": [
+    {
+     "w": "chair",
+     "ipa": "/tʃeə/",
+     "zh": "椅子",
+     "hl": "ch"
+    },
+    {
+     "w": "watch",
+     "ipa": "/wɒtʃ/",
+     "zh": "手表",
+     "hl": "tch"
+    },
+    {
+     "w": "teacher",
+     "ipa": "/ˈtiːtʃə/",
+     "zh": "老师",
+     "hl": "ch"
+    }
+   ],
+   "audio": "/audio/phonemes/ch.mp3",
+   "sort": 35
+  },
+  {
+   "code": "tr",
+   "title": "/tr/",
+   "type": "consonant",
+   "group": "affricate",
+   "groupName": "破擦音",
+   "sub": "清辅音",
+   "len": "",
+   "cue": "戳",
+   "mnemonic": "“戳戳”音",
+   "emoji": "🥢",
+   "tip": "舌尖抵齿龈后部，舌身卷起，爆破后带卷舌摩擦，声带不振动。",
+   "spell": "tr",
+   "samples": [
+    {
+     "w": "tree",
+     "ipa": "/triː/",
+     "zh": "树",
+     "hl": "tr"
+    },
+    {
+     "w": "train",
+     "ipa": "/treɪn/",
+     "zh": "火车",
+     "hl": "tr"
+    },
+    {
+     "w": "street",
+     "ipa": "/striːt/",
+     "zh": "街道",
+     "hl": "tr"
+    }
+   ],
+   "audio": "/audio/phonemes/tr.mp3",
+   "sort": 36
+  },
+  {
+   "code": "ts",
+   "title": "/ts/",
+   "type": "consonant",
+   "group": "affricate",
+   "groupName": "破擦音",
+   "sub": "清辅音",
+   "len": "",
+   "cue": "呲",
+   "mnemonic": "“呲”水音",
+   "emoji": "💧",
+   "tip": "舌尖先抵齿龈再快速放开，像汉语“次”，声带不振动。",
+   "spell": "ts · tes",
+   "samples": [
+    {
+     "w": "cats",
+     "ipa": "/kæts/",
+     "zh": "猫（复数）",
+     "hl": "ts"
+    },
+    {
+     "w": "hats",
+     "ipa": "/hæts/",
+     "zh": "帽子（复数）",
+     "hl": "ts"
+    },
+    {
+     "w": "sits",
+     "ipa": "/sɪts/",
+     "zh": "坐（三单）",
+     "hl": "ts"
+    }
+   ],
+   "audio": "/audio/phonemes/ts.mp3",
+   "sort": 37
+  },
+  {
+   "code": "dg",
+   "title": "/dʒ/",
+   "type": "consonant",
+   "group": "affricate",
+   "groupName": "破擦音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "吱",
+   "mnemonic": "鸟儿“吱吱”音",
+   "emoji": "🐦",
+   "tip": "口型同 /tʃ/，声带振动，送气弱。",
+   "spell": "j · g · dge",
+   "samples": [
+    {
+     "w": "job",
+     "ipa": "/dʒɒb/",
+     "zh": "工作",
+     "hl": "j"
+    },
+    {
+     "w": "bridge",
+     "ipa": "/brɪdʒ/",
+     "zh": "桥",
+     "hl": "dg"
+    },
+    {
+     "w": "orange",
+     "ipa": "/ˈɒrɪndʒ/",
+     "zh": "橙子",
+     "hl": "g"
+    }
+   ],
+   "audio": "/audio/phonemes/dg.mp3",
+   "sort": 38
+  },
+  {
+   "code": "dr",
+   "title": "/dr/",
+   "type": "consonant",
+   "group": "affricate",
+   "groupName": "破擦音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "啄",
+   "mnemonic": "小鸡“啄”米音",
+   "emoji": "🐤",
+   "tip": "口型同 /tr/，声带振动，送气弱。",
+   "spell": "dr",
+   "samples": [
+    {
+     "w": "dream",
+     "ipa": "/driːm/",
+     "zh": "梦想",
+     "hl": "dr"
+    },
+    {
+     "w": "dress",
+     "ipa": "/dres/",
+     "zh": "连衣裙",
+     "hl": "dr"
+    },
+    {
+     "w": "children",
+     "ipa": "/ˈtʃɪldrən/",
+     "zh": "孩子们",
+     "hl": "dr"
+    }
+   ],
+   "audio": "/audio/phonemes/dr.mp3",
+   "sort": 39
+  },
+  {
+   "code": "dz",
+   "title": "/dz/",
+   "type": "consonant",
+   "group": "affricate",
+   "groupName": "破擦音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "滋",
+   "mnemonic": "电击音",
+   "emoji": "⚡",
+   "tip": "口型同 /ts/，声带振动，像汉语“资”的浊化。",
+   "spell": "ds · des",
+   "samples": [
+    {
+     "w": "beds",
+     "ipa": "/bedz/",
+     "zh": "床（复数）",
+     "hl": "ds"
+    },
+    {
+     "w": "cards",
+     "ipa": "/kɑːdz/",
+     "zh": "卡片（复数）",
+     "hl": "ds"
+    },
+    {
+     "w": "friends",
+     "ipa": "/frendz/",
+     "zh": "朋友们",
+     "hl": "ds"
+    }
+   ],
+   "audio": "/audio/phonemes/dz.mp3",
+   "sort": 40
+  },
+  {
+   "code": "m",
+   "title": "/m/",
+   "type": "consonant",
+   "group": "nasal",
+   "groupName": "鼻音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "mmm",
+   "mnemonic": "犹豫不决音",
+   "emoji": "🤔",
+   "tip": "双唇闭合，气流从鼻腔流出，声带振动。",
+   "spell": "m · mm",
+   "samples": [
+    {
+     "w": "man",
+     "ipa": "/mæn/",
+     "zh": "男人",
+     "hl": "m"
+    },
+    {
+     "w": "summer",
+     "ipa": "/ˈsʌmə/",
+     "zh": "夏天",
+     "hl": "mm"
+    },
+    {
+     "w": "mom",
+     "ipa": "/mɒm/",
+     "zh": "妈妈",
+     "hl": "m"
+    }
+   ],
+   "audio": "/audio/phonemes/m.mp3",
+   "sort": 41
+  },
+  {
+   "code": "n",
+   "title": "/n/",
+   "type": "consonant",
+   "group": "nasal",
+   "groupName": "鼻音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "en",
+   "mnemonic": "独自思考音",
+   "emoji": "🧐",
+   "tip": "舌尖抵上齿龈，气流从鼻腔流出，声带振动。",
+   "spell": "n · nn",
+   "samples": [
+    {
+     "w": "nose",
+     "ipa": "/nəʊz/",
+     "zh": "鼻子",
+     "hl": "n"
+    },
+    {
+     "w": "dinner",
+     "ipa": "/ˈdɪnə/",
+     "zh": "晚餐",
+     "hl": "nn"
+    },
+    {
+     "w": "sun",
+     "ipa": "/sʌn/",
+     "zh": "太阳",
+     "hl": "n"
+    }
+   ],
+   "audio": "/audio/phonemes/n.mp3",
+   "sort": 42
+  },
+  {
+   "code": "ng",
+   "title": "/ŋ/",
+   "type": "consonant",
+   "group": "nasal",
+   "groupName": "鼻音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "eng",
+   "mnemonic": "撒娇卖萌音",
+   "emoji": "🥰",
+   "tip": "舌后部抵住软腭，气流从鼻腔流出，声带振动，不要读成 /n/。",
+   "spell": "ng · n",
+   "samples": [
+    {
+     "w": "sing",
+     "ipa": "/sɪŋ/",
+     "zh": "唱歌",
+     "hl": "ng"
+    },
+    {
+     "w": "long",
+     "ipa": "/lɒŋ/",
+     "zh": "长的",
+     "hl": "ng"
+    },
+    {
+     "w": "morning",
+     "ipa": "/ˈmɔːnɪŋ/",
+     "zh": "早上",
+     "hl": "ng"
+    }
+   ],
+   "audio": "/audio/phonemes/ng.mp3",
+   "sort": 43
+  },
+  {
+   "code": "l",
+   "title": "/l/",
+   "type": "consonant",
+   "group": "liquid",
+   "groupName": "舌则音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "啦",
+   "mnemonic": "“呦呦”音",
+   "emoji": "🎵",
+   "tip": "舌尖抵上齿龈，气流从舌两侧流出；在词尾时舌后部抬起，声音更含糊。",
+   "spell": "l · ll",
+   "samples": [
+    {
+     "w": "lion",
+     "ipa": "/ˈlaɪən/",
+     "zh": "狮子",
+     "hl": "l"
+    },
+    {
+     "w": "hello",
+     "ipa": "/həˈləʊ/",
+     "zh": "你好",
+     "hl": "ll"
+    },
+    {
+     "w": "ball",
+     "ipa": "/bɔːl/",
+     "zh": "球",
+     "hl": "ll"
+    }
+   ],
+   "audio": "/audio/phonemes/l.mp3",
+   "sort": 44
+  },
+  {
+   "code": "r",
+   "title": "/r/",
+   "type": "consonant",
+   "group": "liquid",
+   "groupName": "舌则音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "热",
+   "mnemonic": "天“热”音",
+   "emoji": "🌞",
+   "tip": "舌尖卷起接近齿龈后部但不接触，双唇略圆，声带振动。",
+   "spell": "r · rr · wr",
+   "samples": [
+    {
+     "w": "red",
+     "ipa": "/red/",
+     "zh": "红色",
+     "hl": "r"
+    },
+    {
+     "w": "sorry",
+     "ipa": "/ˈsɒri/",
+     "zh": "对不起",
+     "hl": "rr"
+    },
+    {
+     "w": "road",
+     "ipa": "/rəʊd/",
+     "zh": "路",
+     "hl": "r"
+    }
+   ],
+   "audio": "/audio/phonemes/r.mp3",
+   "sort": 45
+  },
+  {
+   "code": "y",
+   "title": "/j/",
+   "type": "consonant",
+   "group": "glide",
+   "groupName": "半元音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "Yeah!",
+   "mnemonic": "愉快庆祝音",
+   "emoji": "🙌",
+   "tip": "舌前部抬向硬腭，快速滑向后面的元音，声带振动，不要拖长。",
+   "spell": "y · u · ew",
+   "samples": [
+    {
+     "w": "yes",
+     "ipa": "/jes/",
+     "zh": "是的",
+     "hl": "y"
+    },
+    {
+     "w": "yellow",
+     "ipa": "/ˈjeləʊ/",
+     "zh": "黄色",
+     "hl": "y"
+    },
+    {
+     "w": "you",
+     "ipa": "/juː/",
+     "zh": "你",
+     "hl": "y"
+    }
+   ],
+   "audio": "/audio/phonemes/y.mp3",
+   "sort": 46
+  },
+  {
+   "code": "w",
+   "title": "/w/",
+   "type": "consonant",
+   "group": "glide",
+   "groupName": "半元音",
+   "sub": "浊辅音",
+   "len": "",
+   "cue": "Wow!",
+   "mnemonic": "感叹音",
+   "emoji": "😲",
+   "tip": "双唇收圆前突，快速滑向后面的元音，声带振动，注意上齿不碰下唇。",
+   "spell": "w · wh",
+   "samples": [
+    {
+     "w": "we",
+     "ipa": "/wiː/",
+     "zh": "我们",
+     "hl": "w"
+    },
+    {
+     "w": "water",
+     "ipa": "/ˈwɔːtə/",
+     "zh": "水",
+     "hl": "w"
+    },
+    {
+     "w": "window",
+     "ipa": "/ˈwɪndəʊ/",
+     "zh": "窗户",
+     "hl": "w"
+    }
+   ],
+   "audio": "/audio/phonemes/w.mp3",
+   "sort": 47
+  }
+ ],
+ "letters": [
+  {
+   "code": "a",
+   "title": "Aa",
+   "type": "letter",
+   "stroke": "/img/letters/a.gif",
+   "samples": [],
+   "sort": 0
+  },
+  {
+   "code": "b",
+   "title": "Bb",
+   "type": "letter",
+   "stroke": "/img/letters/b.gif",
+   "samples": [],
+   "sort": 1
+  },
+  {
+   "code": "c",
+   "title": "Cc",
+   "type": "letter",
+   "stroke": "/img/letters/c.gif",
+   "samples": [],
+   "sort": 2
+  },
+  {
+   "code": "d",
+   "title": "Dd",
+   "type": "letter",
+   "stroke": "/img/letters/d.gif",
+   "samples": [],
+   "sort": 3
+  },
+  {
+   "code": "e",
+   "title": "Ee",
+   "type": "letter",
+   "stroke": "/img/letters/e.gif",
+   "samples": [],
+   "sort": 4
+  },
+  {
+   "code": "f",
+   "title": "Ff",
+   "type": "letter",
+   "stroke": "/img/letters/f.gif",
+   "samples": [],
+   "sort": 5
+  },
+  {
+   "code": "g",
+   "title": "Gg",
+   "type": "letter",
+   "stroke": "/img/letters/g.gif",
+   "samples": [],
+   "sort": 6
+  },
+  {
+   "code": "h",
+   "title": "Hh",
+   "type": "letter",
+   "stroke": "/img/letters/h.gif",
+   "samples": [],
+   "sort": 7
+  },
+  {
+   "code": "i",
+   "title": "Ii",
+   "type": "letter",
+   "stroke": "/img/letters/i.gif",
+   "samples": [],
+   "sort": 8
+  },
+  {
+   "code": "j",
+   "title": "Jj",
+   "type": "letter",
+   "stroke": "/img/letters/j.gif",
+   "samples": [],
+   "sort": 9
+  },
+  {
+   "code": "k",
+   "title": "Kk",
+   "type": "letter",
+   "stroke": "/img/letters/k.gif",
+   "samples": [],
+   "sort": 10
+  },
+  {
+   "code": "l",
+   "title": "Ll",
+   "type": "letter",
+   "stroke": "/img/letters/l.gif",
+   "samples": [],
+   "sort": 11
+  },
+  {
+   "code": "m",
+   "title": "Mm",
+   "type": "letter",
+   "stroke": "/img/letters/m.gif",
+   "samples": [],
+   "sort": 12
+  },
+  {
+   "code": "n",
+   "title": "Nn",
+   "type": "letter",
+   "stroke": "/img/letters/n.gif",
+   "samples": [],
+   "sort": 13
+  },
+  {
+   "code": "o",
+   "title": "Oo",
+   "type": "letter",
+   "stroke": "/img/letters/o.gif",
+   "samples": [],
+   "sort": 14
+  },
+  {
+   "code": "p",
+   "title": "Pp",
+   "type": "letter",
+   "stroke": "/img/letters/p.gif",
+   "samples": [],
+   "sort": 15
+  },
+  {
+   "code": "q",
+   "title": "Qq",
+   "type": "letter",
+   "stroke": "/img/letters/q.gif",
+   "samples": [],
+   "sort": 16
+  },
+  {
+   "code": "r",
+   "title": "Rr",
+   "type": "letter",
+   "stroke": "/img/letters/r.gif",
+   "samples": [],
+   "sort": 17
+  },
+  {
+   "code": "s",
+   "title": "Ss",
+   "type": "letter",
+   "stroke": "/img/letters/s.gif",
+   "samples": [],
+   "sort": 18
+  },
+  {
+   "code": "t",
+   "title": "Tt",
+   "type": "letter",
+   "stroke": "/img/letters/t.gif",
+   "samples": [],
+   "sort": 19
+  },
+  {
+   "code": "u",
+   "title": "Uu",
+   "type": "letter",
+   "stroke": "/img/letters/u.gif",
+   "samples": [],
+   "sort": 20
+  },
+  {
+   "code": "v",
+   "title": "Vv",
+   "type": "letter",
+   "stroke": "/img/letters/v.gif",
+   "samples": [],
+   "sort": 21
+  },
+  {
+   "code": "w",
+   "title": "Ww",
+   "type": "letter",
+   "stroke": "/img/letters/w.gif",
+   "samples": [],
+   "sort": 22
+  },
+  {
+   "code": "x",
+   "title": "Xx",
+   "type": "letter",
+   "stroke": "/img/letters/x.gif",
+   "samples": [],
+   "sort": 23
+  },
+  {
+   "code": "y",
+   "title": "Yy",
+   "type": "letter",
+   "stroke": "/img/letters/y.gif",
+   "samples": [],
+   "sort": 24
+  },
+  {
+   "code": "z",
+   "title": "Zz",
+   "type": "letter",
+   "stroke": "/img/letters/z.gif",
+   "samples": [],
+   "sort": 25
+  }
+ ]
+}

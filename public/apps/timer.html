@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>专注计时器</title>
+<style>
+  /* ===== 主题变量 ===== */
+  body[data-theme="night"]{
+    --bg:#0b0f1a; --text:#f9fafb; --muted:#9ca3af;
+    --accent:#ef4444; --accent-text:#fff; --accent-soft:#fca5a5;
+    --prog-track:#1f2937; --input-bg:#111827; --border:#374151;
+    --ghost:#1f2937; --ghost-text:#e5e7eb; --seg-on:#ef4444;
+  }
+  body[data-theme="forest"]{
+    --bg:#0a1c14; --text:#eaf6f0; --muted:#8bb8a5;
+    --accent:#10b981; --accent-text:#06281e; --accent-soft:#6ee7b7;
+    --prog-track:#173327; --input-bg:#0a1c14; --border:#2c5a49;
+    --ghost:#173327; --ghost-text:#d1e9df; --seg-on:#10b981;
+  }
+  body[data-theme="eye"]{
+    --bg:#c9e8c9; --text:#23402c; --muted:#5a7a63;
+    --accent:#b8433c; --accent-text:#fff; --accent-soft:#8f2f2a;
+    --prog-track:#aecfae; --input-bg:#f2faf1; --border:#8fb894;
+    --ghost:#b9d8ba; --ghost-text:#23402c; --seg-on:#3f8f5a;
+  }
+  body[data-theme="light"]{
+    --bg:#f4f5f7; --text:#111827; --muted:#6b7280;
+    --accent:#dc2626; --accent-text:#fff; --accent-soft:#b91c1c;
+    --prog-track:#e5e7eb; --input-bg:#ffffff; --border:#d1d5db;
+    --ghost:#e5e7eb; --ghost-text:#374151; --seg-on:#dc2626;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; }
+  body {
+    font-family:"Microsoft YaHei","PingFang SC",sans-serif;
+    background:var(--bg); color:var(--text);
+    display:flex; flex-direction:column;
+    padding:14px 22px 18px;
+    transition:color .3s;
+    overflow:hidden;
+  }
+
+  /* ===== 动态背景层 ===== */
+  #sky { position:fixed; inset:0; width:100%; height:100%; display:block; z-index:-1; }
+  /* 护眼 / 浅色：缓慢流动的柔光渐变 */
+  body[data-theme="eye"]{
+    background:linear-gradient(120deg,#c4e6c4,#b7dfbe,#d8f0d4,#c9e8c9,#bfdcc0);
+    background-size:320% 320%; animation:flow 22s ease-in-out infinite;
+  }
+  body[data-theme="light"]{
+    background:transparent;   /* 日间：透明，与系统页面主题背景融为一体 */
+  }
+  body[data-theme="night"]   { background:radial-gradient(120% 90% at 50% 0%, #131c34 0%, #0b0f1a 55%, #05070f 100%); }
+  body[data-theme="forest"]  { background:radial-gradient(120% 90% at 50% 100%, #12321f 0%, #0a1c14 55%, #050f0a 100%); }
+  @keyframes flow { 0%{background-position:0% 50%;} 50%{background-position:100% 50%;} 100%{background-position:0% 50%;} }
+
+  /* 星空主题下控件略带通透感 */
+  body[data-theme="night"] input, body[data-theme="forest"] input { backdrop-filter:blur(2px); }
+
+  /* ===== 顶部：仅主题切换 ===== */
+  .top { display:flex; justify-content:flex-end; gap:9px; }
+  /* 主题圆点已移除：计时器主题跟随系统顶栏「主题色」，不再单独切换 */
+
+  /* ===== 中部：计时区，固定铺满全屏并上下左右居中（不受底部控件影响）===== */
+  .center { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:0; pointer-events:none; }
+  .mode { font-size:clamp(18px, 3.5vmin, 34px); letter-spacing:6px; margin-bottom:1.2vmin; }
+
+  /* ===== 鼓励语：卡通字体（站酷快乐体，本地 /fonts/），每个字随机彩虹色，点击换一句 ===== */
+  @font-face{
+    font-family:'ZCOOL KuaiLe';
+    font-style:normal; font-display:swap; font-weight:400;
+    src:url('/fonts/zcool-kuaile.woff2') format('woff2');
+  }
+  .quote{
+    font-family:'ZCOOL KuaiLe','YouYuan','幼圆','Microsoft YaHei',sans-serif;
+    font-size:clamp(30px, 6.5vmin, 76px);
+    letter-spacing:3px; text-align:center; line-height:1.4;
+    margin-bottom:1.8vmin; min-height:1.4em;
+  }
+  .quote span{ display:inline-block; }
+  .mode.focus { color:var(--accent-soft); }
+
+  .clock {
+    font-family:"Bahnschrift","DIN Alternate","Avenir Next Condensed","Segoe UI",Arial,sans-serif;
+    font-size:min(42vh, 30vw);
+    font-weight:600;
+    letter-spacing:.02em;
+    font-variant-numeric:tabular-nums;
+    font-feature-settings:"tnum" 1;
+    line-height:1;
+    color:var(--text);
+  }
+  /* 到点提醒：数字闪烁 */
+  .clock.ring { animation:ringFlash .5s ease-in-out 6; }
+  @keyframes ringFlash { 0%,100%{ opacity:1; color:var(--text); } 50%{ opacity:.28; color:var(--accent-soft); } }
+
+  .prog { height:clamp(10px, 1.8vmin, 18px); background:var(--prog-track); border-radius:99px; overflow:hidden; width:min(62vw, 900px); margin-top:3vmin; }
+  .prog div { height:100%; width:0%; background:var(--accent); border-radius:99px; transition:background .3s; }
+
+  /* ===== 底部：控件 ===== */
+  .bottom { margin-top:auto; display:flex; justify-content:center; padding:2vmin 0 1vmin; }
+  .row { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; justify-content:center; }
+  button { border:none; border-radius:10px; padding:clamp(9px,1.6vmin,14px) clamp(16px,2.6vmin,26px); font-size:clamp(14px,2vmin,18px); cursor:pointer; font-family:inherit; transition:opacity .15s, background .3s, color .3s; }
+  button:hover { opacity:.88; }
+  .btn-main { background:var(--accent); color:var(--accent-text); font-weight:700; }
+  input { background:var(--input-bg); color:var(--text); border:1px solid var(--border); border-radius:9px; padding:clamp(7px,1.3vmin,12px) 10px; font-size:clamp(14px,2vmin,18px); font-family:inherit; }
+  label.f { display:flex; flex-direction:column; gap:5px; font-size:clamp(12px,1.7vmin,15px); color:var(--muted); }
+
+  .seg { display:flex; background:var(--ghost); border-radius:10px; overflow:hidden; }
+  .seg button { border-radius:0; background:transparent; color:var(--ghost-text); }
+  .seg button.on { background:var(--seg-on); color:var(--accent-text); font-weight:700; }
+</style>
+</head>
+<body data-theme="night">
+  <canvas id="sky"></canvas>
+
+  <div class="center">
+    <div class="quote" id="quote"></div>
+    <div class="mode focus" id="modeText">专注时间</div>
+    <div class="clock" id="clock">25:00</div>
+    <div class="prog"><div id="progBar"></div></div>
+  </div>
+
+  <div class="bottom">
+    <div class="row">
+      <label class="f">专注（分钟）<input type="number" id="inFocus" value="25" min="1" style="width:5.5em;"></label>
+      <button class="btn-main" id="btnStart" onclick="toggleRun()">▶ 开始专注</button>
+      <div class="seg">
+        <button id="segDown" class="on" onclick="setMode('down')">倒计时</button>
+        <button id="segUp" onclick="setMode('up')">正计时</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+var KEY = 'focusTimerV3';
+function $(id){ return document.getElementById(id); }
+
+// 纯逻辑：秒数 -> mm:ss（分钟位可超过 59，用于正计时长时长）
+function fmtClock(sec){
+  sec = Math.max(0, Math.ceil(sec));
+  var m = Math.floor(sec / 60), s = sec % 60;
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+var timer = { mode: 'down', remain: 25*60, total: 25*60, elapsed: 0, running: false, endAt: 0 };
+var intId = null;
+
+/* ===== 动态背景：星空 / 萤火 ===== */
+var skyCvs = document.getElementById('sky');
+var sctx = skyCvs.getContext('2d');
+var SW = 0, SH = 0, DPR = 1;
+var stars = [], flies = [], meteor = null, nextMeteor = 0;
+var skyKind = 'none', skyRAF = null, lastT = 0;
+
+function resizeSky(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  SW = window.innerWidth; SH = window.innerHeight;
+  skyCvs.width = SW * DPR; skyCvs.height = SH * DPR;
+  skyCvs.style.width = SW + 'px'; skyCvs.style.height = SH + 'px';
+  sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  buildSky();
+}
+function buildSky(){
+  stars = []; flies = [];
+  if(skyKind === 'night'){
+    var n = Math.min(340, Math.max(140, Math.round(SW * SH / 5200)));
+    for(var i = 0; i < n; i++){
+      stars.push({
+        x: Math.random() * SW, y: Math.random() * SH,
+        r: Math.random() * 1.35 + 0.25,
+        a: Math.random() * 0.55 + 0.25,
+        tw: Math.random() * 1.7 + 0.5,
+        ph: Math.random() * Math.PI * 2,
+        vy: Math.random() * 3 + 1,          // px/s，极慢上浮
+        hue: Math.random() < 0.25 ? '191,219,254' : (Math.random() < 0.5 ? '255,255,255' : '226,232,240')
+      });
+    }
+  } else if(skyKind === 'forest'){
+    var m = Math.min(70, Math.max(28, Math.round(SW * SH / 26000)));
+    for(var j = 0; j < m; j++){
+      flies.push({
+        x: Math.random() * SW, y: Math.random() * SH,
+        r: Math.random() * 2.2 + 1.1,
+        a: Math.random() * 0.5 + 0.25,
+        tw: Math.random() * 1.4 + 0.6,
+        ph: Math.random() * Math.PI * 2,
+        vx: (Math.random() - 0.5) * 14, vy: (Math.random() - 0.5) * 10
+      });
+    }
+  }
+}
+function drawStars(t){
+  // 星云光晕
+  var g1 = sctx.createRadialGradient(SW * 0.22, SH * 0.12, 0, SW * 0.22, SH * 0.12, SW * 0.8);
+  g1.addColorStop(0, 'rgba(76,63,166,0.30)'); g1.addColorStop(1, 'rgba(11,15,26,0)');
+  sctx.fillStyle = g1; sctx.fillRect(0, 0, SW, SH);
+  var g2 = sctx.createRadialGradient(SW * 0.85, SH * 0.82, 0, SW * 0.85, SH * 0.82, SW * 0.75);
+  g2.addColorStop(0, 'rgba(30,90,140,0.22)'); g2.addColorStop(1, 'rgba(5,7,15,0)');
+  sctx.fillStyle = g2; sctx.fillRect(0, 0, SW, SH);
+
+  var dt = (t - lastT) / 1000; lastT = t;
+  if(dt > 0.2) dt = 0.016;
+
+  for(var i = 0; i < stars.length; i++){
+    var s = stars[i];
+    s.y -= s.vy * dt * 0.35;
+    if(s.y < -4){ s.y = SH + 4; s.x = Math.random() * SW; }
+    var al = s.a + Math.sin(t / 1000 * s.tw + s.ph) * 0.28;
+    al = Math.max(0.06, Math.min(1, al));
+    sctx.beginPath();
+    sctx.fillStyle = 'rgba(' + s.hue + ',' + al.toFixed(3) + ')';
+    sctx.arc(s.x, s.y, s.r, 0, 6.2832);
+    sctx.fill();
+    if(s.r > 1.1){ // 亮星带十字光晕
+      sctx.strokeStyle = 'rgba(' + s.hue + ',' + (al * 0.35).toFixed(3) + ')';
+      sctx.lineWidth = 0.8;
+      sctx.beginPath();
+      sctx.moveTo(s.x - s.r * 3.2, s.y); sctx.lineTo(s.x + s.r * 3.2, s.y);
+      sctx.moveTo(s.x, s.y - s.r * 3.2); sctx.lineTo(s.x, s.y + s.r * 3.2);
+      sctx.stroke();
+    }
+  }
+
+  // 流星
+  if(!meteor && t > nextMeteor){
+    var fromLeft = Math.random() < 0.5;
+    meteor = {
+      x: fromLeft ? -60 : SW + 60, y: Math.random() * SH * 0.45,
+      vx: (fromLeft ? 1 : -1) * (280 + Math.random() * 160),
+      vy: 90 + Math.random() * 90, len: 120 + Math.random() * 90, life: 1
+    };
+  }
+  if(meteor){
+    meteor.x += meteor.vx * dt; meteor.y += meteor.vy * dt; meteor.life -= dt * 0.62;
+    var tx = meteor.x - meteor.vx * 0.16, ty = meteor.y - meteor.vy * 0.16;
+    var lg = sctx.createLinearGradient(meteor.x, meteor.y, tx, ty);
+    lg.addColorStop(0, 'rgba(255,255,255,' + Math.max(0, meteor.life).toFixed(3) + ')');
+    lg.addColorStop(1, 'rgba(255,255,255,0)');
+    sctx.strokeStyle = lg; sctx.lineWidth = 2; sctx.lineCap = 'round';
+    sctx.beginPath(); sctx.moveTo(meteor.x, meteor.y); sctx.lineTo(tx, ty); sctx.stroke();
+    if(meteor.life <= 0 || meteor.x < -160 || meteor.x > SW + 160 || meteor.y > SH + 120){
+      meteor = null; nextMeteor = t + 3200 + Math.random() * 6000;
+    }
+  }
+}
+function drawFlies(t){
+  var dt = (t - lastT) / 1000; lastT = t;
+  if(dt > 0.2) dt = 0.016;
+  var mg = sctx.createRadialGradient(SW * 0.5, SH, 0, SW * 0.5, SH, SH * 0.9);
+  mg.addColorStop(0, 'rgba(20,80,55,0.35)'); mg.addColorStop(1, 'rgba(5,15,10,0)');
+  sctx.fillStyle = mg; sctx.fillRect(0, 0, SW, SH);
+  for(var i = 0; i < flies.length; i++){
+    var f = flies[i];
+    f.x += (f.vx + Math.sin(t / 1400 + f.ph) * 10) * dt;
+    f.y += (f.vy + Math.cos(t / 1700 + f.ph) * 8) * dt;
+    if(f.x < -20) f.x = SW + 20; if(f.x > SW + 20) f.x = -20;
+    if(f.y < -20) f.y = SH + 20; if(f.y > SH + 20) f.y = -20;
+    var al = Math.max(0.05, f.a + Math.sin(t / 1000 * f.tw + f.ph) * 0.3);
+    var rg = sctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r * 6);
+    rg.addColorStop(0, 'rgba(190,255,180,' + (al * 0.9).toFixed(3) + ')');
+    rg.addColorStop(0.35, 'rgba(120,230,150,' + (al * 0.28).toFixed(3) + ')');
+    rg.addColorStop(1, 'rgba(120,230,150,0)');
+    sctx.fillStyle = rg;
+    sctx.beginPath(); sctx.arc(f.x, f.y, f.r * 6, 0, 6.2832); sctx.fill();
+    sctx.fillStyle = 'rgba(220,255,205,' + Math.min(1, al + 0.2).toFixed(3) + ')';
+    sctx.beginPath(); sctx.arc(f.x, f.y, f.r * 0.55, 0, 6.2832); sctx.fill();
+  }
+}
+function frame(t){
+  sctx.clearRect(0, 0, SW, SH);
+  if(skyKind === 'night') drawStars(t);
+  else if(skyKind === 'forest') drawFlies(t);
+  skyRAF = requestAnimationFrame(frame);
+}
+function setSky(kind){
+  skyKind = kind;
+  if(skyRAF){ cancelAnimationFrame(skyRAF); skyRAF = null; }
+  sctx.clearRect(0, 0, SW, SH);
+  if(kind === 'night' || kind === 'forest'){
+    skyCvs.style.display = 'block';
+    buildSky(); lastT = performance.now(); nextMeteor = performance.now() + 1500;
+    skyRAF = requestAnimationFrame(frame);
+  } else {
+    skyCvs.style.display = 'none';
+  }
+}
+window.addEventListener('resize', resizeSky);
+
+/* ===== 主题 ===== */
+var THEME_KEY = 'focusTimerTheme';
+function setTheme(t){
+  document.body.dataset.theme = t;
+  document.querySelectorAll('.theme-dot').forEach(function(d){ d.classList.toggle('active', d.classList.contains('dot-' + t)); });
+  setSky((t === 'night' || t === 'forest') ? t : 'none');
+  try { localStorage.setItem(THEME_KEY, t); } catch(e){}
+}
+(function(){
+  var t = 'night';
+  try { t = localStorage.getItem(THEME_KEY) || 'night'; } catch(e){}
+  resizeSky();
+  setTheme(t);
+})();
+
+/* ===== 模式切换：倒计时 / 正计时 ===== */
+function setMode(m){
+  if(intId){ clearInterval(intId); intId = null; }
+  timer.running = false;
+  timer.mode = m;
+  if(m === 'down'){
+    timer.total = cfgFocus() * 60; timer.remain = timer.total;
+  } else {
+    timer.elapsed = 0;
+  }
+  $('segDown').classList.toggle('on', m === 'down');
+  $('segUp').classList.toggle('on', m === 'up');
+  render();
+}
+
+function cfgFocus(){
+  return Math.max(1, parseInt($('inFocus').value, 10) || 25);
+}
+
+/* ===== 提示音 ===== */
+var audioCtx = null;
+function ensureAudio(){
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  } catch(e){ return null; }
+}
+// 通用单音：freq 频率，dur 时长，vol 音量，delay 延迟秒，type 波形
+function tone(freq, dur, vol, delay, type){
+  try {
+    var ctx = ensureAudio(); if(!ctx) return;
+    var t0 = ctx.currentTime + (delay || 0);
+    var o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+  } catch(e){}
+}
+// 开始计时：一声短促的“滴”
+function tickSound(){ tone(1500, 0.09, 0.12, 0, 'triangle'); }
+// 倒计时结束：强提醒（两声一组、共三组，逐步升调）
+function beep(){
+  var seq = [880, 1175, 988, 1319, 1047, 1568];
+  for(var i = 0; i < seq.length; i++){
+    tone(seq[i], 0.35, 0.26, i * 0.28, 'triangle');
+    tone(seq[i] / 2, 0.35, 0.10, i * 0.28, 'sine');
+  }
+}
+
+/* ===== 渲染 ===== */
+function render(){
+  var isUp = timer.mode === 'up';
+  var timeStr = isUp ? fmtClock(timer.elapsed) : fmtClock(timer.remain);
+  $('clock').textContent = timeStr;
+
+  if(isUp){
+    $('modeText').textContent = '正计时';
+    $('progBar').style.width = '100%';
+    $('btnStart').textContent = timer.running ? '⏸ 暂停' : '▶ 开始正计时';
+    document.title = timeStr + ' · 正计时';
+  } else {
+    $('modeText').textContent = timer.running ? '专注中' : '专注时间';
+    $('progBar').style.width = (timer.total ? (100 * (1 - timer.remain / timer.total)) : 0) + '%';
+    $('btnStart').textContent = timer.running ? '⏸ 暂停' : '▶ 开始专注';
+    document.title = timeStr + ' · 专注中';
+  }
+}
+
+/* ===== 计时 ===== */
+function tick(){
+  if(timer.mode === 'up'){
+    timer.elapsed = Math.max(0, (Date.now() - timer.endAt) / 1000);
+  } else {
+    timer.remain = Math.max(0, (timer.endAt - Date.now()) / 1000);
+    if(timer.remain <= 0){
+      clearInterval(intId); intId = null;
+      timer.running = false;
+      beep();
+      var c = $('clock');
+      c.classList.remove('ring'); void c.offsetWidth; c.classList.add('ring');
+      timer.remain = timer.total; // 响铃后回到整轮，等下次开始
+    }
+  }
+  render();
+}
+function toggleRun(){
+  if(timer.running){
+    clearInterval(intId); intId = null;
+    timer.running = false;
+    if(timer.mode === 'up') timer.elapsed = Math.max(0, (Date.now() - timer.endAt) / 1000);
+    else timer.remain = Math.max(0, (timer.endAt - Date.now()) / 1000);
+  } else {
+    if(timer.mode === 'up'){
+      timer.endAt = Date.now() - timer.elapsed * 1000;
+    } else {
+      timer.endAt = Date.now() + timer.remain * 1000;
+    }
+    timer.running = true;
+    tickSound();
+    intId = setInterval(tick, 200);
+  }
+  render();
+}
+
+/* ===== 设置即时生效（未运行时）===== */
+$('inFocus').addEventListener('input', function(){
+  if(timer.mode === 'down' && !timer.running && timer.remain === timer.total){
+    timer.total = cfgFocus() * 60; timer.remain = timer.total;
+  }
+  render();
+});
+
+render();
+
+/* ===== 鼓励语：随机一句（每个字彩虹色），每次点击页面换一句 ===== */
+var QUOTES = [
+  '专注当下，每一分钟都在靠近目标。',
+  '把握时间，用心完成每一道题。',
+  '分秒必争，认真作答就是进步。',
+  '认真的你，比满分更耀眼。',
+  '你比想象中更努力，也更优秀。',
+  '珍惜时间，认真学习。',
+  '争分夺秒，未来可期。',
+  '时间看得见，努力也看得见。',
+  '静下心来做题，时间自然会给答案。',
+  '把握当下每一秒，踏实走好每一步。',
+  '大胆去写，你的努力时间都记得。',
+  '不必追求完美，认真完成就是胜利。',
+  '遇到难题别着急，多读一遍题就有思路。',
+  '惜时如金，学有所成。'
+];
+var quoteIdx = -1;
+function showQuote(){
+  var i;
+  do { i = Math.floor(Math.random() * QUOTES.length); } while (QUOTES.length > 1 && i === quoteIdx);
+  quoteIdx = i;
+  var box = document.getElementById('quote');
+  if (!box) return;
+  var text = QUOTES[i], html = '';
+  for (var c = 0; c < text.length; c++) {
+    var ch = text.charAt(c);
+    if (ch === '，' || ch === '。' || ch === '、' || ch === ' ') { html += ch; continue; }
+    var hue = (c * 40 + 8) % 360;
+    html += '<span style="color:hsl(' + hue + ',85%,44%)">' + ch + '</span>';
+  }
+  box.innerHTML = html;
+}
+document.addEventListener('click', showQuote);
+showQuote();
+</script>
+</body>
+</html>

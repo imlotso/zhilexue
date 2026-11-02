@@ -1,0 +1,52 @@
+# 架构说明
+
+## 技术栈
+
+- 后端：Node.js + Express，入口 `src/app.js`，端口 3000（`PORT` 可改），生产用 pm2（`ecosystem.config.js`，单实例 fork）。
+- 数据库：MySQL（`src/config.local.js` 指向 `127.0.0.1:3306`，库名 `xuexi`）。`src/mysql-sync.js` 提供与 better-sqlite3 同接口的同步封装（查询在 `mysql-worker.js` 的独立线程里执行），业务代码不用 async。库为空时 `import-sqlite.js` 会从 `data/xuexi.db`（SQLite）导入旧数据。
+- 存储：`src/storage.js`，阿里云 OSS / 七牛 / 本地磁盘三选一（环境变量 `STORAGE_DRIVER`）。视频走前端分片直传 OSS（单个上限 4GB），可配 `CDN_DOMAIN`。`LOCAL_FOLDERS` 默认 `wrong,guidedocs` 留在本地。
+- 前端：原生 JS，无构建。
+
+## 目录结构
+
+```
+zhilexue/
+├── AGENTS.md  README.md  package.json  ecosystem.config.js
+├── src/        后端（见下表）
+├── public/     静态前端
+│   ├── index.html + js/vue-app.js   学生端入口（Vue 3）
+│   ├── admin/      后台（Vue 2 + element-ui，多个独立脚本依次加载）
+│   ├── upload.html 手机扫码上传页；scan-report.html 扫码上传学情试卷
+│   ├── apps/       care / grades / keyboard-school / timer，独立小应用，由主站以 iframe 引用
+│   └── css/ js/ vendor/ img/ fonts/ audio/
+├── data/       仅种子与模板（knowledge-seed.json、题库导入模板.xlsx、mofang-question-transcribe.zip）
+├── docs/       文档，用途见 AGENTS.md
+├── .github/workflows/ci.yml
+└── *-test.js  smoke.js  seed-words.js   测试与种子脚本（依赖根目录相对路径，不要移动）
+```
+
+## src 模块
+
+| 文件 | 作用 |
+|---|---|
+| `app.js` | 主服务：登录、文件代理、管理端基础接口（分校/学生/目录/视频/讲义）、学生端基础接口、路由挂载 |
+| `db.js` / `mysql-sync.js` / `mysql-worker.js` / `import-sqlite.js` | 建表、数据库连接与 SQLite→MySQL 转换 |
+| `auth.js` / `delpwd.js` | JWT 鉴权；删除确认密码 |
+| `storage.js` | 文件存储抽象（本地 / OSS / 七牛） |
+| `bank.js` | 智能题库：题目、知识点树（kb）、组卷下发、课文习题绑定、学生错题、扫码上传池 |
+| `mfbank.js` / `mfcollect.js` / `mfseed.js` / `mfzip.js` | 「魔方题库」（与 2026-10-29 并入）：目录树、标签、采集批次、录题 intake、试卷管理、AI 配置 profiles、技能包导入 |
+| `bank-excel.js` / `excel.js` / `bank-judge.js` / `docxtext.js` / `tableparse.js` | Excel/Word 导入解析与判分 |
+| `wrong.js` / `scanify.js` / `pdfimg.js` | 错题重组：拍照切题、生成错题集 PDF |
+| `ai.js` / `report.js` / `reports.js` | AI 调用（OpenAI 兼容）与 AI 学情报告；学情统计 |
+| `word.js` / `phonics.js` / `win-speak.js` / `pos-*.js` | 单词训练、语音基础、TTS 发音、词性词库 |
+| `seed.js` / `config.local.js` / `builtin-config.js` | 初始化数据；MySQL 连接信息；内置配置 |
+
+## 请求与权限
+
+- `/api/admin/*` 管理端，角色 admin（校长）或 branch（分校），权限一致；`/api/stu/*` 学生端。鉴权用 JWT，由 `Authorization: Bearer` 传递。
+- `<video>` / `<iframe>` / `<img>` 由浏览器直连，不能带 Authorization 头，所以本地文件代理地址 `/api/file?key=...` 把 token 拼在 URL 上（`withFileTicket` / `withTicket`）。OSS/七牛的签名外链原样返回。
+- 扫码上传（`/api/up`、`/api/report-scan`）用独立的一次性 token，不走登录态。
+
+## 测试与 CI
+
+根目录测试：`smoke.js`（后端端到端，需服务已启动）、`bank-test.js`、`word-test.js`、`wrong-test.js`、`storage-test.js`、`ui-test.js`（需 jsdom）、`report-test.js`、`guide-test.js`、`wrong-ui-test.js`。CI 见 `.github/workflows/ci.yml`。
