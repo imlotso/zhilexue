@@ -29,6 +29,13 @@ function quizAnswerText(q, val) {
   return String(val || '');
 }
 
+/** 正确率的展示文字（T6）：a = { total, answered, correct, rate } */
+function quizAccText(a) {
+  if (!a || !a.total) return '暂无习题';
+  if (a.rate === null || a.rate === undefined) return `未做（共 ${a.total} 题）`;
+  return `${a.rate}%（已做 ${a.answered} / ${a.total} 题，答对 ${a.correct}）`;
+}
+
 /** 选项文本归一化：兼容 {label,text} 对象（后台批量导入）与字符串两种格式 */
 function optText(t) {
   if (typeof t === 'string') return t;
@@ -205,9 +212,15 @@ const BankQuiz = {
       if (q.type === 'fill') {
         const n = Math.max(1, Number(q.blanks) || 1);
         const arr = Array.isArray(st.answers[q.id]) ? st.answers[q.id] : [];
-        return `<div class="qz-fills">` + Array.from({ length: n }, (_, i) => `
-          <label class="qz-fill"><span>第 ${i + 1} 空</span>
-            <input type="text" data-blank="${i}" value="${esc(arr[i] || '')}" placeholder="点这里填写答案" autocomplete="off"></label>`).join('') + '</div>';
+        // T6：固定宽高的输入区（字多字少都不变形，内容多时框内滚动）；单空稍高、多空每空一行半
+        return `<div class="qz-fills t6-fills ${n === 1 ? 'single' : ''}">` + Array.from({ length: n }, (_, i) => `
+          <label class="qz-fill t6-fill"><span>${n === 1 ? '答案' : `第 ${i + 1} 空`}</span>
+            <textarea class="t6-input" data-blank="${i}" maxlength="500" placeholder="点这里填写答案" autocomplete="off" spellcheck="false">${esc(arr[i] || '')}</textarea></label>`).join('') + '</div>';
+      }
+      if (q.type === 'answer') {
+        // 问答 / 解答题：大一点的固定输入区。不自动判分，交卷后对照参考答案
+        return `<div class="qz-fills t6-fills"><label class="qz-fill t6-fill t6-fill-long"><span>解答</span>
+          <textarea class="t6-input t6-long" data-ans="1" maxlength="2000" placeholder="写下你的解答（问答题不自动判分，交卷后对照参考答案）" spellcheck="false">${esc(String(st.answers[q.id] || ''))}</textarea></label></div>`;
       }
       if (q.type === 'sort') {
         // 排序 / 连词成句：展示顺序稳定打乱，学生按顺序点选，答案存原始位置序号
@@ -249,16 +262,21 @@ const BankQuiz = {
           paint();
         });
       } else if (q.type === 'fill') {
-        bodyEl.querySelectorAll('input[data-blank]').forEach((inp) => {
+        bodyEl.querySelectorAll('[data-blank]').forEach((inp) => {
           inp.oninput = () => {
+            // 填空答案是单行：回车 / 粘贴里的换行都当空格
+            if (/[\r\n]/.test(inp.value)) inp.value = inp.value.replace(/[\r\n]+/g, ' ');
             const n = Math.max(1, Number(q.blanks) || 1);
             const arr = Array.from({ length: n }, (_, i) => '');
-            bodyEl.querySelectorAll('input[data-blank]').forEach((x) => { arr[Number(x.dataset.blank)] = x.value; });
+            bodyEl.querySelectorAll('[data-blank]').forEach((x) => { arr[Number(x.dataset.blank)] = x.value; });
             st.answers[q.id] = arr;
           };
+          inp.onkeydown = (e) => { if (e.key === 'Enter') e.preventDefault(); };
           // 点填空处弹出数学键盘（也可直接用物理键盘输入）
           inp.onfocus = () => showKpad(inp);
         });
+      } else if (q.type === 'answer') {
+        bodyEl.querySelectorAll('textarea[data-ans]').forEach((ta) => { ta.oninput = () => { st.answers[q.id] = ta.value; }; ta.onfocus = () => hideKpad(); });
       } else if (q.type === 'sort') {
         bodyEl.querySelectorAll('.qz-pool-it').forEach((b) => b.onclick = () => {
           const cur = (st.answers[q.id] || []).slice();
@@ -382,7 +400,7 @@ const BankQuiz = {
           <div class="qz-fb-q">题目编号 <b>#${String(q.id).padStart(5, '0')}</b></div>
           <div class="qz-fb-stem">${esc(String(q.stem || '').slice(0, 150))}</div>
           <div class="qz-fb-rs">${reasons.map((x, i) => `<button class="qz-fb-r ${i === 0 ? 'on' : ''}" data-r="${x}">${x}</button>`).join('')}</div>
-          <textarea id="qzFbNote" rows="3" placeholder="补充说明（选填）"></textarea>
+          <textarea id="qzFbNote" class="t6-input t6-note" placeholder="补充说明（选填）"></textarea>
         </div>
         <div class="qz-ai-f"><button class="btn ghost" id="qzFbCancel">取消</button><button class="btn primary" id="qzFbOk">提交反馈</button></div>
       </div>`;
@@ -414,21 +432,42 @@ const BankQuiz = {
       const mine = quizAnswerDisplay(q, r ? r.my_answer : quizAnswerText(q, st.answers[q.id]), q.options);
       const right = quizAnswerDisplay(q, r ? r.answer : '', q.options);
       const si = stemImagesHTML(q);
-      return `<div class="qz-rq ${okk ? 'ok' : 'no'}" data-qid="${q.id}">
-        <div class="qz-rq-h"><span class="qz-rstate">${okk ? '✓ 回答正确' : '✗ 回答错误'}</span>
+      const ung = !!(r && r.ungraded);
+      return `<div class="qz-rq ${ung ? 'ung' : okk ? 'ok' : 'no'}" data-qid="${q.id}">
+        <div class="qz-rq-h"><span class="qz-rstate">${ung ? '✎ 对照参考答案（不计分）' : okk ? '✓ 回答正确' : '✗ 回答错误'}</span>
           <span class="qz-rtag">${QT_NAME[q.type] || '题目'}</span>${q.point ? `<span class="qz-rpoint">${esc(q.point)}</span>` : ''}
           <span class="qz-raqno">#${String(q.id).padStart(5, '0')}</span></div>
         ${q.material ? `<div class="qz-material folded"><div class="qz-mat-t">查看原文</div><pre class="qz-mat-b">${esc(q.material)}</pre></div>` : ''}
         <div class="qz-stem"><b>${si.stem}</b></div>
         ${si.rest}
-        <div class="qz-rrow my"><span>我的答案</span><em class="${okk ? 'ok' : 'no'}">${esc(mine || '未作答')}</em></div>
-        ${okk ? '' : `<div class="qz-rrow"><span>正确答案</span><em class="ok">${esc(right)}</em></div>`}
+        <div class="qz-rrow my"><span>我的答案</span><em class="${okk ? 'ok' : ung ? '' : 'no'}">${esc(mine || '未作答')}</em></div>
+        ${okk ? '' : `<div class="qz-rrow"><span>${ung ? '参考答案' : '正确答案'}</span><em class="ok">${esc(right)}</em></div>`}
         ${r && r.analysis ? `<div class="qz-ana"><span>解析</span>${esc(r.analysis)}</div>` : ''}
-        ${okk ? '' : `<div class="qz-racts">
+        ${okk || ung ? '' : `<div class="qz-racts">
           <button class="btn ghost sm" data-ai="${q.id}">🧑‍🏫 AI 老师分步讲解</button>
           <button class="btn ghost sm" data-fb="${q.id}">对题目有反馈？</button>
         </div>`}
       </div>`;
+    };
+
+    /** 学习报告（T6）：本次各知识点对错 + 视频 / 小分组现在的正确率 */
+    const reportHTML = (r) => {
+      let h = '';
+      const ungN = (r.list || []).filter((x) => x.ungraded).length;
+      if (r.mastery) {
+        const v = r.mastery.video; const sc = r.mastery.section;
+        h += `<div class="t6-report"><div class="t6-rep-t">掌握情况</div>
+          <div class="t6-rep-row"><span>本视频习题</span><b>${esc(quizAccText(v))}</b></div>
+          ${sc ? `<div class="t6-rep-row"><span>小分组「${esc(sc.name)}」</span><b>${esc(quizAccText(sc))}</b></div>` : ''}</div>`;
+      }
+      if (r.by_point && r.by_point.length) {
+        h += `<div class="t6-report"><div class="t6-rep-t">本次各知识点</div>${r.by_point.map((p) => {
+          const pct = p.total ? Math.round(p.correct / p.total * 100) : 0;
+          return `<div class="t6-rep-row"><span>${esc(p.point)}</span><b>${p.correct} / ${p.total}</b><i class="t6-bar"><u class="${pct >= 80 ? 'good' : pct >= 60 ? 'mid' : 'low'}" style="width:${pct}%"></u></i></div>`;
+        }).join('')}</div>`;
+      }
+      if (ungN) h += `<div class="t6-report"><div class="t6-rep-row"><span>另有 ${ungN} 道问答题不自动判分，请对照下面的参考答案自己批改</span></div></div>`;
+      return h;
     };
 
     const paint = () => {
@@ -443,6 +482,7 @@ const BankQuiz = {
             <div class="l">答对 ${r.correct} 题 · 答错 ${r.wrong} 题${opt.scoreTotal ? ` · 得分 ${Math.round(r.correct / Math.max(1, r.total) * opt.scoreTotal)} / ${opt.scoreTotal}` : ''}</div>
             ${r.wrong ? '<div class="tip">答错的题已自动收进错题本，可以在错题本里重练</div>' : '<div class="tip">全对，太棒了！继续保持 🎉</div>'}
           </div>
+          ${reportHTML(r)}
           ${(r.list || []).length ? `<div class="qz-results">${qs.map((qq) => resultOne(qq, map[qq.id])).join('')}</div>` : ''}`;
         footEl.innerHTML = `
           <button class="btn ghost" id="qzRedo"><i class="ai ai-refresh"></i> 再做一遍</button>
@@ -522,11 +562,11 @@ const BankQuiz = {
     /* ---- step 模式：提交本题 → 立即核对（不落库），显示对错 / 答案 / 解析 / AI 讲解 ---- */
     const stepJudgeHTML = (q, ck) => `
       <div class="qz-judge-box ${ck.ok ? 'ok' : 'no'}">
-        <div class="qz-jb-h">${ck.ok ? '<i>✓</i> 回答正确，真棒！' : '<i>✗</i> 回答错误'}</div>
+        <div class="qz-jb-h">${ck.ungraded ? '<i>✎</i> 已提交，请对照参考答案（问答题不计分）' : ck.ok ? '<i>✓</i> 回答正确，真棒！' : '<i>✗</i> 回答错误'}</div>
         <div class="qz-jb-r"><span>你的答案</span><em class="${ck.ok ? 'ok' : 'no'}">${esc(ck.my || '未作答')}</em></div>
-        ${ck.ok ? '' : `<div class="qz-jb-r"><span>正确答案</span><em class="ok">${esc(ck.answer)}</em></div>`}
+        ${ck.ok && !ck.ungraded ? '' : `<div class="qz-jb-r"><span>${ck.ungraded ? '参考答案' : '正确答案'}</span><em class="ok">${esc(ck.answer)}</em></div>`}
         ${ck.analysis ? `<div class="qz-jb-ana"><span>解析</span>${esc(ck.analysis)}</div>` : ''}
-        ${ck.ok ? '' : `<div class="qz-racts">
+        ${ck.ok || ck.ungraded ? '' : `<div class="qz-racts">
           <button class="btn ghost sm" data-ai="1">🧑‍🏫 AI 老师分步讲解</button>
           <button class="btn ghost sm" data-fb="1">对题目有反馈？</button>
         </div>`}
@@ -542,7 +582,7 @@ const BankQuiz = {
       try {
         const r = await api('/api/stu/bank/check', { method: 'POST', body: { items: [{ question_id: q.id, my_answer: my }] } });
         const x = (r.list || [])[0] || {};
-        st.checked[st.idx] = { ok: !!x.is_correct, answer: quizAnswerDisplay(q, x.answer, q.options), analysis: x.analysis || '', my: quizAnswerDisplay(q, my, q.options) };
+        st.checked[st.idx] = { ok: !!x.is_correct, ungraded: !!x.ungraded, answer: quizAnswerDisplay(q, x.answer, q.options), analysis: x.analysis || '', my: quizAnswerDisplay(q, my, q.options) };
         if (typeof FX !== 'undefined') FX.pop();
         paint();
       } catch (e) { toast(e.message || '核对失败，请重试', 'err'); if (btn) btn.disabled = false; }
@@ -1093,4 +1133,5 @@ const BankPages = {
 };
 
 window.BankQuiz = BankQuiz;
+window.quizAccText = quizAccText;
 window.BankPages = BankPages;

@@ -308,6 +308,12 @@ const fileForm = (fields, fileName, content) => {
     log(cd.code === 0 && d.lessons.length === 4, '课程详情：知识点列表（单个 + 批量上传）', (d.lessons || []).length + ' 个');
     log(cd.code === 0 && d.allow_speed === 0, '课程详情返回该学生倍速权限', 'allow_speed=' + d.allow_speed);
     log(cd.code === 0 && d.allow_seek === 1, '课程详情不再返回快进限制', 'allow_seek=' + d.allow_seek);
+    // T6：课程页每个视频 / 小分组 / 整门课都带习题正确率（没绑题或没做过时 rate 为 null）
+    log(cd.code === 0 && !!d.acc && (d.lessons || []).every((l) => l.acc && l.acc.total >= 0), '课程详情：视频和课程带习题正确率字段（acc）', JSON.stringify(d.acc));
+    const accAdmin = await req(`/api/admin/bank/accuracy?user_id=${stuId}`, { token: AT });
+    log(accAdmin.code === 0 && Array.isArray(accAdmin.data.courses) && accAdmin.data.student.id === stuId, '后台：按学生查看视频 / 小分组正确率接口可用', accAdmin.msg);
+    const accStu = await req(`/api/admin/bank/accuracy?user_id=${stuId}`, { token: ST });
+    log(accStu._status === 403 || accStu.code !== 0, '学生 token 不能看后台正确率接口');
     const l0 = (d.lessons || [])[0] || {};
     log(!!l0.handout && l0.handout.id === handoutId, '一个视频对应一个讲义（同一个框）', l0.handout ? l0.handout.title : '未配对');
     log(!!l0.handout && l0.handout.file_name === cnName, '知识点里带回讲义文件名', l0.handout ? l0.handout.file_name : '');

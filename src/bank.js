@@ -20,7 +20,8 @@ const { db, DATA_DIR } = require('./db');
 const { parseBankWorkbook, makeBankTemplate } = require('./bank-excel');
 const { judgeQ } = require('./bank-judge');
 const kbtree = require('./kbtree');
-const compose = require('./compose');   // T5：管理端一键组卷 / 学生端自组卷共用的抽题核心   // T4：知识树统一，旧 kb_* 并入 bank_trees
+const compose = require('./compose');
+const accuracy = require('./accuracy');   // T5：管理端一键组卷 / 学生端自组卷共用的抽题核心   // T4：知识树统一，旧 kb_* 并入 bank_trees
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -545,6 +546,38 @@ admin.get('/chapters/:id/lessons', (req, res) => {
     FROM videos v WHERE v.chapter_id=? ORDER BY v.sort, v.id`).all(c.id);
   ok(res, { chapter: c, grouped: secs.length > 0, sections: secs, videos });
 });
+// 学情：某个学生按「课程 → 小分组 → 视频」的习题正确率（口径见 src/accuracy.js）
+admin.get('/accuracy', (req, res) => {
+  const uid = Number(req.query.user_id) || 0;
+  const u = db.prepare("SELECT id, name, username, grade, term, created_by FROM users WHERE id=? AND role='student'").get(uid);
+  if (!u) return fail(res, '学生不存在');
+  if (req.user.role === 'branch' && Number(u.created_by) !== Number(req.user.id)) return fail(res, '无权查看该学生', 403);
+  const videos = db.prepare(`SELECT v.id, v.title, v.chapter_id, v.sort, ${accuracy.SEC_EXPR} AS sid
+    FROM videos v WHERE v.chapter_id IS NOT NULL AND EXISTS (SELECT 1 FROM questions q WHERE q.video_id=v.id AND q.type<>'answer')
+    ORDER BY v.chapter_id, v.sort, v.id`).all();
+  const stats = accuracy.videoStats(db, uid, videos.map((v) => v.id));
+  const chapters = new Map(db.prepare('SELECT id, name, subject, grade, term FROM chapters').all().map((c) => [c.id, c]));
+  const secName = new Map(db.prepare('SELECT id, name, sort FROM sections').all().map((x) => [x.id, x]));
+  const byCh = new Map();
+  videos.forEach((v) => {
+    const c = chapters.get(v.chapter_id); if (!c) return;
+    if (!byCh.has(c.id)) byCh.set(c.id, { chapter: c, groups: new Map() });
+    const g = byCh.get(c.id).groups;
+    const sid = secName.has(Number(v.sid)) ? Number(v.sid) : 0;
+    if (!g.has(sid)) g.set(sid, []);
+    g.get(sid).push({ id: v.id, title: v.title, acc: accuracy.ofVideo(stats, v.id) });
+  });
+  const courses = [...byCh.values()].map(({ chapter, groups }) => {
+    const gl = [...groups.entries()].map(([sid, vs]) => ({
+      id: sid, name: sid ? secName.get(sid).name : '未分组', sort: sid ? secName.get(sid).sort : 9999,
+      videos: vs, acc: accuracy.sum(vs.map((x) => x.acc)),
+    })).sort((a, b) => (a.sort - b.sort) || (a.id - b.id));
+    return { id: chapter.id, name: chapter.name, subject: chapter.subject || '', grade: chapter.grade || '', term: chapter.term || '',
+      groups: gl, acc: accuracy.sum(gl.map((x) => x.acc)) };
+  });
+  ok(res, { student: { id: u.id, name: u.name, username: u.username, grade: u.grade || '', term: u.term || '' }, courses, acc: accuracy.sum(courses.map((c) => c.acc)) });
+});
+
 // 某视频绑定的题目（含答案，管理端用）
 admin.get('/videos/:id/questions', (req, res) => {
   const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
@@ -1087,6 +1120,15 @@ stu.post('/submit', (req, res) => {
         if (!m) continue;
         misStage.set(q.id, Number(m.review_stage) || 0);
       }
+      if (q.type === 'answer') {
+        // 问答题没法自动判分：不记对错、不进错题本、不进正确率，只回传参考答案让学生自己对照
+        results.push({
+          question_id: q.id, type: q.type, stem: q.stem, material: q.material || '',
+          options: [], my_answer: String(a.my_answer || ''), answer: q.answer,
+          analysis: q.analysis || '', difficulty: q.difficulty, is_correct: false, ungraded: true,
+        });
+        continue;
+      }
       const isOk = judgeQ(q, a.my_answer);
       if (isOk) correct++;
       insRec.run(uid, q.id, q.chapter_id || 0, String(a.my_answer || ''), isOk ? 1 : 0, now());
@@ -1137,7 +1179,27 @@ stu.post('/submit', (req, res) => {
   });
   tx();
   const wrong = detail.length - correct;
-  ok(res, { total: detail.length, correct, wrong, list: results },
+  // 本次各知识点的对错（学习报告用）：按题目的"知识点"文字归组，没标注的归"未标注知识点"
+  const byPoint = new Map();
+  results.filter((r) => !r.ungraded).forEach((r) => {
+    const pt = String((db.prepare('SELECT point FROM questions WHERE id=?').get(r.question_id) || {}).point || '').trim() || '未标注知识点';
+    const x = byPoint.get(pt) || { point: pt, total: 0, correct: 0 };
+    x.total++; if (r.is_correct) x.correct++;
+    byPoint.set(pt, x);
+  });
+  // 做的是某个视频的练习：回传该视频和所属小分组"现在"的正确率（学生端立即刷新）
+  let mastery = null;
+  if (kind === 'practice' && video) {
+    const sid = accuracy.sectionOfVideo(db, video.id);
+    const secVids = sid ? accuracy.sectionVideoIds(db, video.chapter_id, sid) : [];
+    const stats = accuracy.videoStats(db, uid, [video.id, ...secVids]);
+    const sec = sid ? db.prepare('SELECT id, name FROM sections WHERE id=?').get(sid) : null;
+    mastery = {
+      video: { id: video.id, title: video.title, ...accuracy.ofVideo(stats, video.id) },
+      section: sec ? { id: sec.id, name: sec.name, ...accuracy.sum(secVids.map((id) => accuracy.ofVideo(stats, id))) } : null,
+    };
+  }
+  ok(res, { total: detail.length, correct, wrong, list: results, by_point: [...byPoint.values()], mastery },
     kind === 'paper' ? `交卷成功：答对 ${correct} / ${detail.length}` : `本次共 ${detail.length} 题，答对 ${correct} 题`);
 });
 
@@ -1297,6 +1359,7 @@ stu.post('/check', (req, res) => {
   const out = items.map((a) => {
     const q = db.prepare('SELECT * FROM questions WHERE id=?').get(Number(a.question_id) || 0);
     if (!q) return { question_id: a.question_id, is_correct: false, answer: '', analysis: '', missing: true };
+    if (q.type === 'answer') return { question_id: q.id, is_correct: false, ungraded: true, answer: q.answer, analysis: q.analysis || '' };
     const isOk = judgeQ(q, a.my_answer);
     return { question_id: q.id, is_correct: isOk, answer: q.answer, analysis: q.analysis || '' };
   });

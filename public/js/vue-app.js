@@ -231,6 +231,16 @@ const App = {
   },
   methods: {
     courseSub,
+    /** 习题正确率标签（T6）：a = { total, answered, correct, rate }；没有绑题的视频 / 分组不显示 */
+    accText(a, short) {
+      if (!a || !a.total) return '';
+      if (a.rate === null || a.rate === undefined) return short ? '未做' : `习题未做 · 共 ${a.total} 题`;
+      return short ? `${a.rate}%` : `正确率 ${a.rate}% · ${a.correct}/${a.answered}`;
+    },
+    accCls(a) {
+      if (!a || a.rate === null || a.rate === undefined) return '';
+      return a.rate >= 80 ? 'good' : a.rate >= 60 ? 'mid' : 'low';
+    },
     syncRoute() {
       const r = parseHash();
       if (!Auth.token || r.key === 'login') { this.page = 'login'; return; }
@@ -383,7 +393,12 @@ const App = {
         title: (lesson.title || d.title || '配套练习') + ' · 做练习',
         subtitle: `${d.list.length} 道题 · 做一题核对一题`,
         questions: d.list,
-        submit: (answers, duration) => api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'practice', video_id: lesson.video_id, answers, duration } }),
+        // 交卷成功就刷新课程数据：视频 / 小分组的正确率马上变化（弹层关掉后看到的已是新数字）
+        submit: async (answers, duration) => {
+          const r = await api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'practice', video_id: lesson.video_id, answers, duration } });
+          this.loadCourse().catch(() => {});
+          return r;
+        },
       });
     },
     toggleTheme(e) {
@@ -790,19 +805,20 @@ const App = {
           </div>
         </div>
         <div class="st-sec">
-          <div class="sec-h"><b>知识点</b></div>
+          <div class="sec-h"><b>知识点</b><span v-if="course.acc && course.acc.total" class="t6-acc-sum">习题正确率 {{ course.acc.rate === null ? '未做' : course.acc.rate + '%' }}（已做 {{ course.acc.answered }} / {{ course.acc.total }} 题）</span></div>
           <div v-if="course.grouped && course.groups && course.groups.length" class="kp-layout">
             <aside class="kp-side">
               <a v-for="g in course.groups" :key="g.id" class="kp-side-item" :class="{ on: activeGroup && activeGroup.id===g.id }" @click.prevent="activeGroupId=g.id">
                 <span class="gs-name">{{ g.name }}</span>
                 <span class="gs-meta">{{ g.kp_done }}/{{ g.kp_total }}</span>
+                <span v-if="g.acc && g.acc.total" class="t6-acc" :class="accCls(g.acc)" :title="'小分组习题：已做 '+g.acc.answered+' / '+g.acc.total+' 题，最近一次答对 '+g.acc.correct+' 题'">{{ accText(g.acc, true) }}</span>
               </a>
             </aside>
             <div class="kp-list kp-main-list">
               <div v-for="(l, i) in activeGroupLessons" :key="l.video_id" class="kp-box" :class="{ done: l.done }">
                 <div class="kp-idx">{{ String(i+1).padStart(2,'0') }}</div>
                 <div class="kp-main">
-                  <div class="kp-tt"><b>{{ l.title }}</b><span class="kp-state">{{ l.done ? '✓ 已学完' : '未学习' }}</span></div>
+                  <div class="kp-tt"><b>{{ l.title }}</b><span class="kp-state">{{ l.done ? '✓ 已学完' : '未学习' }}</span><span v-if="l.acc && l.acc.total" class="t6-acc" :class="accCls(l.acc)" :title="'已做 '+l.acc.answered+' / '+l.acc.total+' 题，最近一次答对 '+l.acc.correct+' 题'">{{ accText(l.acc) }}</span></div>
                   <div v-if="l.handout" class="kp-doc"><i class="doc-dot"></i><span class="dl">讲义：</span><span class="dn">{{ l.handout.title }}</span><span class="ds">{{ fmtSize(l.handout.size) }}</span></div>
                   <div v-else class="kp-doc off"><i class="doc-dot"></i>暂无配套讲义</div>
                   <div class="kp-acts">
@@ -819,7 +835,7 @@ const App = {
             <div v-for="(l, i) in course.lessons" :key="l.video_id" class="kp-box" :class="{ done: l.done }">
               <div class="kp-idx">{{ String(i+1).padStart(2,'0') }}</div>
               <div class="kp-main">
-                <div class="kp-tt"><b>{{ l.title }}</b><span class="kp-state">{{ l.done ? '✓ 已学完' : '未学习' }}</span></div>
+                <div class="kp-tt"><b>{{ l.title }}</b><span class="kp-state">{{ l.done ? '✓ 已学完' : '未学习' }}</span><span v-if="l.acc && l.acc.total" class="t6-acc" :class="accCls(l.acc)" :title="'已做 '+l.acc.answered+' / '+l.acc.total+' 题，最近一次答对 '+l.acc.correct+' 题'">{{ accText(l.acc) }}</span></div>
                 <div v-if="l.handout" class="kp-doc"><i class="doc-dot"></i><span class="dl">讲义：</span><span class="dn">{{ l.handout.title }}</span><span class="ds">{{ fmtSize(l.handout.size) }}</span></div>
                 <div v-else class="kp-doc off"><i class="doc-dot"></i>暂无配套讲义</div>
                 <div class="kp-acts">

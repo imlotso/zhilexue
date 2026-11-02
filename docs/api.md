@@ -70,6 +70,12 @@
 | 学生错题 | `GET /mistakes` |
 | 扫码上传池 | `GET /uploads`；`POST /uploads/:id/review`；`POST /uploads/import-all`；`DELETE /uploads/:id` |
 
+课文习题正确率（T6）：
+- `GET /api/admin/bank/accuracy?user_id=`（后台，分校只能看自己校区的学生）：`{student, courses:[{id,name,groups:[{id,name,videos:[{id,title,acc}],acc}],acc}], acc}`；`acc = {total, answered, correct, rate}`，`rate` 为百分整数，没做过为 `null`。
+- 学生端 `GET /api/stu/course-detail`：每个 `lessons[]`、`groups[]` 和整门课都带 `acc`（同上结构）。
+- 学生端 `POST /api/stu/bank/submit` 的返回多了 `by_point:[{point,total,correct}]`（本次各知识点）和 `mastery:{video:{…,rate}, section:{…,rate}|null}`（仅 `kind=practice`：该视频和所属小分组**现在**的正确率）。
+- 问答题（`type=answer`）不能自动判分：`submit` / `check` 返回里 `ungraded:true` + 参考答案，不记 `records`、不进错题本、不计入 `total`/正确率。
+
 学生端 `/api/stu/bank`：`GET /lesson-questions`、`/tasks`、`/papers`、`/papers/:id`、`/mfpapers`、`/mfpapers/:id`、`/scan-tree`、`/mistakes`、`/mistake-count`、`/mistake-points`、`/review-queue`、`/uploads`；`POST /submit`、`/scan-compose`、`/check`、`/feedback`、`/ai-explain`、`/upload-token`
 
 扫码上传 `/api/up`：`GET /info`、`POST /submit`、`GET /mine`
