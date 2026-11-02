@@ -67,6 +67,7 @@ function parseBankWorkbook(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const items = [];
   const errors = [];
+  let examples = 0;   // 模板里的【例题】示例行（不当成真题）
   let seq = 0;
 
   const push = (q, where) => {
@@ -90,12 +91,26 @@ function parseBankWorkbook(buffer) {
     const sheet = name.replace(/\s+/g, '');
     const rows = withNormKeys(XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }));
     let carry = { material: '' };   // 复合题（完形/阅读/选择填空）：原文只在第一行，后续行沿用
+    // 选择填空题：同一题干下的所有小题共用一个词库（客户模板的示例就是这样：干扰项列留空，选项就是各小题的答案）
+    const selAnswers = {};
+    if (sheet === '选择填空题') {
+      let cm = '';
+      rows.forEach((r) => {
+        const m = pick(r, ['原文', '题干']); if (m) cm = m;
+        const a = pick(r, ['小题答案']).replace(/^[A-Ga-g][.、．)）]\s*/, '');
+        if (cm && a) (selAnswers[cm] = selAnswers[cm] || []).push(a);
+      });
+    }
     rows.forEach((r, idx) => {
       const line = `${name} 第 ${idx + 2} 行`;
       const tag = pick(r, ['标签', '知识点', '考点']);
       const analysis = pick(r, ['解析', '试题解析', '小题解析', '答案解析']);
       // 复合题原文：本行有新原文就更新，没有就沿用上一行的
       const matNow = pick(r, ['原文', '题干']);
+      // 模板自带的示例以「【例题】」开头：整组（含复合题后面没有原文的小题行）都跳过，下一个有原文/题目的行重新判断
+      const headCell = pick(r, ['原文', '题干', '题目']);
+      if (headCell) carry.example = /^\s*【例题】/.test(headCell);
+      if (carry.example) { if (headCell) examples++; return; }
       if (matNow) carry.material = matNow;
       const material = carry.material;
 
@@ -168,8 +183,10 @@ function parseBankWorkbook(buffer) {
         if (!material || !no || !sub) return;
         const ansText = pick(r, ['小题答案']).replace(/^[A-Ga-g][.、．)）]\s*/, '');
         const distractors = [1, 2, 3].map((i) => pick(r, ['干扰项' + i])).filter(Boolean);
-        const pool = [ansText].concat(distractors);
-        if (pool.length < 2) { errors.push(`${line}：选择填空小题至少需要 1 个干扰项`); return; }
+        let pool = [ansText].concat(distractors);
+        // 没填干扰项：用同一题干下所有小题的答案做共用选项（至少要有 2 个小题）；填了干扰项就用「本题答案 + 干扰项」
+        if (!distractors.length) pool = [...new Set((selAnswers[material] || []).concat([ansText]))];
+        if (pool.length < 2) { errors.push(`${line}：选择填空只有 1 个小题时，需要至少填 1 个干扰项`); return; }
         // 用行号做种子稳定打乱，保证同一行每次导入结果一致
         let seed = (no.charCodeAt(0) || 49) * 131 + idx * 7 + 3;
         for (let i = pool.length - 1; i > 0; i--) {
@@ -208,7 +225,7 @@ function parseBankWorkbook(buffer) {
     });
   }
 
-  return { items, errors };
+  return { items, errors, examples };
 }
 
 /** 生成智能题库导入模板（多 sheet，带例题） */
