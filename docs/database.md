@@ -7,7 +7,7 @@
 | 分组 | 表 | 用途 |
 |---|---|---|
 | 账号与组织 | `users`、`classes` | 校长/分校/学生账号；班级（年级） |
-| 课程内容 | `chapters`、`sections`、`handouts`、`videos`、`guides` | 课程目录、分级小节、讲义与习题（`kind`=handout/exercise，`video_id` 关联知识点）、视频、使用说明 |
+| 课程内容 | `chapters`、`sections`、`handouts`、`videos`、`guides`（表保留，接口与前端已不存在，不要再依赖） | 课程目录、分级小节、讲义与习题（`kind`=handout/exercise，`video_id` 关联知识点）、视频、使用说明 |
 | 学习记录 | `records`、`practices`、`mistakes`、`progress` | 学习/练习记录、错题、知识点学习进度 |
 | 旧版题库 | `questions` | 题目主表（新旧题库共用） |
 | 智能题库 | `papers`、`paper_tries`、`paper_assignments`、`bank_feedback`、`kb_units`、`kb_points`、`paper_uploads` | 组卷（`status`=draft/published）、作答记录、下发、题目反馈、教材知识点树（kb）、纸质错题上传池（`status`=pending/reviewed/approved/rejected） |

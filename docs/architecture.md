@@ -59,4 +59,4 @@ zhilexue/
 
 ## 测试与 CI
 
-根目录测试：`smoke.js`（后端端到端，需服务已启动）、`bank-test.js`、`word-test.js`、`wrong-test.js`、`storage-test.js`、`ui-test.js`（需 jsdom）、`report-test.js`、`guide-test.js`、`wrong-ui-test.js`。CI 见 `.github/workflows/ci.yml`。
+根目录测试：`smoke.js`（后端端到端，需服务已启动）、`bank-test.js`、`word-test.js`、`wrong-test.js`、`storage-test.js`、`ui-test.js`（需 jsdom）、`report-test.js`、`wrong-ui-test.js`。CI 见 `.github/workflows/ci.yml`。
