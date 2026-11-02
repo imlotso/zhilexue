@@ -1159,8 +1159,9 @@ admin.delete('/videos/batch', async (req, res) => {
 admin.delete('/videos/:id', async (req, res) => {
   if (!delPwdOk(req)) return fail(res, '删除密码错误');
   const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
-  if (v && v.file_path) await store.deleteFile(v.file_path);
+  if (v && v.file_path) { try { await store.deleteFile(v.file_path); } catch (e) { /* 文件可能已不存在，不影响删除记录 */ } }
   db.prepare('DELETE FROM videos WHERE id=?').run(Number(req.params.id));
+  // 题库与视频只靠绑定关系关联（T12）：删视频只解绑，题目（含图片 / 音频）原样保留，可重新绑定其他视频
   if (v) db.prepare('UPDATE questions SET video_id=NULL WHERE video_id=?').run(v.id);
   ok(res, null, '已删除');
 });

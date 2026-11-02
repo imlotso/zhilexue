@@ -108,6 +108,23 @@ function folderOf(key) {
 const LOCAL_FOLDERS = String(process.env.LOCAL_FOLDERS === undefined ? 'wrong,guidedocs' : process.env.LOCAL_FOLDERS)
   .split(',').map((s) => s.trim()).filter(Boolean);
 
+// ---------------- 题库资源的独立存储口子（T12） ----------------
+// 题目的图片 / 音频 / 导入附件统一放在 bank/ 目录（bankFolder()，见 mfbank.js），视频放 videos/，两类资源只靠 key 前缀区分。
+// BANK_BUCKET：可选，将来想把题库资源迁到另一个 Bucket 时填它的名字；缺省为空 = 与视频同一个 Bucket（现状）。
+// 本次只留口子、不做多 Bucket 切换：bucketFor(key) 告诉调用方"这个 key 该去哪个桶"（空串 = 默认桶），
+// 真要拆桶时只需要在 saveFile / getUrlSync / deleteFile 里按它选 client（见 README「题库资源独立存储」）。
+const BANK_BUCKET = String(process.env.BANK_BUCKET || '').trim();
+const BANK_PREFIX = String(process.env.BANK_FOLDER || 'bank').trim().replace(/^\/+|\/+$/g, '') || 'bank';
+/** key 是否属于题库资源（bank/ 目录；目录名可由 settings.bank_folder 改，改了之后调用方传入 prefix） */
+function isBankKey(key, prefix) {
+  const p = String(prefix || BANK_PREFIX);
+  return typeof key === 'string' && key.startsWith(p + '/') && !key.includes('..');
+}
+/** 该 key 应该放进哪个 Bucket：题库资源且配了 BANK_BUCKET → 它；否则空串（默认桶） */
+function bucketFor(key, prefix) {
+  return BANK_BUCKET && isBankKey(key, prefix) ? BANK_BUCKET : '';
+}
+
 /** 该 key 是否存到七牛（未启用七牛恒为 false；启用后按 QINIU_FOLDERS 分流） */
 function qiniuCovers(key) {
   if (!qiniuCtx) return false;
@@ -400,4 +417,5 @@ module.exports = {
   isOss, isQiniu, isCloudKey, usingCdn, driverName, getQiniuDomain,
   isVideoKey, initVideoUpload, signVideoPart, completeVideoUpload, abortVideoUpload, videoExists,
   DRIVER, CDN_DOMAIN, QINIU_FOLDERS, LOCAL_FOLDERS,
+  BANK_BUCKET, isBankKey, bucketFor,
 };
