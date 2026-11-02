@@ -664,6 +664,26 @@ body[data-theme] .tool-frame{background:transparent;box-shadow:none}
   .player-wrap iframe{height:62vh}
 }
 
+/* ---- T1 手机播放修复：只新增 t1- 前缀类，不改旧选择器 ---- */
+.t1-pw{position:relative}
+.t1-vp-layer{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px;text-align:center}
+.t1-vp-layer[hidden]{display:none}
+.t1-vp-tap{pointer-events:none}
+.t1-vp-tap .t1-vp-btn{pointer-events:auto}
+.t1-vp-err{background:rgba(0,0,0,.84);color:#fff}
+.t1-vp-msg{font-size:14px;line-height:1.65;max-width:94%}
+.t1-vp-acts{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.t1-vp-btn{border:0;border-radius:8px;padding:9px 16px;font-size:14px;font-weight:600;line-height:1.2;background:#2f6bff;color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
+.t1-vp-open{background:rgba(255,255,255,.18)}
+/* 手机竖屏：播放区固定 16:9（出错/加载前不再塌成 150px）；视频铺满容器、按比例留黑边，竖屏视频不会被裁掉 */
+@media (max-width:640px){
+  .player-wrap.t1-pw{aspect-ratio:16/9}
+  .t1-pw video,.t1-pw iframe{position:absolute;inset:0;width:100%;height:100%;max-height:none;object-fit:contain}
+  /* 竖屏视频：恢复按视频比例显示（见 vue-app.js 的 t1-portrait） */
+  .player-wrap.t1-pw.t1-portrait{aspect-ratio:auto}
+  .t1-pw.t1-portrait video{position:static;height:auto;max-height:52vh}
+}
+
 /* ================= 错题重组（扫描试卷 → 切题 → 双栏错题集 PDF） ================= */
 .w-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
 .w-item{position:relative;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;transition:.15s}

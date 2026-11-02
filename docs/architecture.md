@@ -25,10 +25,11 @@ zhilexue/
 ├── src/        后端（见下表）
 ├── public/     静态前端
 │   ├── index.html + js/vue-app.js   学生端入口（Vue 3）
-│   ├── admin/      后台（Vue 2 + element-ui，多个独立脚本依次加载）
+│   ├── admin/      后台（Vue 2 + element-ui，多个独立脚本依次加载；`vcodec.js` 是视频上传前的编码检测，先于 admin.js 加载）
 │   ├── upload.html 手机扫码上传页；scan-report.html 扫码上传学情试卷
 │   ├── apps/       care / grades / keyboard-school / timer，独立小应用，由主站以 iframe 引用
 │   └── css/ js/ vendor/ img/ fonts/ audio/
+├── scripts/    运维小脚本（`check-video.sh`：检查视频是否 H.264 + AAC、MP4 是否 faststart）
 ├── data/       仅种子与模板（knowledge-seed.json、题库导入模板.xlsx、mofang-question-transcribe.zip）
 ├── docs/       文档，用途见 AGENTS.md
 ├── .github/workflows/ci.yml

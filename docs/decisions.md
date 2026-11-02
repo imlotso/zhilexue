@@ -63,3 +63,10 @@
 - 决定：`src/ai.js` 的 `getConfig().mock` 读取 `process.env.AI_MOCK === '1'`，默认 false；CI 的服务进程设 `AI_MOCK=1`。
 - 理由：`ai.js` 把 mock 写死 false 后，`word-test` 的"演示模式"用例实际调真实 AI（内置 Key），CI 连不上、本地产生费用。用环境变量而不是恢复后台设置项，是为了不与"AI 配置只读 builtin-config.js"的现状冲突，T2 统一 AI 配置时可再调整。
 - 影响：线上不设该变量，行为不变。
+
+## D13 手机播放：用 videoWidth 识别"只有声音没有画面"（2026-11-02）
+
+- 决定：`vue-app.js` 的播放弹窗除 `error` / `stalled` / `abort` 监听外，在 `loadeddata` 与 `timeupdate` 时检查 `videoWidth === 0`，命中则暂停并提示画面编码不被支持（附"重新加载""用浏览器打开"）。
+- 理由：实测（Chromium + H.265 样本）浏览器解不了画面时**不触发 error 事件**：`readyState=4`、`error=null`、声音正常、画面全黑、`videoWidth=0`。只加 `error` 监听抓不到客户描述的"黑屏转圈"。
+- 取舍：手机档（`max-width:640px`，沿用现有断点，任务书写的 600px 为约数）横屏视频固定 16:9，防止出错/加载前塌成 150px；竖屏视频（高>宽）加 `t1-portrait` 恢复按视频比例显示，否则会缩成 119×211。纯音频文件也会触发该提示，可接受。
+- 没有做：服务器端转码；扩大前端检测到 VP9/AV1（任务书只要求把 H.265 检测抽出来复用）。
