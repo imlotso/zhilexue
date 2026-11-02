@@ -43,7 +43,7 @@ async function main() {
   const stuList = stuLogin && stuLogin.code === 0 ? null : await req('/api/admin/students', { token: AT });
   // 找一个已存在的学生（seed 数据），或临时建一个
   let stuName = '';
-  const existing = ((stuList && stuList.data) || []).find((s) => s.username);
+  const existing = (((stuList && stuList.data) || {}).list || []).find((s) => s.username);
   if (existing) stuName = existing.username;
   if (!stuName) {
     const c = await req('/api/admin/students', { method: 'POST', token: AT, body: { name: '说明测试学生' + uniq, username: 'G' + uniq, password: '123456', grade: '七年级' } });

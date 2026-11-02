@@ -112,7 +112,7 @@ const fileForm = (fields, fileName, content) => {
   const stuId = stu.data && stu.data.id;
 
   const stuList = await req('/api/admin/students?kw=T' + uniq, { token: AT });
-  const stuRow = (stuList.data || [])[0];
+  const stuRow = ((stuList.data || {}).list || [])[0];
   log(!!stuRow && stuRow.allow_speed === 1, '新建学生默认允许倍速', stuRow ? 'allow_speed=' + stuRow.allow_speed : '');
   log(!!stuRow && stuRow.allow_seek === 1 && String(stuRow.expire_at || '').slice(0, 10) === '2027-12-31',
     '快进已全站放开（不再按学生限制）且到期时间已保存', stuRow ? `allow_seek=${stuRow.allow_seek} expire=${stuRow.expire_at}` : '');
@@ -129,7 +129,7 @@ const fileForm = (fields, fileName, content) => {
   log(editNoExp.code !== 0, '编辑学生缺到期时间被拒绝', editNoExp.msg);
   const editOk = await req(`/api/admin/students/${stuId}`, { method: 'PUT', token: AT, body: { name: '自测学生' + uniq, username: 'T' + uniq, grade: '七年级', allow_speed: 0, expire_at: '2028-01-01' } });
   log(editOk.code === 0, '编辑学生保存成功', editOk.msg);
-  const editRow = ((await req('/api/admin/students?kw=T' + uniq, { token: AT })).data || [])[0];
+  const editRow = (((await req('/api/admin/students?kw=T' + uniq, { token: AT })).data || {}).list || [])[0];
   log(!!editRow && editRow.allow_speed === 0 && String(editRow.expire_at || '').slice(0, 10) === '2028-01-01',
     '倍速与到期时间编辑生效（年级保持七年级以匹配课程）', editRow ? `speed=${editRow.allow_speed} expire=${editRow.expire_at}` : '');
 
@@ -403,7 +403,7 @@ const fileForm = (fields, fileName, content) => {
   const sAny = await req('/api/admin/students', { method: 'POST', token: AT, body: { name: '不限生' + uniq, username: 'ANY' + uniq, password: '123456', grade: '七年级', expire_at: '2027-12-31' } });
   log(sUp.code === 0 && sAny.code === 0, '开通学生可指定册别（也可留空 = 上下册都看）');
   const sUpId = sUp.data && sUp.data.id, sAnyId = sAny.data && sAny.data.id;
-  const sUpRow = ((await req('/api/admin/students?kw=UP' + uniq, { token: AT })).data || [])[0];
+  const sUpRow = (((await req('/api/admin/students?kw=UP' + uniq, { token: AT })).data || {}).list || [])[0];
   log(!!sUpRow && sUpRow.term === '上册', '学生册别已保存', sUpRow ? 'term=' + sUpRow.term : '');
 
   const loginOf = async (u) => (await req('/api/login', { method: 'POST', body: { username: u, password: '123456', role: 'student' } })).data.token;

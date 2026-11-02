@@ -379,7 +379,7 @@ const fdNew = () => new FormData();
   // 清理临时学生
   if (tempStuUser) {
     const tl = await req('/api/admin/students?kw=' + tempStuUser, { token: AT });
-    const tr = (tl.data || [])[0];
+    const tr = ((tl.data || {}).list || [])[0];
     if (tr) await req('/api/admin/students/' + tr.id, { method: 'DELETE', token: AT });
   }
 })().then(() => done());
