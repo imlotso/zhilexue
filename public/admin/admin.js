@@ -18,6 +18,7 @@ const NAV = [
   { k: 'paper', t: '智能组卷', i: 'doc' },
   { k: 'lessonq', t: '课文习题', i: 'list' },
   { k: 'mfq', t: '题库管理', i: 'doc' },
+  { k: 'ktree', t: '知识树管理', i: 'list' },
   { k: 'mfc', t: '网络采集', i: 'link' },
   { k: 'mfp', t: '试卷管理', i: 'folder' },
   { k: 'mfi', t: '录题上传', i: 'upload' },
@@ -34,14 +35,14 @@ const NAV_GROUPS = [
   { k: 'g-org', t: '组织管理', i: 'building', items: ['branches', 'students', 'xreport'] },
   { k: 'g-study', t: '学情管理', i: 'chart', items: ['grades', 'talks', 'care'] },
   { k: 'g-res', t: '教学资源', i: 'folder', items: ['chapters', 'videos', 'handouts'] },
-  { k: 'g-bank', t: '智能题库', i: 'doc', items: ['mfq', 'mfp', 'paper', 'lessonq', 'bkup'] },
+  { k: 'g-bank', t: '智能题库', i: 'doc', items: ['mfq', 'ktree', 'mfp', 'paper', 'lessonq', 'bkup'] },
   { k: 'g-train', t: '训练管理', i: 'book', items: ['words', 'letters', 'phonics'] },
   { k: 'g-ai', t: 'AI 教学', i: 'robot', items: ['aireport'] },
   { k: 'g-sys', t: '系统', i: 'setting', items: ['mfset', 'oplog'] },
 ];
 const navItem = (k) => NAV.find((n) => n.k === k);
 const navOf = () => NAV.filter((n) => !n.principalOnly || (Auth.user && Auth.user.role === 'admin'));
-const TITLE = { mfq: '题库管理', mfset: '设置', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '首页', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
+const TITLE = { mfq: '题库管理', ktree: '知识树管理', mfset: '设置', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '首页', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
 function sideFoldGet() { try { return localStorage.getItem('xuexi_admin_side') === '1'; } catch (e) { return false; } }
 function sideFoldSet(v) { try { localStorage.setItem('xuexi_admin_side', v ? '1' : '0'); } catch (e) { /* 忽略 */ } }
 function openGroupsGet() {
@@ -1993,7 +1994,7 @@ const VIEWS = {
   dash: viewDash, branches: viewBranches, students: viewStudents, chapters: viewChapters,
   handouts: viewHandouts, videos: viewVideos,
   bank: () => viewBank(), paper: () => viewPaper(), lessonq: () => viewLessonQ(), mistakelog: () => viewMistakeLog(), bkup: () => viewUploads(),
-  mfq: () => viewMfBank(), mfc: () => viewMfCapture(), mfp: () => viewMfPapers(), mfi: () => viewMfIntake(), mfset: () => viewMfSet(),
+  mfq: () => viewMfBank(), ktree: () => viewKTree(), mfc: () => viewMfCapture(), mfp: () => viewMfPapers(), mfi: () => viewMfIntake(), mfset: () => viewMfSet(),
   bkfb: () => viewBankFeedback(),
   words: () => viewWords(),
   letters: () => viewPhonicsLetters(), phonics: () => viewPhonicsPhonetic(),

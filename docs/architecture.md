@@ -25,11 +25,11 @@ zhilexue/
 ├── src/        后端（见下表）
 ├── public/     静态前端
 │   ├── index.html + js/vue-app.js   学生端入口（Vue 3）
-│   ├── admin/      后台（Vue 2 + element-ui，多个独立脚本依次加载；`vcodec.js` 是视频上传前的编码检测，先于 admin.js 加载）
+│   ├── admin/      后台（Vue 2 + element-ui，多个独立脚本依次加载；`vcodec.js` 是视频上传前的编码检测，先于 admin.js 加载；`ktreeui.js` 是「知识树管理」页）
 │   ├── upload.html 手机扫码上传页；scan-report.html 扫码上传学情试卷
 │   ├── apps/       care / grades / keyboard-school / timer，独立小应用，由主站以 iframe 引用
 │   └── css/ js/ vendor/ img/ fonts/ audio/
-├── scripts/    运维小脚本（`check-video.sh`：检查视频是否 H.264 + AAC、MP4 是否 faststart）
+├── scripts/    运维小脚本（`check-video.sh`：检查视频是否 H.264 + AAC、MP4 是否 faststart；`migrate-kb-to-trees.js`：旧知识点树复制进新树）
 ├── data/       仅种子与模板（knowledge-seed.json、题库导入模板.xlsx、mofang-question-transcribe.zip）
 ├── docs/       文档，用途见 AGENTS.md
 ├── .github/workflows/ci.yml
@@ -41,6 +41,7 @@ zhilexue/
 | 文件 | 作用 |
 |---|---|
 | `app.js` | 主服务：登录、文件代理、管理端基础接口（分校/学生/目录/视频/讲义）、学生端基础接口、路由挂载 |
+| `kbtree.js` | 知识树统一（T4）：旧 `kb_*` 复制进 `bank_trees` 知识点树、旧 `/kbtree*` 接口的读写、知识点名清单（供 AI 补全/下拉用）；被 `bank.js`、`mfbank.js` 调用 |
 | `db.js` / `mysql-sync.js` / `mysql-worker.js` / `import-sqlite.js` | 建表、数据库连接与 SQLite→MySQL 转换 |
 | `auth.js` / `delpwd.js` | JWT 鉴权；删除确认密码 |
 | `storage.js` | 文件存储抽象（本地 / OSS / 七牛） |

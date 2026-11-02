@@ -19,6 +19,7 @@ const jwt = require('jsonwebtoken');
 const { db, DATA_DIR } = require('./db');
 const { parseBankWorkbook, makeBankTemplate } = require('./bank-excel');
 const { judgeQ } = require('./bank-judge');
+const kbtree = require('./kbtree');   // T4：知识树统一，旧 kb_* 并入 bank_trees
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -237,7 +238,8 @@ admin.get('/questions/template', (req, res) => {
   res.download(tmp, '智能题库导入模板.xlsx');
 });
 
-// 知识点下拉（题库里出现过的标签）
+// 知识点下拉：题库里出现过的知识点文本 ∪ 知识点树（bank_trees）里的叶子节点名。返回值结构不变（字符串数组）。
+// 题库里已有的自由文本不能丢（旧题的 point 字段是文本），所以是并集而不是只读树。
 admin.get('/points', (req, res) => {
   const { subject = '' } = req.query;
   const rows = subject
@@ -245,6 +247,8 @@ admin.get('/points', (req, res) => {
     : db.prepare("SELECT DISTINCT point FROM questions WHERE IFNULL(point,'')<>'' ORDER BY point").all();
   const set = new Set();
   rows.forEach((r) => String(r.point).split(/&&|,|，/).forEach((p) => { const t = p.trim(); if (t) set.add(t); }));
+  const subjects = subject ? [subject] : SUBJECTS;
+  subjects.forEach((sub) => kbtree.pointNames(db, { subject: sub }).forEach((n) => set.add(n)));
   ok(res, [...set]);
 });
 
@@ -256,59 +260,53 @@ const KB_EDITIONS = {
   '化学': { primary: '', junior: '沪教版' },
 };
 
-/** 读一棵树：units + points 组装 */
+/** 旧接口返回结构：[{id, name, points:[{id,name}]}]。T4 起数据来自 bank_trees（id 为树节点 id），points 为该学科+学段知识点树的全部叶子名 */
 function kbTree(subject, stage, grade) {
-  const units = db.prepare('SELECT * FROM kb_units WHERE subject=? AND stage=? AND grade=? ORDER BY sort, id')
-    .all(subject, stage, grade);
-  const ids = units.map((u) => u.id);
-  const pts = ids.length
-    ? db.prepare(`SELECT * FROM kb_points WHERE unit_id IN (${ids.map(() => '?').join(',')}) ORDER BY sort, id`).all(...ids)
-    : [];
-  const byUnit = {};
-  pts.forEach((p) => { (byUnit[p.unit_id] = byUnit[p.unit_id] || []).push(p); });
-  return units.map((u) => ({ id: u.id, name: u.name, points: (byUnit[u.id] || []).map((p) => ({ id: p.id, name: p.name })) }));
+  return kbtree.readUnits(db, subject, stage, grade);
 }
 
-// 看树
+// 看树：list = 该年级的 单元 → 知识点；points = 知识点树里全部知识点名（录题 AI 补全等用）
 admin.get('/kbtree', (req, res) => {
   const { subject = '数学', stage = 'primary', grade = '' } = req.query;
   if (!SUBJECTS.includes(subject)) return fail(res, '学科不正确');
-  ok(res, { edition: (KB_EDITIONS[subject] || {})[stage] || '', list: kbTree(subject, stage, grade) });
+  ok(res, {
+    edition: (KB_EDITIONS[subject] || {})[stage] || '',
+    list: kbTree(subject, stage, grade),
+    points: kbtree.pointNames(db, { subject, stage, grade }),
+  });
 });
 
-// 手动加单元
+// 手动加单元（写入知识点树的"教材单元知识点"分支）
 admin.post('/kbtree/unit', (req, res) => {
   const b = req.body || {};
   if (!SUBJECTS.includes(b.subject) || !String(b.name || '').trim()) return fail(res, '参数不完整');
-  const info = db.prepare('INSERT INTO kb_units (subject,stage,grade,edition,name,sort,created_at) VALUES (?,?,?,?,?,?,?)')
-    .run(b.subject, b.stage || '', b.grade || '', (KB_EDITIONS[b.subject] || {})[b.stage] || '', String(b.name).trim(), Number(b.sort) || 0, now());
-  ok(res, { id: info.lastInsertRowid });
+  const id = kbtree.addUnit(db, b.subject, b.stage || '', b.grade || '', String(b.name).trim(), Number(b.sort) || 0);
+  ok(res, { id });
 });
 
-// 删单元（连带知识点）
+// 删单元（连带知识点；id 为知识点树的节点 id）
 admin.delete('/kbtree/unit/:id', (req, res) => {
-  db.prepare('DELETE FROM kb_points WHERE unit_id=?').run(Number(req.params.id));
-  db.prepare('DELETE FROM kb_units WHERE id=?').run(Number(req.params.id));
+  kbtree.deleteNode(db, Number(req.params.id));
   ok(res);
 });
 
-// 手动加知识点
+// 手动加知识点（unit_id 为单元节点 id）
 admin.post('/kbtree/point', (req, res) => {
   const b = req.body || {};
   const uid = Number(b.unit_id);
   if (!uid || !String(b.name || '').trim()) return fail(res, '参数不完整');
-  const info = db.prepare('INSERT INTO kb_points (unit_id,name,sort,created_at) VALUES (?,?,?,?)')
-    .run(uid, String(b.name).trim(), Number(b.sort) || 0, now());
-  ok(res, { id: info.lastInsertRowid });
+  const id = kbtree.addPoint(db, uid, String(b.name).trim(), Number(b.sort) || 0);
+  if (!id) return fail(res, '单元不存在');
+  ok(res, { id });
 });
 
 // 删知识点
 admin.delete('/kbtree/point/:id', (req, res) => {
-  db.prepare('DELETE FROM kb_points WHERE id=?').run(Number(req.params.id));
+  kbtree.deleteNode(db, Number(req.params.id));
   ok(res);
 });
 
-// AI 生成整棵树（覆盖该 学科+学段+年级 下原有内容）
+// AI 生成：按 学科+学段+年级 拆解教材单元与知识点，合并进知识点树（只新增、不删除已有节点——树上挂着题目关联，覆盖会丢）
 admin.post('/kbtree/generate', async (req, res) => {
   const b = req.body || {};
   const subject = String(b.subject || ''), stage = String(b.stage || ''), grade = String(b.grade || '');
@@ -331,18 +329,8 @@ admin.post('/kbtree/generate', async (req, res) => {
     const j = JSON.parse(body.slice(a, bb + 1));
     const units = (Array.isArray(j.units) ? j.units : []).filter((u) => u && String(u.name || '').trim());
     if (!units.length) throw new Error('模型返回的单元为空，请重试');
-    db.prepare('DELETE FROM kb_points WHERE unit_id IN (SELECT id FROM kb_units WHERE subject=? AND stage=? AND grade=?)').run(subject, stage, grade);
-    db.prepare('DELETE FROM kb_units WHERE subject=? AND stage=? AND grade=?').run(subject, stage, grade);
-    units.forEach((u, i) => {
-      const info = db.prepare('INSERT INTO kb_units (subject,stage,grade,edition,name,sort,created_at) VALUES (?,?,?,?,?,?,?)')
-        .run(subject, stage, grade, edition, String(u.name).trim().slice(0, 120), i, now());
-      const up = Array.isArray(u.points) ? u.points : [];
-      up.forEach((p, k) => {
-        const t = String(p || '').trim();
-        if (t) db.prepare('INSERT INTO kb_points (unit_id,name,sort,created_at) VALUES (?,?,?,?)').run(info.lastInsertRowid, t.slice(0, 120), k, now());
-      });
-    });
-    ok(res, { edition, list: kbTree(subject, stage, grade), model: 'AI 已重建' }, '已按 AI 拆解重建知识点树');
+    const r = kbtree.mergeGenerated(db, subject, stage, grade, units.map((u) => ({ name: String(u.name).trim().slice(0, 120), points: (Array.isArray(u.points) ? u.points : []).map((p) => String(p || '').trim().slice(0, 120)).filter(Boolean) })));
+    ok(res, { edition, list: kbTree(subject, stage, grade), model: 'AI 已合并', created: r.created }, r.created ? `已合并 AI 拆解结果：新增 ${r.created} 个节点（已有的保留）` : 'AI 拆解的内容树里都已存在，没有新增');
   } catch (e) {
     fail(res, 'AI 拆解失败：' + (e.message || e));
   }
@@ -357,7 +345,7 @@ admin.post('/ai-attri', async (req, res) => {
   if (!SUBJECTS.includes(subject)) return fail(res, '学科不正确');
   const opts = Array.isArray(b.options) ? b.options.filter(Boolean).join('；') : '';
   // 给模型该学科的树做参照（选最贴近的学段由模型判断，取全部年级的单元名拼接）
-  const units = db.prepare('SELECT stage,grade,name FROM kb_units WHERE subject=? ORDER BY stage,sort,id').all(subject);
+  const units = kbtree.unitLines(db, subject);
   const treeText = units.map((u) => `${u.stage === 'primary' ? '小学' : '初中'}·${u.grade || ''}·${u.name}`).join('\n');
   const sys = '你是资深的 K12 题库标注员，负责把题目归入教材知识体系。只输出 JSON 本身，不要 markdown 代码块、不要任何解释。';
   const user = `请判断下面这道「${subject}」题的归属。可以的话从知识体系清单里选最贴近的单元；清单里没有就按课标写最合理的。

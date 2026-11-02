@@ -3740,3 +3740,21 @@ table .tag.blue{background:var(--brand-l);color:var(--brand)}
 /* 底部按钮：居中主按钮 */
 .quiz-step .quiz-f { justify-content: center; gap: 12px; padding: 12px 18px; }
 .quiz-step .quiz-f .btn.primary { min-width: 160px; border-radius: 999px; }
+
+/* ---- T4 知识树管理页：只新增 t4- 前缀类 ---- */
+.t4-tip{margin:0 0 12px;font-size:13px;line-height:1.6;color:var(--text2,#5a6a85)}
+.t4-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:14px 0 8px}
+.t4-bar .sp{flex:1}
+.t4-title{font-size:15px}
+.t4-tree{border:1px solid var(--line,#e3e8f2);border-radius:12px;padding:6px 4px;background:#fff;max-height:calc(100vh - 330px);min-height:160px;overflow:auto}
+.t4-row{display:flex;align-items:center;gap:8px;min-height:36px;border-radius:8px;padding-right:8px}
+.t4-row:hover{background:#f4f7fd}
+.t4-tog{width:18px;flex:none;text-align:center;cursor:pointer;color:#5a6a85;user-select:none}
+.t4-tog.leaf{cursor:default;color:#c3cbdb}
+.t4-name{cursor:pointer;word-break:break-all}
+.t4-cnt{flex:none;font-size:12px;color:#2f6bff;background:#eaf0ff;border-radius:10px;padding:1px 8px}
+.t4-sub{flex:none;font-size:12px;color:#97a3b8}
+.t4-acts{margin-left:auto;display:flex;gap:4px;flex:none;opacity:.6;transition:opacity .15s}
+.t4-row:hover .t4-acts,.t4-row:focus-within .t4-acts{opacity:1}
+@media (hover:none){.t4-acts{opacity:1}}
+@media (max-width:640px){.t4-row{flex-wrap:wrap;padding-bottom:4px}.t4-acts{margin-left:26px;flex-wrap:wrap}}
