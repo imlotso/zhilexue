@@ -1051,6 +1051,10 @@ admin.get('/papers', (req, res) => {
   else { where.push("status<>'trashed'"); }
   if (q.folder) { where.push(q.folder === 'none' ? 'IFNULL(folder_id,0)=0' : 'folder_id=?'); if (q.folder !== 'none') args.push(int(q.folder)); }
   if (q.kw) { where.push('title LIKE ?'); args.push(`%${String(q.kw)}%`); }
+  if (q.subject) { where.push('subject=?'); args.push(String(q.subject)); }
+  if (q.grade) { where.push('grade=?'); args.push(String(q.grade)); }
+  if (q.year) { where.push("IFNULL(year,'')=?"); args.push(String(q.year)); }
+  if (q.published === '1' || q.published === '0') { where.push('IFNULL(published,0)=?'); args.push(int(q.published)); }
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const rows = db.prepare(`SELECT p.*, (SELECT COUNT(*) FROM mf_paper_questions r WHERE r.paper_id=p.id AND r.kind='question') AS qcount
     FROM mf_papers p ${w} ORDER BY p.id DESC LIMIT 300`).all(...args);
@@ -1060,8 +1064,9 @@ admin.get('/papers', (req, res) => {
 admin.post('/papers', (req, res) => {
   const b = req.body || {};
   const title = String(b.title || '').trim() || `未命名试卷 ${new Date().toLocaleDateString('zh-CN')}`;
-  const info = db.prepare('INSERT INTO mf_papers (title, subject, stage, grade, status, paper_type, layout_json, folder_id, trashed_from, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .run(title, String(b.subject || '').trim(), String(b.stage || '').trim(), String(b.grade || '').trim(),
+  const year = /^\d{4}$/.test(String(b.year || '').trim()) ? String(b.year).trim() : '';
+  const info = db.prepare('INSERT INTO mf_papers (title, subject, stage, grade, year, status, paper_type, layout_json, folder_id, trashed_from, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+    .run(title, String(b.subject || '').trim(), String(b.stage || '').trim(), String(b.grade || '').trim(), year,
       b.status === 'composing' ? 'composing' : 'basket', b.paper_type === 'custom-mistake' ? 'custom-mistake' : 'uniform',
       jstr(b.layout || defaultLayout()), b.folder_id ? int(b.folder_id) : null, '', now());
   return ok(res, { id: info.lastInsertRowid }, '已创建');
@@ -1105,6 +1110,7 @@ admin.put('/papers/:id', (req, res) => {
   if (b.subject !== undefined) db.prepare('UPDATE mf_papers SET subject=? WHERE id=?').run(String(b.subject).trim(), id);
   if (b.stage !== undefined) db.prepare('UPDATE mf_papers SET stage=? WHERE id=?').run(String(b.stage).trim(), id);
   if (b.grade !== undefined) db.prepare('UPDATE mf_papers SET grade=? WHERE id=?').run(String(b.grade).trim(), id);
+  if (b.year !== undefined) db.prepare('UPDATE mf_papers SET year=? WHERE id=?').run(/^\d{4}$/.test(String(b.year).trim()) ? String(b.year).trim() : '', id);
   if (b.folder_id !== undefined) db.prepare('UPDATE mf_papers SET folder_id=? WHERE id=?').run(b.folder_id ? int(b.folder_id) : null, id);
   if (b.layout !== undefined) db.prepare('UPDATE mf_papers SET layout_json=? WHERE id=?').run(jstr(b.layout), id);
   if (b.published !== undefined) db.prepare('UPDATE mf_papers SET published=? WHERE id=?').run(b.published ? 1 : 0, id);
@@ -1993,4 +1999,4 @@ try { require('./mfseed').ensureSeed(db); } catch (e) { console.error('[mfbank] 
 // ==================================================================== 待审核题目（T3）：各入口入库前的题目统一列表（src/mfpending.js）
 pendingApi = require('./mfpending')({ admin, db, ok, fail, now, int, parseArr, parseObj, jstr, TYPE_MAP, TYPES, commitRunCards, commitCaptureItems, store, bankFolder });
 
-module.exports = { admin, cap };
+module.exports = { admin, cap, defaultLayout };

@@ -330,6 +330,13 @@ const fileForm = (fields, fileName, content) => {
     log(dxAdmin.status === 200, '后台导出某个学生的错题 Word 接口可用');
     const dxStu = await req(`/api/admin/bank/mistakes/export-docx?user_id=${stuId}`, { token: ST });
     log(dxStu._status === 403 || dxStu.code !== 0, '学生 token 不能调后台错题导出接口');
+    // T10：试卷库搜索 + 年份
+    const mfSearch = await req('/api/stu/bank/mfpapers?q=' + encodeURIComponent('不存在的关键字zzz') + '&year=2024&grade=' + encodeURIComponent('九年级'), { token: ST });
+    log(mfSearch.code === 0 && Array.isArray(mfSearch.data) && mfSearch.data.length === 0, '学生端试卷库搜索接口可用（q / year / grade 参数）');
+    const mfFilters = await req('/api/stu/bank/mfpapers/filters', { token: ST });
+    log(mfFilters.code === 0 && Array.isArray(mfFilters.data.years) && Array.isArray(mfFilters.data.grades) && Array.isArray(mfFilters.data.subjects), '学生端试卷库搜索下拉选项接口可用');
+    const impNoFile = await req('/api/admin/bank/mf/papers/import-word', { method: 'POST', token: AT });
+    log(impNoFile.code !== 0 && /请选择/.test(impNoFile.msg || ''), '后台上传真题试卷接口：没选文件给出提示', impNoFile.msg);
     const l0 = (d.lessons || [])[0] || {};
     log(!!l0.handout && l0.handout.id === handoutId, '一个视频对应一个讲义（同一个框）', l0.handout ? l0.handout.title : '未配对');
     log(!!l0.handout && l0.handout.file_name === cnName, '知识点里带回讲义文件名', l0.handout ? l0.handout.file_name : '');

@@ -63,6 +63,8 @@ jobs:
         if: ${{ !cancelled() }}   # AI 配置中心（T2）：三种格式的模拟服务，不调真实 AI
       - run: node mistake-test.js
         if: ${{ !cancelled() }}   # 错题本 Word 导出 + 手机扫码错题 AI 识别（T9）
+      - run: node paper-test.js
+        if: ${{ !cancelled() }}   # 试卷管理（T10）：上传真题试卷 → 题库 → 学生搜索并做完
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4

@@ -849,6 +849,8 @@ try { db.exec('ALTER TABLE mf_capture_batches ADD COLUMN paper_mode INTEGER DEFA
 
 // 试卷库发布标记：mf 试卷管理里的卷子勾了 published 才进学生端「试卷库」
 try { db.exec('ALTER TABLE mf_papers ADD COLUMN published INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ }
+// T10：真题试卷的年份（学生端试卷库按名称 / 学科 / 年级 / 年份搜索）
+try { db.exec("ALTER TABLE mf_papers ADD COLUMN year VARCHAR(8) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 
 // 老库是空的时，把原来的 SQLite 文件导入 MySQL（只导入一次）
 importIfEmpty(db, DATA_DIR);

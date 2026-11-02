@@ -38,3 +38,7 @@
 ## T2 AI 配置中心：`mf_model_profiles` 加一列
 
 `mf_model_profiles.format VARCHAR(16) DEFAULT 'openai'`（`openai` / `anthropic` / `gemini`），在 `mfcollect.js` 的 `ensureSchema` 里幂等 `ALTER TABLE … ADD COLUMN`（已存在则忽略），旧档案自动按 OpenAI 兼容处理，不受影响。密钥 `api_key` 仍明文存储（与现状一致）。`settings` 表里的 `aiBaseUrl / aiModel / aiApiKey / aiMock` 不再被读取，没有删除。
+
+## T10 试卷管理：`mf_papers` 加一列
+
+`mf_papers.year VARCHAR(8) DEFAULT ''`（4 位年份，如 `2024`；真题试卷用，学生端试卷库按年份搜索），在 `src/db.js` 里幂等 `ALTER TABLE … ADD COLUMN`。题目的 `questions.year` 本来就有，上传真题试卷时也一并写入。
