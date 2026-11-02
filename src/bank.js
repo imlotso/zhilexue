@@ -131,7 +131,7 @@ function normalizeBankQ(b) {
 function serveQ(q) {
   const imgs = (() => { try { const a = JSON.parse(q.images || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } })();
   return {
-    id: q.id, type: q.type, stem: q.stem, material: q.material || '',
+    id: q.id, type: q.type, subject: q.subject || '', stem: q.stem, material: q.material || '',
     options: parseQ(q).options, difficulty: q.difficulty, point: q.point || '', images: imgs,
     audio_url: q.audio_key ? store.getUrlSync(q.audio_key) : '',   // 听力题的音频（T7）；本地存储时是 /api/file?key=…，前端播放时补登录票据
     blanks: q.type === 'fill' ? String(q.answer || '').replace(/\|\|\|/g, '\u0001').split('|').length : 0,

@@ -485,6 +485,8 @@ async function mfQEdit(id, done) {
     </div>`,
     onMount: (w) => {
       aud = t7AudioWidget(w.querySelector('#qeAudio'), { key: q.audio_key, url: q.audio_url });
+      if (!Array.isArray(q.images)) q.images = [];
+      t8Enhance(w, { fields: ['#qeStem', '#qeOpts', '#qeAns', '#qeAna'], images: q.images });   // 公式输入 + 粘贴 / 拖拽图片（T8）
       const loadNodes = async (selId, boxId, cls) => {
         const tid = w.querySelector('#' + selId).value;
         if (!tid) { w.querySelector('#' + boxId).innerHTML = '<span class="hint">暂无可用分类树</span>'; return; }
@@ -1324,6 +1326,7 @@ async function mfNewQDialog(done) {
     },
     onMount: (w) => {
       nqAud = t7AudioWidget(w.querySelector('#nqAudio'), {});
+      t8Enhance(w, { fields: ['#nqStem', '#nqAns', '#nqAna'], images: imgs, onImage: () => renderImgs() });   // 公式输入 + 粘贴 / 拖拽图片（T8）
       const ta = w.querySelector('#nqStem');
       const renderTags = () => { w.querySelector('#nqTags').innerHTML = tags.map((t, i) => `<span class="mf-pitem">${esc(t)}<a href="javascript:;" data-ti="${i}">✕</a></span>`).join(''); };
       const renderImgs = () => { w.querySelector('#nqImgs').innerHTML = imgs.map((u, i) => `<span style="position:relative;display:inline-block"><img src="${esc(u)}" style="height:44px;border-radius:6px;border:1px solid #e5e7eb"><a href="javascript:;" data-ii="${i}" style="position:absolute;top:-6px;right:-6px;background:#dc2626;color:#fff;border-radius:50%;width:16px;height:16px;font-size:11px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none">✕</a></span>`).join(''); };

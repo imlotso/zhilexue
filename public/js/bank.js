@@ -90,6 +90,21 @@ function stemImagesHTML(q) {
   const rest = imgs.map((s, i) => (used.has(i) ? '' : `<img class="qz-img" src="${esc(s)}" alt="题目图片" loading="lazy">`)).join('');
   return { stem, rest: rest ? `<div class="qz-imgs">${rest}</div>` : '' };
 }
+/** 公式键盘（T8）：只给 数学 / 物理 / 化学 的 填空 / 问答 题；英语等其它科目不出现 */
+const T8_SUBJECTS = ['数学', '物理', '化学'];
+const t8On = (q) => !!q && T8_SUBJECTS.includes(q.subject) && (q.type === 'fill' || q.type === 'answer');
+const t8Btn = (i) => `<button type="button" class="t8-fbtn" data-t8="${i}" title="用公式键盘输入分数、根号、上下标等">∑ 公式</button>`;
+function t8Bind(root) {
+  (root || document).querySelectorAll('[data-t8]').forEach((b) => {
+    b.onclick = () => {
+      const ta = b.parentNode.querySelector('textarea');
+      if (!ta) return;
+      // 学生作答：回传裸 LaTeX（不带 \( \)），和标准答案按字符串比较，不做公式等价判定
+      MLive.dialog({ title: '输入公式', delimit: false, onOk: (t) => MLive.insertAt(ta, t) });
+    };
+  });
+}
+
 /** 听力题的音频播放条（T7）。<audio> 是浏览器自己发请求、带不了登录头，本地存储的地址（/api/file?key=…）要把票据拼在 URL 上；云存储的签名外链原样用 */
 function quizAudioSrc(u) {
   const s = String(u || '');
@@ -237,12 +252,12 @@ const BankQuiz = {
         // T6：固定宽高的输入区（字多字少都不变形，内容多时框内滚动）；单空稍高、多空每空一行半
         return `<div class="qz-fills t6-fills ${n === 1 ? 'single' : ''}">` + Array.from({ length: n }, (_, i) => `
           <label class="qz-fill t6-fill"><span>${n === 1 ? '答案' : `第 ${i + 1} 空`}</span>
-            <textarea class="t6-input" data-blank="${i}" maxlength="500" placeholder="点这里填写答案" autocomplete="off" spellcheck="false">${esc(arr[i] || '')}</textarea></label>`).join('') + '</div>';
+            <textarea class="t6-input" data-blank="${i}" maxlength="500" placeholder="点这里填写答案" autocomplete="off" spellcheck="false">${esc(arr[i] || '')}</textarea>${t8On(q) ? t8Btn(i) : ''}</label>`).join('') + '</div>';
       }
       if (q.type === 'answer') {
         // 问答 / 解答题：大一点的固定输入区。不自动判分，交卷后对照参考答案
         return `<div class="qz-fills t6-fills"><label class="qz-fill t6-fill t6-fill-long"><span>解答</span>
-          <textarea class="t6-input t6-long" data-ans="1" maxlength="2000" placeholder="写下你的解答（问答题不自动判分，交卷后对照参考答案）" spellcheck="false">${esc(String(st.answers[q.id] || ''))}</textarea></label></div>`;
+          <textarea class="t6-input t6-long" data-ans="1" maxlength="2000" placeholder="写下你的解答（问答题不自动判分，交卷后对照参考答案）" spellcheck="false">${esc(String(st.answers[q.id] || ''))}</textarea>${t8On(q) ? t8Btn(0) : ''}</label></div>`;
       }
       if (q.type === 'sort') {
         // 排序 / 连词成句：展示顺序稳定打乱，学生按顺序点选，答案存原始位置序号
@@ -554,6 +569,7 @@ const BankQuiz = {
       bindOptionEvents(q);
       bindImageZoom(bodyEl);
       bindQuizAudio(bodyEl);
+      t8Bind(bodyEl);
       if (window.mtxTypeset) mtxTypeset(bodyEl);   // 题干/选项里的 LaTeX 排版
       bodyEl.querySelectorAll('.qz-material').forEach((m) => {
         m.querySelector('.qz-mat-t').onclick = () => m.classList.toggle('folded');
@@ -939,7 +955,7 @@ const BankPages = {
       BankQuiz.open({
         title, subtitle: subtitle || '答对的题自动移出错题本',
         questions: list.map((m) => ({
-          id: m.question_id, type: m.type, stem: m.stem, material: m.material || '', options: m.options || [], images: m.images || [], point: m.point || '', audio_url: m.audio_url || '',
+          id: m.question_id, type: m.type, subject: m.subject || '', stem: m.stem, material: m.material || '', options: m.options || [], images: m.images || [], point: m.point || '', audio_url: m.audio_url || '',
           blanks: m.type === 'fill' ? String(m.answer || '').replace(/\|\|\|/g, '\u0001').split('|').length : 0,
         })),
         submit: (answers, duration) => api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'redo', answers, duration } }),

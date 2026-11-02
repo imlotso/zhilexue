@@ -27,6 +27,9 @@ zhilexue/
 │   ├── index.html + js/vue-app.js   学生端入口（Vue 3）
 │   │   admin/audioui.js         后台题目的听力音频字段（上传 / 文字生成朗读 / 试听），题目编辑、新建、待审核编辑共用（T7）
 │   │   js/t13-fit.js            单词学习卡片里的单词 / 释义 / 选项放不下时缩字号（T13，只改显示，在 words.js 之后加载）
+│   │   js/mlive.js              公式输入（T8）：懒加载本地 MathLive，`MLive.dialog` 弹公式编辑框 + 虚拟键盘，学生端和后台共用
+│   │   admin/formulaui.js       后台「插入公式」按钮 + 题目输入框粘贴 / 拖拽图片（T8）
+│   │   vendor/mathlive/         MathLive 0.109.2（MIT）本地文件和字体，不走 CDN；点公式按钮时才加载
 │   ├── admin/      后台（Vue 2 + element-ui，多个独立脚本依次加载；`vcodec.js` 是视频上传前的编码检测，先于 admin.js 加载；`ktreeui.js` 是「知识树管理」页，`pendingui.js` 是「待审核题目」页，`accui.js` 是「学情管理 → 知识点正确率」页）
 │   ├── upload.html 手机扫码上传页；scan-report.html 扫码上传学情试卷
 │   ├── apps/       care / grades / keyboard-school / timer，独立小应用，由主站以 iframe 引用

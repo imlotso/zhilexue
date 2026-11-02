@@ -240,6 +240,7 @@ function pdEdit(it) {
       <div id="pdE-audio"></div>
       ${(it.images || []).length ? `<div class="pd-imgs">${it.images.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="题图"></a>`).join('')}</div>` : ''}`,
     onMount: (w) => {
+      t8Enhance(w, { fields: ['#pdE-stem', '#pdE-ana', '#pdE-mat', ...w.querySelectorAll('.pd-opt')] });   // 公式输入（T8）
       pdAud = t7AudioWidget(w.querySelector('#pdE-audio'), { key: it.audio_key, url: it.audio_url });   // 听力音频在这里逐题补充（T7）
       const optBox = w.querySelector('#pdE-opts');
       const relabel = () => optBox.querySelectorAll('.pd-optlb').forEach((b, i) => { b.textContent = String.fromCharCode(65 + i); });

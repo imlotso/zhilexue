@@ -26,7 +26,10 @@ function judgeQ(q, myAnswer) {
     return a !== '' && a === b;
   }
   if (type === 'fill') {
-    const normBlank = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
+    // 公式（T8）：老师在答案里用公式按钮会存成 \( … \)，学生用公式键盘输入的是裸 LaTeX，比较前把分隔符和等价写法抹平
+    const normBlank = (s) => String(s || '').trim()
+      .replace(/\\\(|\\\)|\\\[|\\\]|\$/g, '').replace(/\\(?:(?:left|right|displaystyle|quad)(?![a-zA-Z])|[,;!])/g, '').replace(/\\[dt]frac/g, '\\frac')
+      .toLowerCase().replace(/\s+/g, '');
     // 先把备选分隔符 ||| 换成占位符，再按 | 拆空，最后按占位符拆备选
     const PH = '\u0001';
     const pre = (s) => String(s || '').replace(/\|\|\|/g, PH);

@@ -337,6 +337,14 @@ const fileForm = (fields, fileName, content) => {
     log(audTtsEmpty.code !== 0 && /请先填写/.test(audTtsEmpty.msg || ''), '听力题：文字生成朗读接口，没填文字给出提示', audTtsEmpty.msg);
     const audStu = await req('/api/admin/bank/mf/audio/tts', { method: 'POST', token: ST, body: { text: 'hi' } });
     log(audStu._status === 403 || audStu.code !== 0, '听力题：学生 token 不能调音频接口');
+    // T8：公式输入——MathLive 本地文件（不走 CDN）、公共加载脚本、题目接口带 subject
+    const mlJs = await fetch(BASE + '/vendor/mathlive/mathlive.min.js');
+    const mlFont = await fetch(BASE + '/vendor/mathlive/fonts/KaTeX_Main-Regular.woff2');
+    log(mlJs.status === 200 && (await mlJs.text()).length > 100000 && mlFont.status === 200, '公式输入：MathLive 和字体是本地文件（/vendor/mathlive/），不依赖外网');
+    const mliveJs = await (await fetch(BASE + '/js/mlive.js')).text();
+    log(/window\.MLive/.test(mliveJs) && !/https?:\/\/(cdn|unpkg|cdnjs|jsdelivr)/.test(mliveJs), '公式输入：公共加载脚本 mlive.js 可用，且没有写死外网地址');
+    const assetNoFile = await req('/api/admin/bank/mf/asset', { method: 'POST', token: AT });
+    log(assetNoFile.code !== 0, '公式输入：录题端粘贴图片用的 /asset 接口，没带文件时拒绝', assetNoFile.msg);
     // T13：单词页固定布局的静态资源（卡片类名、缩字号脚本都要随页面一起发出去）
     const idxHtml = await (await fetch(BASE + '/')).text();
     const wordsJs = await (await fetch(BASE + '/js/words.js')).text();
