@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: ['**']
   pull_request:
 
 jobs:
@@ -15,7 +16,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node bank-test.js
-      - run: node word-test.js
       - run: node storage-test.js
 
   api:
@@ -32,13 +32,15 @@ jobs:
         run: |
           sudo systemctl start mysql.service
           PW=$(node -p "require('./src/config.local').mysql.password")
-          sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$PW'; CREATE DATABASE IF NOT EXISTS xuexi CHARACTER SET utf8mb4;"
+          SQL="ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$PW'; CREATE DATABASE IF NOT EXISTS xuexi CHARACTER SET utf8mb4;"
+          sudo mysql -e "$SQL" || mysql -uroot -proot -e "$SQL"
       - run: npm run seed
       - name: Start server
         run: |
           nohup npm start > server.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://localhost:3000/ >/dev/null && break; sleep 1; done
       - run: node smoke.js
+      - run: node word-test.js
       - run: node wrong-test.js
       - name: Upload server log
         if: always()
