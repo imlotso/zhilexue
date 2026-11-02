@@ -75,6 +75,7 @@ function decorate(row, opt = {}) {
     options: parseArr(row.options),
     images: parseArr(row.images),
     source_detail: parseObj(row.source_detail),
+    audio_url: row.audio_key ? store.getUrlSync(row.audio_key) : '',
   };
   if (opt.tags) {
     out.tags = db.prepare('SELECT tag FROM question_tags WHERE question_id=? ORDER BY tag').all(row.id).map((r) => r.tag);
@@ -310,6 +311,13 @@ admin.get('/questions/:id', (req, res) => {
   return ok(res, { question: decorate(row, { tags: true, nodes: true }) });
 });
 
+/** 听力题的音频 key（T7）：只认题库音频目录（bank/audio/…）下的 key，防止题目指到视频 / 别的目录的文件上去 */
+function audioKeyOf(v) {
+  const k = String(v == null ? '' : v).trim();
+  if (!k) return '';
+  return k.startsWith(bankFolder() + '/audio/') && !k.includes('..') ? k.slice(0, 255) : '';
+}
+
 /** 新增/编辑：字段与老题库一致（学生端判分链路共用 questions 表），另外支持富文本题干与来源 */
 function normalizeQ(b) {
   const stem = String(b.stem || '').trim();
@@ -338,6 +346,7 @@ function normalizeQ(b) {
       source: String(b.source || '').trim(),
       year: String(b.year || '').trim(),
       images: jstr(Array.isArray(b.images) ? b.images : parseArr(b.images)),
+      audio_key: audioKeyOf(b.audio_key),
       source_type: ['local', 'capture', 'recog'].includes(b.source_type) ? b.source_type : 'local',
       source_detail: jstr(b.source_detail && typeof b.source_detail === 'object' ? b.source_detail : {}),
       created_at: now(),
@@ -349,10 +358,10 @@ admin.post('/questions', (req, res) => {
   const { q, err } = normalizeQ(req.body || {});
   if (err) return fail(res, err);
   const info = db.prepare(`INSERT INTO questions (subject, stage, grade, type, stem, stem_html, options, answer, analysis,
-    difficulty, point, material, source, year, images, source_type, source_detail, sort, created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`)
+    difficulty, point, material, source, year, images, audio_key, source_type, source_detail, sort, created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`)
     .run(q.subject, q.stage, q.grade, q.type, q.stem, q.stem_html, q.options, q.answer, q.analysis,
-      q.difficulty, q.point, q.material, q.source, q.year, q.images, q.source_type, q.source_detail, q.created_at);
+      q.difficulty, q.point, q.material, q.source, q.year, q.images, q.audio_key, q.source_type, q.source_detail, q.created_at);
   const id = info.lastInsertRowid;
   const tags = (req.body || {}).tags || [];
   const ins = db.prepare('INSERT OR IGNORE INTO question_tags (question_id, tag) VALUES (?,?)');
@@ -369,12 +378,13 @@ admin.put('/questions/:id', (req, res) => {
   if (!old) return fail(res, '题目不存在');
   const body = { ...req.body };
   if (body.subject === undefined) body.subject = old.subject;
+  if (body.audio_key === undefined) body.audio_key = old.audio_key;   // 没传 = 不动音频；传空串 = 去掉音频
   const { q, err } = normalizeQ(body);
   if (err) return fail(res, err);
   db.prepare(`UPDATE questions SET subject=?, stage=?, grade=?, type=?, stem=?, stem_html=?, options=?, answer=?,
-    analysis=?, difficulty=?, point=?, material=?, source=?, year=?, images=?, source_type=?, source_detail=? WHERE id=?`)
+    analysis=?, difficulty=?, point=?, material=?, source=?, year=?, images=?, audio_key=?, source_type=?, source_detail=? WHERE id=?`)
     .run(q.subject, q.stage, q.grade, q.type, q.stem, q.stem_html, q.options, q.answer, q.analysis,
-      q.difficulty, q.point, q.material, q.source, q.year, q.images, q.source_type, q.source_detail, id);
+      q.difficulty, q.point, q.material, q.source, q.year, q.images, q.audio_key, q.source_type, q.source_detail, id);
   if (Array.isArray(req.body.tags)) {
     db.prepare('DELETE FROM question_tags WHERE question_id=?').run(id);
     const ins = db.prepare('INSERT OR IGNORE INTO question_tags (question_id, tag) VALUES (?,?)');
@@ -796,8 +806,8 @@ function commitCaptureItems(batch, picked, b) {
     if (d && d.site && d.questionId) map.set(`${d.site}:${d.questionId}`, r);
   });
   const ins = db.prepare(`INSERT INTO questions (subject, stage, grade, type, stem, stem_html, options, answer, analysis,
-    difficulty, point, material, source, year, images, source_type, source_detail, sort, created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'capture', ?,0,?)`);
+    difficulty, point, material, source, year, images, audio_key, source_type, source_detail, sort, created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'capture', ?,0,?)`);
   const upd = db.prepare('UPDATE questions SET answer=?, analysis=?, point=? WHERE id=?');
   const insTag = db.prepare('INSERT OR IGNORE INTO question_tags (question_id, tag) VALUES (?,?)');
   const insNode = db.prepare('INSERT OR IGNORE INTO question_nodes (question_id, node_id) VALUES (?,?)');
@@ -834,7 +844,7 @@ function commitCaptureItems(batch, picked, b) {
         /<[a-z][\s\S]*>/i.test(stem) ? stem : '',
         jstr(options), String(q.answer || '').trim(), String(q.analysis || '').trim(),
         int(q.difficulty, 3), (q.meta && q.meta.knowledgePoints || []).join('、'),
-        '', SITES[q.site || batch.site] || (q.site || batch.site), '', jstr([]), detail, now());
+        '', SITES[q.site || batch.site] || (q.site || batch.site), '', jstr([]), audioKeyOf(q.audio_key), detail, now());
       const newId = info.lastInsertRowid;
       created++;
       ids.push(newId);
@@ -1646,8 +1656,8 @@ admin.post('/intake/runs/:id/aifill', async (req, res) => {
 function commitRunCards(run, cards, b) {
   b = b || {};
   const ins = db.prepare(`INSERT INTO questions (chapter_id, subject, stage, grade, type, stem, stem_html, options, answer, analysis,
-    difficulty, point, material, source, year, images, source_type, source_detail, sort, created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recog', ?,0,?)`);
+    difficulty, point, material, source, year, images, audio_key, source_type, source_detail, sort, created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recog', ?,0,?)`);
   const insPack = db.prepare(`INSERT INTO questions (subject, stage, grade, type, stem, stem_html, options, answer, analysis,
     difficulty, point, material, source, year, images, source_type, source_detail, sort, created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`);
@@ -1665,6 +1675,7 @@ function commitRunCards(run, cards, b) {
         q.type, q.stem, q.stem_html || '', jstr(q.options || []), String(q.answer || ''), String(q.analysis || ''),
         Math.min(5, Math.max(1, int(q.difficulty, 3))), String(d.point || q.point || ''), '', '', '', jstr(q.images || []), 'capture', jstr(q.detail || {}), now());
       qid = info.lastInsertRowid;
+      if (d.audio_key) db.prepare('UPDATE questions SET audio_key=? WHERE id=?').run(audioKeyOf(d.audio_key), qid);
     } else {
       const type = TYPE_MAP[String(d.questionType || '')] || (d.options && d.options.length >= 2 ? 'single' : 'answer');
       const stem = String(d.stem || '').trim();
@@ -1676,7 +1687,7 @@ function commitRunCards(run, cards, b) {
         /<[a-z][\s\S]*>/i.test(stem) ? stem : '',
         jstr(options), String(d.answer || '').trim(), String(d.analysis || '').trim(),
         Math.min(5, Math.max(1, int(d.difficulty, int(b.difficulty, 3)))), String(d.point || '').trim(), String(d.material || '').trim(), String(run.source_name || '录题工作台'), '',
-        jstr((d.figures || []).map((x) => (x && x.url) || x).filter(Boolean)),
+        jstr((d.figures || []).map((x) => (x && x.url) || x).filter(Boolean)), audioKeyOf(d.audio_key),
         jstr({ runId: run.id, kind: run.source_kind, page: d.page, qno: d.qno, collectedAt: now() }), now());
       qid = info.lastInsertRowid;
     }
@@ -1885,6 +1896,56 @@ admin.post('/asset', upload.single('file'), async (req, res) => {
     return ok(res, { key: saved.key, url, size: saved.size }, '已上传');
   } catch (e) {
     return fail(res, '上传失败：' + e.message);
+  }
+});
+
+// ---------- 听力题音频（T7）：上传一段音频 / 用文字合成语音，存到题库音频目录 bank/audio/，题目里只记 key ----------
+const AUDIO_EXT_RE = /\.(mp3|m4a|wav|ogg|aac|webm)$/i;
+const AUDIO_MIME = { mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', ogg: 'audio/ogg', aac: 'audio/aac', webm: 'audio/webm' };
+function fixName(n) {   // multer 把中文文件名当 latin1 解码，还原一下
+  const s = String(n || '');
+  if (!/[\u0080-\u00ff]/.test(s)) return s;
+  try { const u = Buffer.from(s, 'latin1').toString('utf8'); return u.includes('\ufffd') ? s : u; } catch (e) { return s; }
+}
+admin.post('/audio/upload', upload.single('file'), async (req, res) => {
+  if (!req.file) return fail(res, '请选择音频文件');
+  const name = fixName(req.file.originalname) || 'audio.mp3';
+  if (!AUDIO_EXT_RE.test(name)) return fail(res, '仅支持 mp3 / m4a / wav / ogg / aac / webm 音频文件');
+  try {
+    const saved = await store.saveFile(req.file.buffer, name, `${bankFolder()}/audio`);
+    return ok(res, { key: saved.key, url: store.getUrlSync(saved.key), name, size: saved.size }, '音频已上传');
+  } catch (e) {
+    return fail(res, '上传失败：' + e.message);
+  }
+});
+
+/** 演示模式（TTS_MOCK=1）：不调系统语音，生成一小段提示音，自动化测试用 */
+function mockWav(seconds = 0.8) {
+  const rate = 8000, n = Math.round(rate * seconds);
+  const buf = Buffer.alloc(44 + n * 2);
+  buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVEfmt ', 8); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(rate, 24); buf.writeUInt32LE(rate * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write('data', 36); buf.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / rate) * 6000 * Math.min(1, (n - i) / 800)), 44 + i * 2);
+  return buf;
+}
+admin.post('/audio/tts', async (req, res) => {
+  const text = String((req.body || {}).text || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  if (!text) return fail(res, '请先填写要朗读的文字');
+  const lang = /^zh/i.test(String((req.body || {}).lang || '')) ? 'zh-CN' : 'en-US';
+  let r = Number((req.body || {}).rate); if (!Number.isFinite(r)) r = 1;
+  const rate = Math.max(-6, Math.min(6, Math.round((r - 1) * 8)));
+  let buf;
+  try {
+    buf = process.env.TTS_MOCK === '1' ? mockWav() : await require('./win-speak').speakToBuffer(text, lang, rate);
+  } catch (e) {
+    return fail(res, '语音合成失败：' + (process.platform === 'win32' ? (e.message || e) : '这台服务器没有可用的语音合成（用的是 Windows 自带语音），请改用「上传音频」') );
+  }
+  const mp3 = buf.length > 2 && ((buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) || (buf[0] === 0xFF && (buf[1] & 0xE0) === 0xE0));
+  try {
+    const saved = await store.saveFile(buf, `tts.${mp3 ? 'mp3' : 'wav'}`, `${bankFolder()}/audio`);
+    return ok(res, { key: saved.key, url: store.getUrlSync(saved.key), name: `朗读.${mp3 ? 'mp3' : 'wav'}`, size: saved.size }, '已生成朗读音频');
+  } catch (e) {
+    return fail(res, '保存失败：' + e.message);
   }
 });
 

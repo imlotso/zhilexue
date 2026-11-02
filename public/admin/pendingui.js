@@ -220,6 +220,7 @@ async function pdAiFill(ids, byId) {
 
 /** 编辑单题 */
 function pdEdit(it) {
+  let pdAud = null;   // 听力音频字段（T7）
   const optRow = (o, i) => `<div class="pd-optrow"><b class="pd-optlb">${String.fromCharCode(65 + i)}</b><input class="input pd-opt" value="${esc(o.text)}"><button type="button" class="link-btn danger" data-delopt>删</button></div>`;
   modal({
     title: `编辑题目 · ${it.source_label}`, okText: '保存', wide: true,
@@ -236,8 +237,10 @@ function pdEdit(it) {
       <div class="field"><label>答案<span class="pd-hint">选择题填字母（多选如 A,C）；判断题 正确/错误；填空多个空用 | 隔开</span></label><input id="pdE-ans" class="input" value="${esc(it.answer)}"></div>
       <div class="field"><label>解析</label><textarea id="pdE-ana" class="input" rows="3">${esc(it.analysis)}</textarea></div>
       <div class="field"><label>知识点</label><input id="pdE-point" class="input" value="${esc(it.point)}" placeholder="如：有理数的加法"></div>
+      <div id="pdE-audio"></div>
       ${(it.images || []).length ? `<div class="pd-imgs">${it.images.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="题图"></a>`).join('')}</div>` : ''}`,
     onMount: (w) => {
+      pdAud = t7AudioWidget(w.querySelector('#pdE-audio'), { key: it.audio_key, url: it.audio_url });   // 听力音频在这里逐题补充（T7）
       const optBox = w.querySelector('#pdE-opts');
       const relabel = () => optBox.querySelectorAll('.pd-optlb').forEach((b, i) => { b.textContent = String.fromCharCode(65 + i); });
       const showOpts = () => { const t = w.querySelector('#pdE-type').value; w.querySelector('#pdE-optbox').style.display = ['single', 'multi', 'sort'].includes(t) ? '' : 'none'; };
@@ -254,6 +257,7 @@ function pdEdit(it) {
         options: [...w.querySelectorAll('.pd-opt')].map((x, i) => ({ label: String.fromCharCode(65 + i), text: x.value.trim() })).filter((o) => o.text),
       };
       if (w.querySelector('#pdE-mat')) patch.material = v('#pdE-mat').trim();
+      if (pdAud) patch.audio_key = pdAud.get();
       if (!patch.stem) { toast('题干不能为空', 'err'); return false; }
       await api(`${PD_API}/ext/pending/item`, { method: 'PUT', body: { id: it.id, patch } });
       toast('已保存', 'ok');

@@ -42,3 +42,7 @@
 ## T10 试卷管理：`mf_papers` 加一列
 
 `mf_papers.year VARCHAR(8) DEFAULT ''`（4 位年份，如 `2024`；真题试卷用，学生端试卷库按年份搜索），在 `src/db.js` 里幂等 `ALTER TABLE … ADD COLUMN`。题目的 `questions.year` 本来就有，上传真题试卷时也一并写入。
+
+## T7 听力题：`questions` 加一列
+
+`questions.audio_key VARCHAR(255) DEFAULT ''`（听力音频的存储 key，目录前缀 `bank/audio/`，空串 = 没有音频），在 `src/db.js` 里幂等 `ALTER TABLE … ADD COLUMN`。题型不新增：音频是现有题型（单选 / 多选 / 判断 / 填空…）上附加的"听力材料"。

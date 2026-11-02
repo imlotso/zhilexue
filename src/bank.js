@@ -133,6 +133,7 @@ function serveQ(q) {
   return {
     id: q.id, type: q.type, stem: q.stem, material: q.material || '',
     options: parseQ(q).options, difficulty: q.difficulty, point: q.point || '', images: imgs,
+    audio_url: q.audio_key ? store.getUrlSync(q.audio_key) : '',   // 听力题的音频（T7）；本地存储时是 /api/file?key=…，前端播放时补登录票据
     blanks: q.type === 'fill' ? String(q.answer || '').replace(/\|\|\|/g, '\u0001').split('|').length : 0,
   };
 }
@@ -1316,9 +1317,10 @@ stu.get('/mistakes', (req, res) => {
   if (resolved === '0') where += ' AND m.resolved=0';
   if (resolved === '1') where += ' AND m.resolved=1';
   const rows = db.prepare(`SELECT m.id, m.question_id, m.wrong_count, m.last_answer, m.resolved, m.review_stage, m.next_review, m.updated_at, m.ai_point,
-      q.type, q.stem, q.options, q.answer, q.analysis, q.material, q.subject, q.point, q.difficulty, q.images
+      q.type, q.stem, q.options, q.answer, q.analysis, q.material, q.subject, q.point, q.difficulty, q.images, q.audio_key
     FROM mistakes m JOIN questions q ON q.id=m.question_id${where}
-    ORDER BY m.resolved, m.updated_at DESC LIMIT 300`).all(...args).map(parseQ);
+    ORDER BY m.resolved, m.updated_at DESC LIMIT 300`).all(...args).map(parseQ)
+    .map((r) => Object.assign(r, { audio_url: r.audio_key ? store.getUrlSync(r.audio_key) : '' }));
   const counts = {};
   db.prepare(`SELECT q.subject AS s, COUNT(*) n FROM mistakes m JOIN questions q ON q.id=m.question_id
     WHERE m.user_id=? GROUP BY q.subject`).all(uid).forEach((r) => { counts[r.s || '其他'] = r.n; });

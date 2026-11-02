@@ -43,6 +43,7 @@ jobs:
         env:
           STORAGE_DRIVER: local
           AI_MOCK: '1'   # AI 走演示模式：CI 不调真实 AI 接口（需要 ai.js 支持 AI_MOCK）
+          TTS_MOCK: '1'  # 语音合成走演示模式（CI 的 Linux 没有 Windows 语音）：听力题 TTS 测试用
         run: |
           nohup npm start > server.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://localhost:3000/ >/dev/null && break; sleep 1; done
@@ -65,6 +66,8 @@ jobs:
         if: ${{ !cancelled() }}   # 错题本 Word 导出 + 手机扫码错题 AI 识别（T9）
       - run: node paper-test.js
         if: ${{ !cancelled() }}   # 试卷管理（T10）：上传真题试卷 → 题库 → 学生搜索并做完
+      - run: node listening-test.js
+        if: ${{ !cancelled() }}   # 听力题（T7）：音频上传 / TTS → 题目带音频 → 待审核补音频 → 学生端播放并作答
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4

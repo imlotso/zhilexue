@@ -87,6 +87,12 @@
   - 否则：① 题目写入题库（`source='真题试卷'`，学科 / 年级 / 学段 / 年份随卷）② 新建试卷（`status=done`，`published` 按 `publish`），按题型分「一、单选题 …」文本块（大题先后 = 各题型第一次出现的先后）③ 每题默认分值 = 100 ÷ 题数 ④ 返回 `{paper_id, question_ids, published, score_each, …}`。
 - 学生端试卷库搜索：`GET /api/stu/bank/mfpapers?q=&subject=&grade=&year=&size=`（`q` 匹配卷名 / 学科 / 年级 / 年份；都不传 = 全部；只含已发布且不在试题篮 / 回收站的）；`GET /api/stu/bank/mfpapers/filters` → `{subjects, grades, years}`（下拉选项）。`GET /mfpapers/:id` 另返回 `year`、`total_score`（各题分值之和）；`POST /submit kind=mfpaper` / `kind=paper` 的返回多了 `score`、`score_total`。
 
+听力题（T7，题型不新增，在现有题型上附加音频）：
+- 题目新增字段 `audio_key`（存储 key，只认 `bank/audio/…` 目录；乱填别的目录或带 `..` 的 key 会被当作没有音频）。后台题目接口（`GET/POST/PUT /questions`、`/questions/:id`）的返回带 `audio_key` 和 `audio_url`（播放地址）；`POST/PUT` 传 `audio_key`（`PUT` 不传 = 保留原音频，传空串 = 去掉音频）。
+- 后台 `POST /api/admin/bank/mf/audio/upload`（multipart `file`，mp3 / m4a / wav / ogg / aac / webm，≤25MB）→ `{key, url, name, size}`；`POST /api/admin/bank/mf/audio/tts` `{text(≤500字), lang:'en'|'zh', rate?}` → 同上（用服务器的语音合成：Windows 自带语音；`TTS_MOCK=1` 环境变量下生成一小段提示音，供自动化测试）。音频存在 `bank/audio/YYYYMM/…`。
+- 待审核页逐题补音频：`PUT /ext/pending/item` 的 `patch.audio_key`（拍照识别 / Word / Excel / 技能包 / 网络采集 / 手机扫码六类来源都支持）；待审核项带 `audio_key`、`audio_url`；入库时写进题目。Excel / Word 导入模板没有改。
+- 学生端所有出题接口（`lesson-questions`、`papers/:id`、`mfpapers/:id`、`scan-compose`、`review-queue`、`mistakes` 等）返回的题目带 `audio_url`（没有音频为空串）。本地存储时是 `/api/file?key=…`，`<audio>` 带不了请求头，前端把登录票据拼成 `&token=` 再播放；云存储是签名外链，原样播放。
+
 学生端 `/api/stu/bank`：`GET /lesson-questions`、`/tasks`、`/papers`、`/papers/:id`、`/mfpapers`、`/mfpapers/:id`、`/scan-tree`、`/mistakes`、`/mistake-count`、`/mistake-points`、`/review-queue`、`/uploads`；`POST /submit`、`/scan-compose`、`/check`、`/feedback`、`/ai-explain`、`/upload-token`
 
 扫码上传 `/api/up`：`GET /info`、`POST /submit`、`GET /mine`
