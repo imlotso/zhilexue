@@ -1,0 +1,191 @@
+# 自测清单（2026-11-01 ～ 11-07 改版）
+
+> 供 BOBO 向客户交付时使用。每个任务列出任务书里的**验收项**、结果和依据；详细的改动、取舍和遗留见 `docs/changelog-20261107.md`、`docs/decisions.md`。
+> 所有验证都在**云开发环境**完成（MariaDB 10.11 测试库 + 无头 Chromium），**没有连真实库、没有真机、没有真实 AI Key**。凡是需要真机 / 真实数据的，标「🟡」并列在 `docs/pending-human-actions.md`。
+
+**图例**：✅ 已自动 / 在云环境验证通过　🟡 云环境验证过，但还需要真机 / 真实数据 / 客户确认　⬜ 未做（说明原因）
+
+## 总览
+
+- **CI**：`unit`（`bank-test` 29、`wordq-test` 29、`excel-test` 10）+ `api`（见下表）两个任务全绿，`continue-on-error` 已去掉。
+- **本地全量回归**（本次提交时，空库 `npm run seed` 后，`STORAGE_DRIVER=local AI_MOCK=1 TTS_MOCK=1`）：19 个脚本，**共 806 项通过、0 项失败**。
+
+| 脚本 | 通过 | 覆盖 |
+|---|---|---|
+| `smoke.js` | 160 | 后端端到端：登录、学生、课程、视频、讲义、权限、各任务新增接口的静态与接口用例 |
+| `word-test.js` | 60 | 词书 / 单词 / 短语 / AI 例句（AI 演示模式） |
+| `wrong-test.js` | 44 | 错题重组 |
+| `storage-test.js` | 34 | 存储层（本地 / OSS 签名 / CDN 直链） |
+| `kbtree-test.js` | 33 | T4 知识树 |
+| `pending-test.js` | 57 | T3 待审核题目 |
+| `compose-test.js` | 41 | T5 组卷与下发 |
+| `lessonq-test.js` | 26 | T6 课文习题与正确率 |
+| `aiclient-test.js` | 55 | T2 AI 配置中心（三种格式的模拟服务） |
+| `mistake-test.js` | 49 | T9 错题 Word 导出 |
+| `paper-test.js` | 43 | T10 试卷管理 |
+| `listening-test.js` | 30 | T7 听力题 |
+| `formula-test.js` | 28 | T8 公式输入 |
+| `bankstore-test.js` | 17 | T12 存储解耦 |
+| `theme-test.js` | 28 | T11 后台 UI |
+| `flow-test.js` | 33 | **T14 全流程走查** |
+| `bank-test.js` / `wordq-test.js` / `excel-test.js` | 29 / 29 / 10 | 判分、Word 规则解析、Excel 模板解析（不需要数据库） |
+
+- **不在 CI 里的旧脚本**：`ui-test.js`、`wrong-ui-test.js`、`report-test.js`、`guide-test.js` 是 T0 时就已失败的旧用例（断言文案与现在的界面不一致 / 依赖不存在的路由 / 需要 jsdom），没有更差，保持原样（见 changelog T0）。
+- 关键截图在 `docs/screenshots/20261107/`（见文末）。
+
+---
+
+## T0 环境搭建与测试基线
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 服务在云环境启动，后台和学生端能打开并登录 | ✅ | 云环境 MariaDB + `npm run seed` + `npm start`；`smoke.js` 登录用例 |
+| 基线测试结果已记录 | ✅ | changelog T0「测试基线」表 |
+| CI 的 `unit` 绿色，`api` 全绿并去掉 `continue-on-error` | ✅ | 修复了 smoke 部署文件检查崩溃、学生列表分页对象、分校手机号、短语 CSV 导入业务 bug、AI 演示开关；GitHub Actions 全绿 |
+
+## T1 手机端视频无法播放
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| iOS Safari / Android Chrome / 微信内置浏览器（至少两种）能播放同一个 H.264 视频 | 🟡 | 云环境用 Chromium 手机视口 + 触屏验证了 H.264、VP9 播放和各错误路径；**真机由 BOBO 确认** |
+| 故意放一个 H.265 视频，看到明确错误文案而不是黑屏转圈 | ✅ | Chromium 实测：显示"只有声音、没有可显示的画面…"+ 两个按钮（截图 `t1-hevc-error-mobile.png`） |
+| 后台上传 H.265 视频被拦截 | ✅ | `checkVideoCodec` 与 `uploadVideoDirect` 拦截，且没有发出 `direct/init` 请求 |
+
+## T4 知识树统一
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 后台可新增 / 改名 / 删除 / 排序章节树和知识点树节点 | ✅ | `kbtree-test.js`；后台「智能题库 → 知识树管理」（截图 `t4-knowledge-tree.png`） |
+| 组卷、录题、课文习题里选择知识点时是同一棵树 | ✅ | 调用方清单（changelog T4）：旧 `kb_*` 树不再被写入，统一读 `bank_trees` / `bank_tree_nodes` |
+| 迁移脚本重复执行不产生重复节点 | ✅ | `kbtree-test.js`；`docs/release-steps.md` 第 4.2 步要求在测试库预演"第二次新增 0 个" |
+
+## T3 「待审核题目」统一入口
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| Excel、Word、手机扫码各导入一批题，都出现在同一个待审核页，来源标注正确 | ✅ | `pending-test.js` 57 项（另含拍照识别、技能包、网络采集）；`flow-test.js` 里 Excel / Word / 技能包三入口来源标注各不相同 |
+| 逐题入库后题库管理里能查到 | ✅ | `pending-test.js`、`flow-test.js`（15 题一次入库并挂章节 / 知识点节点） |
+| 样例文档导入题数与文档题数一致 | ✅ | 《word (1).docx》6 道大题含小问共 7 题；《洋葱题库-样例.docx》10 题；Excel 模板 9 行示例被忽略、追加的真题全部识别 |
+| 用客户**真实**的 Word / Excel 试一次 | 🟡 | 客户只给了两份样例；见待人工确认 |
+
+## T5 组卷
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 老师用章节树组一份卷下发给 2 个学生，两人在"我的任务"都能看到并交卷 | ✅ | `compose-test.js` 41 项 |
+| 学生自己用知识点组卷并做完，成绩和错题进入记录 | ✅ | `compose-test.js`（`scan-compose` → 自测交卷） |
+| 定向下发即专属（有名单只有名单内学生可见） | 🟡 | 行为变更，需客户确认（D18） |
+
+## T6 课文习题：固定输入框 + 正确率
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 学生做完某视频的题后，视频和所属小分组的正确率立即变化，数值与手算一致 | ✅ | `lessonq-test.js` 26 项：67%（取最近一次）、小分组 4/5 = 80%（不是平均）；`flow-test.js` 里 3/4 = 75% |
+| 输入 1 个字和 200 个字时输入框大小不变 | ✅ | Chromium 实测：0 / 1 / 200 字宽高都是 756×96；问答框 300 字仍 756×176 且框内滚动 |
+| 手机上固定输入框与键盘弹出 | 🟡 | 需真机走查 |
+
+## T2 AI 配置中心统一
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 三种格式（OpenAI / Anthropic / Gemini）的 mock 测试通过 | ✅ | `aiclient-test.js` 55 项 |
+| 配置一个接口并启用后，学情报告、AI 补全、拍照识别三处都能用；切换档案后同时生效 | ✅ | `aiclient-test.js` D 组：三处都走到模拟服务，切到 Anthropic 后旧档案收到 0 次请求 |
+| 测试连接对错误地址给出明确报错 | ✅ | `aiclient-test.js` B/C 组：带地址的明确提示 |
+| 真实 AI Key 联调 | 🟡 | 没有真实密钥；见待人工确认（页面截图 `t2-ai-config-center.png`） |
+
+## T9 错题本改版 + Word 导出
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 用客户《马英惠-数学…错题集.pdf》对应的 10 道题生成 Word | ✅ | `mistake-test.js` 49 项：封面、题号 1~10、选项 / 知识点 / 公式原样、「多次答错」标记、答案与解析 |
+| 能在 Word / WPS 打开并编辑 | 🟡 | 用 python-docx 和 LibreOffice 验证过；**没有在真实 Microsoft Word / WPS 里打开**，BOBO 请用真实 Word / WPS 打开一次 |
+| 删除收藏后页面无残留入口 | ✅ | 浏览器检查：错题本新版页面无「收藏」入口、无报错（截图 `t9-mistakes-after.png`） |
+| 手机扫码上传落到待审核 | ✅ | `pending-test.js`（来源标注「手机扫码（错题）」）；🟡 真机扫码走一遍 |
+
+## T10 试卷管理
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 后台上传一份试卷，学生端搜索到并完整做完，题目在题库中可见 | ✅ | `paper-test.js` 43 项（客户洋葱样例：10 题、分值合计 100、按名称 / 年份 / 学科 / 年级搜索）；浏览器实测（截图 `t10-paper-library-student.png`） |
+| 用客户真实的真题 Word 试一次 | 🟡 | 见待人工确认；真题是否需要"逐题审核再入库"待客户确认（D22） |
+
+## T13 学生端单词页固定布局
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 连续切换长单词和短单词，页面各区域位置不变 | ✅ | `words-layout-test.js`（需浏览器，CI 里自动跳过）34 项：极端长短单词（`a` / `extraordinarily` + 40 字释义）在字号大 / 中 / 小三档下各区域位置不变（截图 `t13-word-card.png`） |
+| 手机真机 / 其它单词模式 | 🟡 | 短语速记、词性训练、考纲单词、连词成句用同一套类名但没有逐个量，需真机走查 |
+
+## T7 听力题（P2）
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 一道带音频的听力选择题能在后台创建，学生端能播放并作答 | ✅ | `listening-test.js` 30 项（上传 / TTS → 题目带音频 → 待审核补音频 → 学生端取到音频字节、支持 Range、判分、错题本里也带音频）；Chromium 实测（截图 `t7-listening-student.png`） |
+| iOS Safari / 微信 / Android 真机播放 | 🟡 | 见待人工确认 |
+| 线上服务器「用文字生成朗读」 | 🟡 | 依赖 Windows 自带语音，Linux 会提示改用上传 |
+
+## T8 公式输入（P2）
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 录入一道含分数、根号的数学题，学生端渲染正确 | ✅ | `formula-test.js` 28 项；Chromium 实测（截图 `t8-formula-admin.png`） |
+| 学生用公式键盘输入答案并能提交 | ✅ | `formula-test.js`：学生端弹出 MathLive 键盘、输入后答案框里是 `\frac{1}{2}`、`\(\sqrt{2}\)` 与 `\sqrt{2}` 判对（截图 `t8-formula-student.png`） |
+| 手机 / 平板真机用公式键盘 | 🟡 | 见待人工确认 |
+
+## T12 题库与视频存储解耦（P2）
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 新录入题目的图片 / 音频 key 以 `bank/` 开头 | ✅ | `bankstore-test.js` 17 项 |
+| 删除一个已绑题的视频后，题库中的题目仍在 | ✅ | `bankstore-test.js`（单个 / 批量删除各一次，题目与图片 / 音频文件都在，只是被解绑） |
+| 题目图片地址有效期 | 🟡 | 线上 OSS 无 CDN 时，题目里存的图片地址 1 小时过期；需确认线上是否配了 `CDN_DOMAIN`（待人工确认） |
+
+## T11 后台 UI 统一
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| 后台所有页面按钮、表格、弹窗风格一致 | ✅ | `theme-test.js` 28 项（按钮 / 输入框 6px 圆角 34px 高、232 个选择器全挂在 `body.t11` 下）；改前改后逐页截图对照（截图 `t11-admin-home.png`、`t11-admin-pending.png`） |
+| 手机宽度下后台主要页面可用 | 🟡 | Chromium 390px：10 个主要页面不横向溢出、侧栏抽屉可开关（截图 `t11-admin-drawer-mobile.png`）；**真机由 BOBO 确认** |
+| 菜单：AI 配置中心在系统设置下、待审核题目在智能题库下带角标 | ✅ | `theme-test.js` |
+
+## T14 回归、文档、发布
+
+| 验收项 | 结果 | 依据 |
+|---|---|---|
+| CI 通过 | ✅ | 见总览 |
+| 手工走一遍"录题（三种入口）→ 待审核 → 入库 → 组卷 → 下发 → 学生做题 → 正确率 → 错题 → Word 导出" | ✅ | `flow-test.js` 33 项，已加入 CI（API 层一条线走完；逐步的页面操作已在各任务的浏览器检查里验证） |
+| `api.md` / `database.md` / `architecture.md` 与最终代码一致 | ✅ | 逐项核对：代码里所有路由在 `api.md` 都有记载；`db.js` 的 45 张表在 `database.md` 都有；`architecture.md` 随各任务更新 |
+| `README.md` 更新 | ✅ | SQLite → MySQL；新增 AI 配置中心 / 待审核 / 知识树 / Word 导出 / `BANK_BUCKET` 等；对不存在的 `deploy/`、`.bat`、旧手册注明"未随本仓库提供" |
+| `docs/release-steps.md` | ✅ | 备份 → 同步 → `npm install` → 迁移（先预演）→ `pm2 restart xuexi` → 抽查 → 回滚 |
+| 所有任务分支合并到 `main` | ✅ | T0 ～ T11 已合并（PR #1–#20）；T14 本分支合并后完成 |
+| 没有创建标签 | ✅ | 标签由 BOBO 手动打 |
+
+---
+
+## 关键截图（`docs/screenshots/20261107/`）
+
+| 文件 | 内容 | 对应任务 |
+|---|---|---|
+| `t1-hevc-error-mobile.png` | 手机视口下 H.265 视频的明确错误文案和按钮（不再黑屏） | T1 |
+| `t4-knowledge-tree.png` | 后台知识树管理：数学（初中）知识点树，可添加 / 改名 / 排序 / 删除 | T4 |
+| `t2-ai-config-center.png` | AI 配置中心：当前生效、文本 / 图像识别分组 | T2 |
+| `t9-mistakes-after.png` | 学生端错题本：「导出 Word」「手机扫码上传」，无收藏入口 | T9 |
+| `t10-paper-library-student.png` | 学生端试卷库：按名称 / 年份 / 年级搜索 | T10 |
+| `t13-word-card.png` | 单词学习卡片：固定布局（长单词缩字号，区域位置不变） | T13 |
+| `t7-listening-student.png` | 学生端听力题：题目上方的音频播放条 | T7 |
+| `t8-formula-admin.png` / `t8-formula-student.png` | 后台「插入公式」和学生端「公式」的 MathLive 虚拟键盘 | T8 |
+| `t11-admin-home.png` / `t11-admin-pending.png` | 统一主题后的后台首页和待审核题目页（菜单分组、红色数字角标） | T11 |
+| `t11-admin-drawer-mobile.png` | 手机宽度下后台侧栏抽屉 | T11 |
+
+> 截图说明：`t7` / `t8` / `t9` / `t10` / `t13` 是各任务完成时拍的，当时后台左侧菜单还是旧分组（T11 之后才改成现在的五组），不影响这些截图要说明的功能。
+
+## 需要 BOBO 处理的事项（汇总）
+
+完整列表见 `docs/pending-human-actions.md`。交付前最重要的几项：
+
+1. **真机**：手机视频播放（T1）、单词页 / 题目输入 / 听力 / 公式键盘 / 后台手机宽度（T6、T7、T8、T11、T13）。
+2. **用真实 Word / WPS 打开**错题导出的 `.docx`（T9）。
+3. **真实 AI Key** 联调 AI 配置中心（T2）；客户真实的 Word / Excel / 真题试卷各导一批（T3、T10）。
+4. **确认线上有没有配 `CDN_DOMAIN`**（T12：题目图片地址 1 小时过期问题）。
+5. 客户确认：定向下发即专属（T5）、问答题不自动判分（T6）、真题是否逐题审核（T10）、菜单分组（T11）。
+6. **发布**：按 `docs/release-steps.md`；标签由 BOBO 打。
