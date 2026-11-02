@@ -259,3 +259,17 @@ cd /www/xuexi-system && bash deploy/install.sh
 | `CDN_DOMAIN`                                                                                 | 可选。填 CDN 加速域名（如 `cdn.example.com`）后，视频/讲义的播放地址改为固定的 CDN 直链，才能被 CDN 缓存加速；不填则维持 OSS 签名直链（1 小时有效）。**启用时需把 OSS Bucket 设为公共读，并在 CDN 上配置 Referer 防盗链**                                                                                                |
 | `QINIU_ACCESS_KEY` / `QINIU_SECRET_KEY` / `QINIU_BUCKET` / `QINIU_DOMAIN`                    | 使用七牛云时必须配置。`QINIU_DOMAIN` 为空间绑定的外链域名（**测试域名 30 天回收，正式必须绑已备案域名**）；可选 `QINIU_PRIVATE=0` 切公开空间（默认私有签名 URL，**但签名链接每次都不同，会导致 CDN 缓存命中率极低、多花回源流量；绑了自定义加速域名后推荐用 `=0` 公开空间 + CDN Referer 防盗链 + 长缓存**），`QINIU_ZONE` 指定区域（z0 华东 / z1 华北 / z2 华南 / na0 北美） |
 | `QINIU_FOLDERS`                                                                              | 可选，七牛分流开关，默认 `videos`：只有视频上七牛，讲义等其他文件仍存服务器本地磁盘（适合「讲义留服务器、视频上云端」）；设为 `*` 则全部文件上七牛                                                                                                                                                                |
+| `BANK_BUCKET`                                                                                | 可选，默认空（题库资源与视频同一个 Bucket）。为将来把题库的图片 / 音频迁到独立 Bucket 预留，**当前版本只读取、不切换**，做法见下方「题库资源独立存储」 |
+
+### 题库资源独立存储（预留，未启用）
+
+题目的图片、音频、导入附件统一放在存储的 `bank/` 目录下（子目录 `img` 题目图、`audio` 听力音频、`recog` 录题页图、`paper` 导出试卷），**视频放 `videos/`**，两类资源只靠 key 前缀区分；视频和题目只通过「绑定」（`videos/:id/bind`）关联，删除视频只会把题目解绑，不会删题。
+
+所以将来想把题库资源迁到单独的 Bucket（例如换一个访问更快 / 更便宜的存储），不需要改数据库，步骤是：
+
+1. 在新 Bucket 里建好同名的 `bank/` 目录，用 `ossutil cp -r` 把旧 Bucket 的 `bank/` 整个拷过去（key 不变）。
+2. 设置环境变量 `BANK_BUCKET=<新 Bucket 名>`。`src/storage.js` 的 `bucketFor(key)` 会对 `bank/` 开头的 key 返回它、其它 key 返回空（默认桶）。
+3. 在 `storage.js` 的 `saveFile` / `getUrlSync` / `deleteFile` 里按 `bucketFor(key)` 选择对应的 OSS client（再 new 一个指向新 Bucket 的 client）。**这一步目前没有实现**，因为现在题库和视频在同一个 Bucket，没有切换的需要。
+
+> 注意：题目的图片地址是录入时生成并存进题目里的（OSS 无 CDN 时是 1 小时有效的签名链接）。迁移或拆桶前，先看 `docs/pending-human-actions.md` 里「题目图片地址有效期」一条。
+

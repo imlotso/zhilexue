@@ -70,6 +70,8 @@ jobs:
         if: ${{ !cancelled() }}   # 听力题（T7）：音频上传 / TTS → 题目带音频 → 待审核补音频 → 学生端播放并作答
       - run: node formula-test.js
         if: ${{ !cancelled() }}   # 公式输入（T8）：本地 MathLive、题目存 \( … \)、学生用公式键盘作答判分、有浏览器时点一遍
+      - run: node bankstore-test.js
+        if: ${{ !cancelled() }}   # 题库与视频存储解耦（T12）：bank/ 前缀、BANK_BUCKET 口子、删视频不删题
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4

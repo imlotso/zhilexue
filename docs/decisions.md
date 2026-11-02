@@ -178,3 +178,12 @@
 - 虚拟键盘：`math-virtual-keyboard-policy="manual"`，弹出框打开后自己 `show()`，不依赖"是不是触屏设备"（桌面浏览器也能点键盘输入）；关闭框时 `hide()`。`--keyboard-zindex` 调到 7000，高于弹窗遮罩（6000）。
 - 图片粘贴 / 拖拽：沿用已有的 `POST /mf/asset`（存 `bank/`），沿用 `[图N]` 约定，在光标处插入；后台录题 / 编辑 / 待审核编辑三处共用 `formulaui.js` 的 `t8Enhance`。
 - 没做：公式等价判定（按任务书）；学生端手写公式识别；题干预览（保存后在学生端看渲染，后台现有的"公式面板"和预览不动）。
+
+## D26 题库与视频存储：只做逻辑解耦（key 前缀 + 绑定关系），不拆库、不拆桶（2026-11-02）
+
+- 决定：按任务书"逻辑解耦，不拆数据库"。核对后发现题库资源早就统一走 `bankFolder()`（默认 `bank/`：`img` 题目图、`audio` 听力音频、`recog` 录题页图、`paper` 导出试卷），视频走 `videos/`，题目与视频只通过 `questions.video_id` 关联——**这次没有搬任何文件、没有改任何已有 key**，只补了缺的三件事：
+  1. `storage.js` 加可选 `BANK_BUCKET`（缺省空 = 同桶）和纯函数 `isBankKey` / `bucketFor(key)`：对 `bank/` 开头的 key 返回 `BANK_BUCKET`，其余返回空串。**只读取、不切换**——真要拆桶，在 `saveFile / getUrlSync / deleteFile` 里按它选 OSS client，步骤写在 README「题库资源独立存储」。不现在实现是因为没有第二个 Bucket 可测，写出来的多桶代码没法验证。
+  2. 单个删除视频时 `store.deleteFile` 失败（文件已经不在了）会让整个删除 500，题目也没解绑；改成和批量删除一致：忽略文件删除失败，继续删记录并解绑题目。
+  3. `bankstore-test.js`（进 CI）：新题的图片 / 音频 key 以 `bank/` 开头、视频以 `videos/` 开头、删除已绑题的视频后题目（含图片 / 音频文件）仍在且被解绑。
+- 保留了已有的 `settings.bank_folder`（后台「题库文件目录」，默认 `bank`）：它是改目录名的老功能，默认值就是 `bank/`，不删；音频白名单 `audioKeyOf` 也跟着它走。`wrong/`（错题重组的图片 / PDF）、`handouts/`、`phonics/`、`report/` 是别的模块的文件，不属于题库资源，没动。
+- 发现的问题（没改，记在 pending-human-actions）：题目的 `images` 里存的是**录入时生成的完整地址**，不是 key。本地存储时是 `/api/file?key=bank/…`（有登录票据另算，不会过期）；OSS 且没配 `CDN_DOMAIN` 时是 **1 小时有效的签名链接**，过期后题目图片会打不开。音频（D24）已经改成存 key，图片还没有。

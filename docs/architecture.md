@@ -4,7 +4,7 @@
 
 - 后端：Node.js + Express，入口 `src/app.js`，端口 3000（`PORT` 可改），生产用 pm2（`ecosystem.config.js`，单实例 fork）。
 - 数据库：MySQL（`src/config.local.js` 指向 `127.0.0.1:3306`，库名 `xuexi`）。`src/mysql-sync.js` 提供与 better-sqlite3 同接口的同步封装（查询在 `mysql-worker.js` 的独立线程里执行），业务代码不用 async。库为空时 `import-sqlite.js` 会从 `data/xuexi.db`（SQLite）导入旧数据。
-- 存储：`src/storage.js`，阿里云 OSS / 七牛 / 本地磁盘三选一（环境变量 `STORAGE_DRIVER`）。视频走前端分片直传 OSS（单个上限 4GB），可配 `CDN_DOMAIN`。`LOCAL_FOLDERS` 默认 `wrong,guidedocs` 留在本地。
+- 存储：`src/storage.js`，阿里云 OSS / 七牛 / 本地磁盘三选一（环境变量 `STORAGE_DRIVER`）。视频走前端分片直传 OSS（单个上限 4GB），可配 `CDN_DOMAIN`。`LOCAL_FOLDERS` 默认 `wrong,guidedocs` 留在本地。题库资源（题目图 / 听力音频 / 录题页图 / 导出试卷）统一在 `bank/` 目录，视频在 `videos/`，二者只靠 key 前缀和 `video_id` 绑定关系关联；可选 `BANK_BUCKET` 是将来拆桶的预留口子（T12，README 有做法）。
 - 前端：原生 JS，无构建。
 
 ## 数据库如何选择（MySQL / SQLite）
