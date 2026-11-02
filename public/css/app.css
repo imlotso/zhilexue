@@ -3910,3 +3910,72 @@ table .tag.blue{background:var(--brand-l);color:var(--brand)}
 .t10-search select{height:38px;border:1.5px solid var(--line,#e5e7eb);border-radius:10px;padding:0 10px;background:var(--card,#fff);font-size:13.5px}
 .t10-search .btn{height:38px;white-space:nowrap}
 .pk-lib .t10-search{padding:12px 16px 0;margin:0}.pk-lib .t10-search .t10-q{min-width:160px}
+
+/* ===== T13 学生端单词页固定布局 =====
+ * 目标：连续切换长单词 / 短单词、有无音标 / 例句、释义长短不同，页面各区域的位置都不动。
+ * 做法：学习卡片（.t13-card）固定高度；卡片里的「单词 / 音标 / 释义 / 选项 / 反馈」各占固定高度的区域，
+ *       放不下的文字由 t13-fit.js 缩小字号（只改显示，不碰 words.js 的逻辑）；没有音标时也空出那一行。
+ *       卡片高度跟着字号档位（大 / 中 / 小）走：--t13-word / --t13-mean 是单词和释义的字号，各区域高度都是它们的倍数。 */
+.t13-card{--t13-word:40px;--t13-mean:20px;--t13-fixed:130px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;overflow-x:hidden;overflow-y:auto;
+  /* 默认（单词速记 ① 抄写、④ 默写，及其它模式）：标签 + 单词 + 音标 + 释义 + 提示 */
+  height:calc(var(--t13-word)*1.25 + var(--t13-mean)*3.7 + var(--t13-fixed) + 110px)}
+body.wt-stage .t13-card{--t13-word:var(--fs-hero);--t13-mean:var(--fs-mean);--t13-fixed:150px}
+/* ② 记忆学习：多了「认识吗 / 倒计时 / 四个选项 / 反馈」 */
+.t13-card:has(#wqEn){height:calc(var(--t13-word)*1.25 + var(--t13-mean)*9.1 + var(--t13-fixed) + 100px)}
+/* ③ 听音拼选 / 听音选词：音标 + 释义贴纸 + 格子 + 音节块 + 倒计时 + 反馈 */
+.t13-card:has(.wq-ls-slots){height:calc(var(--t13-mean)*10.4 + var(--t13-fixed) + 50px)}
+.t13-card>*{flex:none;max-width:100%}
+.t13-card .wt-tag{align-self:center;margin-bottom:6px}
+/* 单词：一行，固定高度；太长由 t13-fit.js 缩字号 */
+.t13-card .wq-word{display:flex;align-items:center;justify-content:center;width:100%;height:calc(var(--t13-word)*1.25);white-space:nowrap;overflow:hidden;line-height:1.15}
+/* 音标：一行固定高度；没有音标时在单词下面空出同样高的位置（:has 不支持的老浏览器只是少了这个保险） */
+.t13-card .wq-phon{width:100%;height:calc(var(--t13-mean)*.9);line-height:calc(var(--t13-mean)*.9);margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.t13-card .wq-word:not(:has(+ .wq-phon)){margin-bottom:calc(var(--t13-mean)*.9)}
+/* 释义：固定两行半的高度，居中；太长缩字号 */
+.t13-card .wq-mean{display:flex;align-items:center;justify-content:center;width:100%;height:calc(var(--t13-mean)*2.5);margin:0;overflow:hidden;line-height:1.3;text-align:center}
+.t13-card .wq-ls-meanwrap{width:100%;height:calc(var(--t13-mean)*2.5);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.t13-card .wq-ls-meanwrap .wq-mean{height:100%;margin:0}
+.t13-card:has(.wq-read-tip):not(:has(.wq-mean)) .wq-read-tip{margin-top:calc(var(--t13-mean)*2.5)}
+.t13-card:has(.wq-ls-meanwrap):not(:has(.wq-phon)) .wq-ls-meanwrap{margin-top:calc(var(--t13-mean)*.9)}
+/* 记忆学习「先问认不认识」阶段释义是 .hide（display:none），之后才显示 → 释义出现时下面的内容被顶下去。这里让它占着位置、只是看不见 */
+.t13-card .wq-mean.hide{display:flex!important;visibility:hidden}
+/* 提示 / 题目文字 / 反馈：各占固定行高，出现或消失都不挤动别的区域 */
+.t13-card .wq-title{height:1.7em;line-height:1.7;margin:6px 0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;width:100%}
+.t13-card .wq-hint{height:1.5em;line-height:1.5;margin:6px 0;overflow:hidden;white-space:nowrap;width:100%}
+.t13-card .wq-read-tip{min-height:3.4em;margin:10px 0 0;width:100%}
+.t13-card .wq-feedback{min-height:calc(1.4em + 6px);margin-top:8px;width:100%}
+.t13-card .wq-cdline{height:calc(1.4em + 6px);margin:2px 0 6px;white-space:nowrap}
+/* 选项：2×2 固定行高，文字多时缩字号 */
+.t13-card .wt-options{width:100%;max-width:640px;grid-auto-rows:calc(var(--t13-mean)*2);margin:10px auto 0}
+.t13-card .wt-opt{display:flex;align-items:center;justify-content:center;overflow:hidden;line-height:1.25;padding:6px 10px;min-height:0}
+/* 听音拼选 / 听音选词：格子和音节块各占固定高度 */
+.t13-card .wq-ls-slots,.t13-card .wq-ls-tiles{min-height:calc(var(--t13-mean)*1.9);width:100%}
+/* 默写：输入框 */
+.t13-card .wt-input{width:100%;max-width:640px}
+/* 卡片下面的按钮区也留出固定高度（按钮有无都不顶动下方） */
+.t13-card + .wt-acts{min-height:56px}
+body.wt-stage.wt-fs-mid .t13-card{--t13-fixed:160px}
+body.wt-stage.wt-fs-small .t13-card{--t13-fixed:195px}
+/* 手机竖屏：舞台字号按屏宽缩小一档，学习卡片才放得下（字号档位仍可选） */
+@media (max-width:640px){
+  body.wt-stage{--fs-hero:56px;--fs-mean:30px;--fs-text:19px;--fs-tip:15px;--fs-btn:18px;--fs-input:24px}
+  body.wt-stage.wt-fs-mid{--fs-hero:44px;--fs-mean:24px;--fs-text:17px;--fs-tip:14px;--fs-btn:16px;--fs-input:20px}
+  body.wt-stage.wt-fs-small{--fs-hero:34px;--fs-mean:20px;--fs-text:15px;--fs-tip:13px;--fs-btn:15px;--fs-input:18px}
+  body.wt-stage .t13-card,body.wt-stage.wt-fs-mid .t13-card,body.wt-stage.wt-fs-small .t13-card{--t13-fixed:200px}
+  body.wt-stage .wt-root .wt-card.t13-card{padding:26px 14px 22px}
+}
+@media (max-width:640px){
+  .t13-card .wt-options{grid-template-columns:1fr 1fr;gap:8px}
+  .t13-card:has(#wqEn){--t13-fixed:250px}
+  .t13-card:has(.wq-ls-slots){--t13-fixed:250px}
+}
+@media (max-width:640px){
+  body.wt-stage .t13-card,body.wt-stage.wt-fs-mid .t13-card,body.wt-stage.wt-fs-small .t13-card{--t13-fixed:300px}
+  .t13-card:has(.wq-ls-slots) .wq-ls-tiles{min-height:calc(var(--t13-mean)*4.2)}
+}
+@media (max-width:640px){
+  body.wt-stage .t13-card,body.wt-stage.wt-fs-mid .t13-card,body.wt-stage.wt-fs-small .t13-card{--t13-fixed:325px}
+  body.wt-stage .t13-card:has(.wq-ls-slots),body.wt-stage.wt-fs-mid .t13-card:has(.wq-ls-slots),body.wt-stage.wt-fs-small .t13-card:has(.wq-ls-slots){--t13-fixed:390px}
+  .t13-card:has(.wq-ls-slots) .wq-ls-slots{min-height:calc(var(--t13-mean)*5.9)}
+}
+@media (max-width:640px){.t13-card:has(.wq-ls-slots) .wq-ls-tiles{min-height:calc(var(--t13-mean)*5.9)}}

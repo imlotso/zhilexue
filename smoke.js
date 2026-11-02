@@ -330,6 +330,11 @@ const fileForm = (fields, fileName, content) => {
     log(dxAdmin.status === 200, '后台导出某个学生的错题 Word 接口可用');
     const dxStu = await req(`/api/admin/bank/mistakes/export-docx?user_id=${stuId}`, { token: ST });
     log(dxStu._status === 403 || dxStu.code !== 0, '学生 token 不能调后台错题导出接口');
+    // T13：单词页固定布局的静态资源（卡片类名、缩字号脚本都要随页面一起发出去）
+    const idxHtml = await (await fetch(BASE + '/')).text();
+    const wordsJs = await (await fetch(BASE + '/js/words.js')).text();
+    const fitJs = await fetch(BASE + '/js/t13-fit.js');
+    log(/t13-fit\.js/.test(idxHtml) && fitJs.status === 200 && (wordsJs.match(/wt-card center[^"]*t13-card/g) || []).length >= 14, '单词页固定布局：学习卡片全部带 t13-card，t13-fit.js 已随页面加载', String((wordsJs.match(/t13-card/g) || []).length));
     // T10：试卷库搜索 + 年份
     const mfSearch = await req('/api/stu/bank/mfpapers?q=' + encodeURIComponent('不存在的关键字zzz') + '&year=2024&grade=' + encodeURIComponent('九年级'), { token: ST });
     log(mfSearch.code === 0 && Array.isArray(mfSearch.data) && mfSearch.data.length === 0, '学生端试卷库搜索接口可用（q / year / grade 参数）');
