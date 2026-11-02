@@ -1742,6 +1742,18 @@ stu.post('/practice/submit', (req, res) => {
     `本次共 ${answers.length} 题，答对 ${correct} 题`);
 });
 
+// 错题 Word 导出（T9）：把自己的错题导出成可编辑的 .docx；版式见 src/mistake-docx.js
+stu.get('/mistakes/export-docx', async (req, res) => {
+  try {
+    const me = db.prepare("SELECT id, name, username FROM users WHERE id=? AND role='student'").get(req.user.id);
+    if (!me) return res.status(403).json({ code: 403, msg: '仅学生账号可导出' });
+    await require('./mistake-docx').sendMistakeDocx(db, res, me, req.query);
+  } catch (e) {
+    console.error('[mistakes/export-docx]', (e && e.message) || e);
+    if (!res.headersSent) res.status(200).json({ code: 1, msg: '导出失败：' + ((e && e.message) || e) });
+  }
+});
+
 // 收藏/标记掌握（前端传 resolved=0 可恢复回错题本）
 stu.post('/mistakes/:qid/resolve', (req, res) => {
   const flag = Number((req.body || {}).resolved) === 0 ? 0 : 1;

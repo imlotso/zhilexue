@@ -578,6 +578,20 @@ admin.get('/accuracy', (req, res) => {
   ok(res, { student: { id: u.id, name: u.name, username: u.username, grade: u.grade || '', term: u.term || '' }, courses, acc: accuracy.sum(courses.map((c) => c.acc)) });
 });
 
+// 后台：导出某个学生的错题 Word（T9）。分校只能导出自己校区的学生
+admin.get('/mistakes/export-docx', async (req, res) => {
+  try {
+    const uid = Number(req.query.user_id) || 0;
+    const u = db.prepare("SELECT id, name, username, created_by FROM users WHERE id=? AND role='student'").get(uid);
+    if (!u) return fail(res, '学生不存在');
+    if (req.user.role === 'branch' && Number(u.created_by) !== Number(req.user.id)) return fail(res, '无权导出该学生的错题', 403);
+    await require('./mistake-docx').sendMistakeDocx(db, res, u, req.query);
+  } catch (e) {
+    console.error('[admin mistakes/export-docx]', (e && e.message) || e);
+    if (!res.headersSent) fail(res, '导出失败：' + ((e && e.message) || e));
+  }
+});
+
 // 某视频绑定的题目（含答案，管理端用）
 admin.get('/videos/:id/questions', (req, res) => {
   const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
@@ -792,42 +806,56 @@ function removeUploadQuestion(questionId) {
   db.prepare('DELETE FROM questions WHERE id=?').run(questionId);
 }
 
-/** AI 视觉识别上传的错题：识别学科/年级/知识点并转录题干，识别结果写回题目和上传记录（异步调用，失败静默） */
+/** AI 识别手机扫码上传的错题（T9）：复用错题重组的 `analyzeWrongQuestion`（wrong.js 的 analyze 同款），
+ * 识别学科 / 年级 / 知识点 / 题型 / 题干，自动分类后写回题目和上传记录；异步调用，失败静默。
+ * 上传时没选学科（所以还没建题）的，识别出学科后补建题目并放进该学生错题本，同样进「待审核题目」。 */
 const UP_MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.heic': 'image/heic', '.heif': 'image/heif' };
+const UP_SUBJECTS = ['数学', '英语', '物理', '化学'];
 async function aiRecognizeUpload(id) {
   const row = parseUp(db.prepare('SELECT * FROM paper_uploads WHERE id=?').get(id));
   if (!row || !Array.isArray(row.images) || !row.images.length) return;
   const imgPath = path.join(__dirname, '..', 'public', String(row.images[0]).replace(/^\//, ''));
   if (!fs.existsSync(imgPath)) return;
-  const { visionChat, extractJson, getConfig } = require('./ai');
-  const cfg = getConfig('vision');
+  const aiLib = require('./ai');
+  const cfg = aiLib.getConfig('vision');
   if (cfg.mock || !cfg.hasKey) return;
   const buf = fs.readFileSync(imgPath);
   const mime = UP_MIME[path.extname(imgPath).toLowerCase()] || 'image/jpeg';
-  const sys = '你是资深的 K12 教研标注员，擅长从照片中识别数学等学科的题目。只输出 JSON 本身，不要 markdown 代码块、不要任何解释。';
-  const user = `识别这张学生上传的错题照片${row.stem_text ? `（学生补充说明：${row.stem_text}）` : ''}，输出 JSON，字段如下：
-{"subject":"学科，只能是 数学/英语/物理/化学 之一，判断不出为空字符串","grade":"年级如 五年级，判断不出为空字符串","point":"考查的核心知识点，4~12个字，如 两位数乘一位数","stem":"题目文字，尽量完整转录题目内容（含数字和条件），转录不出为空字符串"}`;
-  const { text } = await visionChat({ system: sys, userText: user, images: [{ buf, mime }], timeoutMs: 120000, temperature: 0.2 });
-  const j = extractJson(text) || {};
-  const subj = ['数学', '英语', '物理', '化学'].includes(String(j.subject || '')) ? j.subject : '';
-  const grade = String(j.grade || '').trim().slice(0, 20);
-  let point = String(j.point || '').trim().slice(0, 50);
+  const hint = row.stem_text ? `学生补充说明：${row.stem_text}。请识别这道题。` : undefined;
+  const { info } = await aiLib.analyzeWrongQuestion({ buf, mime, hint });
+  const subj = UP_SUBJECTS.includes(String(info.subject || '')) ? info.subject : '';
+  const grade = String(info.grade || '').trim().slice(0, 20);
+  let point = String(info.knowledge || '').trim().slice(0, 50);
   if (/^(无|暂无|没|未|未知|无法|不能|不是)/.test(point)) point = '';   // AI 对非题目图片会硬凑，过滤垃圾值
-  const stem = String(j.stem || '').trim().slice(0, 300);
+  const stem = String(info.stem || '').trim().slice(0, 300);
+  const qtype = String(info.type || '').trim().slice(0, 20);
   if (!subj && !point && !stem) return;
-  // 更新题目：补学科/年级/知识点；题干为占位文字时换成 AI 转录的题干
+  const detail = qtype ? `AI识别题型：${qtype}` : '';
   if (row.question_id) {
+    // 更新题目：补学科/年级/知识点；题干为占位文字时换成 AI 转录的题干
     const q = db.prepare('SELECT subject, grade, stem FROM questions WHERE id=?').get(row.question_id);
     if (q) {
-      const newSubject = (q.subject && ['数学', '英语', '物理', '化学'].includes(q.subject)) ? q.subject : (subj || '');
+      const newSubject = (q.subject && UP_SUBJECTS.includes(q.subject)) ? q.subject : (subj || '');
       const newGrade = q.grade || grade;
       const newStem = (String(q.stem || '').includes('看图作答') || !String(q.stem || '').trim()) ? (stem || q.stem) : q.stem;
       db.prepare('UPDATE questions SET subject=?, grade=?, point=?, stem=? WHERE id=?')
         .run(newSubject, newGrade, point || String(row.point || ''), newStem, row.question_id);
+      if (detail) { try { db.prepare("UPDATE questions SET source_detail=? WHERE id=? AND IFNULL(source_detail,'')=''").run(detail, row.question_id); } catch (e) { /* 老库没有这一列 */ } }
     }
   }
   db.prepare("UPDATE paper_uploads SET subject=IF(?='',subject,?), grade=NULLIF(?,''), point=IF(?='',point,?) WHERE id=?")
     .run(subj, subj, grade, point, point, id);
+  // 上传时没选学科 → 当时没建题；现在识别出学科了，补建题目 + 进错题本（于是也会出现在「待审核题目」里）
+  if (!row.question_id && subj) {
+    const fresh = parseUp(db.prepare(`SELECT p.*, u.grade AS student_grade, u.stage AS student_stage
+      FROM paper_uploads p JOIN users u ON u.id=p.user_id WHERE p.id=?`).get(id));
+    if (fresh && !fresh.question_id) {
+      if (!String(fresh.stem_text || '').trim() && stem) fresh.stem_text = stem;
+      const qid = autoImportUpload(fresh);
+      db.prepare('UPDATE paper_uploads SET question_id=? WHERE id=?').run(qid, id);
+      if (detail) { try { db.prepare('UPDATE questions SET source_detail=? WHERE id=?').run(detail, qid); } catch (e) { /* 老库没有这一列 */ } }
+    }
+  }
 }
 
 admin.get('/uploads', (req, res) => {
@@ -1504,4 +1532,4 @@ up.get('/mine', upAuth, (req, res) => {
   okUp(res, { list: rows });
 });
 
-module.exports = { admin, stu, up, judgeQ };
+module.exports = { admin, stu, up, judgeQ, aiRecognizeUpload };

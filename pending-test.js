@@ -168,10 +168,10 @@ function buildDocx(paras) {
     '各来源计数：Excel 5 / Word 18 / 技能包 2 / 拍照识别 3 / 采集 3 / 手机扫码 1', JSON.stringify(cnt));
   log(cnt.all === Object.values({ a: cnt.photo, b: cnt.word, c: cnt.excel, d: cnt.skill, e: cnt.capture, f: cnt.scan }).reduce((a, b) => a + b, 0), '「全部」= 各来源之和');
   const labels = new Set(d.list.map((x) => x.source_label));
-  log(['拍照识别', 'Word导入', 'Excel导入', '技能包', '网络采集', '手机扫码'].every((l) => labels.has(l)), '同一个列表里同时出现 6 种来源标签', [...labels].join('/'));
+  log(['拍照识别', 'Word导入', 'Excel导入', '技能包', '网络采集', '手机扫码（错题）'].every((l) => labels.has(l)), '同一个列表里同时出现 6 种来源标签', [...labels].join('/'));
   const onlyScan = await pend('&source=scan');
   const sc = onlyScan.list.find((x) => x.qid === qScan);
-  log(!!sc && sc.source_label === '手机扫码' && sc.images[0] === '/pu/t3.jpg' && onlyScan.list.every((x) => x.source === 'scan'), '按来源筛选「手机扫码」，带学生上传的图片', sc && sc.batch_title);
+  log(!!sc && sc.source_label === '手机扫码（错题）' && sc.images[0] === '/pu/t3.jpg' && onlyScan.list.every((x) => x.source === 'scan'), '按来源筛选「手机扫码」，带学生上传的图片', sc && sc.batch_title);
   const kw = await pend('&kw=' + encodeURIComponent('T3拍照二' + uniq));
   log(kw.total === 1 && kw.list[0].source === 'photo', '关键词搜索题干', 'total=' + kw.total);
   const pg = await req(`${MF}/ext/pending?size=5&page=2`, { token: AT });

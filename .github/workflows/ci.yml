@@ -61,6 +61,8 @@ jobs:
         if: ${{ !cancelled() }}   # 课文习题（T6）：视频 / 小分组正确率、学习报告、后台按学生查看
       - run: node aiclient-test.js
         if: ${{ !cancelled() }}   # AI 配置中心（T2）：三种格式的模拟服务，不调真实 AI
+      - run: node mistake-test.js
+        if: ${{ !cancelled() }}   # 错题本 Word 导出 + 手机扫码错题 AI 识别（T9）
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4

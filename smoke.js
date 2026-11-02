@@ -321,6 +321,15 @@ const fileForm = (fields, fileName, content) => {
     log(aiPut.code !== 0 && /AI 配置中心/.test(aiPut.msg || ''), 'AI：旧的 PUT /ai/config 已停用，提示去 AI 配置中心', aiPut.msg);
     const aiDraft = await req('/api/admin/bank/mf/ext/profiles/test-draft', { method: 'POST', token: AT, body: { role: 'reasoning', format: 'openai', base_url: 'http://127.0.0.1:1/v1', model: 'm', api_key: 'k' } });
     log(aiDraft.code !== 0 && /测试失败/.test(aiDraft.msg || '') && /127\.0\.0\.1:1/.test(aiDraft.msg || ''), 'AI：测试连接对错误地址给出明确报错', aiDraft.msg);
+    // T9：错题 Word 导出（有错题 → 返回 docx；没有 → 返回明确提示，不是空文件）
+    const dx = await fetch(BASE + '/api/stu/mistakes/export-docx', { headers: { Authorization: 'Bearer ' + ST } });
+    const dxCt = dx.headers.get('content-type') || '';
+    const dxOk = dxCt.includes('wordprocessingml') ? (Buffer.from(await dx.arrayBuffer()).slice(0, 2).toString() === 'PK') : (/没有符合条件/.test((await dx.json()).msg || ''));
+    log(dx.status === 200 && dxOk, '错题 Word 导出：有错题返回 .docx（PK 包），没有错题给明确提示', dxCt);
+    const dxAdmin = await fetch(BASE + `/api/admin/bank/mistakes/export-docx?user_id=${stuId}`, { headers: { Authorization: 'Bearer ' + AT } });
+    log(dxAdmin.status === 200, '后台导出某个学生的错题 Word 接口可用');
+    const dxStu = await req(`/api/admin/bank/mistakes/export-docx?user_id=${stuId}`, { token: ST });
+    log(dxStu._status === 403 || dxStu.code !== 0, '学生 token 不能调后台错题导出接口');
     const l0 = (d.lessons || [])[0] || {};
     log(!!l0.handout && l0.handout.id === handoutId, '一个视频对应一个讲义（同一个框）', l0.handout ? l0.handout.title : '未配对');
     log(!!l0.handout && l0.handout.file_name === cnName, '知识点里带回讲义文件名', l0.handout ? l0.handout.file_name : '');
