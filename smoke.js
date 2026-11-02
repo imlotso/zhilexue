@@ -257,12 +257,14 @@ const fileForm = (fields, fileName, content) => {
 
   // ---------- 分校流程 ----------
   console.log('\n【分校】');
-  const br = await req('/api/admin/branches', { method: 'POST', token: AT, body: { name: '自测分校' + uniq, username: 'BR' + uniq, password: '123456' } });
+  // 分校登录账号必须是 11 位手机号（后端 app.js 与后台表单都校验 ^1\d{10}$）；uniq 为 8 位数字，前面补 139
+  const brPhone = '139' + uniq;
+  const br = await req('/api/admin/branches', { method: 'POST', token: AT, body: { name: '自测分校' + uniq, username: brPhone, password: '123456' } });
   log(br.code === 0, '校长开通分校', br.msg);
   const brId = br.data && br.data.id;
   const brList = await req('/api/admin/branches', { token: AT });
   log(brList.code === 0 && brList.data.some((x) => x.id === brId), '分校列表可见');
-  const brLogin = await req('/api/login', { method: 'POST', body: { username: 'BR' + uniq, password: '123456', role: 'admin' } });
+  const brLogin = await req('/api/login', { method: 'POST', body: { username: brPhone, password: '123456', role: 'admin' } });
   log(brLogin.code === 0, '分校账号登录后台', brLogin.msg);
   const BT = brLogin.data && brLogin.data.token;
   const brStu = await req('/api/admin/students', { method: 'POST', token: BT, body: { name: '分校学生' + uniq, username: 'BS' + uniq, grade: '七年级', expire_at: '2027-12-31' } });
