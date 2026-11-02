@@ -328,7 +328,8 @@ async function deleteFile(key) {
 }
 
 /** 生成可直接下载/播放的 URL（本地为后端代理地址，OSS/七牛为签名 URL，配了 CDN 则为 CDN 直链） */
-async function getUrl(key, downloadName) {
+/** 同步版：getUrl 里其实没有任何异步操作（签名 / 拼地址都是同步的），列表接口要给每道题带音频地址时用它 */
+function getUrlSync(key, downloadName) {
   if (!key) return '';
   if (qiniuCovers(key)) {
     let base = `https://${qiniuCtx.domain}/${encodeURI(key)}`;
@@ -365,6 +366,7 @@ async function getUrl(key, downloadName) {
   if (downloadName) q.set('name', downloadName);
   return `/api/file?${q.toString()}`;
 }
+async function getUrl(key, downloadName) { return getUrlSync(key, downloadName); }
 
 function isOss() { return !!ossClient; }
 function isQiniu() { return !!qiniuCtx; }
@@ -394,7 +396,7 @@ function isCloudKey(key) {
 }
 
 module.exports = {
-  saveFile, deleteFile, getUrl, localPath, readBuffer,
+  saveFile, deleteFile, getUrl, getUrlSync, localPath, readBuffer,
   isOss, isQiniu, isCloudKey, usingCdn, driverName, getQiniuDomain,
   isVideoKey, initVideoUpload, signVideoPart, completeVideoUpload, abortVideoUpload, videoExists,
   DRIVER, CDN_DOMAIN, QINIU_FOLDERS, LOCAL_FOLDERS,

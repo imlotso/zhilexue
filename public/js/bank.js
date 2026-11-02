@@ -90,6 +90,28 @@ function stemImagesHTML(q) {
   const rest = imgs.map((s, i) => (used.has(i) ? '' : `<img class="qz-img" src="${esc(s)}" alt="题目图片" loading="lazy">`)).join('');
   return { stem, rest: rest ? `<div class="qz-imgs">${rest}</div>` : '' };
 }
+/** 听力题的音频播放条（T7）。<audio> 是浏览器自己发请求、带不了登录头，本地存储的地址（/api/file?key=…）要把票据拼在 URL 上；云存储的签名外链原样用 */
+function quizAudioSrc(u) {
+  const s = String(u || '');
+  if (!s) return '';
+  if (s.startsWith('/api/file?') && !/[?&]token=/.test(s) && typeof Auth !== 'undefined' && Auth.token) return s + '&token=' + encodeURIComponent(Auth.token);
+  return s;
+}
+function quizAudioHTML(q) {
+  if (!q || !q.audio_url) return '';
+  return `<div class="t7-audio"><div class="t7-audio-t">🎧 先听音频，再作答（可以反复听）</div>
+    <audio controls playsinline preload="none" src="${esc(quizAudioSrc(q.audio_url))}"></audio>
+    <div class="t7-audio-err" hidden>音频没能加载，请检查网络后<a href="javascript:;" data-t7retry>点这里重试</a>；一直不行就告诉老师。</div></div>`;
+}
+function bindQuizAudio(root) {
+  (root || document).querySelectorAll('.t7-audio audio').forEach((a) => {
+    const box = a.closest('.t7-audio'); const err = box.querySelector('.t7-audio-err');
+    a.addEventListener('error', () => { err.hidden = false; });
+    a.addEventListener('playing', () => { err.hidden = true; });
+    const r = box.querySelector('[data-t7retry]');
+    if (r) r.onclick = () => { err.hidden = true; const src = a.getAttribute('src'); a.pause(); a.removeAttribute('src'); a.load(); a.setAttribute('src', src); a.load(); a.play().catch(() => {}); };
+  });
+}
 function bindImageZoom(root) {
   (root || document).querySelectorAll('.qz-img').forEach((im) => {
     im.onclick = () => {
@@ -437,6 +459,7 @@ const BankQuiz = {
         <div class="qz-rq-h"><span class="qz-rstate">${ung ? '✎ 对照参考答案（不计分）' : okk ? '✓ 回答正确' : '✗ 回答错误'}</span>
           <span class="qz-rtag">${QT_NAME[q.type] || '题目'}</span>${q.point ? `<span class="qz-rpoint">${esc(q.point)}</span>` : ''}
           <span class="qz-raqno">#${String(q.id).padStart(5, '0')}</span></div>
+        ${quizAudioHTML(q)}
         ${q.material ? `<div class="qz-material folded"><div class="qz-mat-t">查看原文</div><pre class="qz-mat-b">${esc(q.material)}</pre></div>` : ''}
         <div class="qz-stem"><b>${si.stem}</b></div>
         ${si.rest}
@@ -509,7 +532,7 @@ const BankQuiz = {
         });
         dotsEl.style.display = 'none';
         renderDots();
-        bindImageZoom(bodyEl);
+        bindImageZoom(bodyEl); bindQuizAudio(bodyEl);
         if (window.mtxTypeset) mtxTypeset(bodyEl);   // 题干/解析里的 LaTeX 排版
         return;
       }
@@ -522,6 +545,7 @@ const BankQuiz = {
           <span class="qz-qtype">${QT_NAME[q.type] || ''}</span>
           ${q.type === 'multi' ? '<span class="qz-qtip">可多选</span>' : ''}
           <span class="qz-raqno" title="题目编号">#${String(q.id).padStart(5, '0')}</span></div>
+        ${quizAudioHTML(q)}
         ${q.material ? `<div class="qz-material"><div class="qz-mat-t">原文材料</div><pre class="qz-mat-b">${esc(q.material)}</pre></div>` : ''}
         <div class="qz-stem"><b>${si.stem}</b></div>
         ${si.rest}
@@ -529,6 +553,7 @@ const BankQuiz = {
         ${ck ? stepJudgeHTML(q, ck) : ''}`;
       bindOptionEvents(q);
       bindImageZoom(bodyEl);
+      bindQuizAudio(bodyEl);
       if (window.mtxTypeset) mtxTypeset(bodyEl);   // 题干/选项里的 LaTeX 排版
       bodyEl.querySelectorAll('.qz-material').forEach((m) => {
         m.querySelector('.qz-mat-t').onclick = () => m.classList.toggle('folded');
@@ -914,7 +939,7 @@ const BankPages = {
       BankQuiz.open({
         title, subtitle: subtitle || '答对的题自动移出错题本',
         questions: list.map((m) => ({
-          id: m.question_id, type: m.type, stem: m.stem, material: m.material || '', options: m.options || [], images: m.images || [], point: m.point || '',
+          id: m.question_id, type: m.type, stem: m.stem, material: m.material || '', options: m.options || [], images: m.images || [], point: m.point || '', audio_url: m.audio_url || '',
           blanks: m.type === 'fill' ? String(m.answer || '').replace(/\|\|\|/g, '\u0001').split('|').length : 0,
         })),
         submit: (answers, duration) => api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'redo', answers, duration } }),
@@ -934,6 +959,7 @@ const BankPages = {
           <span class="bm-time">${esc(String(m.updated_at || '').slice(0, 16))}</span>
         </div>
         ${m.material ? `<div class="qz-material folded"><div class="qz-mat-t">查看原文</div><pre class="qz-mat-b">${esc(m.material)}</pre></div>` : ''}
+        ${quizAudioHTML(m)}
         <div class="bm-stem">${esc(m.stem)}</div>
         ${quizImagesHTML(m)}
         ${Array.isArray(m.options) && m.options.length && m.type !== 'fill' && m.type !== 'sort'
@@ -950,6 +976,7 @@ const BankPages = {
     const bindMistCards = (root, arr) => {
       root.querySelectorAll('.qz-material').forEach((m) => { m.querySelector('.qz-mat-t').onclick = () => m.classList.toggle('folded'); });
       bindImageZoom(root);
+      bindQuizAudio(root);
       if (window.mtxTypeset) mtxTypeset(root);
       root.querySelectorAll('[data-redo]').forEach((b) => b.onclick = () => {
         const hit = arr.find((m) => m.question_id === Number(b.dataset.redo));

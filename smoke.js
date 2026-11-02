@@ -330,6 +330,13 @@ const fileForm = (fields, fileName, content) => {
     log(dxAdmin.status === 200, '后台导出某个学生的错题 Word 接口可用');
     const dxStu = await req(`/api/admin/bank/mistakes/export-docx?user_id=${stuId}`, { token: ST });
     log(dxStu._status === 403 || dxStu.code !== 0, '学生 token 不能调后台错题导出接口');
+    // T7：听力题音频接口
+    const audNoFile = await req('/api/admin/bank/mf/audio/upload', { method: 'POST', token: AT });
+    log(audNoFile.code !== 0 && /请选择/.test(audNoFile.msg || ''), '听力题：后台上传音频接口，没选文件给出提示', audNoFile.msg);
+    const audTtsEmpty = await req('/api/admin/bank/mf/audio/tts', { method: 'POST', token: AT, body: { text: '' } });
+    log(audTtsEmpty.code !== 0 && /请先填写/.test(audTtsEmpty.msg || ''), '听力题：文字生成朗读接口，没填文字给出提示', audTtsEmpty.msg);
+    const audStu = await req('/api/admin/bank/mf/audio/tts', { method: 'POST', token: ST, body: { text: 'hi' } });
+    log(audStu._status === 403 || audStu.code !== 0, '听力题：学生 token 不能调音频接口');
     // T13：单词页固定布局的静态资源（卡片类名、缩字号脚本都要随页面一起发出去）
     const idxHtml = await (await fetch(BASE + '/')).text();
     const wordsJs = await (await fetch(BASE + '/js/words.js')).text();

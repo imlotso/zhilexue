@@ -23,6 +23,9 @@ module.exports = function mountPending(d) {
   const { admin, db, ok, fail, now, int, parseArr, parseObj, jstr, TYPE_MAP, TYPES, commitRunCards, commitCaptureItems, store, bankFolder } = d;
   const upFile = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024 } });
   const str = (v) => (v == null ? '' : String(v));
+  // 听力音频（T7）：只认题库音频目录下的 key；条目里同时带 audio_key（存什么）和 audio_url（给后台播放预览）
+  const audioKeyOf = (v) => { const k = str(v).trim(); return k && k.startsWith(bankFolder() + '/audio/') && !k.includes('..') ? k.slice(0, 255) : ''; };
+  const audioFields = (key) => ({ audio_key: str(key), audio_url: key ? store.getUrlSync(key) : '' });
   // id 里带题干指纹：待审核项按"批次+序号"定位，别人删过/改过之后序号会变，旧页面上的 id 可能指向另一道题。
   // 操作前核对指纹，对不上就拒绝，避免把别的题入库/删掉。
   const fpOf = (stem) => crypto.createHash('md5').update(str(stem).trim()).digest('hex').slice(0, 8);
@@ -45,6 +48,7 @@ module.exports = function mountPending(d) {
       answer: str(q ? q.answer : c.answer), analysis: str(q ? q.analysis : c.analysis),
       point: str(c.point || (q && q.point)), difficulty: int(c.difficulty || (q && q.difficulty), 0), chapter_id: int(c.chapter_id, 0),
       tags: Array.isArray(c.suggestedTags) ? c.suggestedTags : [], images, created_at: str(run.created_at),
+      ...audioFields(c.audio_key),
     };
   }
   function runItems() {
@@ -72,6 +76,7 @@ module.exports = function mountPending(d) {
           stem: str(q.stem || q.stemHtml), material: '', options, answer: str(q.answer), analysis: str(q.analysis),
           point: str(q.point || ((q.meta && q.meta.knowledgePoints) || []).join('、')), difficulty: int(q.difficulty, 0), chapter_id: 0,
           tags: [], images: Array.isArray(q.images) ? q.images : [], created_at: str(b.created_at),
+          ...audioFields(q.audio_key),
         });
       });
     });
@@ -80,7 +85,7 @@ module.exports = function mountPending(d) {
   function scanItems() {
     const rows = db.prepare(`SELECT pu.id AS up_id, pu.status AS up_status, pu.images AS up_images, pu.point AS pu_point, pu.subject AS pu_subject, pu.stage AS pu_stage,
         pu.grade AS pu_grade, pu.created_at AS up_created, pu.stem_text AS up_stem_text, pu.note AS up_note,
-        q.id AS qid, q.stem, q.options, q.answer, q.analysis, q.type, q.difficulty, q.point, q.images AS q_images, q.material,
+        q.id AS qid, q.stem, q.options, q.answer, q.analysis, q.type, q.difficulty, q.point, q.images AS q_images, q.material, q.audio_key,
         u.name AS student_name
       FROM paper_uploads pu JOIN questions q ON q.id=pu.question_id JOIN users u ON u.id=pu.user_id
       WHERE pu.status IN ('pending','reviewed') AND pu.question_id>0 ORDER BY pu.created_at DESC, pu.id DESC`).all();
@@ -94,6 +99,7 @@ module.exports = function mountPending(d) {
         type: str(r.type) || 'single', type_name: TYPE_NAME[r.type] || '题目', stem: str(r.stem), material: str(r.material), options: opts,
         answer: str(r.answer), analysis: str(r.analysis), point: str(r.pu_point || r.point), difficulty: int(r.difficulty, 0), chapter_id: 0,
         tags: [], images: [...new Set([...ups, ...qimgs])], created_at: str(r.up_created),
+        ...audioFields(r.audio_key),
       };
     });
   }
@@ -174,6 +180,7 @@ module.exports = function mountPending(d) {
       if (has('difficulty')) { const v = Math.min(5, Math.max(1, int(patch.difficulty, 3))); if (q) q.difficulty = v; c.difficulty = v; }
       ['point', 'material', 'subject', 'stage', 'grade'].forEach((k) => { if (has(k)) c[k] = str(patch[k]).trim(); });
       if (has('chapter_id')) c.chapter_id = int(patch.chapter_id, 0);
+      if (has('audio_key')) c.audio_key = audioKeyOf(patch.audio_key);
       if (has('tags')) c.suggestedTags = (Array.isArray(patch.tags) ? patch.tags : []).map((t) => str(t).trim()).filter(Boolean);
       db.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=?').run(jstr(cards), run.id);
       return ok(res, cardToItem(run, c, p.index), '已保存');
@@ -193,6 +200,7 @@ module.exports = function mountPending(d) {
       if (has('difficulty')) q.difficulty = Math.min(5, Math.max(1, int(patch.difficulty, 3)));
       if (has('point')) { q.point = str(patch.point).trim(); q.meta = q.meta || {}; q.meta.knowledgePoints = q.point ? q.point.split(/[、,，]/).map((t) => t.trim()).filter(Boolean) : []; }
       ['subject', 'stage', 'grade'].forEach((k) => { if (has(k)) q[k] = str(patch[k]).trim(); });
+      if (has('audio_key')) q.audio_key = audioKeyOf(patch.audio_key);
       db.prepare('UPDATE mf_capture_batches SET payload=? WHERE id=?').run(jstr(items), bt.id);
       return ok(res, capItems().find((x) => x.batch_id === p.batch && x.index === p.index) || null, '已保存');
     }
@@ -207,6 +215,7 @@ module.exports = function mountPending(d) {
     if (opts) { sets.push('options=?'); args.push(jstr(opts)); }
     if (type) { sets.push('type=?'); args.push(type); }
     if (has('difficulty')) { sets.push('difficulty=?'); args.push(Math.min(5, Math.max(1, int(patch.difficulty, 3)))); }
+    if (has('audio_key')) { sets.push('audio_key=?'); args.push(audioKeyOf(patch.audio_key)); }
     ['point', 'subject', 'stage', 'grade'].forEach((k) => { if (has(k)) { sets.push(`${k}=?`); args.push(str(patch[k]).trim()); } });
     if (sets.length) db.prepare(`UPDATE questions SET ${sets.join(', ')} WHERE id=?`).run(...args, up.question_id);
     ['point', 'subject', 'stage', 'grade'].forEach((k) => { if (has(k)) db.prepare(`UPDATE paper_uploads SET ${k}=? WHERE id=?`).run(str(patch[k]).trim(), up.id); });

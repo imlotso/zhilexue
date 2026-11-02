@@ -849,6 +849,8 @@ try { db.exec('ALTER TABLE mf_capture_batches ADD COLUMN paper_mode INTEGER DEFA
 
 // 试卷库发布标记：mf 试卷管理里的卷子勾了 published 才进学生端「试卷库」
 try { db.exec('ALTER TABLE mf_papers ADD COLUMN published INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ }
+// T7：听力题——题目挂一段音频（存储 key，目录前缀 bank/audio/；题型不新增，在现有题型上附加听力材料）
+try { db.exec("ALTER TABLE questions ADD COLUMN audio_key VARCHAR(255) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 // T10：真题试卷的年份（学生端试卷库按名称 / 学科 / 年级 / 年份搜索）
 try { db.exec("ALTER TABLE mf_papers ADD COLUMN year VARCHAR(8) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 

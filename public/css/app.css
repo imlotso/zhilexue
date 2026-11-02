@@ -3979,3 +3979,15 @@ body.wt-stage.wt-fs-small .t13-card{--t13-fixed:195px}
   .t13-card:has(.wq-ls-slots) .wq-ls-slots{min-height:calc(var(--t13-mean)*5.9)}
 }
 @media (max-width:640px){.t13-card:has(.wq-ls-slots) .wq-ls-tiles{min-height:calc(var(--t13-mean)*5.9)}}
+
+/* ===== T7 听力题：题目上方的音频播放条 ===== */
+.t7-audio{margin:6px 0 12px;padding:10px 14px;border:1.5px solid #cfe0ff;border-radius:14px;background:linear-gradient(180deg,#f4f8ff,#eef4ff)}
+.t7-audio-t{font-size:13px;font-weight:700;color:#2f4f8f;margin-bottom:6px}
+.t7-audio audio{display:block;width:100%;height:44px}
+.t7-audio-err{margin-top:6px;font-size:13px;color:#d93025}
+.t7-audio-err a{color:#2f6bff;margin:0 2px}
+/* 后台：题目编辑里的听力音频区 */
+.t7-adm{margin:8px 0;padding:10px 12px;border:1px dashed #b9c8e6;border-radius:10px;background:#f8faff}
+.t7-adm-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.t7-adm audio{width:100%;max-width:420px;height:38px;margin-top:6px}
+.t7-adm .t7-name{font-size:13px;color:#34527f}

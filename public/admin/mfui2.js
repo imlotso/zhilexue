@@ -458,6 +458,7 @@ async function mfQEdit(id, done) {
   const curNodes = q.nodes || [];
   const pickTree = (list) => list.find((t) => t.subject === q.subject && t.stage === q.stage) || list[0] || null;
   const defC = pickTree(chapTrees); const defK = pickTree(knowTrees);
+  let aud = null;   // 听力音频字段（T7）
   modal({
     title: `编辑题目 #${q.id}`, wide: true, okText: '保存',
     body: `<div class="mf-form" style="flex-direction:column;align-items:stretch">
@@ -473,6 +474,7 @@ async function mfQEdit(id, done) {
         <div class="field wide"><label>答案</label><textarea id="qeAns" class="inp" rows="2">${esc(q.answer || '')}</textarea></div>
         <div class="field wide"><label>解析</label><textarea id="qeAna" class="inp" rows="2">${esc(q.analysis || '')}</textarea></div>
       </div>
+      <div id="qeAudio"></div>
       <div class="field wide"><label>挂载分类 *（章节分类 + 知识点分类，两边都至少勾一项）</label>
         <div class="mf-grid2">
           <div><select id="qeCTree" class="inp">${chapTrees.length ? chapTrees.map((t) => `<option value="${t.id}" ${defC && t.id === defC.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('') : '<option value="">（暂无章节树）</option>'}</select>
@@ -482,6 +484,7 @@ async function mfQEdit(id, done) {
         </div></div>
     </div>`,
     onMount: (w) => {
+      aud = t7AudioWidget(w.querySelector('#qeAudio'), { key: q.audio_key, url: q.audio_url });
       const loadNodes = async (selId, boxId, cls) => {
         const tid = w.querySelector('#' + selId).value;
         if (!tid) { w.querySelector('#' + boxId).innerHTML = '<span class="hint">暂无可用分类树</span>'; return; }
@@ -512,6 +515,7 @@ async function mfQEdit(id, done) {
         answer: w.querySelector('#qeAns').value, analysis: w.querySelector('#qeAna').value,
         grade: q.grade || '', point: q.point || '', material: q.material || '', source: q.source || '',
         year: q.year || '', images: q.images || [], tags: q.tags || [],
+        audio_key: aud ? aud.get() : (q.audio_key || ''),
         source_type: q.source_type || 'local', source_detail: q.source_detail || {},
         nodes: [...new Set([...chapIds, ...knowIds])],
       };
@@ -1224,6 +1228,7 @@ function mfImportDialog(done) {
 
 /** 新建题目（章节分类 + 知识点分类 + AI 归属建议 + 公式计算器） */
 async function mfNewQDialog(done) {
+  let nqAud = null;   // 听力音频字段（T7）
   const imgs = []; const tags = []; const katChips = []; // 知识点归属 chips {id,name}
   const secSel = []; // 章节小知识点选中 ids
   let dStage = 'primary'; let dSub = '数学';
@@ -1285,6 +1290,7 @@ async function mfNewQDialog(done) {
       </div>
       <div id="nqAnsWrap" style="display:none;margin-bottom:8px"><textarea id="nqAns" class="inp" rows="3" style="width:100%" placeholder="答案，支持公式；留空则入库为「缺答案」"></textarea></div>
       <div id="nqAnaWrap" style="display:none;margin-bottom:8px"><textarea id="nqAna" class="inp" rows="3" style="width:100%" placeholder="解析"></textarea></div>
+      <div id="nqAudio"></div>
       <div class="field"><label>普通标签（与知识点分开）</label>
         <div style="display:flex;gap:8px"><input id="nqTagInp" class="inp" style="flex:1" placeholder="输入标签后回车或添加">
         <button class="btn ghost xs" id="nqTagAdd">添加标签</button></div>
@@ -1310,12 +1316,14 @@ async function mfNewQDialog(done) {
         analysis: w.querySelector('#nqAna').value.trim(),
         options: [],
         images: imgs,
+        audio_key: nqAud ? nqAud.get() : '',
         tags,
         nodes: nodeIds,
       } });
       toast('题目已入库', 'ok'); if (typeof done === 'function') done();
     },
     onMount: (w) => {
+      nqAud = t7AudioWidget(w.querySelector('#nqAudio'), {});
       const ta = w.querySelector('#nqStem');
       const renderTags = () => { w.querySelector('#nqTags').innerHTML = tags.map((t, i) => `<span class="mf-pitem">${esc(t)}<a href="javascript:;" data-ti="${i}">✕</a></span>`).join(''); };
       const renderImgs = () => { w.querySelector('#nqImgs').innerHTML = imgs.map((u, i) => `<span style="position:relative;display:inline-block"><img src="${esc(u)}" style="height:44px;border-radius:6px;border:1px solid #e5e7eb"><a href="javascript:;" data-ii="${i}" style="position:absolute;top:-6px;right:-6px;background:#dc2626;color:#fff;border-radius:50%;width:16px;height:16px;font-size:11px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none">✕</a></span>`).join(''); };
