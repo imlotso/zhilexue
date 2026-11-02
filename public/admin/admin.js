@@ -10,6 +10,7 @@ const NAV = [
   { k: 'students', t: '学生管理', i: 'student' },
   { k: 'xreport', t: '学习报告', i: 'chart' },
   { k: 'grades', t: '成绩管理', i: 'doc' },
+  { k: 'acc', t: '知识点正确率', i: 'chart' },
   { k: 'talks', t: '谈心谈话', i: 'chat' },
   { k: 'care', t: '家校沟通', i: 'phone' },
   { k: 'chapters', t: '课程目录', i: 'list' },
@@ -34,7 +35,7 @@ const NAV = [
 const NAV_GROUPS = [
   { k: 'g-home', t: '首页', i: 'home', leaf: 'dash' },
   { k: 'g-org', t: '组织管理', i: 'building', items: ['branches', 'students', 'xreport'] },
-  { k: 'g-study', t: '学情管理', i: 'chart', items: ['grades', 'talks', 'care'] },
+  { k: 'g-study', t: '学情管理', i: 'chart', items: ['grades', 'acc', 'talks', 'care'] },
   { k: 'g-res', t: '教学资源', i: 'folder', items: ['chapters', 'videos', 'handouts'] },
   { k: 'g-bank', t: '智能题库', i: 'doc', items: ['mfq', 'pending', 'ktree', 'mfp', 'paper', 'lessonq', 'bkup'] },
   { k: 'g-train', t: '训练管理', i: 'book', items: ['words', 'letters', 'phonics'] },
@@ -43,7 +44,7 @@ const NAV_GROUPS = [
 ];
 const navItem = (k) => NAV.find((n) => n.k === k);
 const navOf = () => NAV.filter((n) => !n.principalOnly || (Auth.user && Auth.user.role === 'admin'));
-const TITLE = { mfq: '题库管理', pending: '待审核题目', ktree: '知识树管理', mfset: '设置', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '首页', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
+const TITLE = { acc: '知识点正确率', mfq: '题库管理', pending: '待审核题目', ktree: '知识树管理', mfset: '设置', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '首页', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
 function sideFoldGet() { try { return localStorage.getItem('xuexi_admin_side') === '1'; } catch (e) { return false; } }
 function sideFoldSet(v) { try { localStorage.setItem('xuexi_admin_side', v ? '1' : '0'); } catch (e) { /* 忽略 */ } }
 function openGroupsGet() {
@@ -2002,7 +2003,7 @@ const VIEWS = {
   xreport: () => viewXReport(),
   oplog: () => viewOplog(),
   aireport: () => viewAireport(), 'aireport-view': () => viewAireportView(),
-  grades: () => viewGrades(),
+  grades: () => viewGrades(), acc: () => viewAcc(),
   talks: () => viewCareApp('talks'), care: () => viewCareApp('care'),
 };
 

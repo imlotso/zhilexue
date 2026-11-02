@@ -30,3 +30,7 @@
 - `kb_units` / `kb_points`（旧教材知识点树）保留表，不再写入。`src/kbtree.js` 把它们**复制**进该 学科+学段 已有的知识点树，作为一个一级分支：`教材单元知识点` → 年级（空则"不分年级"）→ 单元 → 知识点；该 学科+学段 没有知识点树时新建一棵（`source` 形如 `kbtree:物理:primary`）。同父同名不重复建，只增不删。
 - 旧表 `questions.point` 仍是知识点**名称文本**，和树节点是两套关联；按节点关联用 `question_nodes`。
 - 迁移：`node scripts/migrate-kb-to-trees.js [--dry-run]`（先测试库预演）；旧接口 `/kbtree*` 首次用到、旧表有数据且尚未复制时会自动复制该 学科+学段。
+
+## T6 习题正确率：没有加表
+
+正确率从现有表聚合：`records`（user_id, question_id, is_correct, created_at，每次作答一行）× `questions.video_id`（题目绑定的视频）× `videos.section_id`（视频所属小分组）。口径：每题取该学生**最近一次**作答（`records.id` 最大的那行），小分组 / 课程是把下面所有视频的题合并后再算。`practices`、`paper_tries` 只存整次交卷的汇总，不含每题明细，所以没用它们。没有新增 `question_attempts`（任务书允许"必须时才加"）：`records` 已经是每次作答的明细。

@@ -13,6 +13,7 @@ const multer = require('multer');
 const { db, DATA_DIR, DB_INFO } = require('./db');
 const { hash, check, sign, auth } = require('./auth');
 const store = require('./storage');
+const accuracy = require('./accuracy');
 const { makeTemplate, parseWorkbook } = require('./excel');
 const { speakToBuffer } = require('./win-speak');
 
@@ -1474,6 +1475,8 @@ function lessonsOf(chapterId, userId) {
       prog.set(p.video_id, p);
     }
   }
+  // 习题正确率（T6）：按视频聚合最近一次作答，见 src/accuracy.js
+  const accStats = userId ? accuracy.videoStats(db, userId, [...videoIds]) : new Map();
   const lessons = videos.map((v) => {
     const doc = byVideo.get(v.id) || null;
     const p = prog.get(v.id) || {};
@@ -1481,6 +1484,7 @@ function lessonsOf(chapterId, userId) {
       video_id: v.id, title: v.title, duration: v.duration || 0,
       section_id: v.section_id || (doc && doc.section_id) || 0,
       qcount: qCount.get(v.id) || 0,
+      acc: accuracy.ofVideo(accStats, v.id),
       done: Number(p.video_done) === 1 ? 1 : 0,
       handout: doc ? {
         id: doc.id, title: doc.title, file_name: doc.file_name, ext: doc.ext || '',
@@ -1508,6 +1512,7 @@ function groupsOf(chapterId, lessons) {
   }
   const mk = (id, name, arr) => ({
     id, name, lessons: arr, kp_total: arr.length,
+    acc: accuracy.sum(arr.map((x) => x.acc)),
     kp_done: arr.filter((x) => x.done).length,
     percent: arr.length ? Math.round(arr.filter((x) => x.done).length / arr.length * 100) : 0,
   });
@@ -1588,6 +1593,7 @@ stu.get('/course-detail', (req, res) => {
     allow_speed: u.allow_speed === 0 ? 0 : 1,
     allow_seek: u.allow_seek === 0 ? 0 : 1,
     grouped, groups,
+    acc: accuracy.sum(lessons.map((l) => l.acc)),
     kp_total: lessons.length, kp_done: kpDone,
     percent: lessons.length ? Math.round(kpDone / lessons.length * 100) : 0,
     lessons, exercises,

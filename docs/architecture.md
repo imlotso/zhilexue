@@ -25,7 +25,7 @@ zhilexue/
 ├── src/        后端（见下表）
 ├── public/     静态前端
 │   ├── index.html + js/vue-app.js   学生端入口（Vue 3）
-│   ├── admin/      后台（Vue 2 + element-ui，多个独立脚本依次加载；`vcodec.js` 是视频上传前的编码检测，先于 admin.js 加载；`ktreeui.js` 是「知识树管理」页，`pendingui.js` 是「待审核题目」页）
+│   ├── admin/      后台（Vue 2 + element-ui，多个独立脚本依次加载；`vcodec.js` 是视频上传前的编码检测，先于 admin.js 加载；`ktreeui.js` 是「知识树管理」页，`pendingui.js` 是「待审核题目」页，`accui.js` 是「学情管理 → 知识点正确率」页）
 │   ├── upload.html 手机扫码上传页；scan-report.html 扫码上传学情试卷
 │   ├── apps/       care / grades / keyboard-school / timer，独立小应用，由主站以 iframe 引用
 │   └── css/ js/ vendor/ img/ fonts/ audio/
@@ -47,6 +47,7 @@ zhilexue/
 | `db.js` / `mysql-sync.js` / `mysql-worker.js` / `import-sqlite.js` | 建表、数据库连接与 SQLite→MySQL 转换 |
 | `auth.js` / `delpwd.js` | JWT 鉴权；删除确认密码 |
 | `storage.js` | 文件存储抽象（本地 / OSS / 七牛） |
+| `accuracy.js` | 习题正确率（T6）：按视频 / 小分组 / 课程聚合某学生的作答（`records` + `questions.video_id`，每题取最近一次），不新增表；被 `app.js` 的 `course-detail`、`bank.js` 的 `submit` 返回和后台 `/accuracy` 共用 |
 | `compose.js` | 组卷核心（T5）：范围（学科/学段/年级/难度/知识点文字 + 章节树/知识点树节点含后代）→ 候选题；`pickByCounts`（管理端按题型数量）、`pickPerNode`（学生端每个最小知识点 1 题）、`poolCounts`（范围内题量）；被 `bank.js` 的 `/papers/auto`、`/papers/pool`、学生端 `/scan-compose` 共用 |
 | `bank.js` | 智能题库：题目、知识点树（kb）、组卷下发、课文习题绑定、学生错题、扫码上传池 |
 | `mfbank.js` / `mfcollect.js` / `mfseed.js` / `mfzip.js` | 「魔方题库」（与 2026-10-29 并入）：目录树、标签、采集批次、录题 intake、试卷管理、AI 配置 profiles、技能包导入 |

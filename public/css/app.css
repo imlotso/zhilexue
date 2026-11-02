@@ -3810,3 +3810,46 @@ table .tag.blue{background:var(--brand-l);color:var(--brand)}
 .t5-cnt{font-size:12px;color:#2f6bff;background:#eaf0ff;border-radius:10px;padding:0 8px}
 .t5-pool{margin:6px 0 2px;font-size:13px;color:#5a6a85}
 .t5-pool b{color:#2f6bff}
+
+/* ===== T6 课文习题：固定输入框 + 正确率 ===== */
+/* 固定宽高的作答框：字多字少都不变形，内容多时框内滚动（不允许拖拽改大小） */
+.t6-input{display:block;flex:1;min-width:0;width:100%;box-sizing:border-box;height:56px;min-height:56px;max-height:56px;resize:none;overflow-y:auto;overflow-x:hidden;
+  padding:14px 14px;line-height:1.5;font-size:15px;color:var(--text,#1f2937);background:var(--card,#fff);border:1.5px solid var(--line,#e5e7eb);border-radius:10px;word-break:break-all}
+.t6-input:focus{border-color:var(--brand,#2f6bff);box-shadow:0 0 0 3px rgba(47,107,255,.12)}
+.t6-fills.single .t6-input{height:96px;min-height:96px;max-height:96px;padding:12px 14px}
+.t6-input.t6-long{height:176px;min-height:176px;max-height:176px;padding:12px 14px}
+.t6-input.t6-note{height:88px;min-height:88px;max-height:88px;padding:10px 12px;font-size:14px}
+.t6-fill{align-items:flex-start}
+.t6-fill>span{padding-top:15px}
+.t6-fills.single .t6-fill>span,.t6-fill-long>span{padding-top:12px}
+@media (max-width:640px){.t6-input{font-size:16px}.t6-fill>span{width:44px}}
+/* 做题后的学习报告 */
+.t6-report{margin:12px 0;padding:12px 14px;border:1px solid var(--line,#e5e7eb);border-radius:12px;background:var(--card,#fff)}
+.t6-rep-t{font-weight:700;font-size:14px;margin-bottom:8px;color:var(--text,#1f2937)}
+.t6-rep-row{display:flex;align-items:center;gap:10px;padding:5px 0;font-size:13px;color:var(--text2,#4b5563)}
+.t6-rep-row>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.t6-rep-row>b{flex:none;font-variant-numeric:tabular-nums;color:var(--text,#1f2937)}
+.t6-bar{flex:none;width:90px;height:8px;border-radius:99px;background:var(--bg2,#eef1f6);overflow:hidden;display:block}
+.t6-bar u{display:block;height:100%;border-radius:99px;text-decoration:none;background:#22c55e}
+.t6-bar u.mid{background:#f59e0b}.t6-bar u.low{background:#ef4444}
+.qz-rq.ung{border-color:#cbd5e1}
+.qz-rq.ung .qz-rstate{color:#64748b}
+/* 课程页：视频 / 小分组正确率标签 */
+.t6-acc{flex:none;display:inline-block;margin-left:8px;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600;line-height:20px;font-variant-numeric:tabular-nums;background:#eef1f6;color:#64748b;white-space:nowrap}
+.t6-acc.good{background:#dcfce7;color:#15803d}.t6-acc.mid{background:#fef3c7;color:#b45309}.t6-acc.low{background:#fee2e2;color:#b91c1c}
+.kp-side-item .t6-acc{margin-left:0;padding:0 6px;font-size:11px;line-height:18px}
+.kp-side-item.on .t6-acc{background:rgba(255,255,255,.22);color:#fff}
+.t6-acc-sum{display:inline-block;margin-top:6px;font-size:13px;color:var(--text2,#4b5563)}
+/* 后台：知识点正确率（T6） */
+.t6-acc-pick{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.t6-acc-chip{border:1px solid #d8e0ef;background:#fff;border-radius:99px;padding:5px 14px;cursor:pointer;font-size:13px}
+.t6-acc-chip small{margin-left:6px;color:#8a96ab}
+.t6-acc-chip.on{background:#2f6bff;border-color:#2f6bff;color:#fff}.t6-acc-chip.on small{color:rgba(255,255,255,.8)}
+.t6-acc-course{margin:14px 0 6px;border:1px solid #e5e9f2;border-radius:10px;overflow:hidden}
+.t6-acc-ch{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#f5f8ff;font-size:14px}
+.t6-acc-ch>span:nth-child(2){color:#6b7280;font-size:12px;flex:1}
+.t6-acc-gh{display:flex;align-items:center;gap:10px;padding:8px 14px;background:#fafbfd;border-top:1px solid #eef1f6;font-weight:600;font-size:13px}
+.t6-acc-gn{flex:1}
+.t6-acc-v{display:flex;align-items:center;gap:10px;padding:7px 14px 7px 30px;border-top:1px dashed #eef1f6;font-size:13px}
+.t6-acc-vn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t6-acc-n{font-size:12px;color:#8a96ab;margin-left:4px}
