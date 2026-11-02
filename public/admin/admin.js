@@ -34,13 +34,11 @@ const NAV = [
 ];
 const NAV_GROUPS = [
   { k: 'g-home', t: '首页', i: 'home', leaf: 'dash' },
-  { k: 'g-org', t: '组织管理', i: 'building', items: ['branches', 'students', 'xreport'] },
-  { k: 'g-study', t: '学情管理', i: 'chart', items: ['grades', 'acc', 'talks', 'care'] },
-  { k: 'g-res', t: '教学资源', i: 'folder', items: ['chapters', 'videos', 'handouts'] },
+  { k: 'g-org', t: '学生与账号', i: 'building', items: ['branches', 'students'] },
+  { k: 'g-res', t: '教学资源', i: 'folder', items: ['chapters', 'videos', 'handouts', 'words', 'letters', 'phonics'] },
   { k: 'g-bank', t: '智能题库', i: 'doc', items: ['mfq', 'pending', 'ktree', 'mfp', 'paper', 'lessonq', 'bkup'] },
-  { k: 'g-train', t: '训练管理', i: 'book', items: ['words', 'letters', 'phonics'] },
-  { k: 'g-ai', t: 'AI 教学', i: 'robot', items: ['aireport'] },
-  { k: 'g-sys', t: '系统', i: 'setting', items: ['mfset', 'oplog'] },
+  { k: 'g-study', t: '学情与报告', i: 'chart', items: ['xreport', 'grades', 'acc', 'aireport', 'talks', 'care'] },
+  { k: 'g-sys', t: '系统设置', i: 'setting', items: ['mfset', 'oplog'] },
 ];
 const navItem = (k) => NAV.find((n) => n.k === k);
 const navOf = () => NAV.filter((n) => !n.principalOnly || (Auth.user && Auth.user.role === 'admin'));
@@ -76,7 +74,8 @@ function navGroupsHTML(cur) {
       </button>
       <div class="ng-sub">${items.map((n) => {
         const on = cur === n.k || cur.startsWith(n.k + '-');
-        return `<a data-go="${n.k}" class="${on ? 'on' : ''}" title="${n.t}"><span class="ico">${ic(n.i)}</span><span class="txt">${n.t}</span></a>`;
+        const badge = n.k === 'pending' ? '<em class="t11-badge" id="t11BadgePending" hidden></em>' : '';
+        return `<a data-go="${n.k}" class="${on ? 'on' : ''}" title="${n.t}"><span class="ico">${ic(n.i)}</span><span class="txt">${n.t}</span>${badge}</a>`;
       }).join('')}</div>
     </div>`;
   }).join('');
@@ -628,6 +627,7 @@ function shell(inner) {
   const folded = sideFoldGet();
   return `
   <div class="layout admin-app ${folded ? 'side-fold' : ''}">
+    <div class="t11-scrim" id="t11Scrim"></div>
     <aside class="side">
       <div class="brand">${brandHTML('管理端')}</div>
       <nav class="nav">${navGroupsHTML(cur)}</nav>
@@ -667,7 +667,20 @@ function bindShell() {
     };
   });
   const f = document.getElementById('btnFold');
-  if (f) f.onclick = () => { sideFoldSet(!sideFoldGet()); document.querySelector('.admin-app').classList.toggle('side-fold', sideFoldGet()); };
+  if (f) f.onclick = () => {
+    const app = document.querySelector('.admin-app');
+    // 手机宽度：侧栏是抽屉，点三道杠开 / 关（不记住；换页会重新渲染成关闭状态）；宽屏：沿用原来的"折叠成图标栏"
+    if (window.matchMedia && window.matchMedia('(max-width:820px)').matches) { app.classList.toggle('t11-drawer'); return; }
+    sideFoldSet(!sideFoldGet()); app.classList.toggle('side-fold', sideFoldGet());
+  };
+  const scrim = document.getElementById('t11Scrim');
+  if (scrim) scrim.onclick = () => document.querySelector('.admin-app').classList.remove('t11-drawer');
+  // 「待审核题目」菜单角标：入库前还没审的题目数（0 不显示）
+  const bp = document.getElementById('t11BadgePending');
+  if (bp) api('/api/admin/bank/mf/ext/badge-counts', { silent: true }).then((c) => {
+    const n = Number(c && c.pending) || 0;
+    if (n > 0 && document.getElementById('t11BadgePending')) { bp.textContent = n > 99 ? '99+' : String(n); bp.hidden = false; }
+  }).catch(() => { /* 角标取不到不影响使用 */ });
   const o = document.getElementById('btnOut');
   if (o) o.onclick = async () => {
     if (await elConfirm({ title: '退出登录', message: '确定退出登录？', okText: '退出' })) {
@@ -693,27 +706,33 @@ async function viewDash() {
   await loadMeta();
   const s = await api('/api/admin/stats');
   const recent = await api('/api/admin/students/recent');
+  // 待审核题目数：取不到（分校账号没有题库权限等）就不显示这一条
+  const bc = await api('/api/admin/bank/mf/ext/badge-counts', { silent: true }).catch(() => null);
+  const pend = bc ? Number(bc.pending) || 0 : 0;
   const cards = [
-    { i: 'student', v: s.students, l: '学生总数' },
-    { i: 'book', v: s.handouts, l: '讲义数量' },
-    { i: 'doc', v: s.exercises, l: '习题数量' },
-    { i: 'video', v: s.videos, l: '视频数量' },
-    { i: 'list', v: s.chapters, l: '课程目录' },
+    { i: 'student', v: s.students, l: '学生总数', go: 'students' },
+    { i: 'book', v: s.handouts, l: '讲义数量', go: 'handouts' },
+    { i: 'doc', v: s.exercises, l: '习题数量', go: 'lessonq' },
+    { i: 'video', v: s.videos, l: '视频数量', go: 'videos' },
+    { i: 'list', v: s.chapters, l: '课程目录', go: 'chapters' },
+  ];
+  const quick = [
+    { go: 'students', i: 'student', t: '开通学生' }, { go: 'chapters', i: 'list', t: '新增课程' },
+    { go: 'videos', i: 'upload', t: '上传视频' }, { go: 'handouts', i: 'book', t: '上传讲义' },
+    { go: 'mfq', i: 'doc', t: '题库管理' }, { go: 'xreport', i: 'chart', t: '学习报告' },
   ];
   return {
     html: `
     <div class="grid g4 dash-stats">
-      ${cards.map((c) => `<div class="stat"><div class="ic">${ic(c.i)}</div><div><div class="v">${c.v}</div><div class="l">${c.l}</div></div></div>`).join('')}
+      ${cards.map((c) => `<div class="stat t11-statlink" data-go="${c.go}" title="进入${c.l.replace('数量', '').replace('总数', '')}管理"><div class="ic">${ic(c.i)}</div><div><div class="v">${c.v}</div><div class="l">${c.l}</div></div></div>`).join('')}
     </div>
-    <div class="grid g2">
+    <div class="t11-dash-grid">
       <div class="card">
         <div class="card-h"><h3>${ic('flash')} 快捷操作</h3></div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <button class="btn ghost" style="justify-content:flex-start" data-go="students">${ic('student')} 开通学生</button>
-          <button class="btn ghost" style="justify-content:flex-start" data-go="chapters">${ic('list')} 新增课程</button>
-          <button class="btn ghost" style="justify-content:flex-start" data-go="videos">${ic('upload')} 上传视频</button>
-          <button class="btn ghost" style="justify-content:flex-start" data-go="handouts">${ic('book')} 上传讲义</button>
+        <div class="t11-quick">
+          ${quick.map((q) => `<button class="btn ghost" data-go="${q.go}">${ic(q.i)}<span>${q.t}</span></button>`).join('')}
         </div>
+        ${pend > 0 ? `<div class="t11-todo" data-go="pending"><span>有 <b>${pend}</b> 道题目等待审核入库</span><span class="link-btn">去处理</span></div>` : ''}
       </div>
       <div class="card">
         <div class="card-h"><h3>${ic('user')} 最近开通</h3><a href="#/students">查看全部</a></div>
