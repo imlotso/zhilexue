@@ -441,20 +441,26 @@ const fileForm = (fields, fileName, content) => {
     const path = require('path');
     const vm = require('vm');
     const p = (rel) => path.join(__dirname, '..', rel);
-    log(fs.existsSync(p('deploy/install.sh')), 'deploy/install.sh 存在（服务器一键安装脚本）');
-    log(fs.existsSync(p('deploy/remote-setup.sh')), 'deploy/remote-setup.sh 存在（服务器端解包 + 数据保护脚本）');
-    log(fs.existsSync(p('deploy/nginx.conf')), 'deploy/nginx.conf 存在（Nginx 反向代理模板）');
-    log(fs.existsSync(p('deploy/backup.sh')), 'deploy/backup.sh 存在（每日备份脚本）');
+    // 本仓库根目录就是线上的 server/ 目录：仓库里没有 ../server/，改读仓库根；
+    // deploy/、*.bat、收尾清单只存在于服务器部署包里（不在本仓库）：不存在时跳过，不算通过也不算失败
+    const sp = (rel) => (fs.existsSync(p('server')) ? p('server/' + rel) : path.join(__dirname, rel));
+    const hasDeploy = fs.existsSync(p('deploy'));
+    let deploySkipped = 0;
+    const dlog = (...a) => { if (hasDeploy) log(...a); else deploySkipped++; };
+    dlog(fs.existsSync(p('deploy/install.sh')), 'deploy/install.sh 存在（服务器一键安装脚本）');
+    dlog(fs.existsSync(p('deploy/remote-setup.sh')), 'deploy/remote-setup.sh 存在（服务器端解包 + 数据保护脚本）');
+    dlog(fs.existsSync(p('deploy/nginx.conf')), 'deploy/nginx.conf 存在（Nginx 反向代理模板）');
+    dlog(fs.existsSync(p('deploy/backup.sh')), 'deploy/backup.sh 存在（每日备份脚本）');
     const upBat = p('一键上传部署.bat');
     const batTxt = fs.existsSync(upBat) ? fs.readFileSync(upBat, 'latin1') : '';
-    log(batTxt.includes('remote-setup.sh'), '「一键上传部署.bat」会调用服务器端 remote-setup.sh');
-    log(/\bscp -P %PORT%/.test(batTxt) && /ssh -p %PORT%/.test(batTxt), '「一键上传部署.bat」含 scp 上传 + ssh 部署两步');
+    dlog(batTxt.includes('remote-setup.sh'), '「一键上传部署.bat」会调用服务器端 remote-setup.sh');
+    dlog(/\bscp -P %PORT%/.test(batTxt) && /ssh -p %PORT%/.test(batTxt), '「一键上传部署.bat」含 scp 上传 + ssh 部署两步');
     const setup = fs.existsSync(p('deploy/remote-setup.sh')) ? fs.readFileSync(p('deploy/remote-setup.sh'), 'utf8') : '';
-    log(setup.includes('_xuexi_data_keep') && setup.includes('mv "$DEST/server/data"'),
+    dlog(setup.includes('_xuexi_data_keep') && setup.includes('mv "$DEST/server/data"'),
       'remote-setup.sh 铺新代码前会把老数据搬走再放回（升级不丢数据）');
-    log(setup.includes('unzip -O UTF-8'), 'remote-setup.sh 用 UTF-8 解压（中文文件名不乱码）');
+    dlog(setup.includes('unzip -O UTF-8'), 'remote-setup.sh 用 UTF-8 解压（中文文件名不乱码）');
     // 前端静态资源是公开可下载的（未登录也能 curl 到），任何密码 / 密钥都不能写死在 public/ 里
-    const wordsJs = fs.readFileSync(p('server/public/admin/words.js'), 'utf8');
+    const wordsJs = fs.readFileSync(sp('public/admin/words.js'), 'utf8');
     log(!wordsJs.includes('199856'), '管理端 words.js 不再硬编码删除密码（静态资源公网可下载）');
     const publicFiles = [];
     (function walk(d) {
@@ -463,14 +469,14 @@ const fileForm = (fields, fileName, content) => {
         if (f.isDirectory()) { if (f.name !== 'vendor') walk(full); }
         else if (/\.(js|html)$/.test(f.name)) publicFiles.push(full);
       }
-    })(p('server/public'));
+    })(sp('public'));
     const leak = publicFiles.filter((f) => fs.readFileSync(f, 'utf8').includes('199856'));
     log(leak.length === 0, 'public/ 下所有前端文件都不含删除密码明文',
-      leak.length ? leak.map((f) => path.relative(p('server/public'), f)).join(', ') : '已扫描 ' + publicFiles.length + ' 个文件');
+      leak.length ? leak.map((f) => path.relative(sp('public'), f)).join(', ') : '已扫描 ' + publicFiles.length + ' 个文件');
     // 删除密码只在服务端比对（前端拿不到），密码实现集中在 src/delpwd.js
-    const delpwdSrc = fs.existsSync(p('server/src/delpwd.js')) ? fs.readFileSync(p('server/src/delpwd.js'), 'utf8') : '';
+    const delpwdSrc = fs.existsSync(sp('src/delpwd.js')) ? fs.readFileSync(sp('src/delpwd.js'), 'utf8') : '';
     log(!!delpwdSrc && delpwdSrc.includes('delPwdOk'), 'src/delpwd.js 存在（删除密码统一由服务端校验）');
-    const wordSrc = fs.readFileSync(p('server/src/word.js'), 'utf8');
+    const wordSrc = fs.readFileSync(sp('src/word.js'), 'utf8');
     log(wordSrc.includes("admin.delete('/books/:id'") && /admin\.delete\('\/books\/:id'[\s\S]{0,400}delPwdOk\(req\)/.test(wordSrc),
       '词书删除接口在服务端校验密码（不再只靠前端弹窗）');
     // 打包脚本的排除清单：防止「文档 / 自测脚本 / 截图 / 批处理」又被打进部署包
@@ -480,49 +486,50 @@ const fileForm = (fields, fileName, content) => {
     for (const b of ['打包上传.bat', '打包上传(含本地数据).bat', '一键上传部署.bat']) {
       const txt = fs.existsSync(p(b)) ? fs.readFileSync(p(b), 'latin1') : '';
       const miss = MUST_EXCLUDE.filter((x) => !txt.includes('--exclude "' + x + '"'));
-      log(!!txt && miss.length === 0, `「${b}」排除清单完整（文档/自测脚本/截图/批处理都不上传）`,
+      dlog(!!txt && miss.length === 0, `「${b}」排除清单完整（文档/自测脚本/截图/批处理都不上传）`,
         miss.length ? '缺: ' + miss.join(', ') : '共 ' + MUST_EXCLUDE.length + ' 条');
     }
     const dataBat = fs.existsSync(p('打包上传(含本地数据).bat')) ? fs.readFileSync(p('打包上传(含本地数据).bat'), 'latin1') : '';
-    log(dataBat.includes('call :CHECKPOINT') && dataBat.includes('_dbcheckpoint.js'),
+    dlog(dataBat.includes('call :CHECKPOINT') && dataBat.includes('_dbcheckpoint.js'),
       '含数据包在打包前先压实数据库（WAL 并回主库，数据不落后于几分钟前）');
-    log(fs.existsSync(p('server/_dbcheckpoint.js')), 'server/_dbcheckpoint.js 存在（数据库压实脚本）');
+    dlog(fs.existsSync(p('server/_dbcheckpoint.js')), 'server/_dbcheckpoint.js 存在（数据库压实脚本）');
     // 上线后的收尾物料：体检脚本 + 收尾清单（部署包会带上 deploy/checkup.sh）
     const chk = fs.existsSync(p('deploy/checkup.sh')) ? fs.readFileSync(p('deploy/checkup.sh'), 'utf8') : '';
-    log(!!chk && chk.includes('上线体检'), 'deploy/checkup.sh 存在（上线体检脚本，只读）');
-    log(chk.includes('backup.sh') && chk.includes('3000') && chk.includes('443'),
+    dlog(!!chk && chk.includes('上线体检'), 'deploy/checkup.sh 存在（上线体检脚本，只读）');
+    dlog(chk.includes('backup.sh') && chk.includes('3000') && chk.includes('443'),
       '体检脚本会检查「自动备份 / 3000端口是否暴露 / HTTPS」三项关键项');
-    log(!/\brm\s+-rf\b|>\s*\/www\/xuexi-system/.test(chk), '体检脚本不含删除/覆盖类危险操作（只读）');
-    log(fs.existsSync(p('docs/上线后收尾清单.md')), 'docs/上线后收尾清单.md 存在（上线后的操作清单）');
+    dlog(!/\brm\s+-rf\b|>\s*\/www\/xuexi-system/.test(chk), '体检脚本不含删除/覆盖类危险操作（只读）');
+    dlog(fs.existsSync(p('docs/上线后收尾清单.md')), 'docs/上线后收尾清单.md 存在（上线后的操作清单）');
     // 云存储一键配置（教程第 9 步）：不用手改 ecosystem.config.js
     const ss = fs.existsSync(p('deploy/set-storage.sh')) ? fs.readFileSync(p('deploy/set-storage.sh'), 'utf8') : '';
-    log(!!ss && ss.includes('云存储配置助手'), 'deploy/set-storage.sh 存在（云存储一键配置）');
-    log(ss.includes('--show') && ss.includes('--local') && ss.includes('--yes'),
+    dlog(!!ss && ss.includes('云存储配置助手'), 'deploy/set-storage.sh 存在（云存储一键配置）');
+    dlog(ss.includes('--show') && ss.includes('--local') && ss.includes('--yes'),
       '配置脚本支持 --show（看当前）/ --local（改回本地）/ --yes（非交互）');
     const ssNode = ss.match(/<<'NODEEOF'\r?\n([\s\S]*?)\r?\nNODEEOF/);
     let ssNodeOk = false;
     try { if (ssNode) { new vm.Script(ssNode[1]); ssNodeOk = true; } } catch (e) { ssNodeOk = false; }
-    log(!!ssNode && ssNodeOk, '配置脚本内置的改文件程序是合法 JS（用 Node 改配置，先语法校验再落盘）');
-    log(ss.includes('@storage-script-begin') && ss.includes('@storage-script-end'),
+    dlog(!!ssNode && ssNodeOk, '配置脚本内置的改文件程序是合法 JS（用 Node 改配置，先语法校验再落盘）');
+    dlog(ss.includes('@storage-script-begin') && ss.includes('@storage-script-end'),
       '写入的配置块有起止标记（反复切换不会越写越多）');
-    log(ss.includes('不能有英文单引号') && ss.includes('不能有反斜杠'),
+    dlog(ss.includes('不能有英文单引号') && ss.includes('不能有反斜杠'),
       '配置脚本会拒绝含单引号/反斜杠的值（避免写坏配置文件）');
-    log(ss.includes('node --check') || ss.includes('--check'), '配置脚本改完会用 node --check 复核语法');
-    const eco = fs.existsSync(p('server/ecosystem.config.js')) ? fs.readFileSync(p('server/ecosystem.config.js'), 'utf8') : '';
+    dlog(ss.includes('node --check') || ss.includes('--check'), '配置脚本改完会用 node --check 复核语法');
+    const eco = fs.existsSync(sp('ecosystem.config.js')) ? fs.readFileSync(sp('ecosystem.config.js'), 'utf8') : '';
     log(eco.includes('@storage-script-begin') && eco.includes('@storage-script-end'),
       'ecosystem.config.js 的云存储配置段带标记（供配置脚本精确替换）');
     log(!/oss-env\.sh/.test(eco), 'ecosystem.config.js 不再引用不存在的 deploy/oss-env.sh');
     // 每天自动备份由部署脚本自动装好（用户不用去面板里找「计划任务」）
     const inst = fs.existsSync(p('deploy/install.sh')) ? fs.readFileSync(p('deploy/install.sh'), 'utf8') : '';
-    log(/crontab -/.test(inst) && inst.includes('deploy/backup.sh'), 'install.sh 会自动把每日备份写进定时任务（免去手动找面板菜单）');
-    log(inst.includes("grep -v 'deploy/backup.sh'"), 'install.sh 的备份任务幂等（重复部署不会写两条）');
-    log(inst.includes('SKIP_BACKUP_CRON') && inst.includes('SKIP_BACKUP_NOW'),
+    dlog(/crontab -/.test(inst) && inst.includes('deploy/backup.sh'), 'install.sh 会自动把每日备份写进定时任务（免去手动找面板菜单）');
+    dlog(inst.includes("grep -v 'deploy/backup.sh'"), 'install.sh 的备份任务幂等（重复部署不会写两条）');
+    dlog(inst.includes('SKIP_BACKUP_CRON') && inst.includes('SKIP_BACKUP_NOW'),
       'install.sh 提供 SKIP_BACKUP_CRON / SKIP_BACKUP_NOW 开关（可跳过备份配置）');
-    log(/is-active crond|is-active cron/.test(inst), 'install.sh 会确认定时服务在运行（否则只写任务不会触发）');
+    dlog(/is-active crond|is-active cron/.test(inst), 'install.sh 会确认定时服务在运行（否则只写任务不会触发）');
     // 只检查真正的代码行（注释里会写「不要用 xx 写法」，不算）
     const instCode = inst.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
-    log(!/crontab -l[^\n]*\|[^\n]*crontab -/.test(instCode),
+    dlog(!/crontab -l[^\n]*\|[^\n]*crontab -/.test(instCode),
       'install.sh 不用「读|写」管道改 crontab（避免并发时把原有任务弄丢）');
+    if (deploySkipped) console.log(`  ⏭  部署包物料检查 ${deploySkipped} 项已跳过（本仓库没有 ../deploy/ 与 *.bat，这些文件只在服务器部署包里）`);
   }
 
   console.log('\n（自测数据已清理）');
