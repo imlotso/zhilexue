@@ -853,6 +853,18 @@ try { db.exec('ALTER TABLE mf_papers ADD COLUMN published INTEGER DEFAULT 0'); }
 try { db.exec("ALTER TABLE questions ADD COLUMN audio_key VARCHAR(255) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 // T10：真题试卷的年份（学生端试卷库按名称 / 学科 / 年级 / 年份搜索）
 try { db.exec("ALTER TABLE mf_papers ADD COLUMN year VARCHAR(8) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+// R8：题目也能直接挂到课程的「小分组」（sections）上（与 video_id 二选一：绑小分组时清掉 video_id，反之亦然）
+try { db.exec('ALTER TABLE questions ADD COLUMN section_id INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
+// R8：视频 ↔ 知识点树节点（多选）。学生端视频卡显示知识点标签；视频的题在统计该知识点掌握情况时自动算进来（不写 question_nodes）
+runSchema(`
+CREATE INDEX IF NOT EXISTS idx_q_section ON questions(section_id);
+CREATE TABLE IF NOT EXISTS video_nodes (
+  video_id INTEGER NOT NULL,
+  node_id INTEGER NOT NULL,
+  PRIMARY KEY (video_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_vnode_node ON video_nodes(node_id);
+`);
 
 // 老库是空的时，把原来的 SQLite 文件导入 MySQL（只导入一次）
 importIfEmpty(db, DATA_DIR);

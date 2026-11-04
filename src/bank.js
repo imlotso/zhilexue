@@ -160,6 +160,7 @@ admin.get('/questions', (req, res) => {
   if (source) { where += ' AND q.source=?'; args.push(source); }
   if (video === 'bound') where += ' AND q.video_id IS NOT NULL';
   if (video === 'none') where += ' AND q.video_id IS NULL';
+  if (video === 'free') where += ' AND q.video_id IS NULL AND q.section_id IS NULL';   // R8：既没绑视频也没挂小分组（课文习题「从题库选择」用）
   if (kw) { where += ' AND (q.stem LIKE ? OR q.point LIKE ? OR q.material LIKE ?)'; args.push(`%${kw}%`, `%${kw}%`, `%${kw}%`); }
   const total = Number((db.prepare('SELECT COUNT(*) n FROM questions q' + where).get(...args) || {}).n || 0);
   const rows = db.prepare(`SELECT q.*, v.title AS video_title, c.name AS chapter_name
@@ -176,6 +177,9 @@ admin.post('/questions', (req, res) => {
     VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?)`)
     .run(q.chapter_id, q.subject, q.grade, q.type, q.stem, JSON.stringify(q.options), q.answer, q.analysis, q.difficulty,
       q.stage, q.point, q.material, q.source, q.year, q.video_id, JSON.stringify(q.images || []), now());
+  // R8：课文习题里给「小分组」添加的题，直接挂到该小分组（与 video_id 二选一）
+  const sec = !q.video_id && req.body && req.body.section_id ? db.prepare('SELECT * FROM sections WHERE id=?').get(Number(req.body.section_id)) : null;
+  if (sec) db.prepare('UPDATE questions SET section_id=?, chapter_id=? WHERE id=?').run(sec.id, sec.chapter_id, info.lastInsertRowid);
   ok(res, { id: info.lastInsertRowid }, '题目已添加');
 });
 
@@ -532,7 +536,7 @@ admin.get('/chapters', (req, res) => {
   if (subject) { where += ' AND c.subject=?'; args.push(subject); }
   const rows = db.prepare(`SELECT c.id, c.name, c.subject, c.grade, c.stage, c.term, c.category, c.book,
       (SELECT COUNT(*) FROM videos v WHERE v.chapter_id=c.id) AS video_count,
-      (SELECT COUNT(*) FROM questions q WHERE q.chapter_id=c.id AND q.video_id IS NOT NULL) AS question_count
+      (SELECT COUNT(*) FROM questions q WHERE q.chapter_id=c.id AND (q.video_id IS NOT NULL OR q.section_id IS NOT NULL)) AS question_count
     FROM chapters c${where}
     ORDER BY FIELD(c.subject,'数学','英语','物理','化学'), c.sort, c.id`).all(...args);
   ok(res, rows);
@@ -541,10 +545,20 @@ admin.get('/chapters', (req, res) => {
 admin.get('/chapters/:id/lessons', (req, res) => {
   const c = db.prepare('SELECT * FROM chapters WHERE id=?').get(Number(req.params.id));
   if (!c) return fail(res, '课程目录不存在');
-  const secs = db.prepare('SELECT id,name,sort FROM sections WHERE chapter_id=? ORDER BY sort,id').all(c.id);
+  const secs = db.prepare(`SELECT s.id, s.name, s.sort,
+      (SELECT COUNT(*) FROM questions q WHERE q.section_id=s.id) AS question_count
+    FROM sections s WHERE s.chapter_id=? ORDER BY s.sort, s.id`).all(c.id);
   const videos = db.prepare(`SELECT v.id, v.title, v.section_id,
       (SELECT COUNT(*) FROM questions q WHERE q.video_id=v.id) AS question_count
     FROM videos v WHERE v.chapter_id=? ORDER BY v.sort, v.id`).all(c.id);
+  // R8：每个视频关联的知识点（名字），列表上直接显示
+  const vn = new Map();
+  if (videos.length) {
+    db.prepare(`SELECT vn.video_id AS vid, n.id, n.name FROM video_nodes vn JOIN bank_tree_nodes n ON n.id=vn.node_id
+      WHERE vn.video_id IN (${videos.map(() => '?').join(',')}) ORDER BY n.sort, n.id`).all(...videos.map((v) => v.id))
+      .forEach((r) => { if (!vn.has(r.vid)) vn.set(r.vid, []); vn.get(r.vid).push({ id: r.id, name: r.name }); });
+  }
+  videos.forEach((v) => { v.nodes = vn.get(v.id) || []; });
   ok(res, { chapter: c, grouped: secs.length > 0, sections: secs, videos });
 });
 // 学情：某个学生按「课程 → 小分组 → 视频」的习题正确率（口径见 src/accuracy.js）
@@ -613,8 +627,77 @@ admin.post('/videos/:id/bind', (req, res) => {
   }
   const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
   if (!v) return fail(res, '视频不存在');
-  db.prepare(`UPDATE questions SET video_id=?, chapter_id=? WHERE id IN (${ph})`).run(v.id, v.chapter_id, ...ids);
+  // R8：一道题在课程里只挂一个位置——绑到视频时从小分组上取下来
+  db.prepare(`UPDATE questions SET video_id=?, chapter_id=?, section_id=NULL WHERE id IN (${ph})`).run(v.id, v.chapter_id, ...ids);
   ok(res, null, '已绑定到该知识点');
+});
+
+// ---------- R8：小分组习题（题目直接挂到课程目录下的小分组 sections 上） ----------
+admin.get('/sections/:id/questions', (req, res) => {
+  const sec = db.prepare('SELECT * FROM sections WHERE id=?').get(Number(req.params.id));
+  if (!sec) return fail(res, '小分组不存在');
+  const ch = db.prepare('SELECT id, name, subject, grade, stage, term, category FROM chapters WHERE id=?').get(sec.chapter_id) || null;
+  const rows = db.prepare('SELECT * FROM questions WHERE section_id=? ORDER BY id').all(sec.id).map(parseQ);
+  const videoQ = Number((db.prepare(`SELECT COUNT(*) n FROM questions q JOIN videos v ON v.id=q.video_id
+    WHERE v.chapter_id=? AND ${accuracy.SEC_EXPR}=?`).get(sec.chapter_id, sec.id) || {}).n || 0);
+  ok(res, { section: sec, chapter: ch, list: rows, video_question_count: videoQ });
+});
+// 绑定 / 解绑题目到小分组（与视频绑定二选一：挂到小分组时清掉 video_id）
+admin.post('/sections/:id/bind', (req, res) => {
+  const b = req.body || {};
+  const unbind = Number(b.unbind) === 1;
+  const ids = (Array.isArray(b.ids) ? b.ids : []).map(Number).filter(Boolean);
+  if (!ids.length) return fail(res, '请选择题目');
+  const ph = ids.map(() => '?').join(',');
+  const sec = db.prepare('SELECT * FROM sections WHERE id=?').get(Number(req.params.id));
+  if (unbind) {
+    // 只解绑确实挂在这个小分组上的题（防止误把别处的题解掉）；没有绑视频的题顺带清掉 chapter_id
+    if (!sec) return fail(res, '小分组不存在');
+    const r = db.prepare(`UPDATE questions SET section_id=NULL, chapter_id=CASE WHEN video_id IS NULL THEN NULL ELSE chapter_id END
+      WHERE section_id=? AND id IN (${ph})`).run(sec.id, ...ids);
+    return ok(res, { count: r.changes || 0 }, '已解绑');
+  }
+  if (!sec) return fail(res, '小分组不存在');
+  db.prepare(`UPDATE questions SET section_id=?, chapter_id=?, video_id=NULL WHERE id IN (${ph})`).run(sec.id, sec.chapter_id, ...ids);
+  ok(res, { count: ids.length }, '已挂到该小分组');
+});
+
+// ---------- R8：视频关联知识点树节点（video_nodes，多选，整体替换） ----------
+/** 课程目录 → 学段（同步类课程大多只填了年级） */
+const chapterStage = (c) => {
+  const s = String((c && c.stage) || '').trim();
+  if (s === 'primary' || s === 'junior') return s;
+  const g = String((c && c.grade) || '');
+  if (['三年级', '四年级', '五年级', '六年级'].includes(g)) return 'primary';
+  if (['七年级', '八年级', '九年级', '中考冲刺'].includes(g)) return 'junior';
+  return '';
+};
+admin.get('/videos/:id/nodes', (req, res) => {
+  const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
+  if (!v) return fail(res, '视频不存在');
+  const ch = v.chapter_id ? db.prepare('SELECT * FROM chapters WHERE id=?').get(v.chapter_id) : null;
+  const nodes = db.prepare(`SELECT n.id, n.name, n.tree_id FROM video_nodes vn JOIN bank_tree_nodes n ON n.id=vn.node_id
+    WHERE vn.video_id=? ORDER BY n.sort, n.id`).all(v.id);
+  const subject = (ch && ch.subject) || '';
+  const stage = chapterStage(ch);
+  // 候选树：知识点树里学科 + 学段对应的那棵排第一（前端默认选它）
+  const trees = db.prepare("SELECT id, name, subject, stage FROM bank_trees WHERE kind='knowledge' ORDER BY sort, id").all()
+    .sort((a, b) => ((b.subject === subject) * 2 + (b.stage === stage)) - ((a.subject === subject) * 2 + (a.stage === stage)));
+  ok(res, { video: { id: v.id, title: v.title, chapter_id: v.chapter_id }, subject, stage, nodes, trees, tree_id: trees.length ? trees[0].id : 0 });
+});
+admin.post('/videos/:id/nodes', (req, res) => {
+  const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
+  if (!v) return fail(res, '视频不存在');
+  const want = [...new Set((Array.isArray((req.body || {}).node_ids) ? req.body.node_ids : []).map(Number).filter(Boolean))].slice(0, 30);
+  const valid = want.length
+    ? db.prepare(`SELECT id FROM bank_tree_nodes WHERE id IN (${want.map(() => '?').join(',')})`).all(...want).map((r) => r.id)
+    : [];
+  db.transaction(() => {
+    db.prepare('DELETE FROM video_nodes WHERE video_id=?').run(v.id);
+    const ins = db.prepare('INSERT INTO video_nodes (video_id, node_id) VALUES (?,?)');
+    valid.forEach((nid) => ins.run(v.id, nid));
+  })();
+  ok(res, { count: valid.length }, valid.length ? `已关联 ${valid.length} 个知识点` : '已清空关联的知识点');
 });
 
 // ---------- 课文习题：Word 批量上传（题号.（题型）题干→选项→答案：→解析： 一键解析入库，插图自动提取） ----------
