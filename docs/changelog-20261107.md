@@ -431,7 +431,7 @@
 | B6 | `.mf-node a{flex:1}` 把折叠箭头也撑满 → 新增 `.mf-node a.mf-tw{flex:0 0 16px}`；`theme.css` 里选中切换键悬停时蓝底蓝字 → `.mf-segit.on:hover b` 保持白字 | `public/css/app.css`、`public/admin/theme.css` |
 | B7 | `importTreeCore`：缺学段 / 学科直接拒绝（中文提示）；并入该 学段+学科 已有的同类树，没有才新建；同父同名节点不重复建（重复导入 `created=0`）。悬浮球里加了「学段 / 学科」下拉（页面面包屑推断的当默认值），没选不回传 | `src/mfcollect.js`、`public/admin/collect-inject.js` |
 | B8 | 待审核单题「入库」弹出和批量入库同一个分类框（学科、学段、年级、知识点树节点、章节树节点、标签）；缺学科 / 学段的题必须在框里选，否则不能入库。后端 `/ext/pending/commit` 也校验（拍照 / Word / Excel / 技能包、网络采集、手机扫码三类都查），缺的进 `failed` 并提示「没有学科 / 没有学段，请先选好…」；手机扫码的题入库时学段、年级也写进题目和上传记录 | `public/admin/pendingui.js`、`src/mfpending.js` |
-| B9 | 本地存储时题图 `<img>` 401：服务端在 `/api/admin`、`/api/stu` 的 JSON 响应里给 `bank/` 下的图片地址补只读短票据 `&ft=`（绑定单个 key、6 小时、只认 bank/ 图片、不是登录令牌），`/api/file` 见有效 `ft` 放行。理由见 `docs/decisions.md` D28 | `src/auth.js`、`src/app.js`、`src/mfbank.js`（导出 `bankFolder`） |
+| B9 | 本地存储时题图 `<img>` 401：服务端在 `/api/admin`、`/api/stu` 的 JSON 响应里给 `bank/` 下的图片地址补只读短票据 `&ft=`（绑定单个 key、6 小时、只认 bank/ 图片、不是登录令牌），`/api/file` 见有效 `ft` 放行。理由见 `docs/decisions.md` D30 | `src/auth.js`、`src/app.js`、`src/mfbank.js`（导出 `bankFolder`） |
 | B10 | `/trees/:id/nodes` 的 `qcount` = 本节点及所有子孙节点上的题目去重数，另给 `qcount_own`；知识树管理、智能组卷里原来自己累加子节点的两处改成直接用它 | `src/mfbank.js`、`public/admin/ktreeui.js`、`bankui.js` |
 
 页面路径：B3 / B6 / B9（后台）`/admin/#/mfq` 题库管理；B4 / B9（学生）学生端「试卷」里打开任意带图的题（`/#/papers`）；B5 / B1 `/admin/#/mfc` 网络采集 → 浏览器标签；B7 悬浮球（组卷网知识树页）；B8 `/admin/#/pending`；B10 `/admin/#/mfq`、`/admin/#/ktree`。
