@@ -7,7 +7,7 @@ on:
 
 jobs:
   unit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +21,7 @@ jobs:
       - run: node excel-test.js    # Excel 模板解析（T3，同上）
 
   api:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -34,8 +34,11 @@ jobs:
         run: |
           sudo systemctl start mysql.service
           PW=$(node -p "require('./src/config.local').mysql.password")
-          SQL="ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$PW'; CREATE DATABASE IF NOT EXISTS xuexi CHARACTER SET utf8mb4;"
-          sudo mysql -e "$SQL" || mysql -uroot -proot -e "$SQL"
+          # 新版 runner 镜像（ubuntu-26.04 起）的 MySQL 不再加载 mysql_native_password：先试旧写法，不行就用默认认证插件
+          SQL_NATIVE="ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$PW'; CREATE DATABASE IF NOT EXISTS xuexi CHARACTER SET utf8mb4;"
+          SQL_DEFAULT="ALTER USER 'root'@'localhost' IDENTIFIED BY '$PW'; CREATE DATABASE IF NOT EXISTS xuexi CHARACTER SET utf8mb4;"
+          sudo mysql -e "$SQL_NATIVE" || mysql -uroot -proot -e "$SQL_NATIVE" || sudo mysql -e "$SQL_DEFAULT" || mysql -uroot -proot -e "$SQL_DEFAULT"
+          mysql -uroot -p"$PW" -h127.0.0.1 -e "SELECT 1" >/dev/null
       - run: npm run seed
       - run: node storage-test.js
       - name: Start server
