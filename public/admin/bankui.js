@@ -32,14 +32,14 @@ function bkAnswerText(q) {
       .map((x) => x.split(PH).filter((y) => y !== '').join(' / '))
       .join(' | ');
   }
-  if (q.type === 'sort') return s.split(',').map((n) => { const i = Number(n) - 1; return (q.options || [])[i] || n; }).join(' → ');
+  if (q.type === 'sort') return s.split(',').map((n) => { const i = Number(n) - 1; return optText((q.options || [])[i]) || n; }).join(' → ');
   return s;
 }
 /** 学生作答的展示文本（错题记录用） */
 function bkMineText(q, mine) {
   const s = String(mine || '');
   if (q.type === 'fill') return s.split('|').join(' | ');
-  if (q.type === 'sort') return s.split(',').map((n) => { const i = Number(n) - 1; return (q.options || [])[i] || n; }).join(' → ');
+  if (q.type === 'sort') return s.split(',').map((n) => { const i = Number(n) - 1; return optText((q.options || [])[i]) || n; }).join(' → ');
   return s;
 }
 function bkChapterLabel(c) {
@@ -117,7 +117,7 @@ function bkFormMount(w, cur) {
   }).catch(() => {});
   // 题型相关区域动态渲染
   const typeBody = w.querySelector('#qfTypeBody');
-  let options = (cur.options || []).filter((s) => String(s || '') !== '');
+  let options = (cur.options || []).map(optText).filter((s) => s !== '');
   if (!options.length && (cur.type || 'single') !== 'fill') options = ['', '', '', ''];
   const renderType = () => {
     const t = w.querySelector('#qf-type').value;
@@ -600,7 +600,7 @@ async function viewPaper() {
         const kids = {};
         sc.nodes.forEach((n) => { (kids[n.parent_id || 0] = kids[n.parent_id || 0] || []).push(n); });
         Object.values(kids).forEach((a) => a.sort((x, y) => (x.sort - y.sort) || (x.id - y.id)));
-        const cnt = (n) => { let c = n.qcount || 0; (kids[n.id] || []).forEach((k) => { c += cnt(k); }); subCnt[n.id] = c; return c; };
+        const cnt = (n) => { const c = n.qcount || 0; subCnt[n.id] = c; (kids[n.id] || []).forEach((k) => { cnt(k); }); return c; };   // qcount 已含子孙（去重）
         (kids[0] || []).forEach(cnt);
         const row = (n, d) => {
           const ks = kids[n.id] || []; const open = sc.open.has(n.id);
@@ -756,7 +756,7 @@ function bkPaperPreview(p) {
           ${arr.map((q, qi) => `<div style="margin:10px 0;line-height:1.8">
             ${q.material ? `<div style="background:#f6f9ff;border:1px solid #e3ecff;border-radius:8px;padding:8px 12px;margin-bottom:6px;white-space:pre-wrap;font-size:12.5px;color:#445">${esc(q.material)}</div>` : ''}
             <b>${qi + 1}.</b> ${esc(q.stem)}
-            ${(q.options || []).length && q.type !== 'sort' ? `<div style="padding-left:22px;color:#333">${q.options.map((o, i) => `<div>${BK_LETTERS[i]}. ${esc(o)}</div>`).join('')}</div>` : ''}
+            ${(q.options || []).length && q.type !== 'sort' ? `<div style="padding-left:22px;color:#333">${q.options.map((o, i) => `<div>${BK_LETTERS[i]}. ${esc(optText(o))}</div>`).join('')}</div>` : ''}
             ${q.type === 'fill' || q.type === 'sort' ? '<div style="height:44px;border-bottom:1px dashed #ccc"></div>' : ''}
             ${showAns ? `<div style="padding-left:22px;font-size:12.5px"><b style="color:#12b76a">答案：</b>${esc(bkAnswerText(q))}${q.analysis ? ` <b style="color:#2f6bff">解析：</b>${esc(q.analysis)}` : ''}</div>` : ''}
           </div>`).join('')}`).join('')}
@@ -1143,7 +1143,7 @@ function bkPrintMistakes(list) {
   const qHtml = list.map((m, i) => `
     <div class="q">
       <div class="qt"><b>${i + 1}.</b> [${BK_QTNAME[m.type] || ''}] ${esc(m.stem)}</div>
-      ${(m.options || []).length && m.type !== 'sort' ? `<div class="qo">${m.options.map((o, j) => `<span>${BK_LETTERS[j]}. ${esc(o)}</span>`).join('')}</div>` : ''}
+      ${(m.options || []).length && m.type !== 'sort' ? `<div class="qo">${m.options.map((o, j) => `<span>${BK_LETTERS[j]}. ${esc(optText(o))}</span>`).join('')}</div>` : ''}
       ${m.type === 'fill' || m.type === 'sort' ? '<div class="qblank"></div>' : ''}
     </div>`).join('');
   const aHtml = list.map((m, i) => `
