@@ -4011,3 +4011,16 @@ body.wt-stage.wt-fs-small .t13-card{--t13-fixed:195px}
 .t6-fills.single .t8-fbtn{margin-top:4px}
 /* 后台：输入框上方的「∑ 插入公式」条 */
 .t8-bar{display:flex;align-items:center;gap:10px;margin:0 0 4px}
+
+/* ---- R0-B6：树行里的折叠箭头不要被 .mf-node a{flex:1} 撑满（那条的优先级比 .mf-tw 高） ---- */
+.mf-node a.mf-tw{flex:0 0 16px;overflow:visible}
+
+/* ---- R0-B4：题图单独成块 + 灯箱（只新增 r0- 前缀的类；用更高的选择器覆盖旧的 .qz-img / .qz-img-inline 尺寸） ---- */
+.r0-qfig{display:block;margin:10px 0;line-height:0}
+.r0-qfig .r0-qimg{display:block;width:auto;height:auto;min-width:0;max-width:min(100%,max(70%,280px));max-height:360px;margin:0;vertical-align:top;border:1px solid #e5e9f2;border-radius:10px;background:#fff;cursor:zoom-in}
+.qz-imgs .r0-qfig{margin:0}
+.r0-lightbox{position:fixed;inset:0;z-index:3000;background:rgba(10,15,28,.86);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;overflow:auto;touch-action:pan-x pan-y pinch-zoom;cursor:zoom-out}
+.r0-lightbox img{max-width:96vw;max-height:84vh;width:auto;height:auto;border-radius:8px;background:#fff;cursor:default;touch-action:pan-x pan-y pinch-zoom}
+.r0-lightbox p{color:#fff;opacity:.8;font-size:13px;margin:0}
+.r0-lb-x{position:fixed;top:14px;right:16px;width:38px;height:38px;border:none;border-radius:50%;background:rgba(255,255,255,.16);color:#fff;font-size:24px;line-height:1;cursor:pointer}
+.r0-lb-x:hover{background:rgba(255,255,255,.3)}

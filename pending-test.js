@@ -213,7 +213,7 @@ function buildDocx(paras) {
   log(c2.code === 0 && q2d.stem.indexOf('T3单选' + uniq) === 0 && q2d.subject === '数学' && q2d.stage === 'junior' && q2d.grade === '七年级' && q2d.answer === 'B', 'Excel：入库后学科/学段/年级沿用导入时选的', `${q2d.subject}/${q2d.stage}/${q2d.grade}`);
 
   const compound = findRun(d, w1.data.run_id).find((x) => x.stem.indexOf('请写出空气污染') === 0);
-  const c3 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [compound.id] } });
+  const c3 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [compound.id], subject: '化学', stage: 'junior' } });   // R0-B8：这份 Word 导入时没选学科学段，入库必须补上
   const q3 = c3.data && c3.data.question_ids[0]; made.questions.push(q3);
   const q3d = (await req(`${MF}/questions/${q3}`, { token: AT })).data.question;
   log(c3.code === 0 && (q3d.material || '').indexOf('空气对我们很重要') >= 0, 'Word 多小问：小问入库时带上共用的原文（material）', (q3d.material || '').slice(0, 14));
@@ -250,6 +250,52 @@ function buildDocx(paras) {
   const mixed = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`cap:${batchCap}:1`, 'run:99999999:0'] } });
   made.questions.push(...((mixed.data && mixed.data.question_ids) || []));
   log(mixed.code === 0 && mixed.data.committed === 1 && mixed.data.failed.length === 1, '批量入库混有失败项：成功的入库，失败的单独列出', mixed.msg);
+
+  // ================= R0-B8：入库必须有学科 + 学段（前端弹分类框，后端兜底校验） =================
+  console.log('【入库必须有学科和学段（R0-B8）】');
+  {
+    const mkRun = (subject, stage, stems) => {
+      const id = db.prepare(`INSERT INTO mf_recog_runs (title, subject, stage, grade, source_kind, source_name, status, pages, drafts, ocr_texts, error, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run('R0缺学科学段' + uniq, subject, stage, '', 'image', 'r0.jpg', 'recognized', '[]',
+        JSON.stringify(stems.map((t) => ({ questionType: '解答', stem: t + uniq, options: [], answer: '1', analysis: '', checked: true, figures: [] }))), '[]', '', '2026-11-03 10:00:00').lastInsertRowid;
+      made.runs.push(id); return id;
+    };
+    const runNo = mkRun('', '', ['R0无学科无学段A', 'R0无学科无学段B', 'R0无学科无学段C']);
+    const runOk = mkRun('数学', 'junior', ['R0自带学科学段']);
+    const r1 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`run:${runNo}:0`] } });
+    log(r1.code !== 0 && /学科/.test(r1.msg), '缺学科学段的题直接入库被拒，提示「没有学科」', r1.msg);
+    const r2 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`run:${runNo}:0`], subject: '数学' } });
+    log(r2.code !== 0 && /学段/.test(r2.msg), '有学科没学段：被拒，提示「没有学段」', r2.msg);
+    log(db.prepare('SELECT COUNT(*) n FROM questions WHERE stem=?').get('R0无学科无学段A' + uniq).n === 0, '被拒的题没有进题库');
+    d = await pend();
+    log(d.list.some((x) => x.batch_id === runNo && x.index === 0), '被拒的题仍然留在待审核里');
+    const r3 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`run:${runNo}:0`], subject: '数学', stage: 'junior', grade: '八年级' } });
+    const r3q = r3.data && r3.data.question_ids[0]; made.questions.push(r3q);
+    const r3d = r3q ? (await req(`${MF}/questions/${r3q}`, { token: AT })).data.question : {};
+    log(r3.code === 0 && r3d.subject === '数学' && r3d.stage === 'junior' && r3d.grade === '八年级', '在弹窗里补上学科学段年级后可以入库', r3.msg);
+    const mix = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`run:${runNo}:1`, `run:${runOk}:0`] } });
+    made.questions.push(...((mix.data && mix.data.question_ids) || []));
+    log(mix.code === 0 && mix.data.committed === 1 && mix.data.failed.length === 1 && /学科/.test(mix.data.failed[0].msg), '批量里自带学科学段的照常入库，缺的单独列出失败原因', mix.msg);
+    const capB = db.prepare(`INSERT INTO mf_capture_batches (title, site, url, subject, stage, grade, payload, status, created_at) VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run('R0采集缺学科' + uniq, 'zujuan', 'http://example.com', '', '', '', JSON.stringify([{ site: 'zujuan', questionId: 'R0CAP' + uniq, stem: 'R0采集无学科' + uniq, options: ['甲', '乙'], answer: 'A', type: 'single' }]), 'pending', '2026-11-03 10:00:00').lastInsertRowid;
+    made.batches.push(capB);
+    const r4 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`cap:${capB}:0`] } });
+    log(r4.code !== 0 && /学科/.test(r4.msg), '网络采集的题缺学科：同样被拒', r4.msg);
+    const r5 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`cap:${capB}:0`], subject: '物理', stage: 'junior' } });
+    made.questions.push(...((r5.data && r5.data.question_ids) || []));
+    log(r5.code === 0 && r5.data.committed === 1, '网络采集的题补上学科学段后入库', r5.msg);
+    const qS2 = db.prepare(`INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,sort,stage,point,material,source,year,video_id,images,created_at)
+      VALUES (NULL,'数学','','single',?,'[]','','',3,0,'','','', '学生上传','',NULL,'[]','2026-11-03 10:00:00')`).run('R0扫码缺学段' + uniq).lastInsertRowid;
+    made.questions.push(qS2);
+    const upId2 = db.prepare(`INSERT INTO paper_uploads (user_id, subject, stage, grade, point, note, images, status, question_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+      .run(stuId, '数学', '', '', '', '', '["/pu/r0.jpg"]', 'pending', qS2, '2026-11-03 10:00:00').lastInsertRowid;
+    made.ups.push(upId2);
+    const r6 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`up:${upId2}`] } });
+    log(r6.code !== 0 && /学段/.test(r6.msg) && db.prepare('SELECT status FROM paper_uploads WHERE id=?').get(upId2).status === 'pending', '手机扫码的题缺学段：被拒，仍在待审核', r6.msg);
+    const r7 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`up:${upId2}`], stage: 'primary', grade: '五年级' } });
+    const q7 = db.prepare('SELECT stage, grade, subject FROM questions WHERE id=?').get(qS2);
+    log(r7.code === 0 && q7.stage === 'primary' && q7.grade === '五年级' && q7.subject === '数学', '手机扫码的题补上学段年级后入库，题目的学段年级同步写入', r7.msg);
+  }
 
   // ================= 删除 =================
   console.log('【删除】');

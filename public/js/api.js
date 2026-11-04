@@ -126,6 +126,30 @@ function elAlert({ title = '提示', message = '', okText = '知道了' } = {}) 
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/** 题目选项归一（R0-B3）：库里选项有三种格式——字符串、{label,text}、{label,content}。
+ *  所有渲染 / 编辑选项的地方都用这两个函数，不要再直接 esc(o) 或 o.text。 */
+function optText(o) {
+  if (o == null) return '';
+  if (typeof o === 'object') {
+    const v = o.text != null && o.text !== '' ? o.text : (o.content != null ? o.content : (o.value != null ? o.value : ''));
+    return String(v);
+  }
+  return String(o);
+}
+/** 展示用文本：对象选项带 label 时补上「A. 」前缀；字符串选项原样（由调用方按需加字母） */
+function optDisplay(o) {
+  const t = optText(o);
+  if (o && typeof o === 'object' && o.label) {
+    const lb = String(o.label).trim();
+    return new RegExp('^' + lb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[.、．]').test(t) ? t : `${lb}. ${t}`;
+  }
+  return t;
+}
+/** 选项字母：对象选项自带 label 就用它，否则按下标 A B C… */
+function optLabel(o, i) {
+  return (o && typeof o === 'object' && o.label) ? String(o.label) : String.fromCharCode(65 + (Number(i) || 0));
+}
+
 function fmtSize(n) {
   n = Number(n) || 0;
   if (n < 1024) return n + ' B';

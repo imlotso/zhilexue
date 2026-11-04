@@ -119,7 +119,7 @@ async function viewMfBank() {
     const missHtml = (!mt.chapter || !mt.knowledge) ? `<span class="tag" style="background:#fef2f2;color:#dc2626">${missTxt}</span>` : '';
     const stemHtml = (q.stem_html && q.stem_html.trim()) ? q.stem_html : esc(q.stem || '').replace(/\n/g, '<br>');
     const optsHtml = (q.options || []).length && !/class=["'][^"']*options/.test(stemHtml)
-      ? `<div class="mf-qopts">${q.options.map((o) => `<span>${esc(o)}</span>`).join('')}</div>` : '';
+      ? `<div class="mf-qopts">${q.options.map((o) => `<span>${esc(optDisplay(o))}</span>`).join('')}</div>` : '';
     const nodeHtml = selNames.length ? `<div class="hint" style="margin-top:4px">归属：${esc(selNames.join(' / '))}</div>` : '';
     return `<div class="mf-qitem" data-id="${q.id}">
       <div class="mf-qhead">
@@ -469,7 +469,7 @@ async function mfQEdit(id, done) {
         <div class="field"><label>难度(1-5)</label><input id="qeDiff" class="inp" type="number" min="1" max="5" value="${q.difficulty || 3}"></div>
       </div>
       <div class="field wide"><label>题干（支持 $...$ LaTeX，换行分段）</label><textarea id="qeStem" class="inp" rows="5">${esc(q.stem || '')}</textarea></div>
-      <div class="field wide"><label>选项（一行一个，可空）</label><textarea id="qeOpts" class="inp" rows="3">${esc((q.options || []).join('\n'))}</textarea></div>
+      <div class="field wide"><label>选项（一行一个，可空）</label><textarea id="qeOpts" class="inp" rows="3">${esc((q.options || []).map(optText).join('\n'))}</textarea></div>
       <div class="mf-form">
         <div class="field wide"><label>答案</label><textarea id="qeAns" class="inp" rows="2">${esc(q.answer || '')}</textarea></div>
         <div class="field wide"><label>解析</label><textarea id="qeAna" class="inp" rows="2">${esc(q.analysis || '')}</textarea></div>
@@ -705,7 +705,7 @@ async function viewMfCapture() {
           <button class="btn ghost sm" id="mfClose">关闭浏览器</button>
         </div>
         <div class="mf-browser">
-          <iframe id="mfFrame" src="about:blank" sandbox="allow-scripts allow-forms allow-same-origin allow-downloads allow-modals" style="width:100%;height:calc(100vh - 250px);min-height:520px;border:0;border-radius:8px;background:#fff"></iframe>
+          <iframe id="mfFrame" src="about:blank" sandbox="allow-scripts allow-forms allow-downloads allow-modals" style="width:100%;height:calc(100vh - 250px);min-height:520px;border:0;border-radius:8px;background:#fff"></iframe>
         </div>
         <div class="hint" style="margin-top:8px">页面右下角有「魔方采集」悬浮球：逛到有题的页面点「采集本页题目」，题进试题篮 → 到「试题采集」选学段学科入库；组卷网知识树页面会出现「采集本页知识树」。</div>
       ` : ''}
@@ -791,16 +791,16 @@ async function viewMfCapture() {
         if (window.__mfAutoNav) delete window.__mfAutoNav;
         // 进入页面自动打开上次网址（首次带票据）
         nav(st.url, false);
-        frame.addEventListener('load', () => {
-          try {
-            const h = frame.contentWindow.location.href;
-            if (h && h !== 'about:blank' && h.includes('/api/mfproxy')) {
-              const u = new URL(h);
-              const real = u.searchParams.get('u');
-              if (real) { bar.value = real; st.url = real; dot.textContent = '● ' + ((MF_SITES.find((s) => real.includes(s.host)) || {}).t || '网页'); }
-            }
-          } catch (e) { /* 忽略 */ }
-        });
+        // R0-B5：iframe 已去掉 allow-same-origin，外层读不到它的 location；注入脚本用 postMessage 告知当前真实网址
+        if (window.__mfFrameMsg) window.removeEventListener('message', window.__mfFrameMsg);
+        window.__mfFrameMsg = (e) => {
+          if (e.source !== frame.contentWindow) return;
+          const d = e.data;
+          if (!d || d.mfp !== 1 || d.type !== 'page' || typeof d.url !== 'string' || !/^https?:\/\//i.test(d.url)) return;
+          bar.value = d.url; st.url = d.url;
+          dot.textContent = '● ' + ((MF_SITES.find((s) => d.url.includes(s.host)) || {}).t || '网页');
+        };
+        window.addEventListener('message', window.__mfFrameMsg);
         document.getElementById('mfBack').onclick = () => { if (st.hi > 0) { st.hi--; nav(st.hist[st.hi], false); } };
         document.getElementById('mfFwd').onclick = () => { if (st.hi < st.hist.length - 1) { st.hi++; nav(st.hist[st.hi], false); } };
         document.getElementById('mfReload').onclick = () => { nav(st.url, false); };
@@ -945,7 +945,7 @@ async function viewMfCapture() {
         const d = await api(`${MF_API}/capture/batches/${b.dataset.view}`);
         modal({ title: d.batch.title, wide: true, okText: '关闭', body: d.batch.questions.map((q, i) =>
           `<div class="mf-qcard"><b>${i + 1}.</b> ${esc((q.stem || q.stemHtml || '').slice(0, 300))}
-          ${(q.options || []).length ? `<div class="hint">${esc((q.options || []).join(' / ').slice(0, 200))}</div>` : ''}
+          ${(q.options || []).length ? `<div class="hint">${esc((q.options || []).map(optText).join(' / ').slice(0, 200))}</div>` : ''}
           ${q.answer ? `<div class="hint">答案：${esc(q.answer)}</div>` : ''}</div>`).join('') });
       }; });
       document.querySelectorAll('[data-commit]').forEach((b) => { b.onclick = () => mfCommitForm(Number(b.dataset.commit)); });

@@ -416,3 +416,38 @@
 - 真题试卷是否走"逐题审核再入库"（D22）；Word / Excel / PDF 之外的真题格式。
 - 旧脚本 `ui-test.js` 等的断言按新界面重写后再放进 CI。
 
+## R0 二轮整改：bug 修复（2026-11-04）
+
+对应 `docs/taskbook-20261104-rework.md` 第 2 节 R0 表（分支 `feat/r0-bugfix`）。B2（学习报告「详情」404）不在本次，由 R1 处理。每个 bug 的改前 / 改后截图在 `docs/screenshots/rework/r0/`（1440 宽，改前是在 `origin/main` 的代码上截的）。
+
+### 改了什么
+
+| # | 改动 | 文件 |
+|---|---|---|
+| B1 | 书签脚本回传地址从后台接口 `/api/admin/bank/mf/capture/push`（采集票据调用 403）改为 `/api/mfcap/push`；`/api/mfcap/*` 加 CORS（只放行 POST / OPTIONS，允许 `Authorization`、`Content-Type` 头，预检在鉴权前应答）；回传失败**不再自动清除本地票据**，弹出原因，只有服务器明确说票据无效（401）且老师点了确认才清 | `src/mfbank.js` |
+| B3 | 新增公共函数 `optText / optDisplay / optLabel`（`public/js/api.js`，学生端和后台共用，原来 `bank.js` 里的 `optText` 移到这里），兼容三种选项格式：字符串、`{label,text}`、`{label,content}`。题库列表 `qCard`、编辑弹窗的选项框、批次预览、待审核列表 / 编辑、组卷预览 / 打印、错题打印、Word 校对卡都改用它；后端 `normalizeQ` 也认 `content` | `public/js/api.js`、`mfui2.js`、`bankui.js`、`mfbankui.js`、`pendingui.js`、`bank.js` |
+| B4 | 题图单独成块（`.r0-qfig`，`display:block`）：宽度最多 题干区 70%、不小于 280px（小图按原尺寸、不放大）、高度最多 360px；`[图N]` 占位和未被引用的图都用它。点击打开灯箱（`.r0-lightbox`，全屏遮罩显示原图，点遮罩 / × / Esc 关闭，用原生 `<img>`，手机可双指缩放；层级 3000，高于做题弹层 1200——原来的放大层是 200，被盖在做题弹窗下面）。旧的 `.qz-img-inline` 没改，用更具体的新类覆盖 | `public/css/app.css`、`public/js/bank.js` |
+| B5 | 代理 iframe 的 `sandbox` 去掉 `allow-same-origin`。因此：注入脚本最先补内存版 `localStorage / sessionStorage / document.cookie`（cookie 仍同步进服务器 jar）、站点请求强制不带凭据；`/api/mfproxy` 放行 CORS；外层的地址栏改用 `postMessage` 同步真实网址。悬浮球注入、采集、回传都实测可用 | `public/admin/mfui2.js`、`public/admin/collect-inject.js`、`src/mfcollect.js` |
+| B6 | `.mf-node a{flex:1}` 把折叠箭头也撑满 → 新增 `.mf-node a.mf-tw{flex:0 0 16px}`；`theme.css` 里选中切换键悬停时蓝底蓝字 → `.mf-segit.on:hover b` 保持白字 | `public/css/app.css`、`public/admin/theme.css` |
+| B7 | `importTreeCore`：缺学段 / 学科直接拒绝（中文提示）；并入该 学段+学科 已有的同类树，没有才新建；同父同名节点不重复建（重复导入 `created=0`）。悬浮球里加了「学段 / 学科」下拉（页面面包屑推断的当默认值），没选不回传 | `src/mfcollect.js`、`public/admin/collect-inject.js` |
+| B8 | 待审核单题「入库」弹出和批量入库同一个分类框（学科、学段、年级、知识点树节点、章节树节点、标签）；缺学科 / 学段的题必须在框里选，否则不能入库。后端 `/ext/pending/commit` 也校验（拍照 / Word / Excel / 技能包、网络采集、手机扫码三类都查），缺的进 `failed` 并提示「没有学科 / 没有学段，请先选好…」；手机扫码的题入库时学段、年级也写进题目和上传记录 | `public/admin/pendingui.js`、`src/mfpending.js` |
+| B9 | 本地存储时题图 `<img>` 401：服务端在 `/api/admin`、`/api/stu` 的 JSON 响应里给 `bank/` 下的图片地址补只读短票据 `&ft=`（绑定单个 key、6 小时、只认 bank/ 图片、不是登录令牌），`/api/file` 见有效 `ft` 放行。理由见 `docs/decisions.md` D30 | `src/auth.js`、`src/app.js`、`src/mfbank.js`（导出 `bankFolder`） |
+| B10 | `/trees/:id/nodes` 的 `qcount` = 本节点及所有子孙节点上的题目去重数，另给 `qcount_own`；知识树管理、智能组卷里原来自己累加子节点的两处改成直接用它 | `src/mfbank.js`、`public/admin/ktreeui.js`、`bankui.js` |
+
+页面路径：B3 / B6 / B9（后台）`/admin/#/mfq` 题库管理；B4 / B9（学生）学生端「试卷」里打开任意带图的题（`/#/papers`）；B5 / B1 `/admin/#/mfc` 网络采集 → 浏览器标签；B7 悬浮球（组卷网知识树页）；B8 `/admin/#/pending`；B10 `/admin/#/mfq`、`/admin/#/ktree`。
+
+### 怎么验证
+
+- `smoke.js` 新增「R0 bug 修复」一节（27 项）：B1（书签脚本内容、预检 OPTIONS、用采集票据 POST `/api/mfcap/push` 成功且响应带 CORS、题进待审核来源「网络采集」、无效票据被拒）、B5 代理预检、B7（缺学段 / 学科被拒、并入已有树、同名不重复、无孤儿树、层级正确）、B10（去重计数、`qcount_own`、与列表筛选数一致）、B9（题图带 `ft`、匿名凭 `ft` 取图 200、去掉 `ft` 401、换 key / 过期 / 非 bank 目录 / 当登录令牌用都被拒）。
+- `pending-test.js` 新增「入库必须有学科和学段（R0-B8）」一节（10 项）：三类来源缺学科 / 缺学段被拒且仍留在待审核、补上后入库、批量里自带的照常入库缺的单独报错；原有的 Word 复合题入库用例改成在入库时补学科学段（行为变化）。
+- 新增 `r0-test.js`（Playwright，32 项，已加入 CI api job 末尾）：B3（选项归一函数 + 题库列表三种格式无 `[object Object]` + 编辑弹窗）、B4（700×500 的图显示 503×360、单独成块、小图 120 宽不放大、灯箱出现 / Esc 关闭 / 点遮罩关闭、层级高于做题弹窗）、B9（学生端题图请求不带登录头全部 200、后台图片地址直接可取）、B6（箭头宽 16px、悬停白字）、B8（弹窗字段、缺学科 / 学段提示且不关弹窗、选好后入库）、B5（sandbox 无 `allow-same-origin`；iframe 里读 `localStorage.xuexi_admin_token` 得到 null、`parent.document` / `parent.localStorage` / `top.location` 抛 SecurityError、`window.origin === "null"`；后台读不到 iframe；悬浮球注入、采集、回传成功）。没有 Playwright 时整体跳过。
+- **全量回归**（`xuexi_r0` 库、本分支代码，服务 `STORAGE_DRIVER=local AI_MOCK=1 TTS_MOCK=1`）：smoke 187、word-test 60、wrong-test 44、kbtree-test 33、pending-test 67、compose-test 41、lessonq-test 26、aiclient-test 55、mistake-test 49、paper-test 43、listening-test 30、formula-test 28、bankstore-test 17、theme-test 28、flow-test 33、storage-test 34、r0-test 32、bank-test 29、wordq-test 29、excel-test 10，全部通过、0 失败。（`word-test.js` 里端口写死 3000，本地用临时副本把端口改成 3101 跑的，脚本本身没改。）
+
+- **截图**（`docs/screenshots/rework/r0/`，改前 = 在 `origin/main` 的代码上截、改后 = 本分支）：`b4-quiz-before/after.png`（做题弹窗里的题图：改前是 41×42 的破图占位，改后 503×360；`b4-lightbox-after.png` 是灯箱）、`b6-tree-before/after.png`（树行箭头不再撑满；鼠标停在选中的「知识点」键上，改前文字消失、改后白字）、`b8-pending-list-before/after.png` 与 `b8-pending-commit-before/after.png`（单题入库：改前点了就入库，改后弹出分类框）、`b3-options-before/after.png`（题库列表选项：改前 `[object Object]`）。
+
+### 遗留
+
+- 真机：用真实组卷网页面点一次书签（https 页面回传 http 后台可能被混合内容拦，脚本会自动走「打开后台接收」通道）；代理 iframe 里真实站点（组卷网 / 菁优网）在去掉 `allow-same-origin` 后是否都能正常渲染——云环境访问不到这些站点，只用本机页面验证了注入 / 采集 / 回传。记在 `pending-human-actions.md`。
+- 旧的「学段学科为空」孤儿树没有自动清理；`/api/mfproxy` 仍可访问任意 http(s) 地址（含内网），都记在 `pending-human-actions.md`。
+- 题图的 `ft` 6 小时过期：页面开着不刷新超过 6 小时再看图会 401，刷新即可。
+
