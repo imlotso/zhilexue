@@ -466,7 +466,7 @@ function mfCardHtml(c, i, cats) {
       </div></div>
       <div class="field wide"><label>题干</label><textarea class="inp" rows="3" data-f="stem" data-i="${i}">${esc(c.stem || '')}</textarea></div>
       ${figs.length ? `<div class="field wide"><label>插图（${figs.length}，题干中对应 [图N]）</label><div class="mf-wk-figs">${figs.map((f, k) => `<img class="mf-wk-fig" src="${f.url}" loading="lazy" data-cfig="${i}" data-fidx="${k}" alt="插图${f.n || k + 1}">`).join('')}</div></div>` : ''}
-      <div class="field wide"><label>选项（一行一个，如 A. xxx）</label><textarea class="inp" rows="2" data-f="options" data-i="${i}">${esc((c.options || []).map((o) => `${o.label ? o.label + '. ' : ''}${o.content || ''}`).join('\n'))}</textarea></div>
+      <div class="field wide"><label>选项（一行一个，如 A. xxx）</label><textarea class="inp" rows="2" data-f="options" data-i="${i}">${esc((c.options || []).map(optDisplay).join('\n'))}</textarea></div>
       <div class="field wide"><label>答案</label><textarea class="inp" rows="1" data-f="answer" data-i="${i}">${esc(c.answer || '')}</textarea></div>
       <div class="field wide"><label>解析</label><textarea class="inp" rows="2" data-f="analysis" data-i="${i}">${esc(c.analysis || '')}</textarea></div>
     </div></div>`;

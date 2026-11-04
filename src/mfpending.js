@@ -233,6 +233,8 @@ module.exports = function mountPending(d) {
       node_ids: Array.isArray(b.node_ids) ? b.node_ids : [], tags: Array.isArray(b.tags) ? b.tags : [],
     };
     const questionIds = []; const failed = [];
+    // R0-B8：学科、学段是题库里筛选 / 组卷 / 统计的基础，缺了不能入库（弹窗里选，或者先在「编辑」里补）
+    const lacks = (subject, stage) => (!str(subject).trim() ? '没有学科，请先选好学科再入库' : (!str(stage).trim() ? '没有学段，请先选好学段再入库' : ''));
     g.bad.forEach((x) => failed.push({ id: x, msg: '题目标识不对' }));
 
     g.run.forEach((idxs, runId) => {
@@ -244,6 +246,8 @@ module.exports = function mountPending(d) {
         if (!c || c.committed) return failed.push({ id: `run:${runId}:${i}`, msg: '这道题已经不在待审核里了' });
         if (fp && fp !== fpOf(stemOfCard(c))) return failed.push({ id: `run:${runId}:${i}`, msg: STALE });
         if (!str(stemOfCard(c)).trim()) return failed.push({ id: `run:${runId}:${i}`, msg: '题干为空' });
+        const miss = lacks(opt.subject || (c._q ? c._q.subject : c.subject) || run.subject, opt.stage || (c._q ? c._q.stage : c.stage) || run.stage);
+        if (miss) return failed.push({ id: `run:${runId}:${i}`, msg: miss });
         try {
           const ids = commitRunCards(run, [c], opt);
           c.committed = ids[0];
@@ -262,6 +266,8 @@ module.exports = function mountPending(d) {
         const q = items[i];
         if (!q || q._done) return failed.push({ id: `cap:${batchId}:${i}`, msg: '这道题已经不在待审核里了' });
         if (fp && fp !== fpOf(stemOfCap(q))) return failed.push({ id: `cap:${batchId}:${i}`, msg: STALE });
+        const missC = lacks(opt.subject || q.subject || bt.subject, opt.stage || q.stage || bt.stage);
+        if (missC) return failed.push({ id: `cap:${batchId}:${i}`, msg: missC });
         try {
           const r = commitCaptureItems(bt, [q], { subject: opt.subject || q.subject, stage: opt.stage || q.stage, grade: opt.grade || q.grade, node_ids: opt.node_ids, tags: opt.tags });
           if (!r.ids.length) return failed.push({ id: `cap:${batchId}:${i}`, msg: '没有题目编号（临时采集的题），无法入库' });
@@ -278,13 +284,16 @@ module.exports = function mountPending(d) {
       if (!up || !up.question_id || !['pending', 'reviewed'].includes(up.status)) return failed.push({ id: `up:${upId}`, msg: '这道题已经不在待审核里了' });
       const subj = ['数学', '英语', '物理', '化学'].includes(opt.subject) ? opt.subject : up.subject;
       if (!['数学', '英语', '物理', '化学'].includes(str(subj))) return failed.push({ id: `up:${upId}`, msg: '学科没识别出来，请先编辑选好学科再入库' });
+      const stg = opt.stage || str(up.stage).trim();
+      if (!stg) return failed.push({ id: `up:${upId}`, msg: '没有学段，请先选好学段再入库' });
+      const grd = opt.grade || str(up.grade).trim();
       try {
-        db.prepare('UPDATE questions SET subject=? WHERE id=?').run(subj, up.question_id);
+        db.prepare('UPDATE questions SET subject=?, stage=?, grade=? WHERE id=?').run(subj, stg, grd, up.question_id);
         const insNode = db.prepare('INSERT OR IGNORE INTO question_nodes (question_id, node_id) VALUES (?,?)');
         opt.node_ids.map((n) => int(n)).filter(Boolean).forEach((n) => insNode.run(up.question_id, n));
         const insTag = db.prepare('INSERT OR IGNORE INTO question_tags (question_id, tag) VALUES (?,?)');
         opt.tags.map((t) => str(t).trim()).filter(Boolean).forEach((t) => insTag.run(up.question_id, t));
-        db.prepare("UPDATE paper_uploads SET subject=?, status='approved', reviewed_by=?, reviewed_at=? WHERE id=?").run(subj, req.user ? req.user.id : 0, now(), up.id);
+        db.prepare("UPDATE paper_uploads SET subject=?, stage=?, grade=?, status='approved', reviewed_by=?, reviewed_at=? WHERE id=?").run(subj, stg, grd, req.user ? req.user.id : 0, now(), up.id);
         questionIds.push(up.question_id);
       } catch (e) { failed.push({ id: `up:${upId}`, msg: '入库失败：' + e.message }); }
     });

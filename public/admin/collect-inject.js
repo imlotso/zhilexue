@@ -1,4 +1,5 @@
-/* 魔方采集注入脚本（经代理注入到组卷网/菁优网/二一页面，运行在后台同源下）
+/* 魔方采集注入脚本（经代理注入到组卷网/菁优网/二一页面；页面跑在 sandbox 的 iframe 里，没有 allow-same-origin，
+ * 是「不透明源」——读不到后台的 localStorage / 令牌，也访问不到 parent.document；与父页面只靠 postMessage 通信）
  * 由 /api/mfproxy/inject.js 提供；配置读 window.__MFPROXY__（代理 HTML 注入的引导变量）。
  * 功能：XHR/fetch 代理补丁、悬浮工具栏、试题篮/选中采集、组卷网知识树解析回传。
  */
@@ -10,6 +11,34 @@
   var API = CFG.api || '/api/mfproxy';
   var CAP = CFG.capture || '';
   var PAGE = CFG.page || location.href;
+
+  /* ---------- 0. 沙箱适配（R0-B5） ----------
+   * 去掉 allow-same-origin 后，站点自己的脚本读 localStorage / sessionStorage / document.cookie 会抛 SecurityError，
+   * 页面会因此白屏。这里在站点脚本之前补上内存版实现；cookie 仍会同步进服务器 jar（见下面 syncCookies）。 */
+  function memStorage() {
+    var m = {};
+    return {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(m, k) ? m[k] : null; },
+      setItem: function (k, v) { m[String(k)] = String(v); },
+      removeItem: function (k) { delete m[k]; },
+      clear: function () { m = {}; },
+      key: function (i) { return Object.keys(m)[i] || null; },
+      get length() { return Object.keys(m).length; }
+    };
+  }
+  ['localStorage', 'sessionStorage'].forEach(function (nm) {
+    try { void window[nm]; } catch (e) {
+      try { Object.defineProperty(window, nm, { value: memStorage(), configurable: true }); } catch (e2) { /* 忽略 */ }
+    }
+  });
+  var CK_SHIM = false;
+  try { void document.cookie; } catch (e) { CK_SHIM = true; }
+  var MEM_CK = {};
+  /** 站点请求一律不带凭据（代理靠 URL 里的票据鉴权，不需要 Cookie；CORS 也没有开 Allow-Credentials） */
+  try { Object.defineProperty(XMLHttpRequest.prototype, 'withCredentials', { get: function () { return false; }, set: function () {}, configurable: true }); } catch (e) { /* 忽略 */ }
+  /** 告诉外层后台「现在在看哪个真实网址」（外层读不到 iframe 的 location 了） */
+  function notifyParent(msg) { try { msg.mfp = 1; window.parent.postMessage(msg, '*'); } catch (e) { /* 忽略 */ } }
+  notifyParent({ type: 'page', url: PAGE });
 
   /* ---------- 1. XHR / fetch 代理补丁：站点自己的相对请求也走代理 ---------- */
   function toProxy(u) {
@@ -36,7 +65,7 @@
   var _fetch = window.fetch;
   window.fetch = function (input, init) {
     try {
-      if (typeof input === 'string') return _fetch.call(window, toProxy(input), init);
+      if (typeof input === 'string') return _fetch.call(window, toProxy(input), Object.assign({}, init || {}, { credentials: 'omit' }));
       if (input && input.url) return _fetch.call(window, Object.assign({}, input, { url: toProxy(input.url) }), init);
     } catch (e) { /* 落回原样 */ }
     return _fetch.apply(window, arguments);
@@ -97,9 +126,30 @@
   setInterval(function () { syncCookies(true); }, 3000);
   setTimeout(function () { syncCookies(true); }, 300);
   // 钩住 document.cookie 写入：挑战页设置完 cookie 往往立刻 reload，必须抢在前面回传
+  if (CK_SHIM) {
+    try {
+      Object.defineProperty(document, 'cookie', {
+        get: function () { return Object.keys(MEM_CK).map(function (k) { return k + '=' + MEM_CK[k]; }).join('; '); },
+        set: function (v) {
+          var parts = String(v).split(';'); var kv = parts[0]; var eq = kv.indexOf('=');
+          if (eq > 0) {
+            var name = kv.slice(0, eq).trim(), val = kv.slice(eq + 1).trim(), gone = false;
+            parts.slice(1).forEach(function (a) {
+              var p = a.trim().toLowerCase();
+              if (p.indexOf('max-age=') === 0 && Number(p.slice(8)) <= 0) gone = true;
+              if (p.indexOf('expires=') === 0 && Date.parse(a.trim().slice(8)) < Date.now()) gone = true;
+            });
+            if (gone) delete MEM_CK[name]; else MEM_CK[name] = val;
+          }
+          syncCookies(false);
+        },
+        configurable: true
+      });
+    } catch (e) { /* 忽略 */ }
+  }
   try {
     var d = Document.prototype;
-    var cDesc = Object.getOwnPropertyDescriptor(d, 'cookie');
+    var cDesc = CK_SHIM ? null : Object.getOwnPropertyDescriptor(d, 'cookie');
     if (cDesc && cDesc.set) {
       Object.defineProperty(document, 'cookie', {
         get: function () { return cDesc.get.call(document); },
@@ -222,9 +272,12 @@
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
     }).then(function (r) { return r.json(); });
   }
-  function pushTree() {
+  function pushTree(stage, subject) {
     var t = parseZujuanTree();
     if (!t || !t.nodes.length) return Promise.resolve({ code: 1, msg: '这一页不是组卷网知识点树页面（找不到 .tk-tree）' });
+    // R0-B7：学段 + 学科以老师在悬浮球里选的为准（页面推断的只当默认值）；缺一个都不回传，后端也会拒绝
+    t.stage = stage; t.subject = subject;
+    if (!t.stage || !t.subject) return Promise.resolve({ code: 1, msg: '请先选好学段和学科再采集知识树' });
     return fetch('/api/mfcap/tree-push?token=' + encodeURIComponent(CAP), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t)
     }).then(function (r) { return r.json(); });
@@ -243,6 +296,8 @@
     '#mfbar .mf-qlist{overflow:auto;max-height:32vh;display:flex;flex-direction:column;gap:6px}',
     '#mfbar .mf-qi{border:1px solid #e2e8f0;border-radius:8px;padding:6px;font-size:12px;color:#334155;display:flex;gap:6px;align-items:flex-start}',
     '#mfbar .mf-qi span{flex:1;max-height:52px;overflow:hidden}',
+    '#mfbar .mf-treesel{display:none;gap:6px}',
+    '#mfbar .mf-treesel select{all:revert;flex:1;font-size:12px;padding:4px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#1e293b}',
     '#mfbar .mf-msg{font-size:12px;color:#059669;min-height:16px}',
     '#mfbar .mf-msg.err{color:#dc2626}'
   ].join('\n');
@@ -266,10 +321,22 @@
       '<div class="mf-qlist" id="mfQList"></div>' +
       '<button data-act="pick">＋ 采集本页题目</button>' +
       '<button data-act="send" class="mf-ghost">⇩ 回传到采集篮（<span id="mfCount">0</span> 题）</button>' +
-      '<button data-act="tree" class="mf-ghost" style="display:' + (site() === 'zujuan' ? 'block' : 'none') + '">🌲 采集本页知识树</button>' +
+      '<div class="mf-treesel" id="mfTreeSel" style="display:' + (site() === 'zujuan' ? 'flex' : 'none') + '">' +
+        '<select id="mfTStage" title="知识树要归到哪个学段"><option value="">学段…</option><option value="primary">小学</option><option value="junior">初中</option><option value="senior">高中</option></select>' +
+        '<select id="mfTSub" title="知识树要归到哪个学科"><option value="">学科…</option>' + ['数学', '英语', '物理', '化学', '语文', '生物', '历史', '地理', '政治', '科学'].map(function (x) { return '<option>' + x + '</option>'; }).join('') + '</select></div>' +
+      '<button data-act="tree" class="mf-ghost" style="display:' + (site() === 'zujuan' ? 'block' : 'none') + '">🌲 采集本页知识树（并入所选学段学科的树）</button>' +
       '<button data-act="hide" class="mf-ghost" style="background:#f1f5f9;color:#64748b;border:0">收起</button>' +
       '</div></div>';
     document.body.appendChild(bar);
+    // 学段 / 学科默认值：按页面面包屑 / 标题推断，老师可改
+    try {
+      var pre = parseZujuanTree();
+      if (pre) {
+        var sm = { '小学': 'primary', '初中': 'junior', '高中': 'senior' };
+        if (sm[pre.stage]) bar.querySelector('#mfTStage').value = sm[pre.stage];
+        if (pre.subject) bar.querySelector('#mfTSub').value = pre.subject;
+      }
+    } catch (e) { /* 忽略 */ }
     // 组卷网等站点会给 body 加 transform/filter，position:fixed 会退化成相对 body 定位；
     // 挂到 <html> 下（html 上一般没有 transform）才能钉在视口右下角
     try { if (document.body.getBoundingClientRect().top !== 0 || getComputedStyle(document.body).transform !== 'none') {
@@ -296,8 +363,10 @@
           else say('回传失败：' + (j && j.msg || '未知'), true);
         }).catch(function (e) { b.disabled = false; say('回传失败：' + e.message, true); });
       } else if (act === 'tree') {
+        var tStage = bar.querySelector('#mfTStage').value, tSub = bar.querySelector('#mfTSub').value;
+        if (!tStage || !tSub) return say('先在上面选好「学段」和「学科」，知识树才知道归到哪棵树里', true);
         b.disabled = true; say('正在解析知识树…');
-        pushTree().then(function (j) {
+        pushTree(tStage, tSub).then(function (j) {
           b.disabled = false;
           say(j && j.code === 0 ? (j.msg || '导入完成') + '（回后台「题库管理」查看）' : (j && j.msg || '导入失败'), !(j && j.code === 0));
         }).catch(function (e) { b.disabled = false; say('导入失败：' + e.message, true); });
