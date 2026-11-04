@@ -81,6 +81,8 @@ jobs:
         if: ${{ !cancelled() }}   # 全流程走查（T14）：录题三入口 → 待审核 → 入库 → 组卷 → 下发 → 做题 → 正确率 → 错题 → Word 导出
       - run: node r0-test.js
         if: ${{ !cancelled() }}   # 二轮整改 R0（bug 修复）：选项显示 / 题图与灯箱 / 代理 iframe 隔离 / 树行样式 / 单题入库弹分类框（有 Playwright 时才跑）
+      - run: node r8-test.js
+        if: ${{ !cancelled() }}   # 二轮整改 R8：小分组挂题 / 视频关联知识点 / 课程页正确率 / 小分组练习 / SSE 讲解（AI_MOCK）；有 Playwright 时再测做题弹窗与 AI 浮层
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4
