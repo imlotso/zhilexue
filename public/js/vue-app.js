@@ -381,6 +381,74 @@ const App = {
         this.mistCount = (d && d.pending) || 0;
       } catch (e) { /* 未登录或网络异常时静默 */ }
     },
+    /** R8「继续学习」：播放下一个没学完的视频（全部学完就从第一个开始），并把左侧切到它所在的小分组 */
+    continueLearn() {
+      const c = this.course; if (!c) return;
+      const all = c.grouped ? (c.groups || []).reduce((a, g) => a.concat(g.lessons), []) : (c.lessons || []);
+      const target = (c.next && all.find((l) => l.video_id === c.next.video_id)) || all[0];
+      if (!target) return;
+      if (c.next && c.next.group_id !== undefined && c.grouped) this.activeGroupId = c.next.group_id;
+      this.playVideo(target);
+    },
+    /** R8 小分组练习：本组视频的题 + 小分组自己挂的题，一次做完，正确率计入小分组 */
+    async doSectionPractice(g) {
+      if (typeof FX !== 'undefined') FX.tap();
+      let d;
+      try { d = await api('/api/stu/bank/section-questions?section_id=' + g.id); }
+      catch (e) { toast(e.message || '练习加载失败', 'err'); return; }
+      if (!d || !d.list || !d.list.length) { toast('这个小分组还没有练习题'); return; }
+      const first = (g.lessons || [])[0];
+      BankQuiz.open({
+        mode: 'step',
+        title: g.name + ' · 小分组练习',
+        subtitle: `${d.list.length} 道题 · 做一题核对一题`,
+        questions: d.list,
+        onWatch: first ? () => this.playVideo(first) : null,
+        watchText: '去看视频',
+        submit: async (answers, duration) => {
+          const r = await api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'section', section_id: g.id, answers, duration } });
+          this.loadCourse().catch(() => {});
+          return r;
+        },
+      });
+    },
+    /** R8 点视频卡上的知识点标签：弹出这个知识点的掌握情况（做过的题、正确率、本课程里讲它的视频） */
+    async showNodeMastery(n) {
+      let d;
+      try { d = await api('/api/stu/bank/node-mastery?node_id=' + n.id + '&course_id=' + encodeURIComponent(this.courseId)); }
+      catch (e) { toast(e.message || '加载失败', 'err'); return; }
+      const rate = d.rate;
+      const cls = rate === null ? '' : rate >= 80 ? 'good' : rate >= 60 ? 'mid' : 'low';
+      const TN = { single: '单选', multi: '多选', judge: '判断', fill: '填空', sort: '排序' };
+      const m = document.createElement('div');
+      m.className = 'mask r8-nm-mask';
+      m.innerHTML = `<div class="r8-nm" role="dialog">
+        <div class="r8-nm-h"><div><span>知识点</span><b>${esc(d.node.name)}</b></div><button class="close-x" type="button" title="关闭">&times;</button></div>
+        <div class="r8-nm-top">
+          <div class="r8-nm-ring ${cls}" style="--p:${rate || 0}"><div><b>${rate === null ? '—' : rate + '<small>%</small>'}</b><span>正确率</span></div></div>
+          <div class="r8-nm-stats">
+            <div><span>做过</span><b>${d.answered}</b><em>题</em></div>
+            <div><span>答对</span><b class="ok">${d.correct}</b><em>题</em></div>
+            <div><span>相关题目</span><b>${d.total}</b><em>题</em></div>
+          </div>
+        </div>
+        <div class="r8-nm-tip">${d.answered ? (rate >= 80 ? '这个知识点掌握得不错，继续保持。' : '这个知识点还不太牢固，建议再看一遍视频后做练习。') : '这个知识点下的题你还没有做过，先看视频再做练习吧。'}</div>
+        ${d.videos && d.videos.length ? `<div class="r8-nm-sec"><h5>讲这个知识点的视频</h5>${d.videos.map((v) => `<button type="button" class="r8-nm-v" data-v="${v.video_id}"><i class="ai ai-play"></i><span>${esc(v.title)}</span></button>`).join('')}</div>` : ''}
+        <div class="r8-nm-sec"><h5>做过的题<em>（最近一次作答）</em></h5>${d.list.length ? `<div class="r8-nm-list">${d.list.map((q) => `
+          <div class="r8-nm-q ${q.is_correct ? 'ok' : 'no'}"><i class="r8-nm-st">${q.is_correct ? '对' : '错'}</i><span class="r8-nm-t">${TN[q.type] || '题'}</span><span class="r8-nm-s">${esc(q.stem)}</span></div>`).join('')}</div>` : '<div class="r8-nm-empty">还没有做过这个知识点的题</div>'}</div>
+      </div>`;
+      document.body.appendChild(m);
+      const close = () => m.remove();
+      m.querySelector('.close-x').onclick = close;
+      m.addEventListener('click', (e) => { if (e.target === m) close(); });
+      m.querySelectorAll('[data-v]').forEach((b) => b.onclick = () => {
+        const all = (this.course.grouped ? (this.course.groups || []).reduce((a, g) => a.concat(g.lessons), []) : (this.course.lessons || []));
+        const l = all.find((x) => x.video_id === Number(b.dataset.v));
+        close();
+        if (l) this.playVideo(l);
+      });
+      if (window.mtxTypeset) mtxTypeset(m);
+    },
     /** 知识点【做练习】：取题 → 全屏做题弹层 → 错题自动进错题本 */
     async doPractice(lesson) {
       if (typeof FX !== 'undefined') FX.tap();
@@ -393,6 +461,8 @@ const App = {
         title: (lesson.title || d.title || '配套练习') + ' · 做练习',
         subtitle: `${d.list.length} 道题 · 做一题核对一题`,
         questions: d.list,
+        onWatch: () => this.playVideo(lesson),   // R8：报告页「再看一遍视频」
+        watchText: '再看一遍视频',
         // 交卷成功就刷新课程数据：视频 / 小分组的正确率马上变化（弹层关掉后看到的已是新数字）
         submit: async (answers, duration) => {
           const r = await api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'practice', video_id: lesson.video_id, answers, duration } });
@@ -790,6 +860,7 @@ const App = {
             <div class="sc-prog">
               <div class="fb-top"><span>知识点进度</span><b :class="{ full: c.percent>=100 }">{{ c.kp_total ? (c.kp_done+' / '+c.kp_total) : '—' }}</b></div>
               <div class="pbar"><i :style="{ width: (c.percent||0)+'%' }"></i></div>
+              <div class="r8-sc-acc" :class="accCls(c.acc)"><span>习题正确率</span><b>{{ c.acc && c.acc.total ? (c.acc.rate === null ? '未做' : c.acc.rate + '%') : '暂无习题' }}</b><em v-if="c.acc && c.acc.answered">已做 {{ c.acc.answered }} / {{ c.acc.total }} 题</em></div>
             </div>
           </div>
         </div>
@@ -799,19 +870,38 @@ const App = {
         <div class="st-backbar" :class="'st-'+course.subject">
           <button class="st-back" @click="goCourses"><i class="ai ai-arrow-left"></i> 返回</button>
           <div class="bb-tt"><b>{{ course.name }}</b><span>{{ [course.subject, course.category, courseSub(course)].filter(Boolean).join(' · ') }}</span></div>
-          <div class="bb-prog">
-            <div class="fb-top"><span>进度</span><b :class="{ full: course.percent>=100 }">{{ course.kp_done }} / {{ course.kp_total }}</b></div>
-            <div class="pbar"><i :style="{ width: (course.percent||0)+'%' }"></i></div>
+          <div class="bb-prog r8-bb-prog">
+            <div class="r8-bb-cell">
+              <div class="fb-top"><span>进度</span><b :class="{ full: course.percent>=100 }">{{ course.kp_done }} / {{ course.kp_total }}</b></div>
+              <div class="pbar"><i :style="{ width: (course.percent||0)+'%' }"></i></div>
+            </div>
+            <div class="r8-bb-cell r8-bb-acc" :class="accCls(course.acc)">
+              <div class="fb-top"><span>正确率</span><b>{{ course.acc && course.acc.total ? (course.acc.rate === null ? '未做' : course.acc.rate + '%') : '—' }}</b></div>
+              <div class="pbar"><i :style="{ width: ((course.acc && course.acc.rate) || 0)+'%' }"></i></div>
+            </div>
+          </div>
+        </div>
+        <div class="r8-hero" :class="'st-'+course.subject">
+          <div class="r8-hero-ring" :style="{ '--p': course.kp_total ? Math.round(course.kp_done / course.kp_total * 100) : 0 }">
+            <div><b>{{ course.kp_done }}<small> / {{ course.kp_total }}</small></b><span>知识点掌握</span></div>
+          </div>
+          <div class="r8-hero-stats">
+            <div class="r8-hs" :class="accCls(course.acc)"><span>习题正确率</span><b>{{ course.acc && course.acc.total ? (course.acc.rate === null ? '未做' : course.acc.rate + '%') : '—' }}</b><em>{{ course.acc && course.acc.total ? '已做 ' + course.acc.answered + ' / ' + course.acc.total + ' 题' : '本课程暂无习题' }}</em></div>
+            <div class="r8-hs"><span>学习进度</span><b>{{ course.percent || 0 }}%</b><em>已学 {{ course.kp_done }} / {{ course.kp_total }} 个视频</em></div>
+          </div>
+          <div class="r8-hero-go">
+            <button class="r8-go-btn" type="button" :disabled="!course.kp_total" @click="continueLearn"><i class="ai ai-play"></i>{{ course.next ? '继续学习' : '再学一遍' }}</button>
+            <div class="r8-go-next" :title="course.next ? course.next.title : ''">{{ course.next ? '即将学习：「' + course.next.title + '」' : (course.kp_total ? '全部视频都学完了，可以做练习巩固' : '暂无视频') }}</div>
           </div>
         </div>
         <div class="st-sec">
           <div class="sec-h"><b>知识点</b><span v-if="course.acc && course.acc.total" class="t6-acc-sum">习题正确率 {{ course.acc.rate === null ? '未做' : course.acc.rate + '%' }}（已做 {{ course.acc.answered }} / {{ course.acc.total }} 题）</span></div>
           <div v-if="course.grouped && course.groups && course.groups.length" class="kp-layout">
             <aside class="kp-side">
-              <a v-for="g in course.groups" :key="g.id" class="kp-side-item" :class="{ on: activeGroup && activeGroup.id===g.id }" @click.prevent="activeGroupId=g.id">
-                <span class="gs-name">{{ g.name }}</span>
-                <span class="gs-meta">{{ g.kp_done }}/{{ g.kp_total }}</span>
-                <span v-if="g.acc && g.acc.total" class="t6-acc" :class="accCls(g.acc)" :title="'小分组习题：已做 '+g.acc.answered+' / '+g.acc.total+' 题，最近一次答对 '+g.acc.correct+' 题'">{{ accText(g.acc, true) }}</span>
+              <a v-for="g in course.groups" :key="g.id" class="kp-side-item r8-gside" :class="{ on: activeGroup && activeGroup.id===g.id }" @click.prevent="activeGroupId=g.id">
+                <span class="gs-name" :title="g.name">{{ g.name }}</span>
+                <span class="r8-gs-meta">已学 {{ g.kp_done }}/{{ g.kp_total }}<i></i>正确率 <b :class="accCls(g.acc)">{{ g.acc && g.acc.total ? (g.acc.rate === null ? '未做' : g.acc.rate + '%') : '—' }}</b></span>
+                <button v-if="g.id && g.practice_count" class="r8-gs-btn" type="button" @click.stop.prevent="doSectionPractice(g)"><i class="ai ai-doc"></i>小分组练习（{{ g.practice_count }} 题）</button>
               </a>
             </aside>
             <div class="kp-list kp-main-list">
@@ -819,6 +909,7 @@ const App = {
                 <div class="kp-idx">{{ String(i+1).padStart(2,'0') }}</div>
                 <div class="kp-main">
                   <div class="kp-tt"><b>{{ l.title }}</b><span class="kp-state">{{ l.done ? '✓ 已学完' : '未学习' }}</span><span v-if="l.acc && l.acc.total" class="t6-acc" :class="accCls(l.acc)" :title="'已做 '+l.acc.answered+' / '+l.acc.total+' 题，最近一次答对 '+l.acc.correct+' 题'">{{ accText(l.acc) }}</span></div>
+                  <div v-if="l.nodes && l.nodes.length" class="r8-ktags"><span class="r8-ktags-l">知识点</span><button v-for="n in l.nodes" :key="n.id" type="button" class="r8-ktag" :title="'查看「'+n.name+'」的掌握情况'" @click="showNodeMastery(n)">{{ n.name }}</button></div>
                   <div v-if="l.handout" class="kp-doc"><i class="doc-dot"></i><span class="dl">讲义：</span><span class="dn">{{ l.handout.title }}</span><span class="ds">{{ fmtSize(l.handout.size) }}</span></div>
                   <div v-else class="kp-doc off"><i class="doc-dot"></i>暂无配套讲义</div>
                   <div class="kp-acts">
@@ -836,6 +927,7 @@ const App = {
               <div class="kp-idx">{{ String(i+1).padStart(2,'0') }}</div>
               <div class="kp-main">
                 <div class="kp-tt"><b>{{ l.title }}</b><span class="kp-state">{{ l.done ? '✓ 已学完' : '未学习' }}</span><span v-if="l.acc && l.acc.total" class="t6-acc" :class="accCls(l.acc)" :title="'已做 '+l.acc.answered+' / '+l.acc.total+' 题，最近一次答对 '+l.acc.correct+' 题'">{{ accText(l.acc) }}</span></div>
+                  <div v-if="l.nodes && l.nodes.length" class="r8-ktags"><span class="r8-ktags-l">知识点</span><button v-for="n in l.nodes" :key="n.id" type="button" class="r8-ktag" :title="'查看「'+n.name+'」的掌握情况'" @click="showNodeMastery(n)">{{ n.name }}</button></div>
                 <div v-if="l.handout" class="kp-doc"><i class="doc-dot"></i><span class="dl">讲义：</span><span class="dn">{{ l.handout.title }}</span><span class="ds">{{ fmtSize(l.handout.size) }}</span></div>
                 <div v-else class="kp-doc off"><i class="doc-dot"></i>暂无配套讲义</div>
                 <div class="kp-acts">
