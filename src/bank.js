@@ -612,7 +612,9 @@ admin.get('/videos/:id/questions', (req, res) => {
   const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
   if (!v) return fail(res, '视频不存在');
   const rows = db.prepare('SELECT * FROM questions WHERE video_id=? ORDER BY id').all(v.id).map(parseQ);
-  ok(res, { video: v, list: rows });
+  // R8：顺带返回视频关联的知识点（编辑题目时默认继承）
+  const nodes = db.prepare('SELECT n.id, n.name FROM video_nodes vn JOIN bank_tree_nodes n ON n.id=vn.node_id WHERE vn.video_id=? ORDER BY n.sort, n.id').all(v.id);
+  ok(res, { video: v, list: rows, nodes });
 });
 // 绑定 / 解绑题目到视频（解绑走 /videos/0/bind + unbind=1，不要求视频存在）
 admin.post('/videos/:id/bind', (req, res) => {

@@ -449,9 +449,11 @@ async function mfReviewDialog(it, done) {
 }
 
 /** 题目编辑弹层（题干/选项/答案/解析/章节+知识点双归属；PUT 全字段回传避免重置丢数据） */
-async function mfQEdit(id, done) {
+async function mfQEdit(id, done, opts) {
   const d = await api(`${MF_API}/questions/${id}`);
   const q = d.question;
+  // R8：从课文习题打开时，题目还没挂知识点就默认勾上视频关联的知识点（题目继承视频的知识点）
+  if ((!q.nodes || !q.nodes.length) && opts && Array.isArray(opts.defaultNodes) && opts.defaultNodes.length) q.nodes = opts.defaultNodes.slice();
   const trees = (await api(MF_API + '/trees', { silent: true }).catch(() => ({ list: [] }))).list || [];
   const chapTrees = trees.filter((t) => t.kind === 'textbook');
   const knowTrees = trees.filter((t) => t.kind === 'knowledge');
