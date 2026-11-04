@@ -46,3 +46,10 @@
 ## T7 听力题：`questions` 加一列
 
 `questions.audio_key VARCHAR(255) DEFAULT ''`（听力音频的存储 key，目录前缀 `bank/audio/`，空串 = 没有音频），在 `src/db.js` 里幂等 `ALTER TABLE … ADD COLUMN`。题型不新增：音频是现有题型（单选 / 多选 / 判断 / 填空…）上附加的"听力材料"。
+
+## R8 小分组挂题、视频关联知识点：`questions` 加一列 + 新表 `video_nodes`（2026-11-04）
+
+- `questions.section_id INTEGER DEFAULT NULL`（索引 `idx_q_section`）：题目直接挂到课程目录下的「小分组」（`sections.id`）。和 `video_id` **二选一**：绑到视频时清掉 `section_id`，挂到小分组时清掉 `video_id`；挂小分组时 `chapter_id` 同时写成小分组所属课程。删小分组 / 删课程时把挂在上面的题 `section_id` 置空（题目保留在题库）。
+- `video_nodes(video_id INTEGER, node_id INTEGER, PRIMARY KEY(video_id,node_id))`（索引 `idx_vnode_node`）：视频关联的知识点树节点（`bank_tree_nodes.id`，多选）。学生端视频卡显示成知识点标签；统计某个知识点的掌握情况时，绑在「关联了该知识点的视频」上的题自动算进来（**不写 `question_nodes`**，见 D31）。删视频时一并删掉它的 `video_nodes`。
+- 两者都在 `src/db.js` 里幂等建：`ALTER TABLE … ADD COLUMN` + `CREATE TABLE IF NOT EXISTS`，只加不删。
+- 正确率口径（`src/accuracy.js`）：小分组 = 组内视频的题 + 小分组自己的题合并后再算；课程 = 全部视频的题 + 全部小分组自己的题。新增 `sectionOwnStats`（按 `section_id` 聚合）、`lastAnswers`（一组题各自最近一次作答），仍然只读 `records`，不新增作答表。

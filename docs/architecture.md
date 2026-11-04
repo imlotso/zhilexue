@@ -53,14 +53,14 @@ zhilexue/
 | `db.js` / `mysql-sync.js` / `mysql-worker.js` / `import-sqlite.js` | 建表、数据库连接与 SQLite→MySQL 转换 |
 | `auth.js` / `delpwd.js` | JWT 鉴权；删除确认密码 |
 | `storage.js` | 文件存储抽象（本地 / OSS / 七牛） |
-| `accuracy.js` | 习题正确率（T6）：按视频 / 小分组 / 课程聚合某学生的作答（`records` + `questions.video_id`，每题取最近一次），不新增表；被 `app.js` 的 `course-detail`、`bank.js` 的 `submit` 返回和后台 `/accuracy` 共用 |
+| `accuracy.js` | 习题正确率（T6）：按视频 / 小分组 / 课程聚合某学生的作答（`records` + `questions.video_id`，每题取最近一次），不新增表；R8 起小分组还要算上直接挂在小分组上的题（`questions.section_id`，`sectionOwnStats`），`lastAnswers` 给「知识点掌握情况」用；被 `app.js` 的 `course-detail` / `courses`、`bank.js` 的 `submit` / `node-mastery` 和后台 `/accuracy` 共用 |
 | `compose.js` | 组卷核心（T5）：范围（学科/学段/年级/难度/知识点文字 + 章节树/知识点树节点含后代）→ 候选题；`pickByCounts`（管理端按题型数量）、`pickPerNode`（学生端每个最小知识点 1 题）、`poolCounts`（范围内题量）；被 `bank.js` 的 `/papers/auto`、`/papers/pool`、学生端 `/scan-compose` 共用 |
 | `mistake-docx.js` | 错题 Word 导出（T9）：取错题 + 答题记录 → 按客户《错题集》样本版式生成 `.docx`（封面 / 错题练习 / 错题解析 / 页脚页码，图片内嵌）；学生端 `app.js` 的 `/mistakes/export-docx` 和后台 `bank.js` 的 `/mistakes/export-docx` 共用 |
-| `bank.js` | 智能题库：题目、知识点树（kb）、组卷下发、课文习题绑定、学生错题、扫码上传池 |
+| `bank.js` | 智能题库：题目、知识点树（kb）、组卷下发、课文习题绑定（R8：视频 / 小分组挂题、视频关联知识点 `video_nodes`）、学生错题、扫码上传池、AI 老师流式讲解（R8：`/ai-explain/stream` SSE） |
 | `mfbank.js` / `mfcollect.js`（含 AI 配置中心档案接口）/ `mfseed.js` / `mfzip.js` | 「魔方题库」（与 2026-10-29 并入）：目录树、标签、采集批次、录题 intake、试卷管理、AI 配置 profiles、技能包导入 |
 | `bank-excel.js` / `excel.js` / `bank-judge.js` / `docxtext.js` / `tableparse.js` | Excel/Word 导入解析与判分 |
 | `wrong.js` / `scanify.js` / `pdfimg.js` | 错题重组：拍照切题、生成错题集 PDF |
-| `ai-client.js` | AI 客户端（T2）：全站唯一发请求给大模型的地方；按档案的 `format` 走 OpenAI 兼容 / Anthropic Messages / Gemini 三种协议，选档案（角色 → 回落 → 内置配置），图片按各协议的内容块格式送，错误翻译成中文原因；被 `ai.js`、`mfcollect.js` 调用 |
+| `ai-client.js` | AI 客户端（T2）：全站唯一发请求给大模型的地方；按档案的 `format` 走 OpenAI 兼容 / Anthropic Messages / Gemini 三种协议，选档案（角色 → 回落 → 内置配置），图片按各协议的内容块格式送，错误翻译成中文原因；R8 加 `chatStream`（OpenAI 兼容走 `stream:true`，另两种退化为分块推送）；被 `ai.js`、`mfcollect.js`、`bank.js`（AI 老师浮层）调用 |
 | `ai.js` / `report.js` / `reports.js` | AI 业务封装（学情报告、整页识别、错题变式、通用对话，都转给 `ai-client.js`）与 AI 学情报告；学情统计 |
 | `word.js` / `phonics.js` / `win-speak.js` / `pos-*.js` | 单词训练、语音基础、TTS 发音、词性词库 |
 | `seed.js` / `config.local.js` / `builtin-config.js` | 初始化数据；MySQL 连接信息；内置配置 |
@@ -74,3 +74,9 @@ zhilexue/
 ## 测试与 CI
 
 根目录测试：`smoke.js`（后端端到端，需服务已启动）、`bank-test.js`、`word-test.js`、`wrong-test.js`、`storage-test.js`、`ui-test.js`（需 jsdom）、`report-test.js`、`wrong-ui-test.js`。CI 见 `.github/workflows/ci.yml`。
+
+## 学生端做题弹窗与课程页（R8）
+
+- 做题弹窗 `BankQuiz.open()`（`public/js/bank.js`）是课文习题、小分组练习、试卷、错题重做 / 复习、自组卷共用的一个 DOM 组件：桌面端定高（`min(86vh,760px)`），右侧栏 = 计时 + 题号四色方格（未做 / 已做 / 答对 / 答错，可点击跳题），左侧 = 题卡（内部滚动）+ 底部按钮；所有模式都是「提交本题 → 立即核对（`/check`，不落库）→ 全部核对完交卷（`/submit`）→ 报告」。手机端（≤760px）全屏，题号改成顶栏下的横向滚动条。
+- AI 老师浮层也在 `bank.js` 里（每个做题弹窗各自一份状态）：对话按「题目 × 模式（直接讲解 / 一步步引导）」分别保存；用 `fetch` + `ReadableStream` 读 `/api/stu/bank/ai-explain/stream` 的 SSE（`EventSource` 不支持 POST 和登录头）；Markdown 用 `r8Md()` 轻量渲染，流结束后 `mtxTypeset` 排公式。
+- 课程页（`public/js/vue-app.js` 的 `course` 页）：右上角进度 + 正确率、顶部「知识点掌握」卡（环形 + 两个指标 + 继续学习）、左侧小分组卡（已学 / 正确率 / 小分组练习）、视频卡知识点标签（点开是 `showNodeMastery` 弹窗）。样式都在 `public/css/app.css` 末尾的 `r8-` 段。

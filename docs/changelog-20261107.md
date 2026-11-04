@@ -451,3 +451,48 @@
 - 旧的「学段学科为空」孤儿树没有自动清理；`/api/mfproxy` 仍可访问任意 http(s) 地址（含内网），都记在 `pending-human-actions.md`。
 - 题图的 `ft` 6 小时过期：页面开着不刷新超过 6 小时再看图会 401，刷新即可。
 
+
+## R8 二轮整改：课程页 + 做题弹窗 + AI 浮层（2026-11-04）
+
+分支 `feat/r8-course-quiz`（基于 R0，已合并 main）。任务书第 1.5 节、第 3 节 R8、第 6.2 节。
+
+### 改动页面路径清单
+
+| 页面 | 路径 | 改了什么 |
+|---|---|---|
+| 后台 · 课文习题 | `/admin/#/lessonq` | 左侧每个小分组显示「小分组习题 N」+「管理习题」；右侧顶部一条小分组习题栏；视频行显示关联的知识点；「管理习题」弹窗分页签：视频习题 / 小分组习题 / 关联知识点；题目列表渲染公式和题图（点图放大），可直接「编辑」（复用题库的编辑弹窗）、解绑；「从题库选择」只列没绑任何位置的题 |
+| 学生端 · 课程页 | `/#/course/:id` | 右上角同时显示「进度」和「正确率」；新增顶部卡片：知识点掌握 X / Y 环形 + 习题正确率（已做 a / b 题）+ 学习进度 + 「继续学习」大按钮（写明即将学习的视频）；左侧小分组卡「已学 a/b · 正确率」+「小分组练习（N 题）」；视频卡显示关联的知识点标签，点开看这个知识点的掌握情况（做过的题、正确率、讲它的视频） |
+| 学生端 · 课程卡片 | `/#/courses`（各学科课程列表） | 卡片底部加「习题正确率 NN%（已做 a / b 题）」 |
+| 做题弹窗 | 课程页 →「练习」/「小分组练习」；试卷库、我的任务、错题重做 / 复习、章节 / 知识点组卷共用 | 桌面端定高 `min(86vh,760px)`，头部 / 底部固定、内容区内部滚动，判分前后位置和尺寸不变；右侧计时 + 题号四色方格（未做 / 已做 / 答对 / 答错，可点击跳题）；逐题反馈：大标签「答对了 / 答错了」，选错的选项整条标红、正确项标绿，填空逐空 ✓ / ✗，再显示答案和解析；手机端顶栏一行、题号横向滚动、底部整行按钮 |
+| AI 老师浮层 | 做题弹窗里判分后右下角「AI 老师」 | 在当前窗口右下方展开（400 × 60vh），做题弹窗向左让位，不挡题干和「下一题」；流式输出，按 知识点 / 思路 / 步骤 / 易错点 分段，Markdown + 公式；预设追问「再讲细一点」「出一道同类题考考我」+ 自由输入（多轮）；失败显示原因和「重试」；可最小化 / 关闭；切题时跟着当前题；「直接讲解 / 一步步引导」模式切换（原来居中遮罩的分步小窗去掉）；窗口窄于 1000px 改为底部抽屉（70vh） |
+| 做题报告 | 做题弹窗全部核对完 →「查看报告」 | 正确率环、答对 / 答错 / 用时（试卷另有得分）、题号红绿方块（点了跳到该题解析）、各知识点掌握条形、薄弱知识点及对应题号、「答错的题已进错题本」、本视频 / 小分组现在的正确率；底部「再练一次 / 再看一遍视频（去看视频）/ 完成」；每道题解析旁可再叫 AI 老师 |
+
+### 改了哪些文件
+
+| 层 | 文件 | 内容 |
+|---|---|---|
+| 表 | `src/db.js` | `questions.section_id`（+索引）、新表 `video_nodes`（幂等，只加不删） |
+| 后端 | `src/bank.js` | 后台：`/sections/:id/questions`、`/sections/:id/bind`、`/videos/:id/nodes`（读 / 整体替换）、lessons / chapters 带小分组题数和视频知识点、`video=free`、新增题目可带 `section_id`、视频绑题清 `section_id`；学生：`/section-questions`、`submit kind=section`、`/node-mastery`、`/check` 填空逐空 `blanks`、SSE `/ai-explain/stream`（含 AI_MOCK 模拟流式） |
+| 后端 | `src/ai-client.js` | `chatStream`：OpenAI 兼容 `stream:true` 逐段转发；Anthropic / Gemini 退化为一次性返回后分块推送 |
+| 后端 | `src/accuracy.js`、`src/app.js` | `sectionOwnStats`、`lastAnswers`；course-detail 带 `own_qcount / own_acc / practice_count / nodes / next`，小分组和课程正确率含小分组自己的题；`/courses` 带 `acc`；删视频 / 小分组 / 章节时清理新关联 |
+| 学生端 | `public/js/bank.js`、`public/js/vue-app.js`、`public/css/app.css`（末尾 `r8-` 段）、`public/index.html`（版本号） | 做题弹窗、AI 浮层、报告；课程页、课程卡片 |
+| 后台 | `public/admin/bankui.js`、`public/admin/mfui2.js`（`mfQEdit` 可带默认知识点）、`public/admin/theme.css`（末尾 `body.t11 .r8-` 段）、`public/admin/index.html`（版本号） | 课文习题页和弹窗 |
+| 测试 | `r8-test.js`（新增，CI api job 末尾） | 接口 35 项 + 浏览器 24 项 |
+
+### 怎么验证
+
+- 新增 `r8-test.js`：接口层（小分组挂题 / 二选一 / 解绑范围、`video=free`、`video_nodes` 读写与整体替换、候选树排序、学生 token 调后台接口 403、后台 token 调 SSE 403、course-detail 的小分组题数 / 练习题数 / 正确率 / 视频知识点 / 继续学习、课程卡片正确率、小分组练习取题与交卷（夹带别组题不计）、知识点掌握（含子孙、视频题继承）、填空逐空、SSE：`text/event-stream` + 多块 + 四段标题 + 追问 + 引导模式 + 错误走 JSON）；浏览器（课程页顶部数字与接口一致、右上角正确率、小分组卡、知识点标签弹窗、700×500 题图显示 503px、判分前后 boundingBox 完全相同、答错标红标绿、AI 按钮、浮层右 / 下各 16px 贴边 400×540 且不与「下一题」和题干相交、流式文字逐步变长、四段渲染、自由追问第二条回复、引导模式不再弹遮罩、最小化、切题跟随、填空 ✓ / ✗、报告题号方块数、手机顶栏不换行 / 按钮不竖排 / AI 为底部抽屉 70vh、无页面脚本报错）。**59 项全过**。
+- **全量回归**（`xuexi_r8` 库、端口 3108、`STORAGE_DRIVER=local AI_MOCK=1 TTS_MOCK=1`）：smoke 187、word-test 60、wrong-test 44、kbtree-test 33、pending-test 67、compose-test 41、lessonq-test 26、aiclient-test 55、mistake-test 49、paper-test 43、listening-test 30、formula-test 28、bankstore-test 17、theme-test 28、flow-test 33、storage-test 34、r0-test 32、bank-test 29、wordq-test 29、excel-test 10、r8-test 59，**全部 0 失败**。
+- **真实 AI 联调**（不带 AI_MOCK，内置配置：阿里云百炼 OpenAI 兼容 `qwen3-vl-plus`，共 3 次）：① 首次讲解：流式成功，首字 1.9s、总 6.3s、347 段 515 字，四段标题齐全、公式用 `\( \)`；② 带上下文追问：首字 1.5s、总 5.2s；③ 调整提示词（追问不再套四段、不要表情符号）后再追问：首字 1.5s、总 3.8s，回答针对问题、引用了上一轮内容。三次都 `streamed:true`（真流式，不是退化）。
+- 截图（`docs/screenshots/rework/r8/`；`before-*` = `origin/main` 代码另起 3118 端口截，`after-*` = 本分支）：
+  - 后台：`before-admin-lessonq.png` / `after-admin-lessonq.png`（小分组习题数 + 管理习题 + 视频知识点）、`before-admin-lessonq-dialog.png` / `after-admin-lessonq-video.png`（公式、题图渲染，编辑 / 解绑）、`after-admin-lessonq-section.png`（小分组习题页签）、`after-admin-lessonq-nodes.png`（关联知识点树）
+  - 课程页：`before-student-course(-m).png` / `after-student-course(-m).png`、`after-student-node-mastery(-m).png`、课程卡片 `before-student-courses(-m).png` / `after-student-courses(-m).png`
+  - 做题弹窗：`before-quiz-answer.png` / `before-quiz-judged.png`（改前 553→767 高、上移 107px）对比 `after-quiz-answer.png` / `after-quiz-judged.png`（都是 1040×760、位置不变）；手机 `before-quiz-judged-m.png`（顶栏挤成竖排）/ `after-quiz-judged-m.png`；`after-quiz-fill.png`（逐空 ✓ / ✗）、`after-quiz-formula.png`（公式选项）
+  - AI 浮层：`before-quiz-ai.png`（居中遮罩小窗、AI_MOCK 下直接报错）/ `after-quiz-ai-streaming(-m).png`（流式进行中）、`after-quiz-ai-followup(-m).png`（自由追问后）
+  - 报告：`after-quiz-report(-m).png`、`after-quiz-report-2.png`
+
+### 遗留
+
+- 课文习题的「批量上传（Word）」仍只对视频；小分组习题目前是「添加习题 / 从题库选择」两种方式。
+- 平板宽度（640–999px）的 AI 浮层用底部抽屉（会盖住「下一题」，可最小化），见 D31。
+- 真实 AI 联调只在云环境用测试题跑了 3 次；生产环境如有 nginx 反代，要确认没有对 `/api/stu/bank/ai-explain/stream` 开缓冲（响应已带 `X-Accel-Buffering: no`，见 pending-human-actions）。
