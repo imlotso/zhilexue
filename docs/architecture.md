@@ -32,6 +32,9 @@ zhilexue/
 │   │   admin/formulaui.js       后台「插入公式」按钮 + 题目输入框粘贴 / 拖拽图片（T8）
 │   │   vendor/mathlive/         MathLive 0.109.2（MIT）本地文件和字体，不走 CDN；点公式按钮时才加载
 │   │   admin/treepick.js        目录树选择小工具（R2）：前端 `pickTree`（与后端 `treepick.js` 同逻辑）、版本列表、下拉显示名「版本 · 学段 · 名称」；在 admin.js 之后、各页面脚本之前加载
+│   │   admin/treepanel.js       可复用目录树面板（R3）：`treePanel(el, {state, kinds, pick, onChange, onScope})` = 「学段 / 学科 / 版本」级联选择器 + 章节 | 知识点 分段 + 多层可折叠树（子孙题数、搜索过滤并展开、全部展开/收起、多选 / Ctrl 追加、默认展开题最多的年级和当前学期册别）；状态放在页面传进来的 state 对象里。题库管理左栏、批量挂分类弹窗（pick 模式）、R6 智能组卷都用它
+│   │   admin/qcard.js           题卡渲染（R3）：`qcCard(q, opts)` / `qcBind(root)`——顶栏徽标（题型 · 难度 · 学段年级 · 版本）、题干 / 选项（自动 4/2/1 列）/ 题图灯箱 / 公式、章节路径与知识点小标签、缺分类提示、答案解析原位展开；题库管理和智能组卷共用
+│   │   admin/qbasket.js         试题篮（R3 / R6 共用）：`QB`（存在 localStorage，按登录账号分开）+ `qbFab()` 右侧悬浮按钮（显示数量）
 │   ├── admin/      后台（Vue 2 + element-ui，多个独立脚本依次加载；`vcodec.js` 是视频上传前的编码检测，先于 admin.js 加载；`ktreeui.js` 是「知识树管理」页，`pendingui.js` 是「待审核题目」页，`accui.js` 是「学情管理 → 知识点正确率」页）
 │   ├── upload.html 手机扫码上传页；scan-report.html 扫码上传学情试卷
 │   ├── apps/       care / grades / keyboard-school / timer，独立小应用，由主站以 iframe 引用
@@ -50,6 +53,7 @@ zhilexue/
 | `app.js` | 主服务：登录、文件代理、管理端基础接口（分校/学生/目录/视频/讲义）、学生端基础接口、路由挂载 |
 | `kbtree.js` | 知识树统一（T4）：旧 `kb_*` 复制进 `bank_trees` 知识点树、旧 `/kbtree*` 接口的读写、知识点名清单（供 AI 补全/下拉用）；被 `bank.js`、`mfbank.js` 调用 |
 | `treepick.js` / `treeio.js` | 目录树的教材版本（R2）：`treepick.js` = 默认版本表（`settings.default_editions`）+ 统一取树 `pickTree`（所有"按 学段+学科 取一棵树"的地方都走它：`kbtree.js`、`bank.js` 学生端 `scan-tree`、`mfcollect.js`）；`treeio.js` = 树导入 / 导出（格式见 `docs/tree-import-format.md`，被 `mfbank.js` 的 `/trees/import`、`/trees/:id/export` 和 `scripts/import-trees.js` 共用） |
+| `qmeta.js` | 题目附加信息（R3）：`usageMap`（组卷次数，按现有试卷现算，不存计数列）、`mountInfo`（章节路径 / 知识点名 / 版本，只留最深节点）、`expandNodes`（节点含子孙，或精准只取自身）；被 `mfbank.js` 的题库列表用，R6 组卷选题也用 |
 | `mfpending.js` | 待审核题目（T3）：把拍照识别 / Word / Excel / 技能包（都是 `mf_recog_runs` 批次）、网络采集批次、手机扫码上传统一成一个列表，逐题编辑/入库/删除，以及 Excel、Word 导入入口；由 `mfbank.js` 末尾挂载，复用它抽出的 `commitRunCards` / `commitCaptureItems`；T10 的「上传真题试卷」`POST /papers/import-word`（Word → 试卷 + 入题库）也在这里 |
 | `wordq.js` | Word 题目规则解析（T3）：按客户《word (1).docx》的格式规则解析，不调 AI，不合规的题给出段号和原因 |
 | `db.js` / `mysql-sync.js` / `mysql-worker.js` / `import-sqlite.js` | 建表、数据库连接与 SQLite→MySQL 转换 |

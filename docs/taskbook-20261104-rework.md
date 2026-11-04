@@ -400,7 +400,7 @@
 | R1 | 习题学习报告（合并后） | `/admin/#/xreport` → 习题学习报告页签 | 待做 | | |
 | R1 | 左侧菜单 | 后台所有页面 | 待做 | | |
 | R2 | 知识树管理 | `/admin/#/ktree` | 待做 | | |
-| R3 | 题库管理 | `/admin/#/mfq` | 待做 | | |
+| R3 | 题库管理 | `/admin/#/mfq` | 已完成（feat/r3-bank-page） | `docs/screenshots/rework/r3/r3-before-1440.png` | `r3-after-1440.png`、`r3-after-390.png`、`r3-compare-yangcong.png` |
 | R4 | 录题中心（新） | `/admin/#/intake` | 待做 | | |
 | R4 | 待审核题目 | `/admin/#/pending` | 待做 | | |
 | R5 | 网络采集 | 录题中心 → 网络采集 | 待做 | | |

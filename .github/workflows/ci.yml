@@ -83,6 +83,8 @@ jobs:
         if: ${{ !cancelled() }}   # 二轮整改 R0（bug 修复）：选项显示 / 题图与灯箱 / 代理 iframe 隔离 / 树行样式 / 单题入库弹分类框（有 Playwright 时才跑）
       - run: node tree-edition-test.js
         if: ${{ !cancelled() }}   # 知识树教材版本（R2）：edition 列与迁移、默认版本表、pickTree 前后端一致、树导入导出与脚本、学生端按默认版本取树
+      - run: node r3-test.js
+        if: ${{ !cancelled() }}   # 题库管理页（R3）：按节点含子孙 / 精准筛题、胶囊筛选组合、章节路径与组卷次数、批量挂分类；有 Playwright 时再测级联选择器、树搜索、题数一致、批量挂分类后题卡、溢出
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4
