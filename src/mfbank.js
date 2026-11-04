@@ -20,6 +20,7 @@ const store = require('./storage');
 const aiLib = require('./ai');
 const treePick = require('./treepick');   // R2：默认版本表 + 统一取树
 const treeIo = require('./treeio');       // R2：树导入 / 导出
+const qmeta = require('./qmeta');         // R3：组卷次数 / 章节路径 / 子孙节点
 
 const admin = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -292,23 +293,63 @@ admin.post('/questions/:id/nodes', (req, res) => {
 });
 
 // ==================================================================== 题目
-/** 列表：学科/学段/年级/题型/难度/关键词/标签/来源/目录节点（含子树） */
+/** 来源分类（R6）：题目没有单独的「资料类型」列，按 source（来源文字，如「2025 七上期中 · 绍兴」）里的关键字归类 */
+const SRC_KINDS = {
+  sync: { t: '同步', like: ['%同步%', '%课时%', '%课后%', '%练习%', '%作业%'] },
+  monthly: { t: '月考', like: ['%月考%'] },
+  midterm: { t: '期中', like: ['%期中%'] },
+  final: { t: '期末', like: ['%期末%'] },
+  mock: { t: '中考模拟', like: ['%模拟%', '%一模%', '%二模%', '%三模%'] },
+  zhongkao: { t: '中考真题', like: ['%中考真题%', '%中考%'], notLike: ['%模%'] },
+  contest: { t: '竞赛', like: ['%竞赛%', '%杯%'] },
+};
+
+/**
+ * 列表：学科/学段/年级/题型/难度/关键词/标签/来源/目录节点（含子树）
+ * R3 起：题型 / 难度 / 来源 / 年份 / 完整度 都可以传逗号分隔的多个值（同一组之间是「或」，不同组之间是「且」）；
+ *   node_mode=exact 只匹配节点自身（精准出题），默认含子孙（关联出题）；
+ *   knows=逗号分隔的知识点节点：题目至少挂了其中一个（R6「已选知识点」）；
+ *   src_kind=sync,midterm…（按来源文字归类，见 SRC_KINDS）；unused=1 过滤已组过卷的题；ids=只取这些题；
+ *   sort=used 按组卷次数倒序（默认 new：最新录入在前）；每题附带 use（组卷次数）、chapters / knows（章节路径、知识点）、edition。
+ */
+const csv = (v) => String(v == null ? '' : v).split(',').map((s) => s.trim()).filter(Boolean);
 admin.get('/questions', (req, res) => {
   const q = req.query || {};
   const page = Math.max(1, int(q.page, 1));
   const size = Math.min(100, Math.max(1, int(q.size, 10)));
   const where = []; const args = [];
-  const like = (col, val) => { where.push(`${col} LIKE ?`); args.push(`%${val}%`); };
+  const inList = (col, vals) => { if (!vals.length) return; where.push(`${col} IN (${vals.map(() => '?').join(',')})`); args.push(...vals); };
   if (q.subject) { where.push('q.subject=?'); args.push(String(q.subject)); }
   if (q.stage) { where.push('q.stage=?'); args.push(String(q.stage)); }
-  if (q.grade) { where.push('q.grade=?'); args.push(String(q.grade)); }
-  if (q.type) { where.push('q.type=?'); args.push(String(q.type)); }
-  if (q.difficulty) { where.push('q.difficulty=?'); args.push(int(q.difficulty)); }
-  if (q.source_type) { where.push("IFNULL(q.source_type,'local')=?"); args.push(String(q.source_type)); }
-  // 齐全度：full=答案解析都有 / noans=缺答案 / noana=缺解析
-  if (q.complete === 'full') { where.push("IFNULL(q.answer,'')<>'' AND IFNULL(q.analysis,'')<>''"); }
-  else if (q.complete === 'noans') { where.push("IFNULL(q.answer,'')=''"); }
-  else if (q.complete === 'noana') { where.push("IFNULL(q.analysis,'')=''"); }
+  if (q.grade) inList('q.grade', csv(q.grade));
+  if (q.type) inList('q.type', csv(q.type));
+  if (q.difficulty) inList('q.difficulty', csv(q.difficulty).map((x) => int(x)).filter(Boolean));
+  if (q.source_type) inList("IFNULL(q.source_type,'local')", csv(q.source_type));
+  if (q.year) inList("IFNULL(q.year,'')", csv(q.year).map((y) => (y === 'none' ? '' : y)));
+  if (q.ids) inList('q.id', csv(q.ids).map((x) => int(x)).filter(Boolean));
+  // 来源分类（关键字匹配 source 文字），多选为「或」
+  const kinds = csv(q.src_kind).filter((k) => SRC_KINDS[k]);
+  if (kinds.length) {
+    const ors = [];
+    kinds.forEach((k) => {
+      const d = SRC_KINDS[k];
+      const pos = d.like.map(() => "IFNULL(q.source,'') LIKE ?").join(' OR ');
+      const neg = (d.notLike || []).map(() => "IFNULL(q.source,'') NOT LIKE ?").join(' AND ');
+      ors.push(`((${pos})${neg ? ' AND ' + neg : ''})`);
+      args.push(...d.like, ...(d.notLike || []));
+    });
+    where.push(`(${ors.join(' OR ')})`);
+  }
+  // 齐全度：full=答案解析都有 / noans=缺答案 / noana=缺解析 / nocat=缺分类（章节、知识点少挂任意一种）；多选为「或」
+  const hasKind = (kind, al) => `EXISTS (SELECT 1 FROM question_nodes ${al}q JOIN bank_tree_nodes ${al}n ON ${al}n.id=${al}q.node_id JOIN bank_trees ${al}t ON ${al}t.id=${al}n.tree_id WHERE ${al}q.question_id=q.id AND ${al}t.kind='${kind}')`;
+  const compSql = {
+    full: "(IFNULL(q.answer,'')<>'' AND IFNULL(q.analysis,'')<>'')",
+    noans: "(IFNULL(q.answer,'')='')",
+    noana: "(IFNULL(q.analysis,'')='')",
+    nocat: `(NOT ${hasKind('textbook', 'c1')} OR NOT ${hasKind('knowledge', 'c2')})`,
+  };
+  const comps = csv(q.complete).filter((c) => compSql[c]);
+  if (comps.length) where.push(`(${comps.map((c) => compSql[c]).join(' OR ')})`);
   // 未分类：缺章节挂载或缺知识点挂载（两种分类都要挂），且不是待审核的学生上传题（那些在「待审核」里核对）
   if (String(q.uncat) === '1') {
     where.push("NOT EXISTS (SELECT 1 FROM question_nodes qnx JOIN bank_tree_nodes bnx ON bnx.id=qnx.node_id JOIN bank_trees btx ON btx.id=bnx.tree_id WHERE qnx.question_id=q.id AND btx.kind='textbook')");
@@ -317,57 +358,79 @@ admin.get('/questions', (req, res) => {
   }
   if (q.kw) {
     const kw = String(q.kw).trim();
-    where.push('(q.stem LIKE ? OR q.stem_html LIKE ? OR q.answer LIKE ? OR q.analysis LIKE ? OR q.point LIKE ? OR CAST(q.id AS CHAR) LIKE ?)');
-    args.push(`%${kw}%`, `%${kw}%`, `%${kw}%`, `%${kw}%`, `%${kw}%`, kw.replace(/^#0*/, ''));
+    where.push('(q.stem LIKE ? OR q.stem_html LIKE ? OR q.answer LIKE ? OR q.analysis LIKE ? OR q.point LIKE ? OR q.source LIKE ? OR CAST(q.id AS CHAR) LIKE ?)');
+    args.push(`%${kw}%`, `%${kw}%`, `%${kw}%`, `%${kw}%`, `%${kw}%`, `%${kw}%`, kw.replace(/^#0*/, ''));
   }
   if (q.tag) { where.push('EXISTS (SELECT 1 FROM question_tags t WHERE t.question_id=q.id AND t.tag=?)'); args.push(String(q.tag)); }
+  // 已选知识点（R6）：题目至少挂了其中一个（只认节点自身）
+  const knowIds = csv(q.knows).map((x) => int(x)).filter(Boolean);
+  if (knowIds.length) { where.push(`EXISTS (SELECT 1 FROM question_nodes qk WHERE qk.question_id=q.id AND qk.node_id IN (${knowIds.map(() => '?').join(',')}))`); args.push(...knowIds); }
   let join = ''; const joinArgs = [];
-  // 章节树/知识点筛选：node=单节点 或 nodes=逗号分隔多节点，都按子树（含下级挂题）匹配
+  // 章节树/知识点筛选：node=单节点 或 nodes=逗号分隔多节点；默认按子树（含下级挂题）匹配，node_mode=exact 只认节点自身
   const nodeReq = [];
   if (q.node) nodeReq.push(int(q.node));
-  if (q.nodes) String(q.nodes).split(',').map((x) => int(x)).filter(Boolean).forEach((x) => nodeReq.push(x));
+  csv(q.nodes).map((x) => int(x)).filter(Boolean).forEach((x) => nodeReq.push(x));
   if (nodeReq.length) {
-    const allNodes = db.prepare('SELECT id, parent_id FROM bank_tree_nodes').all();
-    const kids = {}; allNodes.forEach((n) => { if (n.parent_id) (kids[n.parent_id] = kids[n.parent_id] || []).push(n.id); });
-    const set = new Set();
-    for (const nid of nodeReq) {
-      if (set.has(nid)) continue;
-      set.add(nid); const stack = [nid];
-      while (stack.length) { // 完整子树递归（年级→册别→单元→小节共四层）
-        const cur = stack.pop();
-        (kids[cur] || []).forEach((k) => { if (!set.has(k)) { set.add(k); stack.push(k); } });
-      }
-    }
-    if (set.size) {
-      const ids = [...set];
+    const ids = qmeta.expandNodes(db, nodeReq, q.node_mode === 'exact');
+    if (ids.length) {
       join = ` INNER JOIN question_nodes qn ON qn.question_id=q.id AND qn.node_id IN (${ids.map(() => '?').join(',')})`;
       joinArgs.push(...ids);
     }
   }
+  const usage = qmeta.usageMap(db);
+  if (String(q.unused) === '1') {
+    const used = [...usage.keys()].filter((k) => usage.get(k) > 0);
+    if (used.length) { where.push(`q.id NOT IN (${used.map(() => '?').join(',')})`); args.push(...used); }
+  }
   const all = [...joinArgs, ...args];
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
-  const total = db.prepare(`SELECT COUNT(DISTINCT q.id) AS c FROM questions q${join} ${w}`).get(...all).c;
-  const pages = Math.max(1, Math.ceil(total / size));
-  const p = Math.min(page, pages);
-  const list = db.prepare(`SELECT q.* FROM questions q${join} ${w}
-    GROUP BY q.id ORDER BY q.id DESC LIMIT ? OFFSET ?`).all(...all, size, (p - 1) * size);
+  let total; let list; let p; let pages;
+  if (q.sort === 'used') {
+    // 按组卷次数排：先取全部命中的 id，在内存里排序分页（组卷次数是现算的，见 qmeta.usageMap）
+    const idsAll = db.prepare(`SELECT DISTINCT q.id AS id FROM questions q${join} ${w} ORDER BY q.id DESC`).all(...all).map((r) => r.id);
+    total = idsAll.length;
+    pages = Math.max(1, Math.ceil(total / size));
+    p = Math.min(page, pages);
+    const sorted = idsAll.map((id, i) => ({ id, i, u: usage.get(id) || 0 })).sort((a, b) => (b.u - a.u) || (a.i - b.i));
+    const pageIds = sorted.slice((p - 1) * size, p * size).map((x) => x.id);
+    const rowMap = new Map();
+    if (pageIds.length) db.prepare(`SELECT * FROM questions WHERE id IN (${pageIds.map(() => '?').join(',')})`).all(...pageIds).forEach((r) => rowMap.set(r.id, r));
+    list = pageIds.map((id) => rowMap.get(id)).filter(Boolean);
+  } else {
+    total = db.prepare(`SELECT COUNT(DISTINCT q.id) AS c FROM questions q${join} ${w}`).get(...all).c;
+    pages = Math.max(1, Math.ceil(total / size));
+    p = Math.min(page, pages);
+    list = db.prepare(`SELECT q.* FROM questions q${join} ${w}
+      GROUP BY q.id ORDER BY q.id DESC LIMIT ? OFFSET ?`).all(...all, size, (p - 1) * size);
+  }
   const tagRows = db.prepare(`SELECT question_id, tag FROM question_tags WHERE question_id IN (${list.map(() => '?').join(',') || '0'})`)
     .all(...(list.map((r) => r.id).length ? list.map((r) => r.id) : [0]));
   const tagMap = {};
   tagRows.forEach((r) => { (tagMap[r.question_id] = tagMap[r.question_id] || []).push(r.tag); });
-  // 挂载状态：每题是否已挂 章节分类 / 知识点分类（两种都要挂）
-  const ids = list.map((r) => r.id);
-  const mountMap = {};
-  if (ids.length) {
-    db.prepare(`SELECT qn.question_id AS qid, bt.kind AS kind FROM question_nodes qn
-      JOIN bank_tree_nodes bn ON bn.id=qn.node_id JOIN bank_trees bt ON bt.id=bn.tree_id
-      WHERE qn.question_id IN (${ids.map(() => '?').join(',')})`).all(...ids)
-      .forEach((r) => { mountMap[r.qid] = mountMap[r.qid] || {}; mountMap[r.qid][r.kind] = true; });
-  }
+  // 挂载信息：是否已挂 章节分类 / 知识点分类（两种都要挂）+ 章节路径 + 知识点名
+  const mounts = qmeta.mountInfo(db, list.map((r) => r.id));
   return ok(res, {
     page: p, size, total, pages,
-    list: list.map((r) => ({ ...decorate(r), tags: tagMap[r.id] || [], mount: { chapter: !!(mountMap[r.id] && mountMap[r.id].textbook), knowledge: !!(mountMap[r.id] && mountMap[r.id].knowledge) } })),
+    list: list.map((r) => {
+      const m = mounts.get(r.id) || { chapters: [], knows: [], edition: '', chapter: false, knowledge: false };
+      return { ...decorate(r), tags: tagMap[r.id] || [], use: usage.get(r.id) || 0,
+        mount: { chapter: m.chapter, knowledge: m.knowledge }, chapters: m.chapters, knows: m.knows, edition: m.edition };
+    }),
   });
+});
+
+/** 筛选项（R3）：某 学段+学科 下题目里实际出现的年份、来源文字，给胶囊筛选用；另附来源分类表 */
+admin.get('/questions-facets', (req, res) => {
+  const q = req.query || {};
+  const where = []; const args = [];
+  if (q.subject) { where.push('subject=?'); args.push(String(q.subject)); }
+  if (q.stage) { where.push('stage=?'); args.push(String(q.stage)); }
+  const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const years = db.prepare(`SELECT IFNULL(year,'') AS y, COUNT(*) AS c FROM questions ${w} GROUP BY IFNULL(year,'') ORDER BY y DESC`).all(...args)
+    .filter((r) => r.y).map((r) => ({ v: r.y, c: r.c }));
+  const sources = db.prepare(`SELECT IFNULL(source,'') AS s, COUNT(*) AS c FROM questions ${w} GROUP BY IFNULL(source,'') ORDER BY c DESC LIMIT 30`).all(...args)
+    .filter((r) => r.s).map((r) => ({ v: r.s, c: r.c }));
+  return ok(res, { years, sources, src_kinds: Object.entries(SRC_KINDS).map(([k, d]) => ({ k, t: d.t })) });
 });
 
 admin.get('/questions/:id', (req, res) => {
@@ -499,11 +562,25 @@ admin.post('/questions/batch', (req, res) => {
     return ok(res, null, `已${op === 'tag' ? '打标' : '去掉标签'}：${tags.join('、')}`);
   }
   if (op === 'node') {
-    const nodes = (b.nodes || []).map(int).filter(Boolean);
+    // R3 批量挂分类：nodes = 章节节点 + 知识点节点；replace=1 时先清掉这些题在「同类树」（章节 / 知识点）上的旧挂载再挂，否则追加
+    const nodes = [...new Set((b.nodes || []).map(int).filter(Boolean))];
     if (!nodes.length) return fail(res, '请选择要挂到的节点');
-    const ins = db.prepare('INSERT OR IGNORE INTO question_nodes (question_id, node_id) VALUES (?,?)');
-    ids.forEach((id) => nodes.forEach((n) => ins.run(id, n)));
-    return ok(res, null, `已挂到 ${nodes.length} 个节点`);
+    const nrows = db.prepare(`SELECT bn.id, bt.kind FROM bank_tree_nodes bn JOIN bank_trees bt ON bt.id=bn.tree_id WHERE bn.id IN (${nodes.map(() => '?').join(',')})`).all(...nodes);
+    if (nrows.length !== nodes.length) return fail(res, '有节点已不存在，请刷新后重选');
+    const kinds = [...new Set(nrows.map((r) => r.kind))];
+    const tx = db.transaction(() => {
+      if (Number(b.replace) === 1 || b.replace === true) {
+        kinds.forEach((kind) => {
+          db.prepare(`DELETE FROM question_nodes WHERE question_id IN (${ph}) AND node_id IN
+            (SELECT bn.id FROM bank_tree_nodes bn JOIN bank_trees bt ON bt.id=bn.tree_id WHERE bt.kind=?)`).run(...ids, kind);
+        });
+      }
+      const ins = db.prepare('INSERT OR IGNORE INTO question_nodes (question_id, node_id) VALUES (?,?)');
+      ids.forEach((id) => nodes.forEach((n) => ins.run(id, n)));
+    });
+    tx();
+    const nc = nrows.filter((r) => r.kind === 'textbook').length; const nk = nrows.length - nc;
+    return ok(res, { ids: ids.length, chapter: nc, knowledge: nk }, `已给 ${ids.length} 题挂上 ${nc ? nc + ' 个章节' : ''}${nc && nk ? ' + ' : ''}${nk ? nk + ' 个知识点' : ''}`);
   }
   if (op === 'field') {
     const sets = []; const args = [];

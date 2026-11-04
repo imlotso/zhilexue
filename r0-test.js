@@ -6,7 +6,7 @@
  *   B3 题库列表 / 编辑弹窗里三种格式的选项都能正常显示（不再出现 [object Object]）
  *   B4 学生端做题弹窗里的题图：700×500 的图显示宽度 ≥ 320px、单独成块，小图不放大；点击出灯箱，Esc / 点遮罩关闭
  *   B5 代理 iframe：没有 allow-same-origin，iframe 里读不到后台令牌、访问不到 parent.document；悬浮球仍能注入、回传仍然可用
- *   B6 树行折叠箭头不被撑满；选中的切换键悬停时保持白字
+ *   B6 树行折叠箭头不被撑满；选中的切换键悬停时文字仍清楚（R3 起题库管理左栏是 treePanel）
  *   B8 待审核单题「入库」弹分类框，缺学科 / 学段不能入库
  *   B9 本地存储时题图（后台 + 学生端）都能显示
  * 没有 Playwright 时整体跳过。
@@ -133,9 +133,9 @@ function cleanup() {
     // ---- B3：选项 ----
     const opt = await ap.evaluate(() => [optText('甲'), optText({ label: 'A', text: 'T' }), optText({ label: 'B', content: 'C' }), optText(null), optDisplay({ label: 'B', content: 'C' }), optDisplay({ label: 'A', text: 'A. 已带' }), optLabel({ label: 'C' }, 0), optLabel('x', 2)]);
     log(JSON.stringify(opt) === JSON.stringify(['甲', 'T', 'C', '', 'B. C', 'A. 已带', 'C', 'C']), 'B3 公共选项归一函数 optText / optDisplay / optLabel：字符串、{label,text}、{label,content} 都正确', JSON.stringify(opt));
-    await ap.evaluate(() => { ADM.page.mfq = { kw: 'R0浏览器测试 选项', stage: 'primary', subject: '数学', pmode: 'knowledge' }; ADM.page.mfqPage = 1; location.hash = '#/mfq'; if (typeof render === 'function') render(); });
-    await ap.waitForSelector('.mf-qitem', { timeout: 8000 }); await ap.waitForTimeout(600);
-    const listTxt = await ap.$eval('.mf-wrap', (e) => e.innerText);
+    await ap.evaluate(() => { ADM.page.mfq = { kw: 'R0浏览器测试 选项', tp: { stage: 'primary', subject: '数学', kind: 'knowledge' } }; location.hash = '#/mfq'; if (typeof render === 'function') render(); });
+    await ap.waitForSelector('.r3-qcard', { timeout: 8000 }); await ap.waitForTimeout(600);
+    const listTxt = await ap.$eval('.r3-bank', (e) => e.innerText);
     log(!listTxt.includes('[object Object]') && ['字符串甲', '文本乙', '内容甲', '内容乙'].every((t) => listTxt.includes(t)), 'B3 题库管理列表：三种格式的选项都显示成文字，没有 [object Object]', (listTxt.match(/\[object Object\]/g) || []).length + ' 处 [object Object]');
     const idC = db.prepare("SELECT id FROM questions WHERE stem=?").get(TAG + ' 选项labelcontent ' + uniq).id;
     await ap.evaluate((i) => mfQEdit(i, () => {}), idC); await ap.waitForSelector('#qeOpts', { timeout: 5000 });
@@ -145,26 +145,26 @@ function cleanup() {
     await ap.waitForTimeout(300);
 
     // ---- B9：后台题库管理里题图也能显示 ----
-    await ap.evaluate(() => { ADM.page.mfq = { kw: 'R0浏览器测试 看图', stage: 'junior', subject: '数学', pmode: 'knowledge' }; ADM.page.mfqPage = 1; render(); });
+    await ap.evaluate(() => { ADM.page.mfq = { kw: 'R0浏览器测试 看图', tp: { stage: 'junior', subject: '数学', kind: 'knowledge' } }; render(); });
     await ap.waitForTimeout(1200);
-    const adminImgs = await ap.$$eval('.mf-qitem img', (a) => a.map((i) => ({ ok: i.complete && i.naturalWidth > 0, src: i.getAttribute('src') })));
+    const adminImgs = await ap.$$eval('.r3-qcard img', (a) => a.map((i) => ({ ok: i.complete && i.naturalWidth > 0, src: i.getAttribute('src') })));
     // 题干是纯文本 + [图N] 时后台列表不渲染图；用编辑弹窗里的图片预览确认地址可取
     const urlsForAdmin = await ap.evaluate(async (id) => { const r = await api(`/api/admin/bank/mf/questions/${id}`); return (r.question || r).images; }, qImg);
     const fetched = await Promise.all(urlsForAdmin.map(async (u) => (await fetch(BASE + u)).status));
     log(urlsForAdmin.length === 2 && fetched.every((s) => s === 200), 'B9 后台取到的题图地址（带只读票据）直接可取，不需要登录头', JSON.stringify(fetched) + (adminImgs.length ? ` 列表内 ${adminImgs.length} 张图` : ''));
 
     // ---- B6：树行 / 选中键悬停 ----
-    await ap.evaluate(() => { ADM.page.mfq = { stage: 'primary', subject: '数学', pmode: 'knowledge' }; ADM.page.mfqPage = 1; render(); });
-    await ap.waitForSelector('.mf-node', { timeout: 8000 });
-    await ap.evaluate(() => { document.querySelector('.mf-node a.mf-tw:not(.leaf)') && document.querySelector('.mf-node a.mf-tw:not(.leaf)').click(); });
+    await ap.evaluate(() => { ADM.page.mfq = { tp: { stage: 'primary', subject: '数学', kind: 'knowledge' } }; render(); });
+    await ap.waitForSelector('.r3-tn[data-tn]:not(.r3-tn-all)', { timeout: 8000 });
+    await ap.evaluate(() => { const b = document.querySelector('.r3-tn .r3-tn-car:not(.leaf):not(.open)'); if (b) b.click(); });   // R3：题库管理左栏换成 treePanel（.r3-tn 行）
     await ap.waitForTimeout(500);
-    const tw = await ap.$$eval('.mf-node a.mf-tw', (a) => a.slice(0, 5).map((x) => ({ w: x.getBoundingClientRect().width, grow: getComputedStyle(x).flexGrow })));
-    log(tw.length > 0 && tw.every((x) => x.grow === '0' && x.w <= 18), 'B6 树行的折叠箭头不再被 flex:1 撑满（宽度 16px，flex-grow 0）', JSON.stringify(tw[0]));
-    const nameW = await ap.$eval('.mf-node a[data-node]', (a) => ({ grow: getComputedStyle(a).flexGrow }));
+    const tw = await ap.$$eval('.r3-tn .r3-tn-car', (a) => a.slice(0, 5).map((x) => ({ w: x.getBoundingClientRect().width, grow: getComputedStyle(x).flexGrow })));
+    log(tw.length > 0 && tw.every((x) => x.grow === '0' && x.w <= 24), 'B6 树行的折叠箭头不被撑满（固定 22px，flex-grow 0）', JSON.stringify(tw[0]));
+    const nameW = await ap.$eval('.r3-tn .r3-tn-name', (a) => ({ grow: getComputedStyle(a).flexGrow }));
     log(nameW.grow === '1', 'B6 节点名称仍然占满剩余宽度');
-    await ap.hover('#mfbModeKnow.on'); await ap.waitForTimeout(250);
-    const hv = await ap.$eval('#mfbModeKnow.on b', (b) => ({ c: getComputedStyle(b).color, bg: getComputedStyle(b.parentElement).backgroundColor }));
-    log(hv.c === 'rgb(255, 255, 255)' && hv.bg !== 'rgba(0, 0, 0, 0)', 'B6 选中的「知识点」切换键悬停时仍是白字（蓝底白字）', JSON.stringify(hv));
+    await ap.hover('.r3-seg-it.on'); await ap.waitForTimeout(250);
+    const hv = await ap.$eval('.r3-seg-it.on', (b) => ({ c: getComputedStyle(b).color, bg: getComputedStyle(b).backgroundColor }));
+    log(hv.c === 'rgb(30, 136, 229)' && hv.bg === 'rgb(255, 255, 255)', 'B6 选中的「知识点」切换键悬停时仍清楚可读（R3 改为白底主色字，不会出现蓝底蓝字）', JSON.stringify(hv));
 
     // ---- B8：待审核单题入库弹分类框 ----
     await ap.evaluate(() => { ADM.page.pd = { source: 'all', kw: 'R0浏览器测试待审核', sel: {} }; ADM.page.pdPage = 1; location.hash = '#/pending'; render(); });

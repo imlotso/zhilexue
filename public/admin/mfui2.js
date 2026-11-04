@@ -1,6 +1,6 @@
 /* 魔方助教复刻 UI 第二期（2026-10-29）
  * 覆盖 mfbankui.js 里的 viewMfBank / viewMfCapture，并新增 viewMfSet（设置）。
- *  - 题库管理：左栏「挑题方式 + 树 + 知识节点折叠树」一比一复刻；右栏筛选 + 批量条（删除/标签/AI 整理/AI 建议/标记错题/加入试题篮）+ 题卡。
+ *  - 题库管理（R3 重做）：左栏 treePanel（学段/学科/版本级联 + 章节|知识点 + 多层折叠树）；右栏胶囊筛选 + 批量条（批量挂分类/试题篮/标签/AI/删除）+ 题卡（qcard.js）。
  *  - 网络采集：浏览器 / 试题采集 / 整卷下载 三个标签；代理内嵌浏览器（组卷网 / 菁优网 / 二一组卷网快捷入口）。
  *  - 设置：AI 配置管理（学生端+管理后台全部 AI 能力按可共用模型分组配置）/ 字典树映射。
  * 依赖：mfbankui.js 的 mfState / mfCommitForm / MF_API / MF_TYPES 常量；admin.js 的 api/esc/toast/modal/ic/elConfirm/render。
@@ -15,157 +15,22 @@ const MF_SITES = [
 const MF_STAGE_NAMES = { primary: '小学', junior: '初中', senior: '高中' };
 const MF_DIFF_NAMES = { 1: '很容易', 2: '较易', 3: '中等', 4: '较难', 5: '很难' };
 
-/* ================================================================ 题库管理（知识树一比一） */
+/* ================================================================ 题库管理（R3：洋葱式左栏 + 标签式筛选 + 题卡）
+ * 左栏：treePanel（public/admin/treepanel.js）——「学段 / 学科 / 版本」级联 + 章节 | 知识点 + 多层可折叠树（含子孙题数、搜索、多选）
+ * 右栏：胶囊筛选（题型 / 难度 / 来源 / 年份 / 完整度，可多选）+ 关键字 + 已选节点标签条 + 排序；题卡见 qcard.js；批量挂分类用树形选择器
+ * 只局部刷新右栏（r3Main），左树不重绘，展开状态和滚动位置都保留。 */
+const R3_SRC = [['capture', '网络采集'], ['local', '本地录入'], ['recog', '录题识别']];
+const R3_COMP = [['full', '答案解析齐全'], ['noans', '缺答案'], ['noana', '缺解析'], ['nocat', '缺分类']];
 async function viewMfBank() {
   const st = mfState('mfq');
-  ['kw', 'stage', 'subject', 'type', 'difficulty', 'source', 'complete', 'node', 'grade', 'volume', 'edition'].forEach((k) => { st[k] = st[k] == null ? '' : st[k]; });
-  st.pmode = st.pmode === 'chapter' ? 'chapter' : 'knowledge';
-  if (!st.special) st.special = ''; // '' | 'uncat' | 'review'
-  if (!Array.isArray(st.units)) st.units = [];
-  if (!st.open) st.open = {};
-  if (!st.uexp) st.uexp = {};
+  if (!st.tp) st.tp = { stage: st.stage || 'primary', subject: st.subject || '数学', edition: st.edition || '', kind: st.pmode === 'knowledge' ? 'knowledge' : 'textbook', sel: [], open: {}, multi: false, q: '' };
+  if (!st.f) st.f = { type: [], diff: [], src: [], year: [], comp: [] };
+  if (st.kw == null) st.kw = '';
+  if (!st.sort) st.sort = 'new';
+  if (!st.pg) st.pg = 1;
   if (!st.sel) st.sel = {};
-  if (!st.stage) st.stage = 'primary';
-  if (!st.subject) st.subject = '数学';
-  // 学段决定科目：物理/化学只有初中才有
-  const PC_SUBJ = st.stage === 'junior' ? ['英语', '数学', '物理', '化学'] : ['英语', '数学'];
-  if (!PC_SUBJ.includes(st.subject)) st.subject = '数学';
-  const page = Math.max(1, Number(ADM.page.mfqPage) || 1);
-  const size = 20;
-
-  // 派生树：章节树(textbook) / 知识点树(knowledge) 由 学段+科目 唯一确定（启动时种子自动建好）
-  const trees = await tpTrees();
-  // R2：同 学段+学科 可以有多个教材版本（每个版本一棵章节树）。版本下拉只列该 学段+学科 下存在的版本，默认选默认版本
-  const edKind = st.pmode === 'chapter' ? 'textbook' : 'knowledge';
-  const edOpts = tpEditions(trees, { kind: edKind, subject: st.subject, stage: st.stage });
-  const chapTree = pickTree(trees, { kind: 'textbook', subject: st.subject, stage: st.stage, edition: st.edition });
-  const knowTree = pickTree(trees, { kind: 'knowledge', subject: st.subject, stage: st.stage, edition: st.edition });
-  const activeTree = st.pmode === 'chapter' ? chapTree : knowTree;
-  const curEdition = activeTree ? String(activeTree.edition || '') : '';
-  let nodes = [];
-  if (activeTree) nodes = (await api(`${MF_API}/trees/${activeTree.id}/nodes`, { silent: true }).catch(() => ({ list: [] }))).list || [];
-  const kids = {};
-  nodes.forEach((n) => { const p = n.parent_id || 0; (kids[p] = kids[p] || []).push(n); });
-  // 章节模式：年级 → 册别 → 单元（多选，可展开小知识点）
-  const gradeNodes = kids[0] || [];
-  const curGrade = gradeNodes.find((g) => String(g.id) === String(st.grade)) || gradeNodes[0] || null;
-  if (curGrade) st.grade = String(curGrade.id);
-  const volNodes = curGrade ? (kids[curGrade.id] || []) : [];
-  const curVol = volNodes.find((v) => String(v.id) === String(st.volume)) || volNodes[0] || null;
-  if (curVol) st.volume = String(curVol.id);
-  const unitNodes = curVol ? (kids[curVol.id] || []) : [];
-  const nodeIdSet = new Set(nodes.map((n) => String(n.id)));
-  st.units = st.units.filter((id) => nodeIdSet.has(String(id)));
-  const totalQ = (await api(`${MF_API}/questions?page=1&size=1`, { silent: true }).catch(() => ({ total: 0 }))).total || 0;
+  if (st.special === 'uncat') { st.special = ''; st.f.comp = ['nocat']; }   // 旧入口「未分类题目」= 完整度里的「缺分类」
   const badges = await api(`${MFX}/badge-counts`, { silent: true }).catch(() => ({ uncat: 0, review: 0 }));
-
-  let data;
-  if (st.special === 'review') {
-    data = await api(`${MFX}/review-list?page=${page}&size=${size}${st.kw ? '&kw=' + encodeURIComponent(st.kw) : ''}`);
-  } else {
-    const qs = Object.entries({
-      stage: st.stage, subject: st.subject, type: st.type, difficulty: st.difficulty,
-      source_type: st.source, complete: st.complete, kw: st.kw,
-      node: (!st.special && st.pmode === 'knowledge') ? st.node : '',
-      nodes: (!st.special && st.pmode === 'chapter' && st.units.length) ? st.units.join(',') : '',
-      uncat: st.special === 'uncat' ? '1' : '',
-    }).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
-    data = await api(`${MF_API}/questions?page=${page}&size=${size}${qs ? '&' + qs : ''}`);
-  }
-  ADM.page.mfqPage = data.page;
-  const selCount = Object.values(st.sel).filter(Boolean).length;
-
-  const nodeName = (id) => { const n = nodes.find((x) => String(x.id) === String(id)); return n ? n.name : ''; };
-  const selNames = st.special ? [] : (st.pmode === 'chapter' ? st.units : (st.node ? [st.node] : [])).map(nodeName).filter(Boolean);
-
-  const unitRow = (n) => {
-    const secs = kids[n.id] || [];
-    const on = st.units.includes(String(n.id));
-    const exp = !!st.uexp[n.id];
-    return `<div style="padding:3px 0;border-bottom:1px dashed #f1f5f9">
-      <label style="display:flex;gap:6px;align-items:center;font-size:13px;cursor:pointer;line-height:1.8">
-        <input type="checkbox" data-unit="${n.id}" ${on ? 'checked' : ''}>
-        <span style="flex:1;overflow-wrap:anywhere">${esc(n.name)}<i class="mf-nq"> ${n.qcount || 0}</i></span>
-        ${secs.length ? `<a href="javascript:;" class="mf-tw" data-ux="${n.id}" style="color:#94a3b8">${exp ? '▾' : '▸'}</a>` : ''}
-      </label>
-      ${exp && secs.length ? secs.map((sc) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;color:#475569;cursor:pointer;padding-left:26px;margin:2px 0"><input type="checkbox" data-unit="${sc.id}" ${st.units.includes(String(sc.id)) ? 'checked' : ''}><span style="flex:1;overflow-wrap:anywhere">${esc(sc.name)}<i class="mf-nq"> ${sc.qcount || 0}</i></span></label>`).join('') : ''}
-    </div>`;
-  };
-  const treeRow = (n, depth) => {
-    const children = kids[n.id] || [];
-    const isOpen = !!st.open[n.id];
-    const on = String(st.node) === String(n.id);
-    return `<div class="mf-node" style="padding-left:${depth * 16 + 4}px">
-      <a href="javascript:;" class="mf-tw ${children.length ? '' : 'leaf'}" data-tw="${n.id}">${children.length ? (isOpen ? '▾' : '▸') : '·'}</a>
-      <a href="javascript:;" class="${on ? 'on' : ''}" data-node="${n.id}" title="${esc(n.name)}">${esc(n.name)}</a>
-      <span class="mf-nq">${n.qcount || 0}</span></div>`
-      + (isOpen ? children.map((c) => treeRow(c, depth + 1)).join('') : '');
-  };
-  const treeHtml = (kids[0] || []).map((n) => treeRow(n, 0)).join('')
-    || '<div class="empty" style="padding:18px 0">这棵树还没有节点，点「加子节点」或用浏览器采集知识树</div>';
-
-  const typeSel = (id, label, opts, cur) => `<select id="${id}" class="mf-fsel"><option value="">${label}</option>${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
-  const srcOpts = [['capture', '网络采集'], ['local', '本地录入'], ['recog', '录题']];
-  const compOpts = [['full', '齐全'], ['noans', '缺答案'], ['noana', '缺解析']];
-
-  const qCard = (q, i) => {
-    const tags = q.tags || [];
-    const meta = [
-      MF_TYPE_NAME[q.type] || q.type,
-      MF_STAGE_NAMES[q.stage] || '',
-      q.grade || '',
-      q.difficulty ? (MF_DIFF_NAMES[q.difficulty] || q.difficulty) : '',
-      (MF_SRC_NAME[q.source_type || 'local'] || '') + ((q.source_detail && q.source_detail.site) ? ('·' + (({ zujuan: '组卷网', jyeoo: '菁优网', '21cnjy': '二一' })[q.source_detail.site] || '')) : ''),
-    ].filter(Boolean).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
-    const tagHtml = tags.length ? `<span class="mf-qtags">${tags.map((t) => `<span class="tag ok">${esc(t)}</span>`).join('')}</span>` : '';
-    const mt = q.mount || {};
-    const missTxt = `${mt.chapter ? '' : '缺章节'}${(!mt.chapter && !mt.knowledge) ? '+' : ''}${mt.knowledge ? '' : '缺知识点'}`;
-    const missHtml = (!mt.chapter || !mt.knowledge) ? `<span class="tag" style="background:#fef2f2;color:#dc2626">${missTxt}</span>` : '';
-    const stemHtml = (q.stem_html && q.stem_html.trim()) ? q.stem_html : esc(q.stem || '').replace(/\n/g, '<br>');
-    const optsHtml = (q.options || []).length && !/class=["'][^"']*options/.test(stemHtml)
-      ? `<div class="mf-qopts">${q.options.map((o) => `<span>${esc(optDisplay(o))}</span>`).join('')}</div>` : '';
-    const nodeHtml = selNames.length ? `<div class="hint" style="margin-top:4px">归属：${esc(selNames.join(' / '))}</div>` : '';
-    return `<div class="mf-qitem" data-id="${q.id}">
-      <div class="mf-qhead">
-        <input type="checkbox" class="mf-qck" data-id="${q.id}" ${st.sel[q.id] ? 'checked' : ''}>
-        <b class="mf-qno">${(data.page - 1) * size + i + 1}.</b>
-        <div class="mf-qstem">${stemHtml}${optsHtml}${nodeHtml}</div>
-      </div>
-      <div class="mf-qmeta">${meta}${missHtml}${tagHtml}
-        <span class="mf-qacts">
-          ${(!mt.chapter || !mt.knowledge) ? `<a href="javascript:;" data-hang="${q.id}" style="color:#d97706">挂分类</a>` : ''}
-          <a href="javascript:;" data-edit="${q.id}">编辑</a>
-          <a href="javascript:;" data-del="${q.id}">删除</a>
-        </span></div>
-      <div class="mf-qfold">
-        <details><summary ${q.answer && q.answer.trim() ? '' : 'class="dim"'}>答案</summary><div class="mf-qans">${esc(q.answer || '（无）')}</div></details>
-        <details><summary ${q.analysis && q.analysis.trim() ? '' : 'class="dim"'}>解析</summary><div class="mf-qans">${esc(q.analysis || '（无）')}</div></details>
-      </div></div>`;
-  };
-
-  const revCard = (it, i) => {
-    const meta = [
-      it.subject || it.pu_subject,
-      MF_STAGE_NAMES[it.stage || it.pu_stage] || '',
-      it.grade || it.pu_grade,
-      it.point || it.pu_point,
-      it.up_status === 'reviewed' ? '已核对' : '待审核',
-    ].filter(Boolean).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
-    const stemHtml = esc(it.stem || it.up_stem_text || '（无题干，看图核对）').replace(/\n/g, '<br>');
-    const imgs = it.up_images || [];
-    const imgHtml = imgs.length ? `<div class="mf-rvimgs">${imgs.map((u) => `<img src="${esc(u)}" data-upimg="${esc(u)}" title="点击看大图">`).join('')}</div>` : '';
-    return `<div class="mf-qitem">
-      <div class="mf-qhead">
-        <b class="mf-qno">${(data.page - 1) * size + i + 1}.</b>
-        <div class="mf-qstem">
-          <div class="hint" style="margin-bottom:4px">学生：${esc(it.student_name || '')}${it.student_grade ? ' · ' + esc(it.student_grade) : ''} · ${(it.up_created || '').slice(0, 16).replace('T', ' ')}</div>
-          ${stemHtml}${imgHtml}
-        </div>
-      </div>
-      <div class="mf-qmeta">${meta}
-        <span class="mf-qacts"><a href="javascript:;" data-rev="${it.up_id}" style="color:#d97706">✏️ 核对</a></span></div>
-    </div>`;
-  };
 
   const html = `
   <div class="bk-mods" style="padding:0 0 10px">
@@ -173,75 +38,32 @@ async function viewMfBank() {
     <button class="bk-mod" data-mod="mfi"><span class="bm-ico">${ic('upload')}</span><span class="bm-tt">录题上传<em>Word / 图片批量录题</em></span></button>
     <button class="bk-mod" data-mod="bkfb"><span class="bm-ico">${ic('chat')}</span><span class="bm-tt">错题反馈<em>学生反馈的题目核对</em><i class="bm-badge" id="bkFbBadge" style="display:none"></i></span></button>
   </div>
-  <div class="mf-wrap" style="align-items:stretch">
-    <div class="card mf-card" style="width:320px;flex:0 0 320px">
-      <div class="card-b">
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <select id="mfbStage" class="mf-fsel" style="flex:1">
-            <option value="primary" ${st.stage === 'primary' ? 'selected' : ''}>小学</option>
-            <option value="junior" ${st.stage === 'junior' ? 'selected' : ''}>初中</option>
-          </select>
-          <select id="mfbSubject" class="mf-fsel" style="flex:1">
-            ${PC_SUBJ.map((sp) => `<option ${st.subject === sp ? 'selected' : ''}>${sp}</option>`).join('')}
-          </select>
-          <select id="mfbEdition" class="mf-fsel r2-edsel" style="flex:1 1 100%" title="教材版本" aria-label="教材版本" ${edOpts.length ? '' : 'disabled'}>
-            ${edOpts.map((e) => `<option value="${esc(e)}" ${curEdition === e ? 'selected' : ''}>${esc(e || '通用')}${e && e === tpDefaultEdition(st.subject, st.stage) ? '（默认）' : ''}</option>`).join('') || '<option value="">无版本</option>'}
-          </select>
+  <div class="r3-bank">
+    <aside class="card r3-side" aria-label="章节 / 知识点目录"><div id="r3Tree"><div class="r3-tp-loading">目录加载中…</div></div></aside>
+    <section class="card r3-main">
+      <div class="card-h r3-mainh">
+        <h3>${ic('doc')} <span id="r3Title">${st.special === 'review' ? '待审核题目' : '题库管理'}</span></h3>
+        <div class="card-h-r r3-hbtns">
+          <button class="btn ghost sm ${badges.review ? 'mf-revhot' : ''}" id="mfReviewBtn">${st.special === 'review' ? '返回题库' : '待审核题目'}<b class="rev-n">${badges.review || 0}</b></button>
+          <button class="btn ghost sm" id="mfImportBtn">${ic('upload')} 导入题库</button>
+          <button class="btn sm" id="mfNewQBtn">${ic('plus')} 新建题</button>
         </div>
-        <div class="mf-segbox">
-          <button type="button" class="mf-segit ${st.pmode === 'chapter' ? 'on' : ''}" id="mfbModeChapter"><b>章节</b></button>
-          <button type="button" class="mf-segit ${st.pmode === 'knowledge' ? 'on' : ''}" id="mfbModeKnow"><b>知识点</b></button>
-        </div>
-        ${st.pmode === 'chapter' ? `
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <select id="mfbGrade" class="mf-fsel" style="flex:1">${gradeNodes.map((g) => `<option value="${g.id}" ${String(st.grade) === String(g.id) ? 'selected' : ''}>${esc(g.name)}</option>`).join('') || '<option value="">（无年级）</option>'}</select>
-            <select id="mfbVolume" class="mf-fsel" style="flex:1">${volNodes.map((v) => `<option value="${v.id}" ${String(st.volume) === String(v.id) ? 'selected' : ''}>${esc(v.name)}</option>`).join('') || '<option value="">（无册别）</option>'}</select>
-          </div>
-          <div class="hint" style="margin:6px 0 2px">${unitNodes.length} 个单元 · 勾选单元或小知识点（可多选）</div>
-          <div class="mf-treebox" style="max-height:390px">${unitNodes.map(unitRow).join('') || '<div class="empty" style="padding:18px 0">该年级 / 册别下还没有单元数据</div>'}</div>
-        ` : `
-          <div class="hint" style="margin:8px 0 2px">${nodes.length} 个知识点节点 · 题库共 ${totalQ} 题</div>
-          <div class="mf-treebox" style="max-height:410px">${treeHtml}</div>
-          <div class="hint" style="margin-top:6px;line-height:1.6">点击知识点筛选（含子级挂的题）；点 ▸ 折叠/展开</div>
-        `}
-        ${activeTree ? '' : '<div class="empty" style="padding:10px 0">该学段 + 科目暂无' + (st.pmode === 'chapter' ? '教材章节' : '知识点') + '树</div>'}
       </div>
-    </div>
-    <div class="card mf-card grow">
-      <div class="card-h"><h3>${ic('doc')} ${st.special === 'uncat' ? '未分类题目' : st.special === 'review' ? '待审核题目' : '题库管理'}${st.special ? '<a href="javascript:;" id="mfSpcExit" style="font-size:12px;color:#6366f1;text-decoration:none;margin-left:10px;font-weight:400">✕ 退出</a>' : ''}</h3>
-        <div class="card-h-r" style="display:flex;gap:8px;align-items:center"><span class="hint">题库共 ${data.total} 题</span><button class="btn ghost xs ${badges.review ? 'mf-revhot' : ''}" id="mfReviewBtn">待审核题目<b class="rev-n">${badges.review || 0}</b></button><button class="btn ghost xs" id="mfImportBtn">导入题库</button><button class="btn xs" id="mfNewQBtn">新建题</button></div></div>
-      <div class="card-b">
-        <div class="mf-fbar">
-          <input id="mfbKw" class="inp" style="width:200px;flex:0 1 200px" placeholder="搜题干关键词..." value="${esc(st.kw)}">
-          ${typeSel('mfbType', '全部题型', Object.entries(MF_TYPE_NAME), st.type)}
-          ${typeSel('mfbDiff', '全部难度', Object.entries(MF_DIFF_NAMES), st.difficulty)}
-          ${typeSel('mfbSrc', '全部来源', srcOpts, st.source)}
-          ${typeSel('mfbComp', '齐全度', compOpts, st.complete)}
-        </div>
-        ${st.special === 'review' ? '' : `<div class="mf-batchbar">
-          <b>已选 ${selCount} 项</b>
-          <button class="btn ghost xs" data-batch="del" ${selCount ? '' : 'disabled'}>批量删除</button>
-          <button class="btn ghost xs" data-batch="tag" ${selCount ? '' : 'disabled'}>批量添加标签</button>
-          <button class="btn ghost xs" data-batch="aiclean" ${selCount ? '' : 'disabled'}>AI 整理</button>
-          <button class="btn ghost xs" data-batch="aisug" ${selCount ? '' : 'disabled'}>AI 建议</button>
-          <button class="btn ghost xs" data-batch="wrong" ${selCount ? '' : 'disabled'}>批量标记错题</button>
-          <button class="btn ghost xs" data-batch="basket" ${selCount ? '' : 'disabled'}>批量加入试题篮</button>
-          <button class="btn ghost xs" data-batch="clear" ${selCount ? '' : 'disabled'}>取消选择</button>
-        </div>`}
-        ${st.special === 'review'
-          ? (data.list.length ? data.list.map(revCard).join('') : '<div class="mf-empty"><div style="font-size:40px">✅</div>没有待核对的学生上传题目</div>')
-          : (data.list.length ? data.list.map(qCard).join('') : `<div class="mf-empty"><div style="font-size:40px">🧊</div>${st.special === 'uncat' ? '太棒了，没有未分类的题目' : '暂无题目，去采集或新建题开始积累题库'}</div>`)}
-        ${data.total > size ? pagerHTML(data.page, size, data.total, 'mfqPage') : ''}
-      </div>
-    </div></div>`;
+      <div id="r3Main"><div class="r3-loading">题目加载中…</div></div>
+    </section>
+  </div>`;
 
   return {
     html,
     after: () => {
-      mtxTypeset(document.getElementById('app'));
-      const rerender = () => render();
+      const main = document.getElementById('r3Main');
+      let tp = null;
+      let data = { list: [], total: 0, page: 1 };
+      let facetKey = ''; let years = [];
+      const size = 20;
+      let seq = 0;
 
-      /* —— 顶部模块入口：网络采集 / 录题上传 / 错题反馈（集合进题库管理） —— */
+      /* —— 顶部模块入口：网络采集 / 录题上传 / 错题反馈（R4 会改成录题中心，这里不动） —— */
       document.querySelectorAll('.bk-mod[data-mod]').forEach((b) => b.onclick = () => { location.hash = '#/' + b.dataset.mod; });
       api('/api/admin/bank/feedback?status=pending&size=1', { silent: true })
         .then((d) => {
@@ -250,58 +72,271 @@ async function viewMfBank() {
           if (el && n > 0) { el.textContent = n > 99 ? '99+' : n; el.style.display = ''; }
         }).catch(() => {});
 
-      /* —— 导入题库 / 新建题 —— */
-      document.getElementById('mfImportBtn').onclick = () => mfImportDialog(rerender);
-      document.getElementById('mfNewQBtn').onclick = () => mfNewQDialog(rerender);
+      const reloadAll = async () => { if (tp) await tp.reload(); await loadMain(); };
+      document.getElementById('mfImportBtn').onclick = () => mfImportDialog(reloadAll);
+      document.getElementById('mfNewQBtn').onclick = () => mfNewQDialog(reloadAll);
+      document.getElementById('mfReviewBtn').onclick = () => { st.special = st.special === 'review' ? '' : 'review'; st.pg = 1; render(); };
 
-      /* —— 待审核（右上角入口） —— */
-      document.getElementById('mfReviewBtn').onclick = () => { st.special = st.special === 'review' ? '' : 'review'; ADM.page.mfqPage = 1; rerender(); };
-      const spcExit = document.getElementById('mfSpcExit');
-      if (spcExit) spcExit.onclick = () => { st.special = ''; ADM.page.mfqPage = 1; rerender(); };
-      document.querySelectorAll('[data-rev]').forEach((a) => { a.onclick = () => mfReviewDialog(data.list.find((x) => x.up_id === Number(a.dataset.rev)), rerender); });
-      document.querySelectorAll('[data-upimg]').forEach((im) => { im.onclick = () => mfImgView(im.dataset.upimg); });
-      document.querySelectorAll('[data-hang]').forEach((a) => { a.onclick = () => mfHangDialog(Number(a.dataset.hang), rerender); });
+      qbFab({ pages: ['mfq'] });
 
-      /* —— 左栏联动（学段 → 科目 → 模式 → 年级/册别/单元 / 知识点树） —— */
-      document.getElementById('mfbEdition').onchange = (e) => { st.edition = e.target.value; st.grade = ''; st.volume = ''; st.units = []; st.node = ''; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      document.getElementById('mfbStage').onchange = (e) => { st.stage = e.target.value; st.edition = ''; st.grade = ''; st.volume = ''; st.units = []; st.node = ''; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      document.getElementById('mfbSubject').onchange = (e) => { st.subject = e.target.value; st.edition = ''; st.grade = ''; st.volume = ''; st.units = []; st.node = ''; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      const switchMode = (m) => { st.pmode = m; st.edition = ''; st.node = ''; st.units = []; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      document.getElementById('mfbModeChapter').onclick = () => { if (st.pmode !== 'chapter') switchMode('chapter'); };
-      document.getElementById('mfbModeKnow').onclick = () => { if (st.pmode !== 'knowledge') switchMode('knowledge'); };
-      const mfbG = document.getElementById('mfbGrade');
-      if (mfbG) mfbG.onchange = (e) => { st.grade = e.target.value; st.volume = ''; st.units = []; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      const mfbV = document.getElementById('mfbVolume');
-      if (mfbV) mfbV.onchange = (e) => { st.volume = e.target.value; st.units = []; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      document.querySelectorAll('[data-unit]').forEach((ck) => { ck.onchange = () => { const id = ck.dataset.unit; if (ck.checked) { if (!st.units.includes(id)) st.units.push(id); } else st.units = st.units.filter((x) => x !== id); ADM.page.mfqPage = 1; rerender(); }; });
-      document.querySelectorAll('[data-ux]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const id = a.dataset.ux; st.uexp[id] = !st.uexp[id]; rerender(); }; });
-      document.querySelectorAll('[data-tw]').forEach((a) => { a.onclick = (e) => { e.stopPropagation(); const id = a.dataset.tw; st.open[id] = !st.open[id]; rerender(); }; });
-      document.querySelectorAll('[data-node]').forEach((a) => { a.onclick = () => { st.node = st.node === a.dataset.node ? '' : a.dataset.node; ADM.page.mfqPage = 1; rerender(); }; });
-
-      /* —— 筛选 —— */
-      const bindSel = (id, key) => { const el = document.getElementById(id); if (el) el.onchange = () => { st[key] = el.value; ADM.page.mfqPage = 1; rerender(); }; };
-      bindSel('mfbType', 'type');
-      bindSel('mfbDiff', 'difficulty'); bindSel('mfbSrc', 'source'); bindSel('mfbComp', 'complete');
-      const kwEl = document.getElementById('mfbKw');
-      let kwTimer = null;
-      kwEl.oninput = () => { clearTimeout(kwTimer); kwTimer = setTimeout(() => { st.kw = kwEl.value.trim(); ADM.page.mfqPage = 1; rerender(); }, 400); };
-
-      /* —— 题卡勾选 —— */
-      document.querySelectorAll('.mf-qck').forEach((ck) => { ck.onchange = () => { st.sel[ck.dataset.id] = ck.checked; if (!ck.checked) delete st.sel[ck.dataset.id]; rerender(); }; });
-      document.querySelectorAll('[data-edit]').forEach((a) => { a.onclick = () => mfQEdit(a.dataset.edit, rerender); });
-      document.querySelectorAll('[data-del]').forEach((a) => { a.onclick = async () => {
-        if (!(await elConfirm({ title: '删除题目', message: '删除后不可恢复（试卷里引用它的行会一并移除）。确定？', okText: '删除', danger: true }))) return;
-        await api(`${MF_API}/questions/${a.dataset.del}`, { method: 'DELETE' }); toast('已删除', 'ok'); rerender();
-      }; });
-
-      /* —— 批量操作 —— */
-      bindPager('mfqPage');
       const selIds = () => Object.keys(st.sel).filter((k) => st.sel[k]).map(Number);
-      document.querySelectorAll('[data-batch]').forEach((b) => {
-        b.onclick = () => mfBatch(b.dataset.batch, selIds(), st, rerender);
+
+      /* —— 右栏 —— */
+      const chipRow = (key, label, opts) => {
+        const cur = st.f[key] || [];
+        return `<div class="r3-frow"><span class="r3-fk">${label}</span><div class="r3-chips" role="group" aria-label="${label}">
+          <button type="button" class="r3-chip ${cur.length ? '' : 'on'}" data-fk="${key}" data-fv="" aria-pressed="${!cur.length}">全部</button>
+          ${opts.map(([v, t]) => `<button type="button" class="r3-chip ${cur.includes(String(v)) ? 'on' : ''}" data-fk="${key}" data-fv="${esc(v)}" aria-pressed="${cur.includes(String(v))}">${esc(t)}</button>`).join('')}
+        </div></div>`;
+      };
+
+      async function loadFacets(ctx) {
+        const k = ctx.stage + '|' + ctx.subject;
+        if (k === facetKey) return;
+        facetKey = k;
+        const f = await api(`${MF_API}/questions-facets?stage=${encodeURIComponent(ctx.stage)}&subject=${encodeURIComponent(ctx.subject)}`, { silent: true }).catch(() => ({ years: [] }));
+        years = (f.years || []).map((y) => y.v);
+        st.f.year = (st.f.year || []).filter((y) => years.includes(y));
+      }
+
+      function query(ctx) {
+        const p = {
+          page: st.pg, size, stage: ctx.stage, subject: ctx.subject,
+          nodes: ctx.sel.join(','), type: st.f.type.join(','), difficulty: st.f.diff.join(','), source_type: st.f.src.join(','),
+          year: st.f.year.join(','), complete: st.f.comp.join(','), kw: st.kw, sort: st.sort === 'used' ? 'used' : '',
+        };
+        return Object.entries(p).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+      }
+
+      async function loadMain() {
+        const my = ++seq;
+        if (!tp) return;
+        const ctx = tp.ctx();
+        if (st.special === 'review') {
+          const d = await api(`${MFX}/review-list?page=${st.pg}&size=${size}`).catch(() => ({ list: [], total: 0, page: 1 }));
+          if (my !== seq) return;
+          renderReview(d);
+          return;
+        }
+        await loadFacets(ctx);
+        const d = await api(`${MF_API}/questions?${query(ctx)}`).catch(() => null);
+        if (my !== seq || !d) return;
+        data = d; st.pg = d.page;
+        renderMain(ctx);
+      }
+
+      function renderMain(ctx) {
+        const selCount = selIds().length;
+        const pageIds = data.list.map((q) => q.id);
+        const allOn = pageIds.length && pageIds.every((id) => st.sel[id]);
+        const anyF = Object.values(st.f).some((a) => a.length) || st.kw;
+        const selChips = ctx.sel.map((id) => {
+          const path = ctx.pathOf(id);
+          return `<span class="r3-selchip" title="${esc(path.join(' / '))}">${esc(path.slice(-2).join(' › '))}<button type="button" data-unsel="${id}" aria-label="移除">${TPN_SVG.close}</button></span>`;
+        }).join('');
+        const acts = (q) => {
+          const inB = QB.has(q.id);
+          return `<button type="button" class="r3-abtn" data-qedit="${q.id}">编辑</button>
+            <button type="button" class="r3-abtn" data-qhang="${q.id}">挂分类</button>
+            <button type="button" class="r3-abtn danger" data-qdel="${q.id}">删除</button>
+            <button type="button" class="r3-bbtn ${inB ? 'in' : ''}" data-qbask="${q.id}">${inB ? '已加入试题篮' : '+ 加入试题篮'}</button>`;
+        };
+        main.innerHTML = `
+          <div class="r3-filter">
+            ${chipRow('type', '题型', (typeof MF_TYPES !== 'undefined' ? MF_TYPES : Object.entries(QC_TYPE_FALLBACK)))}
+            ${chipRow('diff', '难度', Object.entries(QC_DIFF))}
+            ${chipRow('src', '来源', R3_SRC)}
+            ${years.length ? chipRow('year', '年份', years.map((y) => [y, y])) : ''}
+            ${chipRow('comp', '完整度', R3_COMP)}
+            <div class="r3-frow r3-kwrow"><span class="r3-fk">关键字</span>
+              <label class="r3-kw-inp">${TPN_SVG.search}<input type="search" id="r3Kw" placeholder="搜题干 / 答案 / 解析 / 来源 / 题号" value="${esc(st.kw)}"></label>
+              ${anyF ? '<button type="button" class="r3-link" id="r3Reset">清空筛选</button>' : ''}
+            </div>
+          </div>
+          ${ctx.sel.length ? `<div class="r3-selbar"><span class="r3-fk">已选${ctx.kind === 'textbook' ? '章节' : '知识点'}</span><div class="r3-selchips">${selChips}</div><button type="button" class="r3-link" id="r3SelClear">清空</button><span class="r3-hintx">含下级节点的题</span></div>` : ''}
+          <div class="r3-resbar">
+            <label class="r3-allck"><input type="checkbox" id="r3All" ${allOn ? 'checked' : ''} ${pageIds.length ? '' : 'disabled'}>全选本页</label>
+            <span class="r3-total">筛选到题目 <b id="r3Total">${data.total}</b> 道</span>
+            <div class="r3-sort" role="group" aria-label="排序">
+              <button type="button" class="${st.sort !== 'used' ? 'on' : ''}" data-sort="new">最新录入</button>
+              <button type="button" class="${st.sort === 'used' ? 'on' : ''}" data-sort="used">组卷最多</button>
+            </div>
+          </div>
+          <div class="r3-batch ${selCount ? 'on' : ''}">
+            <span class="r3-batch-n">已选 <b>${selCount}</b> 题</span>
+            <button class="btn sm" data-batch="hang" ${selCount ? '' : 'disabled'}>批量挂分类</button>
+            <button class="btn ghost sm" data-batch="qb" ${selCount ? '' : 'disabled'}>加入试题篮</button>
+            <button class="btn ghost sm" data-batch="tag" ${selCount ? '' : 'disabled'}>打标签</button>
+            <button class="btn ghost sm" data-batch="aiclean" ${selCount ? '' : 'disabled'}>AI 整理</button>
+            <button class="btn ghost sm" data-batch="aisug" ${selCount ? '' : 'disabled'}>AI 建议</button>
+            <button class="btn ghost sm" data-batch="wrong" ${selCount ? '' : 'disabled'}>标记错题</button>
+            <button class="btn danger sm" data-batch="del" ${selCount ? '' : 'disabled'}>删除</button>
+            ${selCount ? '<button type="button" class="r3-link" data-batch="clear">取消选择</button>' : ''}
+          </div>
+          <div class="r3-list" id="r3List">
+            ${data.list.length ? data.list.map((q, i) => qcCard(q, { no: (data.page - 1) * size + i + 1, checked: !!st.sel[q.id], acts: acts(q), hangBtn: true })).join('')
+              : `<div class="r3-empty"><b>没有符合条件的题目</b><span>${ctx.sel.length || anyF ? '换个节点或放宽筛选条件试试' : '去「录题上传」「网络采集」或点「新建题」开始积累题库'}</span></div>`}
+          </div>
+          ${data.total > size ? pagerHTML(data.page, size, data.total, 'r3pg') : ''}`;
+        bindMain(ctx);
+      }
+
+      function bindMain(ctx) {
+        const reload = () => { st.pg = 1; loadMain(); };
+        main.querySelectorAll('[data-fk]').forEach((b) => {
+          b.onclick = () => {
+            const k = b.dataset.fk; const v = b.dataset.fv;
+            if (!v) st.f[k] = [];
+            else st.f[k] = st.f[k].includes(v) ? st.f[k].filter((x) => x !== v) : [...st.f[k], v];
+            reload();
+          };
+        });
+        const kw = main.querySelector('#r3Kw');
+        let tm = null;
+        kw.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { st.kw = kw.value.trim(); reload(); }, 400); };
+        kw.onkeydown = (e) => { if (e.key === 'Enter') { clearTimeout(tm); st.kw = kw.value.trim(); reload(); } };
+        const rs = main.querySelector('#r3Reset');
+        if (rs) rs.onclick = () => { st.f = { type: [], diff: [], src: [], year: [], comp: [] }; st.kw = ''; reload(); };
+        main.querySelectorAll('[data-unsel]').forEach((b) => { b.onclick = () => tp.remove(b.dataset.unsel); });
+        const sc = main.querySelector('#r3SelClear');
+        if (sc) sc.onclick = () => tp.clear();
+        main.querySelectorAll('[data-sort]').forEach((b) => { b.onclick = () => { if (st.sort !== b.dataset.sort) { st.sort = b.dataset.sort; reload(); } }; });
+        const all = main.querySelector('#r3All');
+        all.onchange = () => { data.list.forEach((q) => { if (all.checked) st.sel[q.id] = true; else delete st.sel[q.id]; }); renderMain(ctx); };
+        main.querySelectorAll('[data-qck]').forEach((ck) => {
+          ck.onchange = () => {
+            if (ck.checked) st.sel[ck.dataset.qck] = true; else delete st.sel[ck.dataset.qck];
+            renderBatch(); const card = ck.closest('.r3-qcard'); if (card) card.classList.toggle('sel', ck.checked);
+            const ids = data.list.map((q) => q.id); all.checked = ids.length && ids.every((id) => st.sel[id]);
+          };
+        });
+        main.querySelectorAll('[data-qedit]').forEach((b) => { b.onclick = () => mfQEdit(b.dataset.qedit, reloadAll); });
+        main.querySelectorAll('[data-qhang]').forEach((b) => {
+          b.onclick = () => { const q = data.list.find((x) => String(x.id) === b.dataset.qhang); r3HangDialog([Number(b.dataset.qhang)], { q, ctx: tp.ctx(), done: reloadAll }); };
+        });
+        main.querySelectorAll('[data-qdel]').forEach((b) => {
+          b.onclick = async () => {
+            if (!(await elConfirm({ title: '删除题目', message: '删除后不可恢复（试卷里引用它的行会一并移除）。确定？', okText: '删除', danger: true }))) return;
+            await api(`${MF_API}/questions/${b.dataset.qdel}`, { method: 'DELETE' }); QB.remove(b.dataset.qdel); delete st.sel[b.dataset.qdel]; toast('已删除', 'ok'); reloadAll();
+          };
+        });
+        main.querySelectorAll('[data-qbask]').forEach((b) => {
+          b.onclick = () => {
+            const q = data.list.find((x) => String(x.id) === b.dataset.qbask);
+            const on = QB.toggle(q);
+            b.classList.toggle('in', on); b.textContent = on ? '已加入试题篮' : '+ 加入试题篮';
+            toast(on ? '已加入试题篮（去「智能组卷」生成试卷）' : '已移出试题篮', 'ok');
+          };
+        });
+        main.querySelectorAll('[data-page="r3pg"]').forEach((b) => {
+          b.onclick = () => { if (b.disabled) return; const to = Number(b.dataset.to); if (!to) return; st.pg = to; loadMain().then(() => { const top = document.querySelector('.r3-main'); if (top) top.scrollIntoView({ block: 'start', behavior: 'smooth' }); }); };
+        });
+        const ps = main.querySelector('[data-psize="r3pg"]');
+        if (ps) ps.style.display = 'none';
+        bindBatch();
+        qcBind(main.querySelector('#r3List'));
+      }
+
+      function renderBatch() {
+        const n = selIds().length;
+        const bar = main.querySelector('.r3-batch');
+        if (!bar) return;
+        bar.classList.toggle('on', n > 0);
+        bar.querySelector('.r3-batch-n b').textContent = n;
+        bar.querySelectorAll('button[data-batch]').forEach((b) => { if (b.dataset.batch !== 'clear') b.disabled = !n; });
+        let clr = bar.querySelector('[data-batch="clear"]');
+        if (n && !clr) { clr = document.createElement('button'); clr.type = 'button'; clr.className = 'r3-link'; clr.dataset.batch = 'clear'; clr.textContent = '取消选择'; bar.appendChild(clr); bindBatch(); }
+        if (!n && clr) clr.remove();
+      }
+      function bindBatch() {
+        main.querySelectorAll('[data-batch]').forEach((b) => {
+          b.onclick = async () => {
+            const ids = selIds();
+            const op = b.dataset.batch;
+            if (op === 'clear') { st.sel = {}; renderMain(tp.ctx()); return; }
+            if (!ids.length) return toast('先勾选题目', 'err');
+            if (op === 'hang') return r3HangDialog(ids, { ctx: tp.ctx(), done: async () => { st.sel = {}; await reloadAll(); } });
+            if (op === 'qb') {
+              const qs = ids.map((id) => data.list.find((q) => q.id === id) || { id, type: 'single' });
+              const n = QB.addMany(qs);
+              toast(n ? `已把 ${n} 题加入试题篮` : '这些题已经都在试题篮里了', 'ok');
+              renderMain(tp.ctx());
+              return;
+            }
+            return mfBatch(op, ids, st, reloadAll);
+          };
+        });
+      }
+
+      function renderReview(d) {
+        const card = (it, i) => {
+          const meta = [it.subject || it.pu_subject, MF_STAGE_NAMES[it.stage || it.pu_stage] || '', it.grade || it.pu_grade, it.point || it.pu_point, it.up_status === 'reviewed' ? '已核对' : '待审核']
+            .filter(Boolean).map((t) => `<span class="r3-badge">${esc(t)}</span>`).join('');
+          const imgs = it.up_images || [];
+          return `<article class="r3-qcard"><header class="r3-qhead"><b class="r3-qno">${(d.page - 1) * size + i + 1}</b><div class="r3-badges">${meta}</div></header>
+            <div class="r3-qbody"><div class="r3-hintx">学生：${esc(it.student_name || '')}${it.student_grade ? ' · ' + esc(it.student_grade) : ''} · ${(it.up_created || '').slice(0, 16).replace('T', ' ')}</div>
+              <div class="r3-stem">${esc(it.stem || it.up_stem_text || '（无题干，看图核对）').replace(/\n/g, '<br>')}</div>
+              ${imgs.length ? `<div class="r3-qfigs">${imgs.map((u, k) => qcFig(u, k)).join('')}</div>` : ''}</div>
+            <footer class="r3-qfoot"><div class="r3-qmeta"></div><div class="r3-qacts"><button type="button" class="r3-bbtn" data-rev="${it.up_id}">核对</button></div></footer></article>`;
+        };
+        main.innerHTML = `<div class="r3-resbar"><span class="r3-total">学生上传待核对 <b>${d.total || 0}</b> 道</span></div>
+          <div class="r3-list" id="r3List">${(d.list || []).length ? d.list.map(card).join('') : '<div class="r3-empty"><b>没有待核对的学生上传题目</b><span>学生在错题本里上传的题会出现在这里</span></div>'}</div>
+          ${(d.total || 0) > size ? pagerHTML(d.page, size, d.total, 'r3pg') : ''}`;
+        main.querySelectorAll('[data-rev]').forEach((a) => { a.onclick = () => mfReviewDialog(d.list.find((x) => x.up_id === Number(a.dataset.rev)), reloadAll); });
+        main.querySelectorAll('[data-page="r3pg"]').forEach((b) => { b.onclick = () => { if (b.disabled) return; st.pg = Number(b.dataset.to) || 1; loadMain(); }; });
+        qcBind(main.querySelector('#r3List'));
+      }
+
+      tp = treePanel(document.getElementById('r3Tree'), {
+        state: st.tp,
+        onScope: () => { st.pg = 1; },
+        onChange: () => { st.pg = 1; loadMain(); },
       });
     },
   };
+}
+
+/** 批量挂分类（R3）：左右两个树形选择器（章节 / 知识点），选好节点一次挂上；单题「挂分类」也用它（默认替换原分类）
+ *  ids：题目 id；opt.q：单题时传入题目（预先勾上它已挂的节点）；opt.ctx：当前左栏的 学段 / 学科 / 版本 */
+function r3HangDialog(ids, opt = {}) {
+  const q = opt.q || null;
+  const c = opt.ctx || {};
+  const base = { stage: (q && q.stage) || c.stage, subject: (q && q.subject) || c.subject, edition: (q && q.edition) || c.edition || '' };
+  const preC = q ? (q.chapters || []).map((x) => String(x.id)) : [];
+  const preK = q ? (q.knows || []).map((x) => String(x.id)) : [];
+  const stC = { ...base, kind: 'textbook', sel: preC, open: {}, q: '' };
+  const stK = { ...base, kind: 'knowledge', sel: preK, open: {}, q: '' };
+  let tc = null; let tk = null;
+  const chips = (t, box) => {
+    const cx = t.ctx();
+    box.innerHTML = cx.sel.length ? cx.sel.map((id) => `<span class="r3-selchip" title="${esc(cx.pathOf(id).join(' / '))}">${esc(cx.pathOf(id).slice(-2).join(' › '))}<button type="button" data-x="${id}" aria-label="移除">${TPN_SVG.close}</button></span>`).join('')
+      : '<span class="r3-hintx">还没有选择</span>';
+    box.querySelectorAll('[data-x]').forEach((b) => { b.onclick = () => t.remove(b.dataset.x); });
+  };
+  modal({
+    title: ids.length > 1 ? `批量挂分类 · 已选 ${ids.length} 题` : `挂分类 · 题目 #${ids[0]}`,
+    wide: true, okText: '挂上分类',
+    body: `<div class="r3-hang">
+      <div class="r3-hang-col"><div class="r3-hang-h"><b>章节分类</b><span>教材目录 · 年级 › 册别 › 章 › 节</span></div><div id="r3HgC"></div><div class="r3-hang-sel" id="r3HgCs"></div></div>
+      <div class="r3-hang-col"><div class="r3-hang-h"><b>知识点分类</b><span>知识点树</span></div><div id="r3HgK"></div><div class="r3-hang-sel" id="r3HgKs"></div></div>
+    </div>
+    <div class="r3-hang-mode" role="radiogroup" aria-label="挂法">
+      <label><input type="radio" name="r3hgm" value="1" ${q ? 'checked' : ''}> 替换原有分类<em>先清掉这些题原来挂的章节 / 知识点，再挂上面选的</em></label>
+      <label><input type="radio" name="r3hgm" value="0" ${q ? '' : 'checked'}> 追加到原有分类<em>保留原来的挂载，再多挂上面选的</em></label>
+    </div>`,
+    onMount: (w) => {
+      tc = treePanel(w.querySelector('#r3HgC'), { state: stC, kinds: ['textbook'], pick: true, maxHeight: '300px', onChange: () => chips(tc, w.querySelector('#r3HgCs')) });
+      tk = treePanel(w.querySelector('#r3HgK'), { state: stK, kinds: ['knowledge'], pick: true, maxHeight: '300px', onChange: () => chips(tk, w.querySelector('#r3HgKs')) });
+    },
+    onOk: async (w, showErr) => {
+      const cs = tc ? tc.ctx().sel : []; const ks = tk ? tk.ctx().sel : [];
+      if (!cs.length && !ks.length) return showErr('请至少勾选一个章节或知识点节点');
+      const replace = (w.querySelector('input[name="r3hgm"]:checked') || {}).value === '1';
+      const r = await api(`${MF_API}/questions/batch`, { method: 'POST', body: { ids, op: 'node', nodes: [...cs, ...ks], replace: replace ? 1 : 0 } });
+      toast(`已给 ${ids.length} 题挂上 ${cs.length ? cs.length + ' 个章节' : ''}${cs.length && ks.length ? ' + ' : ''}${ks.length ? ks.length + ' 个知识点' : ''}`, 'ok');
+      if (typeof opt.done === 'function') opt.done(r);
+    },
+  });
 }
 
 /** 图片查看大图 */
