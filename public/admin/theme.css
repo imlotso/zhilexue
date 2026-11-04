@@ -273,3 +273,32 @@ body.t11 .t11-scrim{display:none}
   body.t11 .admin-app .dash-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
   body.t11 .admin-app .card-h{align-items:flex-start}
 }
+
+/* ============================================================================
+   R2：知识树管理页（版本下拉 / 搜索 / 悬停按钮）与题库管理左栏版本下拉
+   ============================================================================ */
+body.t11 .admin-app .r2-kt-filters{align-items:flex-end}
+body.t11 .admin-app .r2-kt-filters .sp{flex:1}
+body.t11 .admin-app .r2-fl{display:flex;flex-direction:column;gap:4px;margin:0;min-width:0}
+body.t11 .admin-app .r2-fl>span{font-size:12px;color:var(--t11-text2);line-height:1}
+body.t11 .admin-app .r2-fl select{min-width:120px}
+body.t11 .admin-app .r2-search{display:inline-flex;align-items:center;gap:8px}
+body.t11 .admin-app .r2-search-inp{height:var(--t11-h-sm);width:200px;max-width:100%;border:1px solid var(--t11-line);border-radius:var(--t11-r);padding:0 10px;font-size:var(--t11-fs);background:var(--t11-card);color:var(--t11-text)}
+body.t11 .admin-app .r2-search-inp:focus{outline:none;border-color:var(--t11-primary);box-shadow:0 0 0 2px var(--t11-primary-l)}
+body.t11 .admin-app .r2-search-n{font-size:12px;color:var(--t11-text3);min-width:48px}
+body.t11 .admin-app .r2-hit{background:#ffe58f;color:inherit;border-radius:3px;padding:0 1px}
+body.t11 .admin-app .t4-row.r2-hitrow{background:var(--t11-warn-l)}
+/* 节点行内按钮：鼠标悬停（或键盘聚焦到行内）才显示；触屏设备和手机宽度常显 */
+body.t11 .admin-app .r2-hover .t4-acts{opacity:0;pointer-events:none;transition:opacity .12s}
+body.t11 .admin-app .r2-hover .t4-row:hover .t4-acts,body.t11 .admin-app .r2-hover .t4-row:focus-within .t4-acts{opacity:1;pointer-events:auto}
+@media (hover:none),(max-width:768px){
+  body.t11 .admin-app .r2-hover .t4-acts{opacity:1;pointer-events:auto}
+}
+body.t11 .admin-app .r2-edsel{min-width:0}
+body.t11 .el-msg-text{white-space:pre-line}
+@media (max-width:768px){
+  body.t11 .admin-app .r2-fl{flex:1 1 40%}
+  body.t11 .admin-app .r2-fl select{width:100%;min-width:0}
+  body.t11 .admin-app .r2-search-inp{width:100%}
+  body.t11 .admin-app .r2-search{flex:1 1 100%}
+}

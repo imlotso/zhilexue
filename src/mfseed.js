@@ -10,6 +10,9 @@ const path = require('path');
 
 const TREE_NAME = { 数学: '苏科版数学·教材章节', 英语: '译林版英语·教材章节' };
 const SEED_VER = 'seed:v1';
+// 章节树的教材版本（R2）：种子里小学数学那棵其实是苏教版的单元（原来误写成苏科版），初中数学才是苏科版
+const SEED_EDITION = { 数学: { primary: '苏教版', junior: '苏科版' }, 英语: { primary: '译林版', junior: '译林版' } };
+const WRONG_NAME = { '数学:primary': '苏科版数学·教材章节' };   // 旧的错误树名 → 改成「<版本><学科>·教材章节」
 
 function ensureSeed(db) {
   let data;
@@ -19,15 +22,20 @@ function ensureSeed(db) {
     console.error('[mfseed] 种子数据读取失败:', e.message);
     return;
   }
-  const insTree = db.prepare('INSERT INTO bank_trees (kind, subject, stage, name, source, sort, created_at) VALUES (?,?,?,?,?,?,?)');
   const insNode = db.prepare('INSERT INTO bank_tree_nodes (tree_id, parent_id, name, sort, created_at) VALUES (?,?,?,?,?)');
 
   const ensureTree = (kind, subject, stage, name) => {
     const source = `${SEED_VER}:${kind}:${subject}:${stage}`;
+    const edition = kind === 'textbook' ? ((SEED_EDITION[subject] || {})[stage] || '') : '';
     let t = db.prepare('SELECT * FROM bank_trees WHERE source=?').get(source);
     if (!t) {
-      const info = insTree.run(kind, subject, stage, name, source, 0, new Date().toISOString());
+      const info = db.prepare('INSERT INTO bank_trees (kind, subject, stage, name, source, edition, sort, created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .run(kind, subject, stage, edition && kind === 'textbook' ? `${edition}${subject}·教材章节` : name, source, edition, 0, new Date().toISOString());
       t = { id: info.lastInsertRowid };
+    } else if (edition) {
+      // 迁移已有库（幂等）：版本为空才补；树名只在还是旧的错误名字时才改，用户自己改过的名字不动
+      if (!String(t.edition || '').trim()) db.prepare('UPDATE bank_trees SET edition=? WHERE id=?').run(edition, t.id);
+      if (WRONG_NAME[`${subject}:${stage}`] === t.name) db.prepare('UPDATE bank_trees SET name=? WHERE id=?').run(`${edition}${subject}·教材章节`, t.id);
     }
     return t.id;
   };
@@ -48,6 +56,7 @@ function ensureSeed(db) {
     });
   };
 
+  try { require('./treepick').ensureDefaults(db); } catch (e) { console.error('[mfseed] 默认版本表失败:', e.message); }
   let treeCount = 0, touched = 0;
   try {
     for (const [subject, stages] of Object.entries(data.textbook || {})) {
@@ -78,4 +87,5 @@ function ensureSeed(db) {
   }
 }
 
+/** 启动入口：知识树种子 + 默认版本表（settings.default_editions，没有才写） */
 module.exports = { ensureSeed };

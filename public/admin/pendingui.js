@@ -155,8 +155,8 @@ async function pdDelete(ids) {
 /** 批量入库：可统一改学科/学段/年级，并挂到知识点树 / 章节树的节点、加标签 */
 async function pdBatchCommit(ids, byId) {
   const items = ids.map((id) => byId[id]).filter(Boolean);
-  const trees = ((await api(`${PD_API}/trees`, { silent: true }).catch(() => ({ list: [] }))) || {}).list || [];
-  const treeOpts = (kind) => trees.filter((t) => t.kind === kind).map((t) => [t.id, `${t.name}（${t.subject || '不限学科'}${t.stage ? ' · ' + pdStageName(t.stage) : ''}）`]);
+  const trees = await tpTrees();
+  const treeOpts = (kind) => trees.filter((t) => t.kind === kind).map((t) => [t.id, `${treeLabel(t)}（${t.subject || '不限学科'}）`]);
   modal({
     title: `批量入库（${items.length} 题）`, okText: '入库', wide: false,
     body: `<p class="pd-tip" style="margin-top:0">来源：${esc([...new Set(items.map((i) => i.source_label))].join('、'))}。下面不填就沿用每道题自己的学科/学段/年级。</p>

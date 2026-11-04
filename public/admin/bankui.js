@@ -639,9 +639,11 @@ async function viewPaper() {
         if (!sc.kind) { wrap.style.display = 'none'; sc.sel.clear(); sc.tree = null; sc.nodes = []; refreshPool(); return; }
         wrap.style.display = '';
         const f = readForm();
-        const all = (((await api('/api/admin/bank/mf/trees?kind=' + sc.kind, { silent: true }).catch(() => ({ list: [] }))) || {}).list || []);
+        const all = await tpTrees(sc.kind);
         sc.trees = all.filter((t) => t.subject === f.subject && (!f.stage || t.stage === f.stage));
-        document.getElementById('pp-tree').innerHTML = sc.trees.map((t) => `<option value="${t.id}">${esc(t.name)}${t.stage ? '（' + esc(bkStageName(t.stage)) + '）' : ''}</option>`).join('') || '<option value="">没有符合学科 / 学段的树</option>';
+        // R2：同 学段+学科 有多个教材版本时，默认版本那棵排第一并选中；下拉显示「版本 · 学段 · 名称」
+        if (f.stage && sc.trees.length) sc.trees = tpOrder(sc.trees, f.subject, f.stage);
+        document.getElementById('pp-tree').innerHTML = sc.trees.map((t) => `<option value="${t.id}">${esc(treeLabel(t))}</option>`).join('') || '<option value="">没有符合学科 / 学段的树</option>';
         sc.tree = sc.trees[0] || null;
         await loadNodes();
       };

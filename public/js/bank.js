@@ -791,7 +791,7 @@ const BankPages = {
     mask.className = 'mask pk-sel-mask';
     mask.innerHTML = `
       <div class="pk-sel-box">
-        <div class="pk-sel-h"><b>${kind === 'knowledge' ? '知识点组卷' : '章节组卷'} · ${esc(subject)}</b><button class="close-x" id="pkSelX">&times;</button></div>
+        <div class="pk-sel-h"><b>${kind === 'knowledge' ? '知识点组卷' : '章节组卷'} · ${esc(subject)}${t.edition ? ' · ' + esc(t.edition) : ''}</b><button class="close-x" id="pkSelX">&times;</button></div>
         <div class="pk-sel-tip">勾选${kind === 'knowledge' ? '知识点' : '单元'}（勾大项 = 包含里面所有小项），每个小知识点只出 1 道题</div>
         <div class="pk-tree" id="pkTree">${roots.map((n) => nodeRow(n, 0)).join('')}</div>
         <div class="pk-sel-f">
