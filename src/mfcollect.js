@@ -24,6 +24,18 @@ const admin = express.Router();
 const proxy = express.Router();
 const cap = express.Router();
 
+/** R0-B5：代理 iframe 去掉了 allow-same-origin，页面成了「不透明源」，它发给 /api/mfproxy 的 XHR/fetch 变成跨域请求，
+ *  所以代理要放行 CORS。代理靠 URL 里的短票据 k 鉴权、不读 Cookie，因此只放 * 且不开 Allow-Credentials
+ *  （注入脚本也会把站点请求的 credentials 强制改成 omit）。 */
+proxy.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', String(req.headers['access-control-request-headers'] || 'Content-Type, X-MF-Ticket, X-MF-Referer, X-MF-CT'));
+  res.setHeader('Access-Control-Max-Age', '86400');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+});
+
 const now = () => {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');
@@ -429,7 +441,7 @@ admin.post('/collect-tree', (req, res) => {
   if (!Array.isArray(b.nodes) || !b.nodes.length) return fail(res, '没有节点数据');
   const r = importTreeCore(b);
   if (r.code) return fail(res, r.msg);
-  return ok(res, { tree_id: r.tree_id, created: r.created, total: r.total }, r.msg);
+  return ok(res, { tree_id: r.tree_id, created: r.created, merged: r.merged, total: r.total, new_tree: r.new_tree }, r.msg);
 });
 
 // ==================================================================== 默认学段学科（偏好）
@@ -792,35 +804,66 @@ cap.post('/tree-push', (req, res) => {
   return res.json(r);
 });
 
-function importTreeCore({ site, root_id, root_name, stage, subject, nodes }) {
+/** 学段归一：接受 小学/初中/高中 或 primary/junior/senior，返回库里用的英文码；认不出返回 '' */
+function normStage(raw) {
+  const v = String(raw || '').trim();
+  if (['primary', 'junior', 'senior'].includes(v)) return v;
+  return ({ 小学: 'primary', 初中: 'junior', 高中: 'senior' })[v] || '';
+}
+/** 学科归一：库里的树用中文学科名；传进来是归一码（math）就换成中文名 */
+function normSubjectLabel(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  const r = db.prepare("SELECT label FROM mf_dict_entries WHERE kind='subject' AND site IS NULL AND code=? AND active=1").get(v);
+  return r && r.label ? r.label : v;
+}
+
+/** 导入采集到的树节点（R0-B7）。
+ *  必须带学段 + 学科（缺了直接拒绝，不再生成「学段学科为空」的孤儿树）；
+ *  并入该 学段+学科 已有的同类（kind）树，没有才新建；同一父节点下同名节点不重复建（幂等，重复导入只会 created=0）。 */
+function importTreeCore({ site, root_id, root_name, stage, subject, nodes, kind }) {
   const arr = Array.isArray(nodes) ? nodes : [];
   if (!arr.length) return { code: 1, msg: '没有节点数据' };
-  let tree = db.prepare('SELECT * FROM bank_trees WHERE source LIKE ? ORDER BY id LIMIT 1').get(`collect:${site}:${root_id || ''}%`);
+  const stageCode = normStage(stage);
+  const subjectName = normSubjectLabel(subject);
+  if (!stageCode && !subjectName) return { code: 1, msg: '请先选择学段和学科再导入知识树（没有学段和学科，导入的树在题库里选不到）' };
+  if (!stageCode) return { code: 1, msg: '请先选择学段（小学 / 初中 / 高中）再导入知识树' };
+  if (!subjectName) return { code: 1, msg: '请先选择学科再导入知识树' };
+  const k = kind === 'textbook' ? 'textbook' : 'knowledge';
+  let tree = db.prepare('SELECT * FROM bank_trees WHERE kind=? AND stage=? AND subject=? ORDER BY id LIMIT 1').get(k, stageCode, subjectName);
+  let newTree = false;
   if (!tree) {
     const info = db.prepare('INSERT INTO bank_trees (kind, subject, stage, name, source, sort, created_at) VALUES (?,?,?,?,?,?,?)')
-      .run('knowledge', String(subject || '').trim(), String(stage || '').trim(),
-        String(root_name || `${site}·知识树`).slice(0, 60), `collect:${site}:${root_id || ''}:${now()}`, 0, now());
+      .run(k, subjectName, stageCode, String(root_name || `${site}·知识树`).slice(0, 60), `collect:${site}:${root_id || ''}:${now()}`, 0, now());
     tree = { id: info.lastInsertRowid };
+    newTree = true;
   }
   const treeId = tree.id;
-  const map = {};
-  db.prepare('SELECT node_id, site_node_id FROM mf_tree_source_map WHERE site=?').all(site)
-    .forEach((r) => { map[r.site_node_id] = r.node_id; });
+  // 已有节点按「父节点 + 名称」建索引，用来合并同名节点
+  const byKey = {};
+  db.prepare('SELECT id, parent_id, name FROM bank_tree_nodes WHERE tree_id=?').all(treeId)
+    .forEach((n) => { const key = `${n.parent_id || 0}|${n.name}`; if (!byKey[key]) byKey[key] = n.id; });
   const insNode = db.prepare('INSERT INTO bank_tree_nodes (tree_id, parent_id, name, sort, created_at) VALUES (?,?,?,?,?)');
   const insMap = db.prepare('INSERT OR REPLACE INTO mf_tree_source_map (node_id, site, site_node_id, site_node_name) VALUES (?,?,?,?)');
-  let created = 0;
+  const idOf = {};   // 本次：站点节点 id -> 库里节点 id
+  let created = 0, merged = 0;
   for (const n of arr) {
     const sid = String(n.site_node_id || '').trim();
-    if (!sid || map[sid]) continue;
+    const name = String(n.name || '').trim().slice(0, 100);
+    if (!sid || !name || idOf[sid]) continue;
     const parentSid = n.parent_site_node_id ? String(n.parent_site_node_id) : null;
-    const parentId = parentSid && map[parentSid] ? map[parentSid] : null;
-    const info = insNode.run(treeId, parentId, String(n.name || '').slice(0, 100), int(n.sort), now());
-    map[sid] = info.lastInsertRowid;
-    insMap.run(info.lastInsertRowid, site, sid, String(n.name || '').slice(0, 100));
-    created++;
+    const parentId = parentSid && idOf[parentSid] ? idOf[parentSid] : null;
+    const key = `${parentId || 0}|${name}`;
+    if (byKey[key]) { idOf[sid] = byKey[key]; merged++; }
+    else {
+      const info = insNode.run(treeId, parentId, name, int(n.sort), now());
+      idOf[sid] = info.lastInsertRowid; byKey[key] = info.lastInsertRowid; created++;
+      insMap.run(info.lastInsertRowid, site, sid, name);
+    }
   }
   const total = db.prepare('SELECT COUNT(*) n FROM bank_tree_nodes WHERE tree_id=?').get(treeId).n;
-  return { code: 0, tree_id: treeId, created, total, msg: `知识树已导入：新增 ${created} 节点，共 ${total} 节点` };
+  return { code: 0, tree_id: treeId, created, merged, total, new_tree: newTree,
+    msg: `知识树已导入${newTree ? '（新建了树）' : '到已有的树'}：新增 ${created} 节点，合并同名 ${merged} 个，共 ${total} 节点` };
 }
 
 // admin /collect-tree 也走核心实现

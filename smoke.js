@@ -516,6 +516,124 @@ const fileForm = (fields, fileName, content) => {
   log(!((kRead2.data || {}).list || []).some((u) => u.id === kuId), '旧接口删单元：连同知识点一起删除');
   if (kTree) await req(MF + `/trees/${kTree.id}`, { method: 'DELETE', token: AT });
 
+  // ---------- R0 二轮整改：bug 修复（B1 书签回传 / B5 代理 CORS / B7 树导入 / B9 题图票据 / B10 节点题数） ----------
+  console.log('\n【R0 bug 修复】');
+  {
+    const rawReq = async (p, { method = 'GET', headers = {}, body } = {}) => {
+      const r = await fetch(BASE + p, { method, headers: Object.assign(body ? { 'Content-Type': 'application/json' } : {}, headers), body: body ? JSON.stringify(body) : undefined });
+      const ct = r.headers.get('content-type') || '';
+      return { status: r.status, h: r.headers, j: ct.includes('json') ? await r.json() : null, buf: ct.includes('json') ? null : Buffer.from(await r.arrayBuffer()), ct };
+    };
+    // —— B1：书签脚本回传到 /api/mfcap/push（采集票据鉴权），带 CORS，失败不清票据 ——
+    const tk = await req(MF + '/capture/token', { token: AT });
+    const CT = tk.data && tk.data.token;
+    log(!!CT, 'B1 取得采集票据', tk.msg);
+    const bm = await req(MF + '/capture/bookmarklet?base=' + encodeURIComponent('http://example.test'), { token: AT });
+    const bmJs = (bm.data && bm.data.js) || '';
+    log(bmJs.includes("API='http://example.test/api/mfcap/push'") && !bmJs.includes('/api/admin/bank/mf/capture/push'), 'B1 书签脚本回传地址是 /api/mfcap/push（不再是后台接口）');
+    log(!/else\{\s*try\{localStorage\.removeItem/.test(bmJs) && /回传失败/.test(bmJs), 'B1 书签脚本回传失败时不再无条件清除本地票据');
+    const pre = await rawReq('/api/mfcap/push', { method: 'OPTIONS', headers: { Origin: 'https://zujuan.xkw.com', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization,content-type' } });
+    const allowM = String(pre.h.get('access-control-allow-methods') || ''), allowH = String(pre.h.get('access-control-allow-headers') || '').toLowerCase();
+    log(pre.status === 204 && pre.h.get('access-control-allow-origin') === '*' && /POST/.test(allowM) && /OPTIONS/.test(allowM) && !/GET|PUT|DELETE/.test(allowM)
+      && allowH.includes('authorization') && allowH.includes('content-type'), 'B1 /api/mfcap 预检 OPTIONS 正确应答（只放 POST/OPTIONS + Authorization/Content-Type）', `status=${pre.status} ${allowM} | ${allowH}`);
+    const capQ = 'R0采集回传-' + uniq;
+    const pushed = await rawReq('/api/mfcap/push', { method: 'POST', headers: { Origin: 'https://zujuan.xkw.com', Authorization: 'Bearer ' + CT },
+      body: { site: 'zujuan', url: 'https://zujuan.xkw.com/r0test', title: capQ, questions: [{ questionId: 'r0-' + uniq, stem: capQ + ' 1+1=?', options: ['1', '2', '3', '4'], answer: 'B', analysis: '', type: '', difficulty: '', knowledge: [] }] } });
+    log(pushed.status === 200 && pushed.j && pushed.j.code === 0 && pushed.h.get('access-control-allow-origin') === '*', 'B1 用采集票据从外部页面 POST /api/mfcap/push 成功，响应带 CORS 头', pushed.j && pushed.j.msg);
+    const pend = await req(MF + '/ext/pending?source=capture&size=100&kw=' + encodeURIComponent(capQ), { token: AT });
+    const pendItem = ((pend.data || {}).list || []).find((x) => String(x.stem).includes(capQ));
+    log(!!pendItem && pendItem.source_label === '网络采集', 'B1 回传的题进了「待审核」，来源标注「网络采集」', pendItem ? pendItem.source_label : '没找到');
+    const badPush = await rawReq('/api/mfcap/push', { method: 'POST', headers: { Authorization: 'Bearer not-a-ticket' }, body: { questions: [{ stem: 'x' }] } });
+    log((badPush.status === 401 || (badPush.j && badPush.j.code === 401)) && badPush.h.get('access-control-allow-origin') === '*', 'B1 票据无效被拒（带 CORS 头，页面里才能读到原因）', 'status=' + badPush.status + ' ' + (badPush.j && badPush.j.msg));
+    const oldPush = await rawReq('/api/admin/bank/mf/capture/push', { method: 'POST', headers: { Authorization: 'Bearer ' + CT }, body: { questions: [{ stem: 'x' }] } });
+    log(oldPush.status === 403 || oldPush.status === 404 || (oldPush.j && oldPush.j.code !== 0), '采集票据不能当后台登录用（旧地址仍被拒绝）', 'status=' + oldPush.status);
+    if (pendItem) await req(MF + '/ext/pending/delete', { method: 'POST', token: AT, body: { ids: [pendItem.id] } });
+
+    // —— B5：代理接口放行 CORS（iframe 去掉 allow-same-origin 后变跨域） ——
+    const preP = await rawReq('/api/mfproxy/r?k=x&u=https%3A%2F%2Fexample.com', { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'x-mf-ticket' } });
+    log(preP.status === 204 && preP.h.get('access-control-allow-origin') === '*' && !preP.h.get('access-control-allow-credentials'), 'B5 代理接口预检放行跨域（Origin: null 的沙箱页面），且不开 Allow-Credentials');
+
+    // —— B7：采集知识树必须有学段 + 学科，并入已有的同类树 ——
+    const trees0 = ((await req(MF + '/trees', { token: AT })).data || {}).list || [];
+    const orphan0 = trees0.filter((t) => !t.stage || !t.subject).length;
+    const nodesA = [
+      { site_node_id: 'r0a-1', name: 'R0根章' + uniq, parent_site_node_id: null, sort: 0 },
+      { site_node_id: 'r0a-2', name: 'R0节' + uniq, parent_site_node_id: 'r0a-1', sort: 0 },
+      { site_node_id: 'r0a-3', name: 'R0点' + uniq, parent_site_node_id: 'r0a-2', sort: 0 },
+    ];
+    const noStage = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0', root_name: 'R0树', nodes: nodesA } });
+    const noSub = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0', root_name: 'R0树', stage: 'senior', nodes: nodesA } });
+    log(noStage.code !== 0 && /学段/.test(noStage.msg) && noSub.code !== 0 && /学科/.test(noSub.msg), 'B7 缺学段 / 缺学科的知识树导入被拒，并给出中文提示', `${noStage.msg} | ${noSub.msg}`);
+    const capTreeNo = await rawReq('/api/mfcap/tree-push', { method: 'POST', headers: { Authorization: 'Bearer ' + CT }, body: { site: 'zujuan', root_id: 'r0', nodes: nodesA } });
+    log(capTreeNo.j && capTreeNo.j.code !== 0 && /学段|学科/.test(capTreeNo.j.msg), 'B7 注入脚本走的 /api/mfcap/tree-push 同样要求学段学科');
+    const existingTree = trees0.find((t) => t.kind === 'knowledge' && t.stage === 'senior' && t.subject === '生物');
+    const imp1 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0', root_name: 'R0树' + uniq, stage: '高中', subject: '生物', nodes: nodesA } });
+    log(imp1.code === 0 && imp1.data.created === 3 && (!existingTree || imp1.data.tree_id === existingTree.id), 'B7 带学段学科（高中/生物）导入：新增 3 个节点' + (existingTree ? '，并入已有的树' : '，新建树'), imp1.msg);
+    const nodesB = [
+      { site_node_id: 'r0b-1', name: 'R0根章' + uniq, parent_site_node_id: null, sort: 0 },
+      { site_node_id: 'r0b-2', name: 'R0节' + uniq, parent_site_node_id: 'r0b-1', sort: 0 },
+      { site_node_id: 'r0b-3', name: 'R0点' + uniq, parent_site_node_id: 'r0b-2', sort: 0 },
+      { site_node_id: 'r0b-4', name: 'R0新点' + uniq, parent_site_node_id: 'r0b-2', sort: 1 },
+    ];
+    const imp2 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0-other', root_name: '另一个根' + uniq, stage: 'senior', subject: '生物', nodes: nodesB } });
+    log(imp2.code === 0 && imp2.data.tree_id === imp1.data.tree_id && imp2.data.created === 1, 'B7 同学段学科再导入（站点节点 id 不同、名字相同）：并入同一棵树，同父同名不重复建，只新增 1 个', imp2.msg);
+    const trees1 = ((await req(MF + '/trees', { token: AT })).data || {}).list || [];
+    log(trees1.filter((t) => t.kind === 'knowledge' && t.stage === 'senior' && t.subject === '生物').length === 1 && trees1.filter((t) => !t.stage || !t.subject).length === orphan0,
+      'B7 没有产生「学段学科为空」的孤儿树；同学段学科的知识树只有一棵');
+    const impNodes = ((await req(MF + `/trees/${imp1.data.tree_id}/nodes`, { token: AT })).data || {}).list || [];
+    const rootN = impNodes.find((n) => n.name === 'R0根章' + uniq), midN = impNodes.find((n) => n.name === 'R0节' + uniq), leafN = impNodes.find((n) => n.name === 'R0点' + uniq);
+    log(rootN && midN && leafN && !rootN.parent_id && midN.parent_id === rootN.id && leafN.parent_id === midN.id, 'B7 导入后层级正确（根 → 节 → 点）');
+
+    // —— B10：节点题数 = 自身 + 所有子孙节点上的题目去重数 ——
+    const mkQ = async (stem, nodes, extra = {}) => (await req(MF + '/questions', { method: 'POST', token: AT, body: Object.assign({ type: 'single', stem: stem + uniq, options: ['甲', '乙'], answer: 'A', subject: '生物', stage: 'senior', nodes }, extra) })).data.id;
+    const qLeaf = await mkQ('R0叶子题', [leafN.id]);
+    const qMid = await mkQ('R0中间题', [midN.id]);
+    const qBoth = await mkQ('R0父子都挂', [rootN.id, midN.id, leafN.id]);   // 同一道题挂在三层上，只算 1 次
+    const cnt = async () => { const l = ((await req(MF + `/trees/${imp1.data.tree_id}/nodes`, { token: AT })).data || {}).list || []; const g = (id) => l.find((n) => n.id === id); return { root: g(rootN.id), mid: g(midN.id), leaf: g(leafN.id) }; };
+    const c1 = await cnt();
+    log(c1.leaf.qcount === 2 && c1.mid.qcount === 3 && c1.root.qcount === 3, 'B10 节点题数含全部子孙并去重：叶子 2、中间 3、根 3（父子都挂的题只算一次）', `root=${c1.root.qcount} mid=${c1.mid.qcount} leaf=${c1.leaf.qcount}`);
+    log(c1.root.qcount_own === 1 && c1.mid.qcount_own === 2 && c1.leaf.qcount_own === 2, 'B10 同时给出 qcount_own（只算节点自身）', `own: root=${c1.root.qcount_own} mid=${c1.mid.qcount_own} leaf=${c1.leaf.qcount_own}`);
+    const listByRoot = await req(MF + `/questions?node=${rootN.id}&size=50`, { token: AT });
+    log(((listByRoot.data || {}).total) === c1.root.qcount, 'B10 点根节点筛出来的题目数 = 根节点上显示的题数', `list=${(listByRoot.data || {}).total}`);
+
+    // —— B9：本地存储的题图带只读短票据，<img> 不需要登录头 ——
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const upFd = new FormData(); upFd.append('file', new Blob([PNG], { type: 'image/png' }), 'r0img.png');
+    const asset = await req(MF + '/asset', { method: 'POST', token: AT, form: upFd });
+    const imgUrl = asset.data && asset.data.url;
+    const imgKey = asset.data && asset.data.key;
+    log(!!imgUrl && /^\/api\/file\?key=bank%2Fimg%2F/.test(imgUrl) && /&ft=\d+\./.test(imgUrl), 'B9 上传题图后返回的地址带只读票据 ft', imgUrl);
+    const anonImg = imgUrl ? await fetch(BASE + imgUrl) : null;
+    log(anonImg && anonImg.status === 200 && (anonImg.headers.get('content-type') || '').includes('image/'), 'B9 不带登录头，凭 ft 就能取到题图（<img> 能显示）', 'status=' + (anonImg && anonImg.status));
+    const noFt = imgUrl ? await fetch(BASE + imgUrl.replace(/&ft=[^&]+/, '')) : null;
+    log(noFt && noFt.status === 401, 'B9 去掉 ft 仍然 401（/api/file 没有对匿名放开）', 'status=' + (noFt && noFt.status));
+    const ftOf = (u) => (/[?&]ft=([^&]+)/.exec(u) || [])[1];
+    const otherKey = imgKey ? imgKey.replace(/[^/]+(\.png)$/, 'zzzzzzzzzzzz$1') : '';
+    const wrongKey = otherKey ? await fetch(BASE + '/api/file?key=' + encodeURIComponent(otherKey) + '&ft=' + ftOf(imgUrl)) : null;
+    log(wrongKey && wrongKey.status === 401, 'B9 票据绑定具体文件：拿它去读别的 key 被拒', 'status=' + (wrongKey && wrongKey.status));
+    const { signFileTicket } = require('./src/auth');
+    const expired = await fetch(BASE + '/api/file?key=' + encodeURIComponent(imgKey) + '&ft=' + signFileTicket(imgKey, -60));
+    log(expired.status === 401, 'B9 过期的票据被拒', 'status=' + expired.status);
+    const vidKey = 'videos/202601/r0test.png';
+    const nonBank = await fetch(BASE + '/api/file?key=' + encodeURIComponent(vidKey) + '&ft=' + signFileTicket(vidKey));
+    log(nonBank.status === 401, 'B9 票据只对 bank/ 目录的图片有效：videos/ 下的文件即使签了名也不放行', 'status=' + nonBank.status);
+    const asLogin = await req('/api/admin/students', { token: ftOf(imgUrl) });
+    log(asLogin.code === 401, 'B9 票据不能当登录令牌用');
+    // 题目里存的是不带 ft 的原始地址：读题目时自动换成新票据（后台 + 学生端）
+    const rawImg = imgUrl.replace(/&ft=[^&]+/, '');
+    const qImg = await mkQ('R0带图题', [], { images: [rawImg] });
+    const qGet = await req(MF + '/questions/' + qImg, { token: AT });
+    const gotImgs = (qGet.data && (qGet.data.question || qGet.data).images) || [];
+    log(gotImgs.length === 1 && /&ft=\d+\./.test(gotImgs[0]), 'B9 后台读题目时题图地址带票据', gotImgs[0]);
+    const imgFetch2 = gotImgs[0] ? await fetch(BASE + gotImgs[0]) : null;
+    log(imgFetch2 && imgFetch2.status === 200, 'B9 用题目里返回的图片地址能直接取到图');
+
+    // 清理
+    for (const id of [qLeaf, qMid, qBoth, qImg]) await req(MF + '/questions/' + id, { method: 'DELETE', token: AT });
+    if (existingTree) { for (const n of impNodes.concat([])) { if (/^R0/.test(n.name)) await req(MF + '/nodes/' + n.id, { method: 'DELETE', token: AT }); } }
+    else await req(MF + `/trees/${imp1.data.tree_id}`, { method: 'DELETE', token: AT });
+  }
+
   // 清理
   await req('/api/admin/students/' + stuId, { method: 'DELETE', token: AT });
   if (sUpId) await req('/api/admin/students/' + sUpId, { method: 'DELETE', token: AT });

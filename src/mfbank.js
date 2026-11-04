@@ -181,10 +181,25 @@ admin.delete('/trees/:id', (req, res) => {
 admin.get('/trees/:id/nodes', (req, res) => {
   const id = int(req.params.id);
   const list = db.prepare('SELECT id, parent_id, name, sort FROM bank_tree_nodes WHERE tree_id=? ORDER BY sort, id').all(id);
-  const counts = db.prepare('SELECT node_id AS id, COUNT(*) AS c FROM question_nodes GROUP BY node_id');
-  const map = {};
-  counts.all().forEach((r) => { map[r.id] = r.c; });
-  return ok(res, { list: list.map((n) => ({ ...n, qcount: map[n.id] || 0 })) });
+  // qcount = 本节点及所有子孙节点上挂的题目去重数（同一道题挂在父、子两处只算一次）；qcount_own = 只算本节点自己
+  const links = db.prepare('SELECT qn.node_id AS nid, qn.question_id AS qid FROM question_nodes qn JOIN bank_tree_nodes b ON b.id=qn.node_id WHERE b.tree_id=?').all(id);
+  const own = {};
+  links.forEach((r) => { (own[r.nid] = own[r.nid] || new Set()).add(r.qid); });
+  const kidsOf = {};
+  list.forEach((n) => { if (n.parent_id) (kidsOf[n.parent_id] = kidsOf[n.parent_id] || []).push(n.id); });
+  const sub = {};
+  const seen = new Set();
+  const collect = (nid) => {
+    if (sub[nid]) return sub[nid];
+    if (seen.has(nid)) return new Set();   // 防环
+    seen.add(nid);
+    const set = new Set(own[nid] || []);
+    (kidsOf[nid] || []).forEach((k) => collect(k).forEach((q) => set.add(q)));
+    sub[nid] = set;
+    return set;
+  };
+  list.forEach((n) => collect(n.id));
+  return ok(res, { list: list.map((n) => ({ ...n, qcount: (sub[n.id] || new Set()).size, qcount_own: (own[n.id] || new Set()).size })) });
 });
 
 admin.post('/trees/:id/nodes', (req, res) => {
@@ -375,7 +390,7 @@ function normalizeQ(b) {
   if (!stem && !stemHtml) return { err: '请填写题干' };
   const type = TYPES.includes(b.type) ? b.type : 'single';
   let options = Array.isArray(b.options) ? b.options : parseArr(b.options);
-  options = options.map((o) => (typeof o === 'string' ? { label: '', text: o } : { label: String(o.label || ''), text: String(o.text || o.html || '') }))
+  options = options.map((o) => (typeof o === 'string' ? { label: '', text: o } : { label: String(o.label || ''), text: String(o.text || o.html || o.content || '') }))
     .filter((o) => String(o.text).trim());
   if ((type === 'single' || type === 'multi') && options.length < 2) return { err: '选择题至少要有两个选项' };
   const answer = String(b.answer || '').trim(); // 允许为空：入库后算「缺答案」，走齐全度筛选处理
@@ -707,7 +722,7 @@ admin.get('/capture/bookmarklet', (req, res) => {
 
 function buildBookmarklet(base) {
   return `javascript:(function(){
-var API='${base}/api/admin/bank/mf/capture/push';
+var API='${base}/api/mfcap/push';
 var TOKEN=null;
 try{TOKEN=localStorage.getItem('mfcap_token')}catch(e){}
 if(!TOKEN){TOKEN=prompt('第一次使用：请粘贴采集票据（后台「网络采集 → 书签小工具 → 生成采集票据」里复制，只需填这一次，之后自动记住）');}
@@ -757,17 +772,32 @@ function goHash(){
   var w=window.open('${base}/admin/#/mfcap?d='+encodeURIComponent(payload),'_blank');
   alert(w?'浏览器直连被拦（组卷网是 https、后台是 http），已改走「打开后台接收」通道：请在刚打开的智学课堂标签页里查看入库结果':'浏览器拦截了新窗口，请在地址栏右侧允许弹窗后重试');
 }
+var tokenBad=false;
 fetch(API,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+TOKEN},
  body:JSON.stringify({site:site,url:location.href,title:document.title,questions:qs})})
- .then(function(r){return r.json()}).then(function(j){
+ .then(function(r){tokenBad=(r.status===401);return r.json()}).then(function(j){
   if(j&&j.code===0){alert('已收到 '+qs.length+' 题，批次《'+j.data.title+'》已存进采集篮，去后台核对入库吧');}
-  else{try{localStorage.removeItem('mfcap_token')}catch(e){}alert('回传失败：'+(j&&j.msg||'未知错误')+'（本地票据已清除，请重新点书签粘贴一次）');}
+  else{
+   alert('回传失败：'+(j&&j.msg||'未知错误')+'（本地票据没有被清除）');
+   if(tokenBad&&confirm('服务器说采集票据无效或已过期。要现在清除本地票据、下次点书签时重新粘贴吗？')){try{localStorage.removeItem('mfcap_token')}catch(e){}}
+  }
  }).catch(function(e){goHash();});
 })();`;
 }
 
 /** 小工具/外部回传入口：单独一个路由（票据 role=mfcapture，不给后台权限），由 app.js 挂到 /api/mfcap */
 const cap = express.Router();
+/** CORS：书签脚本在第三方页面（组卷网等）里跨域回传。只放行 POST/OPTIONS 和 Authorization/Content-Type 头；
+ *  票据放在 Authorization 头里、不依赖 Cookie，所以允许任意来源不会带出后台登录态。预检在鉴权之前直接应答。 */
+cap.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  if (req.headers['access-control-request-private-network']) res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+});
 cap.use((req, res, next) => {
   const h = req.headers.authorization || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : String(req.query.token || '');
@@ -2110,4 +2140,4 @@ try { require('./mfseed').ensureSeed(db); } catch (e) { console.error('[mfbank] 
 // ==================================================================== 待审核题目（T3）：各入口入库前的题目统一列表（src/mfpending.js）
 pendingApi = require('./mfpending')({ admin, db, ok, fail, now, int, parseArr, parseObj, jstr, TYPE_MAP, TYPES, commitRunCards, commitCaptureItems, store, bankFolder });
 
-module.exports = { admin, cap, defaultLayout };
+module.exports = { admin, cap, defaultLayout, bankFolder };

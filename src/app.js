@@ -11,7 +11,7 @@ const express = require('express');
 const multer = require('multer');
 
 const { db, DATA_DIR, DB_INFO } = require('./db');
-const { hash, check, sign, auth } = require('./auth');
+const { hash, check, sign, auth, signFileTicket, verifyFileTicket } = require('./auth');
 const store = require('./storage');
 const accuracy = require('./accuracy');
 const { makeTemplate, parseWorkbook } = require('./excel');
@@ -83,6 +83,33 @@ function withFileTicket(url, req) {
   const h = String(req.headers.authorization || '');
   const token = h.startsWith('Bearer ') ? h.slice(7) : String(req.query.token || '');
   return token ? u + '&token=' + encodeURIComponent(token) : u;
+}
+
+/** 题图只读票据（R0-B9）：把 JSON 响应里本地存储的题库图片地址 /api/file?key=bank/img/xxx.png 补上
+ *  &ft=<只读这一个文件的短时票据>。<img> 发不了 Authorization 头；不用登录令牌是为了不把整个登录态暴露在 URL / 日志 / Referer 里。
+ *  只处理：本地代理地址、题库目录（bank/，目录名可在设置里改）、图片扩展名。已有的旧 ft（题目保存时带进库里的）会被换成新的。 */
+const TICKET_IMG_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+function addBankImgTickets(str) {
+  let folder = 'bank';
+  try { folder = require('./mfbank').bankFolder(); } catch (e) { /* 用默认值 */ }
+  return str.replace(/(\/api\/file\?key=)([A-Za-z0-9_%.\-\/]+)(&ft=[A-Za-z0-9_.\-]+)?/g, (m, head, rawKey) => {
+    let key = rawKey;
+    try { key = decodeURIComponent(rawKey); } catch (e) { return m; }
+    const ext = key.slice(key.lastIndexOf('.') + 1).toLowerCase();
+    if (!TICKET_IMG_EXT.has(ext) || key.includes('..')) return m;
+    if (!(store.isBankKey(key) || store.isBankKey(key, folder))) return m;
+    return head + rawKey + '&ft=' + signFileTicket(key);
+  });
+}
+function bankImgTicketJson(req, res, next) {
+  res.json = function (body) {
+    let s = JSON.stringify(body);
+    if (s === undefined) return res.send();
+    if (s.includes('/api/file?key=')) s = addBankImgTickets(s);
+    if (!res.get('Content-Type')) res.set('Content-Type', 'application/json; charset=utf-8');
+    return res.send(s);
+  };
+  next();
 }
 
 /** 判断题答案 */
@@ -328,7 +355,14 @@ const INLINE_MIME = {
   gif: 'image/gif', webp: 'image/webp',
 };
 
-app.get('/api/file', auth(), async (req, res) => {
+/** /api/file 的鉴权：带了有效的题图只读票据（ft，只对 bank/ 下的图片、且绑定这个 key）就放行，否则照旧要登录 */
+function fileAuth(req, res, next) {
+  const key = String(req.query.key || '');
+  if (req.query.ft && /\.(png|jpe?g|gif|webp)$/i.test(key) && !key.includes('..') && verifyFileTicket(key, req.query.ft)
+    && (store.isBankKey(key) || store.isBankKey(key, require('./mfbank').bankFolder()))) return next();
+  return auth()(req, res, next);
+}
+app.get('/api/file', fileAuth, async (req, res) => {
   const key = String(req.query.key || '');
   if (!key || key.includes('..') || key.includes('\\') || !FILE_KEY_RE.test(key)) {
     return res.status(400).send('bad request');
@@ -1896,8 +1930,8 @@ async function sentStructsHandler(req, res) {
 }
 stu.post('/sent-structs', sentStructsHandler);
 
-app.use('/api/admin', admin);
-app.use('/api/stu', stu);
+app.use('/api/admin', bankImgTicketJson, admin);
+app.use('/api/stu', bankImgTicketJson, stu);
 
 // 纸质化默写表导出 PDF：前端 html2canvas 逐页截图 → 这里拼成 A4 PDF 直接回传下载（复用 pdfimg，不落盘）
 function paperPdfHandler(req, res) {

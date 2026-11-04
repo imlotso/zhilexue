@@ -56,7 +56,7 @@ async function viewPending() {
         </div>
         ${it.material ? `<div class="pd-mat">${pdBr(it.material)}</div>` : ''}
         <div class="pd-stem">${pdBr(it.stem)}</div>
-        ${(it.options || []).length ? `<ol class="pd-opts">${it.options.map((o) => `<li><b>${esc(o.label)}.</b> ${esc(o.text)}</li>`).join('')}</ol>` : ''}
+        ${(it.options || []).length ? `<ol class="pd-opts">${it.options.map((o, i) => `<li><b>${esc(optLabel(o, i))}.</b> ${esc(optText(o))}</li>`).join('')}</ol>` : ''}
         ${(it.images || []).length ? `<div class="pd-imgs">${it.images.slice(0, 6).map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="题图" loading="lazy"></a>`).join('')}</div>` : ''}
         <div class="pd-ans"><b>答案：</b>${it.answer ? pdBr(it.answer) : '<span class="pd-warn">未填</span>'}${it.analysis ? `<div class="pd-ana"><b>解析：</b>${pdBr(it.analysis)}</div>` : ''}</div>
       </div>
@@ -115,10 +115,7 @@ async function viewPending() {
         const it = byId[b.closest('.pd-item').dataset.id];
         if (!it) return;
         if (b.dataset.act === 'edit') return pdEdit(it);
-        if (b.dataset.act === 'commit') {
-          if (it.source === 'scan' && !it.subject) return toast('学科没识别出来，请先点「编辑」选好学科再入库', 'err');
-          return pdCommit([it.id]);
-        }
+        if (b.dataset.act === 'commit') return pdBatchCommit([it.id], byId);   // R0-B8：单题入库也弹分类框（和批量入库同一个弹窗）
         if (b.dataset.act === 'del') {
           const ok = await elConfirm({ title: '删除这道题', danger: true, okText: '删除', message: it.source === 'scan' ? '这是学生扫码上传的题，删除会同时从该学生的错题本里删掉这道题。确定删除吗？' : '删除后不能恢复。确定删除这道题吗？' });
           if (ok) pdDelete([it.id]);
@@ -152,18 +149,24 @@ async function pdDelete(ids) {
   render();
 }
 
-/** 批量入库：可统一改学科/学段/年级，并挂到知识点树 / 章节树的节点、加标签 */
+/** 入库（单题和批量共用同一个弹窗）：学科 / 学段 / 年级，并挂到知识点树 / 章节树的节点、加标签。
+ *  学科、学段是必填的：题目自己已经有就沿用（单题时直接预选），没有就必须在这里选，否则不让入库（R0-B8）。 */
 async function pdBatchCommit(ids, byId) {
   const items = ids.map((id) => byId[id]).filter(Boolean);
+  const one = items.length === 1;
+  const lack = (k) => items.some((i) => !i[k]);
+  const same = (k) => { const vs = [...new Set(items.map((i) => i[k] || ''))]; return vs.length === 1 ? vs[0] : ''; };
+  const lackLabel = (k) => (lack(k) ? '请选择（必填）' : '沿用各题');
+  const star = (k) => (lack(k) ? ' <b style="color:#dc2626">*</b>' : '');
   const trees = await tpTrees();
   const treeOpts = (kind) => trees.filter((t) => t.kind === kind).map((t) => [t.id, `${treeLabel(t)}（${t.subject || '不限学科'}）`]);
   modal({
-    title: `批量入库（${items.length} 题）`, okText: '入库', wide: false,
-    body: `<p class="pd-tip" style="margin-top:0">来源：${esc([...new Set(items.map((i) => i.source_label))].join('、'))}。下面不填就沿用每道题自己的学科/学段/年级。</p>
+    title: one ? '入库这道题' : `批量入库（${items.length} 题）`, okText: '入库', wide: false,
+    body: `<p class="pd-tip" style="margin-top:0">来源：${esc([...new Set(items.map((i) => i.source_label))].join('、'))}。${one ? '确认学科、学段、年级和归属的章节 / 知识点后入库；学科和学段必须有。' : '下面不填就沿用每道题自己的学科/学段/年级，题目自己没有学科或学段的必须在这里选。'}</p>
       <div class="pd-grid">
-        <div class="field"><label>学科（统一改）</label><select id="pdB-sub" class="input">${pdOpts(PD_SUBJECTS, '', '沿用各题')}</select></div>
-        <div class="field"><label>学段</label><select id="pdB-stage" class="input">${pdOpts(PD_STAGES.slice(1), '', '沿用各题')}</select></div>
-        <div class="field"><label>年级</label><select id="pdB-grade" class="input">${pdOpts(PD_GRADES, '', '沿用各题')}</select></div>
+        <div class="field"><label>学科${one ? '' : '（统一改）'}${star('subject')}</label><select id="pdB-sub" class="input">${pdOpts(PD_SUBJECTS, same('subject'), lackLabel('subject'))}</select></div>
+        <div class="field"><label>学段${star('stage')}</label><select id="pdB-stage" class="input">${pdOpts(PD_STAGES.slice(1), same('stage'), lackLabel('stage'))}</select></div>
+        <div class="field"><label>年级</label><select id="pdB-grade" class="input">${pdOpts(PD_GRADES, same('grade'), '沿用各题')}</select></div>
       </div>
       <div class="field"><label>挂到知识点树节点（可选）</label>
         <select id="pdB-ktree" class="input">${pdOpts(treeOpts('knowledge'), '', '不挂')}</select>
@@ -188,6 +191,8 @@ async function pdBatchCommit(ids, byId) {
     },
     onOk: async (w) => {
       const v = (id) => w.querySelector(id).value;
+      if (!v('#pdB-sub') && lack('subject')) { toast('请先选择学科，没有学科的题不能入库', 'err'); return false; }
+      if (!v('#pdB-stage') && lack('stage')) { toast('请先选择学段，没有学段的题不能入库', 'err'); return false; }
       const nodes = [v('#pdB-knode'), v('#pdB-cnode')].filter(Boolean).map(Number);
       const tags = v('#pdB-tags').split(/[\s,，、]+/).filter(Boolean);
       const r = await api(`${PD_API}/ext/pending/commit`, { method: 'POST', body: { ids, subject: v('#pdB-sub'), stage: v('#pdB-stage'), grade: v('#pdB-grade'), node_ids: nodes, tags } });
@@ -221,7 +226,7 @@ async function pdAiFill(ids, byId) {
 /** 编辑单题 */
 function pdEdit(it) {
   let pdAud = null;   // 听力音频字段（T7）
-  const optRow = (o, i) => `<div class="pd-optrow"><b class="pd-optlb">${String.fromCharCode(65 + i)}</b><input class="input pd-opt" value="${esc(o.text)}"><button type="button" class="link-btn danger" data-delopt>删</button></div>`;
+  const optRow = (o, i) => `<div class="pd-optrow"><b class="pd-optlb">${String.fromCharCode(65 + i)}</b><input class="input pd-opt" value="${esc(optText(o))}"><button type="button" class="link-btn danger" data-delopt>删</button></div>`;
   modal({
     title: `编辑题目 · ${it.source_label}`, okText: '保存', wide: true,
     body: `<div class="pd-grid">

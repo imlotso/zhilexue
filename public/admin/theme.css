@@ -185,6 +185,8 @@ body.t11 .admin-app .mf-segbox{border-color:var(--t11-line);border-radius:var(--
 body.t11 .admin-app .mf-segit{border-radius:var(--t11-r)}
 body.t11 .admin-app .mf-segit:hover b{color:var(--t11-primary)}
 body.t11 .admin-app .mf-segit.on{background:var(--t11-primary);box-shadow:0 1px 4px rgba(30,136,229,.35)}
+/* R0-B6：选中的切换键悬停时保持白字（上面的 :hover b 是蓝字，落在蓝底上看不见） */
+body.t11 .admin-app .mf-segit.on b,body.t11 .admin-app .mf-segit.on:hover b{color:#fff}
 body.t11 .admin-app .mf-tip{border-radius:var(--t11-r);background:#f7f9fc;border-color:var(--t11-line)}
 body.t11 .admin-app .mf-box{border-radius:var(--t11-r-lg);border-color:var(--t11-line)}
 body.t11 .admin-app .mf-treebox{border-radius:var(--t11-r);border-color:var(--t11-line)}

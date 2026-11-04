@@ -38,8 +38,8 @@ async function viewKTree() {
   const total = {};   // 子树题数（含自己）
   const desc = {};    // 后代节点数
   const walk = (n) => {
-    let q = n.qcount || 0, d = 0;
-    (kids[n.id] || []).forEach((k) => { const r = walk(k); q += r[0]; d += 1 + r[1]; });
+    let q = n.qcount || 0, d = 0;   // 接口的 qcount 已含全部子孙节点（去重）
+    (kids[n.id] || []).forEach((k) => { const r = walk(k); d += 1 + r[1]; });
     total[n.id] = q; desc[n.id] = d;
     return [q, d];
   };

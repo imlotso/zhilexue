@@ -79,6 +79,8 @@ jobs:
         if: ${{ !cancelled() }}   # 后台 UI 统一（T11）：theme.css 作用范围、菜单分组、手机宽度抽屉侧栏、页面不横向撑破
       - run: node flow-test.js
         if: ${{ !cancelled() }}   # 全流程走查（T14）：录题三入口 → 待审核 → 入库 → 组卷 → 下发 → 做题 → 正确率 → 错题 → Word 导出
+      - run: node r0-test.js
+        if: ${{ !cancelled() }}   # 二轮整改 R0（bug 修复）：选项显示 / 题图与灯箱 / 代理 iframe 隔离 / 树行样式 / 单题入库弹分类框（有 Playwright 时才跑）
       - run: node tree-edition-test.js
         if: ${{ !cancelled() }}   # 知识树教材版本（R2）：edition 列与迁移、默认版本表、pickTree 前后端一致、树导入导出与脚本、学生端按默认版本取树
       - name: Upload server log

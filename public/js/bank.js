@@ -36,12 +36,7 @@ function quizAccText(a) {
   return `${a.rate}%（已做 ${a.answered} / ${a.total} 题，答对 ${a.correct}）`;
 }
 
-/** 选项文本归一化：兼容 {label,text} 对象（后台批量导入）与字符串两种格式 */
-function optText(t) {
-  if (typeof t === 'string') return t;
-  if (t && typeof t === 'object') return String(t.text || t.content || '');
-  return String(t || '');
-}
+/* 选项文本归一化 optText() 已移到 js/api.js（学生端和后台共用） */
 
 /** 答案转展示文本（结果页用；需要 options 原文） */
 function quizAnswerDisplay(q, ans, options) {
@@ -74,20 +69,25 @@ function quizAnswerDisplay(q, ans, options) {
 function quizImagesHTML(q) {
   const imgs = (q && Array.isArray(q.images)) ? q.images : [];
   if (!imgs.length) return '';
-  return `<div class="qz-imgs">${imgs.map((s) => `<img class="qz-img" src="${esc(s)}" alt="题目图片" loading="lazy">`).join('')}</div>`;
+  return `<div class="qz-imgs">${imgs.map((s) => r0FigHTML(s, '题目图片')).join('')}</div>`;
+}
+
+/** 题图（R0-B4）：单独成块、按原尺寸显示（大图限宽 70% / 高 360px，小图不放大），点击进灯箱看原图 */
+function r0FigHTML(src, alt) {
+  return `<span class="r0-qfig"><img class="qz-img r0-qimg" src="${esc(src)}" alt="${esc(alt || '题图')}" loading="lazy"></span>`;
 }
 
 /** 题干渲染：转义 + [图N] 占位替换为内联图片 + 换行转 <br>；返回 { stem, rest }（rest=未被占位引用的图） */
 function stemImagesHTML(q) {
   const imgs = (q && Array.isArray(q.images)) ? q.images : [];
   const used = new Set();
-  const stem = esc(String((q && q.stem) || '')).replace(/\[图(\d+)\]/g, (m, n) => {
+  const stem = esc(String((q && q.stem) || '')).replace(/\n?\[图(\d+)\]\n?/g, (m, n) => {
     const src = imgs[Number(n) - 1];
     if (!src) return m;
     used.add(Number(n) - 1);
-    return `<img class="qz-img qz-img-inline" src="${esc(src)}" alt="图${n}" loading="lazy">`;
+    return r0FigHTML(src, '图' + n);
   }).replace(/\n/g, '<br>');
-  const rest = imgs.map((s, i) => (used.has(i) ? '' : `<img class="qz-img" src="${esc(s)}" alt="题目图片" loading="lazy">`)).join('');
+  const rest = imgs.map((s, i) => (used.has(i) ? '' : r0FigHTML(s, '题目图片'))).join('');
   return { stem, rest: rest ? `<div class="qz-imgs">${rest}</div>` : '' };
 }
 /** 公式键盘（T8）：只给 数学 / 物理 / 化学 的 填空 / 问答 题；英语等其它科目不出现 */
@@ -127,15 +127,22 @@ function bindQuizAudio(root) {
     if (r) r.onclick = () => { err.hidden = true; const src = a.getAttribute('src'); a.pause(); a.removeAttribute('src'); a.load(); a.setAttribute('src', src); a.load(); a.play().catch(() => {}); };
   });
 }
+/** 灯箱（R0-B4）：全屏遮罩显示原图，点遮罩 / 关闭按钮 / Esc 关闭；图片用原生 <img>，手机上可双指缩放。
+ *  z-index 要高于做题弹层（1200），否则灯箱会被盖在下面。 */
+function r0OpenLightbox(src) {
+  const old = document.querySelector('.r0-lightbox'); if (old) old.remove();
+  const m = document.createElement('div');
+  m.className = 'r0-lightbox';
+  m.innerHTML = `<button type="button" class="r0-lb-x" aria-label="关闭">×</button><img src="${esc(src)}" alt="查看原图"><p>点空白处或按 Esc 关闭</p>`;
+  const close = () => { m.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  m.onclick = (e) => { if (e.target !== m.querySelector('img')) close(); };
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(m);
+}
 function bindImageZoom(root) {
   (root || document).querySelectorAll('.qz-img').forEach((im) => {
-    im.onclick = () => {
-      const m = document.createElement('div');
-      m.className = 'mask imgzoom-mask';
-      m.innerHTML = `<div class="imgzoom-box"><img src="${esc(im.src)}" alt="查看图片"><p>点空白处关闭</p></div>`;
-      m.onclick = (e) => { if (e.target === m) m.remove(); };
-      document.body.appendChild(m);
-    };
+    im.onclick = () => r0OpenLightbox(im.currentSrc || im.src);
   });
 }
 

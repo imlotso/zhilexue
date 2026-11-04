@@ -21,14 +21,14 @@
 | `/api/admin/bank`、`/api/stu/bank` | `bank.js` | 智能题库 |
 | `/api/up` | `bank.js` up | 手机扫码上传（错题/纸质题） |
 | `/api/admin/bank/mf` | `mfbank.js` | 魔方题库 |
-| `/api/mfcap` | `mfbank.js` / `mfcollect.js` cap | 采集推送 |
+| `/api/mfcap` | `mfbank.js` / `mfcollect.js` cap | 采集推送（采集票据鉴权；**带 CORS**：只放行 POST/OPTIONS + `Authorization`/`Content-Type` 头，预检在鉴权前应答，R0-B1） |
 | `/api/admin/bank/mf/ext` | `mfcollect.js` | 采集字典、AI 配置 profiles、浏览器代理 |
 | `/api/mfproxy` | `mfcollect.js` proxy | 采集代理 |
 
 ## 公共（`app.js`）
 
 - `POST /api/login` 登录；`GET /api/me` 当前用户；`POST /api/change-password` 改密码
-- `GET /api/file` 文件代理（参数 key、name、inline、token；云存储时 302 到签名链接）
+- `GET /api/file` 文件代理（参数 key、name、inline、token；云存储时 302 到签名链接）。**题图只读票据 `ft`（R0-B9）**：本地存储时 `<img>` 带不了登录头，所以 `/api/admin`、`/api/stu` 的 JSON 响应里凡是 `/api/file?key=bank/…` 的图片地址（png/jpg/jpeg/gif/webp），服务端会补上 `&ft=<过期秒>.<签名>`；`ft` 只对这一个 key 有效、6 小时过期、只对 `bank/` 目录的图片放行，不是登录令牌；没有有效 `ft` 时仍然要登录。题目库里存的地址即使带着旧的 `ft`，读出来时也会换成新的
 - `GET /api/speak` TTS 发音（`app.js`，调用 `win-speak.js`）
 
 ## 管理端基础（`/api/admin`，`app.js`）
@@ -103,6 +103,7 @@
 
 | 资源 | 接口 |
 |---|---|
+| 目录树 | `GET/POST /trees`；`PUT/DELETE /trees/:id`；`GET/POST /trees/:id/nodes`（GET 返回扁平节点，每个带 `qcount` = 本节点及所有子孙节点上题目的**去重**数、`qcount_own` = 只算节点自己；R0-B10）；`PUT/DELETE /nodes/:id`；`POST /nodes/:id/move`（body `{dir:'up'|'down'}`，同级内上移/下移一位，服务端先把同级顺序规范成 0..n-1 再对调；T4 新增）；`GET/POST /questions/:id/nodes` |
 | 目录树 | `GET/POST /trees`；`PUT/DELETE /trees/:id`；`GET/POST /trees/:id/nodes`；`PUT/DELETE /nodes/:id`；`POST /nodes/:id/move`（body `{dir:'up'|'down'}`，同级内上移/下移一位，服务端先把同级顺序规范成 0..n-1 再对调；T4 新增）；`GET/POST /questions/:id/nodes`；**R2**：`GET /trees` 返回里多 `defaults`（默认版本表），`POST /trees` / `PUT /trees/:id` 带 `edition`（章节树创建时必填，同 学段+学科+种类+版本 不能重复）；`GET /editions` → `{defaults, existing:[{tree_id,kind,subject,stage,edition,name,source,node_count}], grouped}`（默认版本表 + 每个 学段/学科 下已存在的树和版本）；`PUT /editions` `{defaults:{学科:{学段:版本}}}`（校验后存进 `settings.default_editions`，返回同 GET）；`POST /trees/import`（JSON body 或 multipart `file`=.json，`?dry=1` 只统计；格式见 `docs/tree-import-format.md`；按 kind+subject+stage+edition 找 / 建树，按路径合并只增不删；返回 `{results:[…], added, existing}`）；`GET /trees/:id/export`（同格式 JSON）；以上在 `mfbank.js`，逻辑在 `treepick.js` / `treeio.js` |
 | 题目 | `GET/POST /questions`；`GET/PUT/DELETE /questions/:id`；`POST /questions/batch`；`GET /tags`；`GET /questions-export`；`POST /ai-clean` |
 | 采集 | `POST /capture/parse`；`GET /capture/token`；`GET /capture/bookmarklet`；`POST /capture/fetch`；`POST /capture/auto`；`POST/GET /capture/batches`；`GET/DELETE /capture/batches/:id`；`DELETE /capture/batches/:id/q/:idx`；`POST /capture/batches/:id/commit`；`POST /api/mfcap/push` |
@@ -110,7 +111,7 @@
 | 试卷管理 | `GET/POST /papers`（`GET` 支持 `kw`、`subject`、`grade`、`year`、`published=0/1`、`status`、`folder` 筛选；`POST/PUT` 带 `year`，不是 4 位数字会被忽略）；**`POST /papers/import-word`（T10，上传真题试卷）**；`GET/PUT/DELETE /papers/:id`；`POST /papers/:id/questions`；`POST /papers/:id/text`；`PUT /papers/:id/reorder`；`PUT/DELETE /papers/:id/rows/:rowId`；`GET /papers/:id/preview`；`GET /papers/:id/export`；`POST /papers/:id/archive` |
 | 录题 intake | `GET/POST /intake/runs`；`GET/DELETE /intake/runs/:id`；`POST /intake/runs/:id/pages|recognize|ocr|structure|word|aifill|commit`；`PUT /intake/runs/:id/drafts` |
 | 导入 | `GET /import-skill`；`POST /import-pack`（**T3 起不再直接入库**：解析 + 去重/补图照旧，新题放进一个 `skill` 批次进待审核；响应带 `staged`、`run_id`）；`POST /asset` |
-| 待审核题目（T3，`mfpending.js`） | `GET /ext/pending`（`source`=all/photo/word/excel/skill/capture/scan、`kw`、`page`、`size`；响应 `{total,page,size,list,counts}`，每项带 `id`、`source`、`source_label`、题目内容）；`PUT /ext/pending/item`（`{id, patch}` 编辑单题）；`POST /ext/pending/commit`（`{ids, subject, stage, grade, node_ids, tags}` 逐题/批量入库，响应 `{committed, question_ids, failed:[{id,msg}]}`）；`POST /ext/pending/delete`（`{ids}`）；`POST /ext/import-excel`（multipart `file` + 默认 `subject/stage/grade`，按客户 9 个 sheet 模板，忽略【例题】行）；`POST /ext/import-word`（multipart `file` .docx，规则解析不调 AI，响应带 `errors:[{para,no,msg}]` 段号）；`GET /ext/import-template`（客户《习题导入模板》逐字节原文件）。id 形如 `run:批次:序号:指纹` / `cap:批次:序号:指纹` / `up:上传记录`，**指纹**是题干的 md5 前 8 位：别人删改过之后序号会前移，旧 id 对不上指纹会被拒绝（提示刷新），避免入库/删掉另一道题 |
+| 待审核题目（T3，`mfpending.js`） | `GET /ext/pending`（`source`=all/photo/word/excel/skill/capture/scan、`kw`、`page`、`size`；响应 `{total,page,size,list,counts}`，每项带 `id`、`source`、`source_label`、题目内容）；`PUT /ext/pending/item`（`{id, patch}` 编辑单题）；`POST /ext/pending/commit`（`{ids, subject, stage, grade, node_ids, tags}` 逐题/批量入库，响应 `{committed, question_ids, failed:[{id,msg}]}`；**学科、学段必须有**：题目自己没有、请求里也没传的，进 `failed`（全部失败时整个请求报错），提示「没有学科 / 没有学段，请先选好…」；R0-B8）；`POST /ext/pending/delete`（`{ids}`）；`POST /ext/import-excel`（multipart `file` + 默认 `subject/stage/grade`，按客户 9 个 sheet 模板，忽略【例题】行）；`POST /ext/import-word`（multipart `file` .docx，规则解析不调 AI，响应带 `errors:[{para,no,msg}]` 段号）；`GET /ext/import-template`（客户《习题导入模板》逐字节原文件）。id 形如 `run:批次:序号:指纹` / `cap:批次:序号:指纹` / `up:上传记录`，**指纹**是题干的 md5 前 8 位：别人删改过之后序号会前移，旧 id 对不上指纹会被拒绝（提示刷新），避免入库/删掉另一道题 |
 | 配置与扩展 | `GET/PUT /config`；`GET /ext/badge-counts`（T3 起另带 `pending`、`pending_by`）；`GET /ext/review-list`；`POST /ext/ai-attrib` |
 
 ## 采集与 AI 配置（`mfcollect.js`，前缀 `/api/admin/bank/mf/ext`）
@@ -121,7 +122,7 @@
   - `POST /profiles/models` `{format, base_url, api_key}`：按格式走各自的模型列表接口。
   - `POST /profiles/test-draft` `{role, format, base_url, model, api_key, id?}`：测试一份**还没保存**的配置（新增表单里的"测试连接"），不落库；编辑已有档案时 `api_key` 留空 = 用库里的密钥。错误地址 / 密钥 / 模型会给出明确原因。
   - `POST /profiles/:id/test`：测已保存档案并记录 `last_test_ok`；`/enable` 要求测通，同角色排他。
-- 其他：`POST /ai-suggest`；`POST /collect-tree`；`GET/PUT /prefs`；`POST /proxy-ticket`；`/api/mfproxy`：`GET /inject.js`、`GET /ck`、`GET|POST /r`；`POST /api/mfcap/tree-push`
+- 其他：`POST /ai-suggest`；`POST /collect-tree`（和 `POST /api/mfcap/tree-push` 同一个核心：body `{site, root_id, root_name, stage, subject, nodes[], kind?}`，**`stage`（小学/初中/高中 或 primary/junior/senior）和 `subject` 必填**，缺了拒绝并给中文提示；并入该 学段+学科 已有的同类（`kind`，默认 knowledge）树，没有才新建；同父同名节点不重复建；响应 `{tree_id, created, merged, total, new_tree}`；R0-B7）；`GET/PUT /prefs`；`POST /proxy-ticket`；`/api/mfproxy`：`GET /inject.js`、`GET /ck`、`GET|POST /r`（整个路由**放行 CORS**：`Allow-Origin: *`、不开 Allow-Credentials——代理 iframe 去掉了 allow-same-origin，页面成了不透明源，请求变跨域；R0-B5）；`POST /api/mfcap/tree-push`
 
 ## 错题重组（`wrong.js`，前缀 `/api/admin/wrong`）
 
