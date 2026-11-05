@@ -78,7 +78,7 @@
 
 错题 Word 导出（T9，`src/mistake-docx.js`，使用 npm 包 `docx@8.5.0`）：
 - 学生端 `GET /api/stu/mistakes/export-docx`：导出自己的错题为可编辑的 `.docx`（附件下载，响应头 `X-Mistake-Count` = 导出题数）。查询参数：`subject`（学科）、`bucket`（`unresolved` 默认 / `resolved` / `all`）、`days`（最近 N 天）、`from` / `to`（`YYYY-MM-DD`，按错题更新时间）、`ids`（逗号分隔的题目 id）。没有符合条件的错题时返回 `{code:1,msg:'没有符合条件的错题可以导出'}`（JSON，不是空文件）。仅学生账号。
-- 后台 `GET /api/admin/bank/mistakes/export-docx?user_id=`：同样的参数 + `user_id`；分校只能导出自己校区的学生（否则 403 / `无权导出该学生的错题`）。后台入口：学情管理 → 知识点正确率 → 选学生 → 「导出错题 Word」。
+- 后台 `GET /api/admin/bank/mistakes/export-docx?user_id=`：同样的参数 + `user_id`；分校只能导出自己校区的学生（否则 403 / `无权导出该学生的错题`）。后台入口（R1 起）：学习报告 → 习题学习报告 → 每行「导出错题 Word」或「详情」顶部的导出区（可选学科 / 范围 / 近 7·30·90 天）。
 - 版式（沿用客户《错题集》样本）：封面（错题集 / 共 N 道错题 / 日期范围 / 姓名·科目·日期）→「错题练习」（日期、多次答错标记、题号、题干、图片、选项、知识点）→「错题解析」（答案、解析、答题记录）；页脚「第 X 页 / 共 Y 页」。公式按 LaTeX 文本原样写入；图片只支持 JPEG / PNG。
 
 上传真题试卷（T10）：
@@ -91,6 +91,7 @@
 听力题（T7，题型不新增，在现有题型上附加音频）：
 - 题目新增字段 `audio_key`（存储 key，只认 `bank/audio/…` 目录；乱填别的目录或带 `..` 的 key 会被当作没有音频）。后台题目接口（`GET/POST/PUT /questions`、`/questions/:id`）的返回带 `audio_key` 和 `audio_url`（播放地址）；`POST/PUT` 传 `audio_key`（`PUT` 不传 = 保留原音频，传空串 = 去掉音频）。
 - 后台 `POST /api/admin/bank/mf/audio/upload`（multipart `file`，mp3 / m4a / wav / ogg / aac / webm，≤25MB）→ `{key, url, name, size}`；`POST /api/admin/bank/mf/audio/tts` `{text(≤500字), lang:'en'|'zh', rate?}` → 同上（用服务器的语音合成：Windows 自带语音；`TTS_MOCK=1` 环境变量下生成一小段提示音，供自动化测试）。音频存在 `bank/audio/YYYYMM/…`。
+- 学生端 `GET /api/stu/bank/scan-tree`（R2）：按学生学段 + 默认版本表取一棵树（可选 `?edition=` 指定），返回 `{nodes, tree_id, tree_name, edition}`；`POST /scan-compose` 按所选节点所在的树组卷，节点不属于该学科 / 种类 / 学段的树会被拒绝。
 - 待审核页逐题补音频：`PUT /ext/pending/item` 的 `patch.audio_key`（拍照识别 / Word / Excel / 技能包 / 网络采集 / 手机扫码六类来源都支持）；待审核项带 `audio_key`、`audio_url`；入库时写进题目。Excel / Word 导入模板没有改。
 - 学生端所有出题接口（`lesson-questions`、`papers/:id`、`mfpapers/:id`、`scan-compose`、`review-queue`、`mistakes` 等）返回的题目带 `audio_url`（没有音频为空串）。本地存储时是 `/api/file?key=…`，`<audio>` 带不了请求头，前端把登录票据拼成 `&token=` 再播放；云存储是签名外链，原样播放。
 
@@ -123,6 +124,7 @@ AI 老师浮层 · 流式讲解（R8，`bank.js` + `ai-client.js`）：
 | 资源 | 接口 |
 |---|---|
 | 目录树 | `GET/POST /trees`；`PUT/DELETE /trees/:id`；`GET/POST /trees/:id/nodes`（GET 返回扁平节点，每个带 `qcount` = 本节点及所有子孙节点上题目的**去重**数、`qcount_own` = 只算节点自己；R0-B10）；`PUT/DELETE /nodes/:id`；`POST /nodes/:id/move`（body `{dir:'up'|'down'}`，同级内上移/下移一位，服务端先把同级顺序规范成 0..n-1 再对调；T4 新增）；`GET/POST /questions/:id/nodes` |
+| 目录树 | `GET/POST /trees`；`PUT/DELETE /trees/:id`；`GET/POST /trees/:id/nodes`；`PUT/DELETE /nodes/:id`；`POST /nodes/:id/move`（body `{dir:'up'|'down'}`，同级内上移/下移一位，服务端先把同级顺序规范成 0..n-1 再对调；T4 新增）；`GET/POST /questions/:id/nodes`；**R2**：`GET /trees` 返回里多 `defaults`（默认版本表），`POST /trees` / `PUT /trees/:id` 带 `edition`（章节树创建时必填，同 学段+学科+种类+版本 不能重复）；`GET /editions` → `{defaults, existing:[{tree_id,kind,subject,stage,edition,name,source,node_count}], grouped}`（默认版本表 + 每个 学段/学科 下已存在的树和版本）；`PUT /editions` `{defaults:{学科:{学段:版本}}}`（校验后存进 `settings.default_editions`，返回同 GET）；`POST /trees/import`（JSON body 或 multipart `file`=.json，`?dry=1` 只统计；格式见 `docs/tree-import-format.md`；按 kind+subject+stage+edition 找 / 建树，按路径合并只增不删；返回 `{results:[…], added, existing}`）；`GET /trees/:id/export`（同格式 JSON）；以上在 `mfbank.js`，逻辑在 `treepick.js` / `treeio.js` |
 | 题目 | `GET/POST /questions`；`GET/PUT/DELETE /questions/:id`；`POST /questions/batch`；`GET /tags`；`GET /questions-export`；`POST /ai-clean` |
 | 采集 | `POST /capture/parse`；`GET /capture/token`；`GET /capture/bookmarklet`；`POST /capture/fetch`；`POST /capture/auto`；`POST/GET /capture/batches`；`GET/DELETE /capture/batches/:id`；`DELETE /capture/batches/:id/q/:idx`；`POST /capture/batches/:id/commit`；`POST /api/mfcap/push` |
 | 试卷文件夹 | `GET/POST /paper-folders`；`PUT/DELETE /paper-folders/:id` |
@@ -148,7 +150,7 @@ AI 老师浮层 · 流式讲解（R8，`bank.js` + `ai-client.js`）：
 
 ## 学情与报告
 
-- `/api/admin/xreport`（`reports.js`）：`GET /videos`、`/videos/:id/detail`、`/exercises`、`/exercises/:id/detail`
+- `/api/admin/xreport`（`reports.js`）：`GET /videos`、`/videos/:id/detail`、`/exercises`、`/exercises/:id/detail`（R1：两个 `/detail` 对分校账号加了校区校验，别校学生返回 `无权查看该学生`；`/exercises/:id/detail` 的 `papers` 多带 `total_score` 满分）
 - `/api/admin/report`（`report.js`）：`GET/PUT /config`；`POST /papers`；`POST /`（生成）；`POST /export-pdf`；`GET /`；`GET/DELETE /:id`；`POST /:id/retry`；`POST /scan-token`；`POST /api/report-scan`（扫码上传）
 
 ## 单词训练（`word.js`）

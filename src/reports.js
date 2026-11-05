@@ -81,8 +81,10 @@ admin.get('/videos', (req, res) => {
 
 admin.get('/videos/:id/detail', (req, res) => {
   const id = Number(req.params.id);
-  const s = db.prepare("SELECT id, username, name, grade, stage, term, expire_at, status, last_login FROM users WHERE id=? AND role='student'").get(id);
+  const s = db.prepare("SELECT id, username, name, grade, stage, term, expire_at, status, last_login, created_by FROM users WHERE id=? AND role='student'").get(id);
   if (!s) return fail(res, '学生不存在');
+  if (req.user.role !== 'admin' && Number(s.created_by) !== Number(req.user.id)) return fail(res, '无权查看该学生', 403);
+  delete s.created_by;
   const rows = db.prepare(`
     SELECT p.video_id, p.video_done, p.handout_done, p.subject, p.category, p.updated_at,
       v.title AS video_title, v.duration, c.name AS chapter_name, c.book
@@ -126,7 +128,7 @@ admin.get('/exercises', (req, res) => {
   const pap = new Map();
   for (const t of db.prepare('SELECT user_id, score, total, created_at FROM paper_tries').all()) {
     let a = pap.get(t.user_id);
-    if (!a) pap.set(t.user_id, { tries: 0, sum: 0, best: 0, last_at: '', avg: 0 });
+    if (!a) pap.set(t.user_id, a = { tries: 0, sum: 0, best: 0, last_at: '', avg: 0 });
     a.tries++;
     a.sum += Number(t.score) || 0;
     a.best = Math.max(a.best, Number(t.score) || 0);
@@ -153,11 +155,13 @@ admin.get('/exercises', (req, res) => {
 
 admin.get('/exercises/:id/detail', (req, res) => {
   const id = Number(req.params.id);
-  const s = db.prepare("SELECT id, username, name, grade, stage, term, expire_at, status, last_login FROM users WHERE id=? AND role='student'").get(id);
+  const s = db.prepare("SELECT id, username, name, grade, stage, term, expire_at, status, last_login, created_by FROM users WHERE id=? AND role='student'").get(id);
   if (!s) return fail(res, '学生不存在');
+  if (req.user.role !== 'admin' && Number(s.created_by) !== Number(req.user.id)) return fail(res, '无权查看该学生', 403);
+  delete s.created_by;
   // 试卷记录
   const papers = db.prepare(`
-    SELECT t.id, t.score, t.total, t.correct, t.created_at, p.title
+    SELECT t.id, t.score, t.total, t.correct, t.created_at, p.title, p.total_score
     FROM paper_tries t LEFT JOIN papers p ON p.id = t.paper_id
     WHERE t.user_id = ? ORDER BY t.id DESC LIMIT 100`).all(id);
   // 学科统计

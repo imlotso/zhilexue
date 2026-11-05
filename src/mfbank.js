@@ -18,6 +18,8 @@ const jwt = require('jsonwebtoken');
 const { db } = require('./db');
 const store = require('./storage');
 const aiLib = require('./ai');
+const treePick = require('./treepick');   // R2：默认版本表 + 统一取树
+const treeIo = require('./treeio');       // R2：树导入 / 导出
 
 const admin = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -93,7 +95,8 @@ admin.get('/trees', (req, res) => {
   const args = kind ? [kind] : [];
   const list = db.prepare(`SELECT t.*, (SELECT COUNT(*) FROM bank_tree_nodes n WHERE n.tree_id=t.id) AS node_count
     FROM bank_trees t ${where} ORDER BY t.sort, t.id`).all(...args);
-  return ok(res, { list });
+  // defaults：默认版本表，前端 pickTree 按它选默认版本（R2）
+  return ok(res, { list, defaults: treePick.getDefaultEditions(db) });
 });
 
 admin.post('/trees', (req, res) => {
@@ -101,8 +104,13 @@ admin.post('/trees', (req, res) => {
   const name = String(b.name || '').trim();
   if (!name) return fail(res, '请填写目录树名称');
   const kind = b.kind === 'knowledge' ? 'knowledge' : 'textbook';
-  const info = db.prepare('INSERT INTO bank_trees (kind, subject, stage, name, source, sort, created_at) VALUES (?,?,?,?,?,?,?)')
-    .run(kind, String(b.subject || '').trim(), String(b.stage || '').trim(), name, String(b.source || 'manual').trim(), int(b.sort), now());
+  const subject = String(b.subject || '').trim(), stage = String(b.stage || '').trim(), edition = String(b.edition || '').trim();
+  if (edition.length > 40) return fail(res, '版本名太长（最多 40 字）');
+  if (kind === 'textbook' && !edition) return fail(res, '请选择教材版本（如 苏教版、苏科版）');
+  const dup = db.prepare("SELECT id FROM bank_trees WHERE kind=? AND subject=? AND IFNULL(stage,'')=? AND IFNULL(edition,'')=?").get(kind, subject, stage, edition);
+  if (dup) return fail(res, '这个 学段 + 学科 + 版本 已经有一棵树了，直接用它（或换个版本）');
+  const info = db.prepare('INSERT INTO bank_trees (kind, subject, stage, name, source, edition, sort, created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .run(kind, subject, stage, name, String(b.source || 'manual').trim(), edition, int(b.sort), now());
   return ok(res, { id: info.lastInsertRowid }, '目录树已创建');
 });
 
@@ -111,10 +119,52 @@ admin.put('/trees/:id', (req, res) => {
   const b = req.body || {};
   const t = db.prepare('SELECT * FROM bank_trees WHERE id=?').get(id);
   if (!t) return fail(res, '目录树不存在');
-  db.prepare('UPDATE bank_trees SET name=?, subject=?, stage=?, kind=?, sort=? WHERE id=?')
+  const edition = String(b.edition ?? t.edition ?? '').trim();
+  if (edition.length > 40) return fail(res, '版本名太长（最多 40 字）');
+  db.prepare('UPDATE bank_trees SET name=?, subject=?, stage=?, kind=?, sort=?, edition=? WHERE id=?')
     .run(String(b.name || t.name).trim(), String(b.subject ?? t.subject).trim(), String(b.stage ?? t.stage).trim(),
-      b.kind === 'knowledge' ? 'knowledge' : (b.kind === 'textbook' ? 'textbook' : t.kind), int(b.sort, t.sort), id);
+      b.kind === 'knowledge' ? 'knowledge' : (b.kind === 'textbook' ? 'textbook' : t.kind), int(b.sort, t.sort), edition, id);
   return ok(res, null, '已保存');
+});
+
+// ---- 教材版本（R2）：默认版本表 + 每个 学段/学科 下已有的版本 ----
+admin.get('/editions', (req, res) => ok(res, treePick.editionsOverview(db)));
+
+admin.put('/editions', (req, res) => {
+  const b = req.body || {};
+  try {
+    treePick.setDefaultEditions(db, b.defaults !== undefined ? b.defaults : b);
+  } catch (e) { return fail(res, e.message); }
+  return ok(res, treePick.editionsOverview(db), '默认版本已保存');
+});
+
+// ---- 树导入 / 导出（R2）：格式见 docs/tree-import-format.md ----
+// POST /trees/import  JSON body（单棵树对象或树数组），或 multipart 上传 .json（字段 file）；?dry=1 只统计不写库
+admin.post('/trees/import', upload.single('file'), (req, res) => {
+  let input = req.body;
+  if (req.file) {
+    try { input = JSON.parse(req.file.buffer.toString('utf8').replace(/^\uFEFF/, '')); }
+    catch (e) { return fail(res, 'JSON 解析失败：' + e.message); }
+  }
+  if (input && input.trees && !input.format && Array.isArray(input.trees)) input = input.trees;   // 兼容 { trees: [...] } 包一层
+  const dry = String(req.query.dry || (req.body && req.body.dry) || '') === '1' || (req.body && req.body.dry === true);
+  if (!input || (typeof input === 'object' && !Array.isArray(input) && !Object.keys(input).length)) return fail(res, '没有收到树数据');
+  try {
+    const results = treeIo.importAll(db, input, { dry });
+    const added = results.reduce((a, r) => a + r.added, 0);
+    return ok(res, { dry, results, added, existing: results.reduce((a, r) => a + r.existing, 0) },
+      dry ? `预检完成：将新增 ${added} 个节点（未写库）` : `导入完成：新增 ${added} 个节点`);
+  } catch (e) { return fail(res, e.message); }
+});
+
+admin.get('/trees/:id/export', (req, res) => {
+  const doc = treeIo.exportTree(db, int(req.params.id));
+  if (!doc) return fail(res, '目录树不存在');
+  if (String(req.query.download || '') === '1') {
+    const fname = `${doc.name || 'tree'}.json`;
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fname)}`);
+  }
+  return ok(res, doc);
 });
 
 admin.delete('/trees/:id', (req, res) => {

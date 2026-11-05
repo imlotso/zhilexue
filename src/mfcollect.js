@@ -45,6 +45,7 @@ const ok = (res, data = null, msg = 'ok') => res.json({ code: 0, msg, data });
 const fail = (res, msg = '操作失败', code = 1) => res.json({ code, msg });
 const int = (v, d = 0) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : d; };
 const aiClient = require('./ai-client');
+const { pickTree } = require('./treepick');   // R2：按默认版本取树
 const jstr = (v) => { try { return JSON.stringify(v == null ? [] : v); } catch (e) { return '[]'; } };
 
 // ==================================================================== 建表（幂等）
@@ -391,10 +392,13 @@ admin.post('/ai-suggest', async (req, res) => {
     const ph = ids.map(() => '?').join(',');
     const rows = db.prepare(`SELECT id, stem, stem_html, answer, subject, stage FROM questions WHERE id IN (${ph})`).all(...ids);
     // 候选：归一学科名 + 当前学科知识树的节点名（给 AI 一个封闭清单）
-    const trees = db.prepare('SELECT * FROM bank_trees').all();
     const out = [];
     for (const q of rows) {
-      const tree = trees.find((t) => t.subject === q.subject) || trees.find((t) => !t.subject) || null;
+      // R2：同学科同学段有多个教材版本时，按默认版本取知识点树（没有再取章节树 / 不限学科的树）
+      const tree = pickTree(db, { kind: 'knowledge', subject: q.subject, stage: q.stage })
+        || pickTree(db, { kind: 'textbook', subject: q.subject, stage: q.stage })
+        || db.prepare("SELECT * FROM bank_trees WHERE subject=? ORDER BY sort, id").get(q.subject)
+        || db.prepare("SELECT * FROM bank_trees WHERE IFNULL(subject,'')='' ORDER BY sort, id").get() || null;
       let nodeNames = [];
       if (tree) {
         const all = db.prepare('SELECT name FROM bank_tree_nodes WHERE tree_id=? LIMIT 300').all(tree.id);

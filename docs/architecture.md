@@ -31,12 +31,13 @@ zhilexue/
 │   │   js/mlive.js              公式输入（T8）：懒加载本地 MathLive，`MLive.dialog` 弹公式编辑框 + 虚拟键盘，学生端和后台共用
 │   │   admin/formulaui.js       后台「插入公式」按钮 + 题目输入框粘贴 / 拖拽图片（T8）
 │   │   vendor/mathlive/         MathLive 0.109.2（MIT）本地文件和字体，不走 CDN；点公式按钮时才加载
-│   ├── admin/      后台（Vue 2 + element-ui，多个独立脚本依次加载；`vcodec.js` 是视频上传前的编码检测，先于 admin.js 加载；`ktreeui.js` 是「知识树管理」页，`pendingui.js` 是「待审核题目」页，`accui.js` 是「学情管理 → 知识点正确率」页）
+│   │   admin/treepick.js        目录树选择小工具（R2）：前端 `pickTree`（与后端 `treepick.js` 同逻辑）、版本列表、下拉显示名「版本 · 学段 · 名称」；在 admin.js 之后、各页面脚本之前加载
+│   ├── admin/      后台（Vue 2 + element-ui，多个独立脚本依次加载；`vcodec.js` 是视频上传前的编码检测，先于 admin.js 加载；`ktreeui.js` 是「知识树管理」页，`pendingui.js` 是「待审核题目」页，`accui.js` 是旧「知识点正确率」页，R1 起已停用并不再加载——该页并入 `reportui.js` 的习题学习报告详情抽屉，旧路由 `#/acc` 跳转到 `#/xreport`）
 │   ├── upload.html 手机扫码上传页；scan-report.html 扫码上传学情试卷
 │   ├── apps/       care / grades / keyboard-school / timer，独立小应用，由主站以 iframe 引用
 │   └── css/ js/ vendor/ img/ fonts/ audio/
-├── scripts/    运维小脚本（`check-video.sh`：检查视频是否 H.264 + AAC、MP4 是否 faststart；`migrate-kb-to-trees.js`：旧知识点树复制进新树）
-├── data/       仅种子与模板（knowledge-seed.json、题库导入模板.xlsx、习题导入模板.xlsx（客户给的 9 个 sheet 模板的逐字节副本，不得改动）、mofang-question-transcribe.zip）
+├── scripts/    运维小脚本（`import-trees.js`：批量导入目录树 JSON（R2，幂等、`--dry-run`）；`check-video.sh`：检查视频是否 H.264 + AAC、MP4 是否 faststart；`migrate-kb-to-trees.js`：旧知识点树复制进新树）
+├── data/       仅种子与模板（trees/draft/：物理 / 化学教材章节树的待核对草稿，不会自动导入，R2；knowledge-seed.json、题库导入模板.xlsx、习题导入模板.xlsx（客户给的 9 个 sheet 模板的逐字节副本，不得改动）、mofang-question-transcribe.zip）
 ├── docs/       文档，用途见 AGENTS.md
 ├── .github/workflows/ci.yml
 └── *-test.js  smoke.js  seed-words.js   测试与种子脚本（依赖根目录相对路径，不要移动）
@@ -48,6 +49,7 @@ zhilexue/
 |---|---|
 | `app.js` | 主服务：登录、文件代理、管理端基础接口（分校/学生/目录/视频/讲义）、学生端基础接口、路由挂载 |
 | `kbtree.js` | 知识树统一（T4）：旧 `kb_*` 复制进 `bank_trees` 知识点树、旧 `/kbtree*` 接口的读写、知识点名清单（供 AI 补全/下拉用）；被 `bank.js`、`mfbank.js` 调用 |
+| `treepick.js` / `treeio.js` | 目录树的教材版本（R2）：`treepick.js` = 默认版本表（`settings.default_editions`）+ 统一取树 `pickTree`（所有"按 学段+学科 取一棵树"的地方都走它：`kbtree.js`、`bank.js` 学生端 `scan-tree`、`mfcollect.js`）；`treeio.js` = 树导入 / 导出（格式见 `docs/tree-import-format.md`，被 `mfbank.js` 的 `/trees/import`、`/trees/:id/export` 和 `scripts/import-trees.js` 共用） |
 | `mfpending.js` | 待审核题目（T3）：把拍照识别 / Word / Excel / 技能包（都是 `mf_recog_runs` 批次）、网络采集批次、手机扫码上传统一成一个列表，逐题编辑/入库/删除，以及 Excel、Word 导入入口；由 `mfbank.js` 末尾挂载，复用它抽出的 `commitRunCards` / `commitCaptureItems`；T10 的「上传真题试卷」`POST /papers/import-word`（Word → 试卷 + 入题库）也在这里 |
 | `wordq.js` | Word 题目规则解析（T3）：按客户《word (1).docx》的格式规则解析，不调 AI，不合规的题给出段号和原因 |
 | `db.js` / `mysql-sync.js` / `mysql-worker.js` / `import-sqlite.js` | 建表、数据库连接与 SQLite→MySQL 转换 |

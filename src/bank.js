@@ -21,6 +21,7 @@ const { parseBankWorkbook, makeBankTemplate } = require('./bank-excel');
 const { judgeQ } = require('./bank-judge');
 const kbtree = require('./kbtree');
 const compose = require('./compose');
+const { pickTree } = require('./treepick');   // R2：按 学段+学科+默认版本 取树
 const accuracy = require('./accuracy');   // T5：管理端一键组卷 / 学生端自组卷共用的抽题核心   // T4：知识树统一，旧 kb_* 并入 bank_trees
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -1439,13 +1440,12 @@ stu.get('/scan-tree', (req, res) => {
   const kind = req.query.kind === 'knowledge' ? 'knowledge' : 'textbook';
   const subject = String(req.query.subject || '').trim();
   if (!subject) return fail(res, '请选择学科');
-  const trees = db.prepare(`SELECT * FROM bank_trees WHERE kind=? AND subject=? AND (stage=? OR IFNULL(stage,'')='')
-    ORDER BY CASE WHEN stage=? THEN 0 ELSE 1 END, sort, id`).all(kind, subject, stage, stage);
-  if (!trees.length) return ok(res, { nodes: [], tree_id: 0, tree_name: '' });
-  const treeIds = trees.map((t) => t.id);
-  const ph = treeIds.map(() => '?').join(',');
-  const nodes = db.prepare(`SELECT id, tree_id, parent_id, name, sort FROM bank_tree_nodes WHERE tree_id IN (${ph}) ORDER BY sort, id`).all(...treeIds);
-  ok(res, { nodes, tree_id: trees[0].id, tree_name: trees[0].name });
+  // R2：同 学段+学科 可能有多个教材版本——按学生学段 + 默认版本表选一棵（可选 ?edition= 指定）；本学段没有时退回不分学段的树
+  const tree = pickTree(db, { kind, subject, stage, edition: String(req.query.edition || '').trim() })
+    || pickTree(db, { kind, subject, stage: '', edition: String(req.query.edition || '').trim() });
+  if (!tree) return ok(res, { nodes: [], tree_id: 0, tree_name: '', edition: '' });
+  const nodes = db.prepare('SELECT id, tree_id, parent_id, name, sort FROM bank_tree_nodes WHERE tree_id=? ORDER BY sort, id').all(tree.id);
+  ok(res, { nodes, tree_id: tree.id, tree_name: tree.name, edition: tree.edition || '' });
 });
 
 // 雷达扫描组卷：选中单元 / 知识点 → 每个最小「小知识点」1 题 + 可用题数
@@ -1458,10 +1458,14 @@ stu.post('/scan-compose', (req, res) => {
   const ids = [...new Set((Array.isArray(b.node_ids) ? b.node_ids : []).map(Number).filter(Boolean))];
   if (!subject) return fail(res, '请选择学科');
   if (!ids.length) return fail(res, '请先选择单元或知识点');
-  const trees = db.prepare(`SELECT * FROM bank_trees WHERE kind=? AND subject=? AND (stage=? OR IFNULL(stage,'')='')
-    ORDER BY CASE WHEN stage=? THEN 0 ELSE 1 END, sort, id`).all(kind, subject, stage, stage);
-  if (!trees.length) return fail(res, kind === 'knowledge' ? '该学科还没有知识点分类树' : '该学科还没有章节树');
-  const treeIds = trees.map((t) => t.id);
+  // R2：节点属于哪棵树就在哪棵树里找（学生选的就是 scan-tree 给的那棵），再校验这棵树是同学科、同种类、本学段（或不分学段）的
+  const ph0 = ids.map(() => '?').join(',');
+  const treeIds = db.prepare(`SELECT DISTINCT n.tree_id AS id FROM bank_tree_nodes n JOIN bank_trees t ON t.id=n.tree_id
+    WHERE n.id IN (${ph0}) AND t.kind=? AND t.subject=? AND (t.stage=? OR IFNULL(t.stage,'')='')`).all(...ids, kind, subject, stage).map((r) => r.id);
+  if (!treeIds.length) {
+    const any = pickTree(db, { kind, subject, stage }) || pickTree(db, { kind, subject, stage: '' });
+    return fail(res, any ? '选中的节点不属于该学科的树，请重新选择' : (kind === 'knowledge' ? '该学科还没有知识点分类树' : '该学科还没有章节树'));
+  }
   const ph = treeIds.map(() => '?').join(',');
   const allNodes = db.prepare(`SELECT id, tree_id, parent_id, name FROM bank_tree_nodes WHERE tree_id IN (${ph})`).all(...treeIds);
   // 每个"最小的有题节点"抽 1 题（共用 compose.js）

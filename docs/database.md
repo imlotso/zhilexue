@@ -26,7 +26,7 @@
 
 ## 知识树约定（T4，没有加表/加列）
 
-- 知识树只在 `bank_trees` / `bank_tree_nodes` 里编辑（`kind`=textbook 章节树 / knowledge 知识点树，**每个 学段+学科 每种 kind 一棵**，题库管理页按这个假设取第一棵）。题目与节点多对多：`question_nodes`。
+- 知识树只在 `bank_trees` / `bank_tree_nodes` 里编辑（`kind`=textbook 章节树 / knowledge 知识点树，**每个 学段+学科 每种 kind 一棵**，题库管理页按这个假设取第一棵；R2 起改为每个版本一棵，见文末「R2」一节）。题目与节点多对多：`question_nodes`。
 - `kb_units` / `kb_points`（旧教材知识点树）保留表，不再写入。`src/kbtree.js` 把它们**复制**进该 学科+学段 已有的知识点树，作为一个一级分支：`教材单元知识点` → 年级（空则"不分年级"）→ 单元 → 知识点；该 学科+学段 没有知识点树时新建一棵（`source` 形如 `kbtree:物理:primary`）。同父同名不重复建，只增不删。
 - 旧表 `questions.point` 仍是知识点**名称文本**，和树节点是两套关联；按节点关联用 `question_nodes`。
 - 迁移：`node scripts/migrate-kb-to-trees.js [--dry-run]`（先测试库预演）；旧接口 `/kbtree*` 首次用到、旧表有数据且尚未复制时会自动复制该 学科+学段。
@@ -46,6 +46,13 @@
 ## T7 听力题：`questions` 加一列
 
 `questions.audio_key VARCHAR(255) DEFAULT ''`（听力音频的存储 key，目录前缀 `bank/audio/`，空串 = 没有音频），在 `src/db.js` 里幂等 `ALTER TABLE … ADD COLUMN`。题型不新增：音频是现有题型（单选 / 多选 / 判断 / 填空…）上附加的"听力材料"。
+
+## R2 目录树的教材版本：`bank_trees` / `bank_tree_nodes` 加列、`settings` 加一个 key
+
+- `bank_trees.edition VARCHAR(40) DEFAULT ''`：教材版本（苏教版 / 苏科版 / 译林版 / 沪教版 …）。**同一 学段+学科+种类 下每个版本一棵树**（取代 T4 的"每个 学段+学科 每种 kind 一棵"）；知识点树可为空 = 通用。索引 `idx_btree_ed (subject, stage, edition)`（不含 kind：`subject/stage/kind` 三个 VARCHAR(255) 已占满 MySQL 3072 字节的键长，放不下第四列）。
+- `bank_tree_nodes.code VARCHAR(100) DEFAULT ''`（外部编号，如洋葱 / 组卷网节点 id）、`bank_tree_nodes.note MEDIUMTEXT`（备注）：树导入导出（`docs/tree-import-format.md`）带上，页面暂不显示。
+- 都在 `src/db.js` 幂等 `ALTER TABLE … ADD COLUMN`。种子章节树启动时按学段补版本并改正树名（`src/mfseed.js`，幂等；`source` 标识不变）：数学小学=苏教版（树名原来误写成「苏科版数学·教材章节」）、数学初中=苏科版、英语=译林版。
+- `settings.default_editions`（JSON）：默认版本表 `{ 学科: { 学段: 版本 } }`，默认 数学 小学苏教版 / 初中苏科版，英语 译林版，物理 初中苏科版，化学 初中沪教版；启动时没有才写，后台可改（`PUT /mf/editions`）。取树时没指定版本就按它选，见 `src/treepick.js`。
 
 ## R8 小分组挂题、视频关联知识点：`questions` 加一列 + 新表 `video_nodes`（2026-11-04）
 

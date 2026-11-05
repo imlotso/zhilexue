@@ -18,7 +18,7 @@ const MF_DIFF_NAMES = { 1: '很容易', 2: '较易', 3: '中等', 4: '较难', 5
 /* ================================================================ 题库管理（知识树一比一） */
 async function viewMfBank() {
   const st = mfState('mfq');
-  ['kw', 'stage', 'subject', 'type', 'difficulty', 'source', 'complete', 'node', 'grade', 'volume'].forEach((k) => { st[k] = st[k] == null ? '' : st[k]; });
+  ['kw', 'stage', 'subject', 'type', 'difficulty', 'source', 'complete', 'node', 'grade', 'volume', 'edition'].forEach((k) => { st[k] = st[k] == null ? '' : st[k]; });
   st.pmode = st.pmode === 'chapter' ? 'chapter' : 'knowledge';
   if (!st.special) st.special = ''; // '' | 'uncat' | 'review'
   if (!Array.isArray(st.units)) st.units = [];
@@ -34,10 +34,14 @@ async function viewMfBank() {
   const size = 20;
 
   // 派生树：章节树(textbook) / 知识点树(knowledge) 由 学段+科目 唯一确定（启动时种子自动建好）
-  const trees = (await api(MF_API + '/trees', { silent: true }).catch(() => ({ list: [] }))).list || [];
-  const chapTree = trees.find((t) => t.kind === 'textbook' && t.subject === st.subject && t.stage === st.stage) || null;
-  const knowTree = trees.find((t) => t.kind === 'knowledge' && t.subject === st.subject && t.stage === st.stage) || null;
+  const trees = await tpTrees();
+  // R2：同 学段+学科 可以有多个教材版本（每个版本一棵章节树）。版本下拉只列该 学段+学科 下存在的版本，默认选默认版本
+  const edKind = st.pmode === 'chapter' ? 'textbook' : 'knowledge';
+  const edOpts = tpEditions(trees, { kind: edKind, subject: st.subject, stage: st.stage });
+  const chapTree = pickTree(trees, { kind: 'textbook', subject: st.subject, stage: st.stage, edition: st.edition });
+  const knowTree = pickTree(trees, { kind: 'knowledge', subject: st.subject, stage: st.stage, edition: st.edition });
   const activeTree = st.pmode === 'chapter' ? chapTree : knowTree;
+  const curEdition = activeTree ? String(activeTree.edition || '') : '';
   let nodes = [];
   if (activeTree) nodes = (await api(`${MF_API}/trees/${activeTree.id}/nodes`, { silent: true }).catch(() => ({ list: [] }))).list || [];
   const kids = {};
@@ -172,13 +176,16 @@ async function viewMfBank() {
   <div class="mf-wrap" style="align-items:stretch">
     <div class="card mf-card" style="width:320px;flex:0 0 320px">
       <div class="card-b">
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
           <select id="mfbStage" class="mf-fsel" style="flex:1">
             <option value="primary" ${st.stage === 'primary' ? 'selected' : ''}>小学</option>
             <option value="junior" ${st.stage === 'junior' ? 'selected' : ''}>初中</option>
           </select>
           <select id="mfbSubject" class="mf-fsel" style="flex:1">
             ${PC_SUBJ.map((sp) => `<option ${st.subject === sp ? 'selected' : ''}>${sp}</option>`).join('')}
+          </select>
+          <select id="mfbEdition" class="mf-fsel r2-edsel" style="flex:1 1 100%" title="教材版本" aria-label="教材版本" ${edOpts.length ? '' : 'disabled'}>
+            ${edOpts.map((e) => `<option value="${esc(e)}" ${curEdition === e ? 'selected' : ''}>${esc(e || '通用')}${e && e === tpDefaultEdition(st.subject, st.stage) ? '（默认）' : ''}</option>`).join('') || '<option value="">无版本</option>'}
           </select>
         </div>
         <div class="mf-segbox">
@@ -256,9 +263,10 @@ async function viewMfBank() {
       document.querySelectorAll('[data-hang]').forEach((a) => { a.onclick = () => mfHangDialog(Number(a.dataset.hang), rerender); });
 
       /* —— 左栏联动（学段 → 科目 → 模式 → 年级/册别/单元 / 知识点树） —— */
-      document.getElementById('mfbStage').onchange = (e) => { st.stage = e.target.value; st.grade = ''; st.volume = ''; st.units = []; st.node = ''; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      document.getElementById('mfbSubject').onchange = (e) => { st.subject = e.target.value; st.grade = ''; st.volume = ''; st.units = []; st.node = ''; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      const switchMode = (m) => { st.pmode = m; st.node = ''; st.units = []; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
+      document.getElementById('mfbEdition').onchange = (e) => { st.edition = e.target.value; st.grade = ''; st.volume = ''; st.units = []; st.node = ''; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
+      document.getElementById('mfbStage').onchange = (e) => { st.stage = e.target.value; st.edition = ''; st.grade = ''; st.volume = ''; st.units = []; st.node = ''; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
+      document.getElementById('mfbSubject').onchange = (e) => { st.subject = e.target.value; st.edition = ''; st.grade = ''; st.volume = ''; st.units = []; st.node = ''; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
+      const switchMode = (m) => { st.pmode = m; st.edition = ''; st.node = ''; st.units = []; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
       document.getElementById('mfbModeChapter').onclick = () => { if (st.pmode !== 'chapter') switchMode('chapter'); };
       document.getElementById('mfbModeKnow').onclick = () => { if (st.pmode !== 'knowledge') switchMode('knowledge'); };
       const mfbG = document.getElementById('mfbGrade');
@@ -309,7 +317,7 @@ async function mfHangDialog(qid, done) {
   const d = await api(`${MF_API}/questions/${qid}`);
   const q = d.question;
   const cur = (q.nodes || []).slice();
-  const trees = (await api(MF_API + '/trees', { silent: true }).catch(() => ({ list: [] }))).list || [];
+  const trees = await tpTrees();
   const chapTrees = trees.filter((t) => t.kind === 'textbook');
   const knowTrees = trees.filter((t) => t.kind === 'knowledge');
   if (!chapTrees.length || !knowTrees.length) return toast('缺少章节树或知识点树（学段+科目的种子树启动时会自动创建）', 'err');
@@ -317,8 +325,8 @@ async function mfHangDialog(qid, done) {
   let type = q.type;
   if ((type === 'single' || type === 'multi') && (q.options || []).length < 2) type = 'answer';
   const treeSel = (id, label, list) => {
-    const def = list.find((t) => t.subject === q.subject && t.stage === q.stage) || list[0];
-    return `<div class="field"><label>${label}</label><select id="${id}" class="inp">${list.map((t) => `<option value="${t.id}" ${def && t.id === def.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></div>`;
+    const ordered = tpOrder(list, q.subject, q.stage);   // 同学科学段的排前面、默认版本第一（R2）
+    return `<div class="field"><label>${label}</label><select id="${id}" class="inp">${ordered.map((t, i) => `<option value="${t.id}" ${i === 0 ? 'selected' : ''}>${esc(treeLabel(t))}</option>`).join('')}</select></div>`;
   };
   modal({
     title: `挂分类 · 题目 #${qid}`, wide: true, okText: '保存',
@@ -363,13 +371,13 @@ async function mfHangDialog(qid, done) {
 async function mfReviewDialog(it, done) {
   if (!it) return;
   const qid = it.qid;
-  const trees = (await api(MF_API + '/trees', { silent: true }).catch(() => ({ list: [] }))).list || [];
+  const trees = await tpTrees();
   const knowTrees = trees.filter((t) => t.kind === 'knowledge');
   const chapTrees = trees.filter((t) => t.kind === 'textbook');
   const curSub = it.subject || it.pu_subject || '';
   const curStage = it.stage || it.pu_stage || '';
-  const def = knowTrees.find((t) => t.subject === curSub && t.stage === curStage) || knowTrees[0];
-  const defC = chapTrees.find((t) => t.subject === curSub && t.stage === curStage) || chapTrees[0];
+  const knowOrd = tpOrder(knowTrees, curSub, curStage), chapOrd = tpOrder(chapTrees, curSub, curStage);   // R2：同学科学段的排前面、默认版本第一
+  const def = knowOrd[0], defC = chapOrd[0];
   let curNodes = [];
   try { curNodes = ((await api(`${MF_API}/questions/${qid}`)).question.nodes || []).slice(); } catch (e) { /* 忽略 */ }
   const imgs = it.up_images || [];
@@ -412,9 +420,9 @@ async function mfReviewDialog(it, done) {
       <div class="field wide"><label>答案（可空）</label><textarea id="rvAns" class="inp" rows="2">${esc(it.answer || '')}</textarea></div>
       <div class="field wide"><label>挂载分类（章节 + 知识点，审核通过前两边都要勾）</label>
         <div class="mf-grid2">
-          <div><select id="rvCTree" class="inp">${chapTrees.length ? chapTrees.map((t) => `<option value="${t.id}" ${defC && t.id === defC.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('') : '<option value="">（暂无章节树）</option>'}</select>
+          <div><select id="rvCTree" class="inp">${chapOrd.length ? chapOrd.map((t) => `<option value="${t.id}" ${defC && t.id === defC.id ? 'selected' : ''}>${esc(treeLabel(t))}</option>`).join('') : '<option value="">（暂无章节树）</option>'}</select>
             <div id="rvCNodes" class="mf-pick" style="margin-top:6px;max-height:180px"></div></div>
-          <div><select id="rvTree" class="inp">${knowTrees.length ? knowTrees.map((t) => `<option value="${t.id}" ${def && t.id === def.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('') : '<option value="">（暂无知识点树）</option>'}</select>
+          <div><select id="rvTree" class="inp">${knowOrd.length ? knowOrd.map((t) => `<option value="${t.id}" ${def && t.id === def.id ? 'selected' : ''}>${esc(treeLabel(t))}</option>`).join('') : '<option value="">（暂无知识点树）</option>'}</select>
             <div id="rvNodes" class="mf-pick" style="margin-top:6px;max-height:180px"></div></div>
         </div></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
@@ -454,12 +462,12 @@ async function mfQEdit(id, done, opts) {
   const q = d.question;
   // R8：从课文习题打开时，题目还没挂知识点就默认勾上视频关联的知识点（题目继承视频的知识点）
   if ((!q.nodes || !q.nodes.length) && opts && Array.isArray(opts.defaultNodes) && opts.defaultNodes.length) q.nodes = opts.defaultNodes.slice();
-  const trees = (await api(MF_API + '/trees', { silent: true }).catch(() => ({ list: [] }))).list || [];
+  const trees = await tpTrees();
   const chapTrees = trees.filter((t) => t.kind === 'textbook');
   const knowTrees = trees.filter((t) => t.kind === 'knowledge');
   const curNodes = q.nodes || [];
-  const pickTree = (list) => list.find((t) => t.subject === q.subject && t.stage === q.stage) || list[0] || null;
-  const defC = pickTree(chapTrees); const defK = pickTree(knowTrees);
+  const chapOrd = tpOrder(chapTrees, q.subject, q.stage), knowOrd = tpOrder(knowTrees, q.subject, q.stage);   // R2：同学科学段的排前面、默认版本第一
+  const defC = chapOrd[0] || null; const defK = knowOrd[0] || null;
   let aud = null;   // 听力音频字段（T7）
   modal({
     title: `编辑题目 #${q.id}`, wide: true, okText: '保存',
@@ -479,9 +487,9 @@ async function mfQEdit(id, done, opts) {
       <div id="qeAudio"></div>
       <div class="field wide"><label>挂载分类 *（章节分类 + 知识点分类，两边都至少勾一项）</label>
         <div class="mf-grid2">
-          <div><select id="qeCTree" class="inp">${chapTrees.length ? chapTrees.map((t) => `<option value="${t.id}" ${defC && t.id === defC.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('') : '<option value="">（暂无章节树）</option>'}</select>
+          <div><select id="qeCTree" class="inp">${chapOrd.length ? chapOrd.map((t) => `<option value="${t.id}" ${defC && t.id === defC.id ? 'selected' : ''}>${esc(treeLabel(t))}</option>`).join('') : '<option value="">（暂无章节树）</option>'}</select>
             <div id="qeCNodes" class="mf-pick" style="margin-top:6px;max-height:160px"></div></div>
-          <div><select id="qeKTree" class="inp">${knowTrees.length ? knowTrees.map((t) => `<option value="${t.id}" ${defK && t.id === defK.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('') : '<option value="">（暂无知识点树）</option>'}</select>
+          <div><select id="qeKTree" class="inp">${knowOrd.length ? knowOrd.map((t) => `<option value="${t.id}" ${defK && t.id === defK.id ? 'selected' : ''}>${esc(treeLabel(t))}</option>`).join('') : '<option value="">（暂无知识点树）</option>'}</select>
             <div id="qeKNodes" class="mf-pick" style="margin-top:6px;max-height:160px"></div></div>
         </div></div>
     </div>`,
@@ -1235,7 +1243,8 @@ async function mfNewQDialog(done) {
   let nqAud = null;   // 听力音频字段（T7）
   const imgs = []; const tags = []; const katChips = []; // 知识点归属 chips {id,name}
   const secSel = []; // 章节小知识点选中 ids
-  let dStage = 'primary'; let dSub = '数学';
+  let dStage = 'primary'; let dSub = '数学'; let dEdition = '';   // dEdition：章节树的教材版本，空 = 默认版本（R2）
+  let allTrees = [];
   let chapNodes = [], knowNodes = [];
   let gradeName = ''; let volName = '上册'; let unitId = '';
   let katExp = '';
@@ -1243,9 +1252,11 @@ async function mfNewQDialog(done) {
   const SUBJECTS4 = ['英语', '数学', '物理', '化学'];
 
   const loadTrees = async () => {
-    const trees = (await api(MF_API + '/trees', { silent: true }).catch(() => ({ list: [] }))).list || [];
-    const ct = trees.find((t) => t.kind === 'textbook' && t.subject === dSub && t.stage === dStage);
-    const kt = trees.find((t) => t.kind === 'knowledge' && t.subject === dSub && t.stage === dStage);
+    const trees = await tpTrees();
+    allTrees = trees;
+    const ct = pickTree(trees, { kind: 'textbook', subject: dSub, stage: dStage, edition: dEdition });
+    const kt = pickTree(trees, { kind: 'knowledge', subject: dSub, stage: dStage });
+    dEdition = ct ? String(ct.edition || '') : '';
     chapNodes = ct ? (await api(`${MF_API}/trees/${ct.id}/nodes`, { silent: true }).catch(() => ({ list: [] }))).list || [] : [];
     knowNodes = kt ? (await api(`${MF_API}/trees/${kt.id}/nodes`, { silent: true }).catch(() => ({ list: [] }))).list || [] : [];
   };
@@ -1261,6 +1272,7 @@ async function mfNewQDialog(done) {
       </div>
       <div class="field"><label>章节分类 *（年级 → 册别 → 单元 → 小知识点）</label>
         <div style="display:flex;gap:8px">
+          <select id="nqEd" class="inp" style="flex:1" title="教材版本" aria-label="教材版本"></select>
           <select id="nqGrade" class="inp" style="flex:1"></select>
           <select id="nqVol" class="inp" style="flex:1"></select>
           <select id="nqUnit" class="inp" style="flex:2"></select>
@@ -1373,19 +1385,26 @@ async function mfNewQDialog(done) {
           return `<span style="display:inline-flex;gap:4px;align-items:center">${chip(c)}${gc.length ? `<a href="javascript:;" class="mf-kx" data-kexp="${c.id}">${exp ? '▴' : '▾'}</a>` : ''}</span>${exp ? gc.map(chip).join('') : ''}`;
         }).join('') : (rNode ? chip(rNode) : '<span class="hint">暂无知识点数据</span>');
       };
-      const reloadTrees = async () => {
-        gradeName = ''; volName = '上册'; unitId = ''; katExp = '';
-        await loadTrees();
-        renderChapter(); renderKnowledge();
+      const renderEdition = () => {
+        const eds = tpEditions(allTrees, { kind: 'textbook', subject: dSub, stage: dStage });
+        const sel = w.querySelector('#nqEd');
+        sel.innerHTML = eds.map((e) => `<option value="${esc(e)}" ${e === dEdition ? 'selected' : ''}>${esc(e || '通用')}</option>`).join('') || '<option value="">无版本</option>';
+        sel.disabled = !eds.length;
       };
+      const reloadTrees = async () => {
+        gradeName = ''; volName = '上册'; unitId = ''; katExp = ''; secSel.length = 0;
+        await loadTrees();
+        renderEdition(); renderChapter(); renderKnowledge();
+      };
+      w.querySelector('#nqEd').onchange = async (e) => { dEdition = e.target.value; gradeName = ''; volName = '上册'; unitId = ''; secSel.length = 0; await loadTrees(); renderEdition(); renderChapter(); };
 
       /* —— 学段 / 学科切换 —— */
       w.querySelector('#nqStage').onchange = async (e) => {
-        dStage = e.target.value;
+        dStage = e.target.value; dEdition = '';
         if (dStage === 'primary' && (dSub === '物理' || dSub === '化学')) { dSub = '数学'; w.querySelector('#nqSub').value = '数学'; }
         await reloadTrees();
       };
-      w.querySelector('#nqSub').onchange = async (e) => { dSub = e.target.value; await reloadTrees(); };
+      w.querySelector('#nqSub').onchange = async (e) => { dSub = e.target.value; dEdition = ''; await reloadTrees(); };
       w.querySelector('#nqGrade').onchange = (e) => { gradeName = e.target.value; volName = '上册'; secSel.length = 0; renderChapter(); };
       w.querySelector('#nqVol').onchange = (e) => { volName = (e.target.selectedOptions[0] && e.target.selectedOptions[0].textContent) || ''; secSel.length = 0; renderChapter(); };
       w.querySelector('#nqUnit').onchange = (e) => { unitId = e.target.value; secSel.length = 0; renderChapter(); };
@@ -1441,7 +1460,7 @@ async function mfNewQDialog(done) {
           let filled = [];
           if (r.stage && ['primary', 'junior'].includes(r.stage)) { dStage = r.stage; w.querySelector('#nqStage').value = r.stage; filled.push('学段'); }
           if (r.subject && SUBJECTS4.includes(r.subject)) { dSub = r.subject; w.querySelector('#nqSub').value = r.subject; filled.push('学科'); }
-          await loadTrees();
+          dEdition = ''; await loadTrees(); renderEdition();
           if (r.grade) {
             const g = (GRADES[dStage] || []).find((x) => String(r.grade).includes(x) || x.includes(String(r.grade)));
             if (g) { gradeName = g; filled.push('年级'); }
@@ -1544,11 +1563,11 @@ function mfFormulaPad(ta, mount) {
 /** 知识节点多选器（跨树选择，勾选回填） */
 function mfNodePickMulti(nodes, onDone) {
   (async () => {
-    const trees = (await api(MF_API + '/trees', { silent: true }).catch(() => ({ list: [] }))).list || [];
+    const trees = await tpTrees();
     if (!trees.length) return toast('先在左侧建一棵知识树再选节点', 'err');
     modal({
       title: '选择知识节点（可多选）',
-      body: `<div class="field"><label>知识树</label><select id="npTree" class="inp">${trees.map((t) => `<option value="${t.id}">${esc(t.name)}（${t.node_count}节点）</option>`).join('')}</select></div>
+      body: `<div class="field"><label>知识树</label><select id="npTree" class="inp">${trees.map((t) => `<option value="${t.id}">${esc(treeLabel(t))}（${t.node_count}节点）</option>`).join('')}</select></div>
         <div id="npList" class="mf-treebox" style="max-height:360px;margin-top:6px"></div>`,
       okText: '确定',
       onOk: () => { if (typeof onDone === 'function') onDone(); },

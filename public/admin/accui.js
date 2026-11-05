@@ -1,4 +1,8 @@
-/* 习题正确率（T6）：学情管理 → 知识点正确率。
+/* 【R1 起已停用：admin/index.html 不再加载本文件，菜单与 VIEWS 里也没有入口。】
+ * 「知识点正确率」已并入「学习报告 → 习题学习报告」的详情抽屉（public/admin/reportui.js 的 r1OpenDrawer），旧路由 #/acc 会跳转过去。
+ * 文件保留只为留档；后端 /api/admin/bank/accuracy 与 /mistakes/export-docx 仍在使用。
+ *
+ * 习题正确率（T6）：学情管理 → 知识点正确率。
  * 选一个学生，按「课程 → 小分组 → 视频」看他做课文习题的正确率（口径见 src/accuracy.js：每题取最近一次作答）。
  * 由 admin.js 的 VIEWS.acc 调用；依赖 admin.js 的 ADM / esc / ic，api.js 的 api / toast。
  */

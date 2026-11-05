@@ -21,6 +21,7 @@
 | `docs/architecture.md` | 技术栈、目录结构、前后端对应关系、存储与数据库如何选择 | 结构性改动后更新 |
 | `docs/api.md` | 全部 HTTP 接口按模块的清单（挂载前缀、路径、用途、所在文件） | 新增/修改/删除接口时同步 |
 | `docs/database.md` | 表的分组与用途、改表方式 | 加表/加列时同步 |
+| `docs/tree-import-format.md` | 目录树 JSON 导入 / 导出格式（R2）：给本地 agent 采集回来的树用，后台、接口、`scripts/import-trees.js` 共用 | 改树导入导出时更新 |
 | `docs/decisions.md` | 关键取舍及理由（为什么这样做） | 做了重要取舍时追加 |
 | `docs/pending-human-actions.md` | 只有 BOBO 能处理的事（真机测试、素材、真实库连接、打标签、发布） | 遇到需要人处理的事时追加 |
 | `docs/cleanup-list.md` | 2026-11-02 源码清理记录：哪些保留、哪些排除、依据 | 一般只读 |

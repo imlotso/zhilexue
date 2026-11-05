@@ -158,8 +158,8 @@ async function pdBatchCommit(ids, byId) {
   const same = (k) => { const vs = [...new Set(items.map((i) => i[k] || ''))]; return vs.length === 1 ? vs[0] : ''; };
   const lackLabel = (k) => (lack(k) ? '请选择（必填）' : '沿用各题');
   const star = (k) => (lack(k) ? ' <b style="color:#dc2626">*</b>' : '');
-  const trees = ((await api(`${PD_API}/trees`, { silent: true }).catch(() => ({ list: [] }))) || {}).list || [];
-  const treeOpts = (kind) => trees.filter((t) => t.kind === kind).map((t) => [t.id, `${t.name}（${t.subject || '不限学科'}${t.stage ? ' · ' + pdStageName(t.stage) : ''}）`]);
+  const trees = await tpTrees();
+  const treeOpts = (kind) => trees.filter((t) => t.kind === kind).map((t) => [t.id, `${treeLabel(t)}（${t.subject || '不限学科'}）`]);
   modal({
     title: one ? '入库这道题' : `批量入库（${items.length} 题）`, okText: '入库', wide: false,
     body: `<p class="pd-tip" style="margin-top:0">来源：${esc([...new Set(items.map((i) => i.source_label))].join('、'))}。${one ? '确认学科、学段、年级和归属的章节 / 知识点后入库；学科和学段必须有。' : '下面不填就沿用每道题自己的学科/学段/年级，题目自己没有学科或学段的必须在这里选。'}</p>
