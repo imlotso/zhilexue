@@ -64,7 +64,7 @@
 - `POST /papers/auto`：条件同上 + `counts:{single:10,…}`；`node_ids` 是章节树 / 知识点树里选中的节点，**含全部后代**，且和学科/学段/年级/难度/知识点文字同时生效；选了节点但节点不存在 → 范围为 0 题（不会退化成全库）。题库不够时照样返回能抽的并在 `missing` 里列缺口。
 - `POST /papers/:id/assign`：下发给指定学生并置为已下发。**有下发名单的试卷只对名单里的学生可见**（`GET /tasks`、`GET /papers`、`GET /papers/:id`、`POST /submit kind=paper` 都按此判断）；没有名单的才按年级/学段/册别广播。`POST /papers/:id/publish {publish:0}` 撤回时清空名单。
 - 学生端 `POST /scan-compose`（章节组卷 / 知识点组卷）：`{kind, subject, node_ids}` → 选中节点及后代里每个"最小的有题节点"抽 1 题。与 `papers/auto` 共用 `src/compose.js`。
-| 课文习题 | `GET /chapters`；`GET /chapters/:id/lessons`；`GET /videos/:id/questions`；`POST /videos/:id/bind`；`POST /videos/:id/import-docx` |
+| 课文习题 | `GET /chapters`；`GET /chapters/:id/lessons`；`GET /videos/:id/questions`；`POST /videos/:id/bind`；`POST /videos/:id/import-docx`；R8：`GET /sections/:id/questions`；`POST /sections/:id/bind`；`GET/POST /videos/:id/nodes` |
 | 反馈 | `GET /feedback`；`PUT /feedback/:id` |
 | 选项 | `GET /branches-options`；`GET /students-options` |
 | 学生错题 | `GET /mistakes` |
@@ -95,7 +95,27 @@
 - 待审核页逐题补音频：`PUT /ext/pending/item` 的 `patch.audio_key`（拍照识别 / Word / Excel / 技能包 / 网络采集 / 手机扫码六类来源都支持）；待审核项带 `audio_key`、`audio_url`；入库时写进题目。Excel / Word 导入模板没有改。
 - 学生端所有出题接口（`lesson-questions`、`papers/:id`、`mfpapers/:id`、`scan-compose`、`review-queue`、`mistakes` 等）返回的题目带 `audio_url`（没有音频为空串）。本地存储时是 `/api/file?key=…`，`<audio>` 带不了请求头，前端把登录票据拼成 `&token=` 再播放；云存储是签名外链，原样播放。
 
-学生端 `/api/stu/bank`：`GET /lesson-questions`、`/tasks`、`/papers`、`/papers/:id`、`/mfpapers`、`/mfpapers/:id`、`/scan-tree`、`/mistakes`、`/mistake-count`、`/mistake-points`、`/review-queue`、`/uploads`；`POST /submit`、`/scan-compose`、`/check`、`/feedback`、`/ai-explain`、`/upload-token`
+课文习题 · 小分组挂题 / 视频关联知识点（R8，`bank.js`）：
+- 后台 `GET /api/admin/bank/sections/:id/questions` → `{section, chapter, list:[题目，含答案], video_question_count}`（`video_question_count` = 组内视频绑的题数）。
+- 后台 `POST /api/admin/bank/sections/:id/bind {ids, unbind}`：挂到小分组（同时清掉这些题的 `video_id`，`chapter_id` 写成小分组所属课程）；`unbind:1` 只解绑**确实挂在这个小分组上**的题（没绑视频的顺带清 `chapter_id`），返回 `{count}`。`POST /videos/:id/bind` 绑定时也会清掉 `section_id`（一道题在课程里只挂一个位置）。
+- 后台 `POST /api/admin/bank/questions` 可带 `section_id`：新题直接挂到该小分组（课文习题弹窗里「添加习题」用）。`GET /questions?video=free`：只列既没绑视频也没挂小分组的题（「从题库选择」用）。
+- 后台 `GET /api/admin/bank/videos/:id/nodes` → `{video, subject, stage, nodes:[{id,name,tree_id}], trees:[知识点树，学科 + 学段对应的排第一], tree_id}`；`POST /videos/:id/nodes {node_ids}`：**整体替换**（最多 30 个，不存在的节点 id 忽略，传空数组 = 清空），返回 `{count}`。
+- `GET /chapters/:id/lessons`：`sections[]` 多了 `question_count`（小分组自己的题数），`videos[]` 多了 `nodes:[{id,name}]`；`GET /videos/:id/questions` 多了 `nodes`；`GET /chapters` 的 `question_count` 含小分组的题。
+- 学生端 `GET /api/stu/course-detail`：`groups[]` 多了 `own_qcount`、`own_acc`（小分组自己的题）、`practice_count`（小分组练习题数 = 组内视频题 + 自己的题），`acc` 改为两者合并；`lessons[]` 多了 `nodes:[{id,name}]`；整门课的 `acc` 含小分组的题；新增 `next:{video_id,title,group_id,group_name}|null`（「继续学习」）。`GET /api/stu/courses` 每门课多了 `acc`（课程卡片底部的正确率）。
+- 学生端 `GET /api/stu/bank/section-questions?section_id=` → `{title, section_id, list}`（小分组练习：组内视频的题在前、小分组自己的题在后，最多 60 题，不含答案；按年级 / 学段做可见性校验）。
+- 学生端 `POST /api/stu/bank/submit` 新增 `kind=section` + `section_id`：只计这个小分组练习范围内的题，返回的 `mastery.section` 是该小分组现在的正确率；所有 `submit` 结果的 `list[]` 每题多了 `point`。
+- 学生端 `GET /api/stu/bank/node-mastery?node_id=&course_id=` → `{node, total, answered, correct, rate, list:[做过的题 {id,type,stem,is_correct,at,my_answer}], videos:[本课程里关联了该知识点的视频]}`；题目范围 = 挂在该节点及其子孙上的题（`question_nodes`）∪ 绑在「关联了这些节点的视频」上的题（`video_nodes`）。
+- 学生端 `POST /api/stu/bank/check` 的填空题结果多了 `blanks:[true,false,…]`（逐空对错）。
+
+AI 老师浮层 · 流式讲解（R8，`bank.js` + `ai-client.js`）：
+- 学生端 `POST /api/stu/bank/ai-explain/stream`，body `{question_id, my_answer, mode:'explain'|'guide', history:[{role:'user'|'assistant', content}], ask}`；返回 `Content-Type: text/event-stream`（`Cache-Control: no-cache`、`X-Accel-Buffering: no`），每个事件一行 `data: {json}`：`{"t":"start","mode"}` → 若干 `{"t":"delta","text"}` → `{"t":"done","model","first_ms","ms"}`；出错 `{"t":"error","msg"}`。题目不存在等参数错误直接返回普通 JSON（`code:1`）。
+  - `explain`：按 `### 知识点 / ### 思路 / ### 步骤 / ### 易错点` 输出的 Markdown，公式 `\( … \)`；`guide`：苏格拉底式一步步引导（一次只问一个问题，学生在输入框回答）。题目、选项、学生答案、正确答案、参考解析每次都放进 system 提示，`history` 是前端保存的之前对话（最多 12 条），所以追问不丢上下文。
+  - `AI_MOCK=1`：不调外部接口，按题目内容拼一段示例回复，每 28ms 推 2 个字（CI / 截图用）。
+  - 客户端断开（关面板）时中止上游请求。
+- `src/ai-client.js` 新增 `chatStream(input, onDelta, {signal})`：OpenAI 兼容格式发 `stream:true` 并解析 SSE（只取 `delta.content`，不推 `reasoning_content`）；Anthropic / Gemini 先退化为一次性返回再按 24 字一段推送；服务商不认 `stream` 直接回整段 JSON 时也按一次性结果处理。
+- 旧的 `POST /api/stu/bank/ai-explain`（分步引导 JSON）保留不动，学生端已不再调用。
+
+学生端 `/api/stu/bank`：`GET /lesson-questions`、`/tasks`、`/papers`、`/papers/:id`、`/mfpapers`、`/mfpapers/:id`、`/scan-tree`、`/mistakes`、`/mistake-count`、`/mistake-points`、`/review-queue`、`/uploads`、`/section-questions`、`/node-mastery`；`POST /submit`、`/scan-compose`、`/check`、`/feedback`、`/ai-explain`、`/ai-explain/stream`（SSE）、`/upload-token`
 
 扫码上传 `/api/up`：`GET /info`、`POST /submit`、`GET /mine`
 

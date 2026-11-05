@@ -161,6 +161,7 @@ admin.get('/questions', (req, res) => {
   if (source) { where += ' AND q.source=?'; args.push(source); }
   if (video === 'bound') where += ' AND q.video_id IS NOT NULL';
   if (video === 'none') where += ' AND q.video_id IS NULL';
+  if (video === 'free') where += ' AND q.video_id IS NULL AND q.section_id IS NULL';   // R8：既没绑视频也没挂小分组（课文习题「从题库选择」用）
   if (kw) { where += ' AND (q.stem LIKE ? OR q.point LIKE ? OR q.material LIKE ?)'; args.push(`%${kw}%`, `%${kw}%`, `%${kw}%`); }
   const total = Number((db.prepare('SELECT COUNT(*) n FROM questions q' + where).get(...args) || {}).n || 0);
   const rows = db.prepare(`SELECT q.*, v.title AS video_title, c.name AS chapter_name
@@ -177,6 +178,9 @@ admin.post('/questions', (req, res) => {
     VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?)`)
     .run(q.chapter_id, q.subject, q.grade, q.type, q.stem, JSON.stringify(q.options), q.answer, q.analysis, q.difficulty,
       q.stage, q.point, q.material, q.source, q.year, q.video_id, JSON.stringify(q.images || []), now());
+  // R8：课文习题里给「小分组」添加的题，直接挂到该小分组（与 video_id 二选一）
+  const sec = !q.video_id && req.body && req.body.section_id ? db.prepare('SELECT * FROM sections WHERE id=?').get(Number(req.body.section_id)) : null;
+  if (sec) db.prepare('UPDATE questions SET section_id=?, chapter_id=? WHERE id=?').run(sec.id, sec.chapter_id, info.lastInsertRowid);
   ok(res, { id: info.lastInsertRowid }, '题目已添加');
 });
 
@@ -533,7 +537,7 @@ admin.get('/chapters', (req, res) => {
   if (subject) { where += ' AND c.subject=?'; args.push(subject); }
   const rows = db.prepare(`SELECT c.id, c.name, c.subject, c.grade, c.stage, c.term, c.category, c.book,
       (SELECT COUNT(*) FROM videos v WHERE v.chapter_id=c.id) AS video_count,
-      (SELECT COUNT(*) FROM questions q WHERE q.chapter_id=c.id AND q.video_id IS NOT NULL) AS question_count
+      (SELECT COUNT(*) FROM questions q WHERE q.chapter_id=c.id AND (q.video_id IS NOT NULL OR q.section_id IS NOT NULL)) AS question_count
     FROM chapters c${where}
     ORDER BY FIELD(c.subject,'数学','英语','物理','化学'), c.sort, c.id`).all(...args);
   ok(res, rows);
@@ -542,10 +546,20 @@ admin.get('/chapters', (req, res) => {
 admin.get('/chapters/:id/lessons', (req, res) => {
   const c = db.prepare('SELECT * FROM chapters WHERE id=?').get(Number(req.params.id));
   if (!c) return fail(res, '课程目录不存在');
-  const secs = db.prepare('SELECT id,name,sort FROM sections WHERE chapter_id=? ORDER BY sort,id').all(c.id);
+  const secs = db.prepare(`SELECT s.id, s.name, s.sort,
+      (SELECT COUNT(*) FROM questions q WHERE q.section_id=s.id) AS question_count
+    FROM sections s WHERE s.chapter_id=? ORDER BY s.sort, s.id`).all(c.id);
   const videos = db.prepare(`SELECT v.id, v.title, v.section_id,
       (SELECT COUNT(*) FROM questions q WHERE q.video_id=v.id) AS question_count
     FROM videos v WHERE v.chapter_id=? ORDER BY v.sort, v.id`).all(c.id);
+  // R8：每个视频关联的知识点（名字），列表上直接显示
+  const vn = new Map();
+  if (videos.length) {
+    db.prepare(`SELECT vn.video_id AS vid, n.id, n.name FROM video_nodes vn JOIN bank_tree_nodes n ON n.id=vn.node_id
+      WHERE vn.video_id IN (${videos.map(() => '?').join(',')}) ORDER BY n.sort, n.id`).all(...videos.map((v) => v.id))
+      .forEach((r) => { if (!vn.has(r.vid)) vn.set(r.vid, []); vn.get(r.vid).push({ id: r.id, name: r.name }); });
+  }
+  videos.forEach((v) => { v.nodes = vn.get(v.id) || []; });
   ok(res, { chapter: c, grouped: secs.length > 0, sections: secs, videos });
 });
 // 学情：某个学生按「课程 → 小分组 → 视频」的习题正确率（口径见 src/accuracy.js）
@@ -599,7 +613,9 @@ admin.get('/videos/:id/questions', (req, res) => {
   const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
   if (!v) return fail(res, '视频不存在');
   const rows = db.prepare('SELECT * FROM questions WHERE video_id=? ORDER BY id').all(v.id).map(parseQ);
-  ok(res, { video: v, list: rows });
+  // R8：顺带返回视频关联的知识点（编辑题目时默认继承）
+  const nodes = db.prepare('SELECT n.id, n.name FROM video_nodes vn JOIN bank_tree_nodes n ON n.id=vn.node_id WHERE vn.video_id=? ORDER BY n.sort, n.id').all(v.id);
+  ok(res, { video: v, list: rows, nodes });
 });
 // 绑定 / 解绑题目到视频（解绑走 /videos/0/bind + unbind=1，不要求视频存在）
 admin.post('/videos/:id/bind', (req, res) => {
@@ -614,8 +630,77 @@ admin.post('/videos/:id/bind', (req, res) => {
   }
   const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
   if (!v) return fail(res, '视频不存在');
-  db.prepare(`UPDATE questions SET video_id=?, chapter_id=? WHERE id IN (${ph})`).run(v.id, v.chapter_id, ...ids);
+  // R8：一道题在课程里只挂一个位置——绑到视频时从小分组上取下来
+  db.prepare(`UPDATE questions SET video_id=?, chapter_id=?, section_id=NULL WHERE id IN (${ph})`).run(v.id, v.chapter_id, ...ids);
   ok(res, null, '已绑定到该知识点');
+});
+
+// ---------- R8：小分组习题（题目直接挂到课程目录下的小分组 sections 上） ----------
+admin.get('/sections/:id/questions', (req, res) => {
+  const sec = db.prepare('SELECT * FROM sections WHERE id=?').get(Number(req.params.id));
+  if (!sec) return fail(res, '小分组不存在');
+  const ch = db.prepare('SELECT id, name, subject, grade, stage, term, category FROM chapters WHERE id=?').get(sec.chapter_id) || null;
+  const rows = db.prepare('SELECT * FROM questions WHERE section_id=? ORDER BY id').all(sec.id).map(parseQ);
+  const videoQ = Number((db.prepare(`SELECT COUNT(*) n FROM questions q JOIN videos v ON v.id=q.video_id
+    WHERE v.chapter_id=? AND ${accuracy.SEC_EXPR}=?`).get(sec.chapter_id, sec.id) || {}).n || 0);
+  ok(res, { section: sec, chapter: ch, list: rows, video_question_count: videoQ });
+});
+// 绑定 / 解绑题目到小分组（与视频绑定二选一：挂到小分组时清掉 video_id）
+admin.post('/sections/:id/bind', (req, res) => {
+  const b = req.body || {};
+  const unbind = Number(b.unbind) === 1;
+  const ids = (Array.isArray(b.ids) ? b.ids : []).map(Number).filter(Boolean);
+  if (!ids.length) return fail(res, '请选择题目');
+  const ph = ids.map(() => '?').join(',');
+  const sec = db.prepare('SELECT * FROM sections WHERE id=?').get(Number(req.params.id));
+  if (unbind) {
+    // 只解绑确实挂在这个小分组上的题（防止误把别处的题解掉）；没有绑视频的题顺带清掉 chapter_id
+    if (!sec) return fail(res, '小分组不存在');
+    const r = db.prepare(`UPDATE questions SET section_id=NULL, chapter_id=CASE WHEN video_id IS NULL THEN NULL ELSE chapter_id END
+      WHERE section_id=? AND id IN (${ph})`).run(sec.id, ...ids);
+    return ok(res, { count: r.changes || 0 }, '已解绑');
+  }
+  if (!sec) return fail(res, '小分组不存在');
+  db.prepare(`UPDATE questions SET section_id=?, chapter_id=?, video_id=NULL WHERE id IN (${ph})`).run(sec.id, sec.chapter_id, ...ids);
+  ok(res, { count: ids.length }, '已挂到该小分组');
+});
+
+// ---------- R8：视频关联知识点树节点（video_nodes，多选，整体替换） ----------
+/** 课程目录 → 学段（同步类课程大多只填了年级） */
+const chapterStage = (c) => {
+  const s = String((c && c.stage) || '').trim();
+  if (s === 'primary' || s === 'junior') return s;
+  const g = String((c && c.grade) || '');
+  if (['三年级', '四年级', '五年级', '六年级'].includes(g)) return 'primary';
+  if (['七年级', '八年级', '九年级', '中考冲刺'].includes(g)) return 'junior';
+  return '';
+};
+admin.get('/videos/:id/nodes', (req, res) => {
+  const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
+  if (!v) return fail(res, '视频不存在');
+  const ch = v.chapter_id ? db.prepare('SELECT * FROM chapters WHERE id=?').get(v.chapter_id) : null;
+  const nodes = db.prepare(`SELECT n.id, n.name, n.tree_id FROM video_nodes vn JOIN bank_tree_nodes n ON n.id=vn.node_id
+    WHERE vn.video_id=? ORDER BY n.sort, n.id`).all(v.id);
+  const subject = (ch && ch.subject) || '';
+  const stage = chapterStage(ch);
+  // 候选树：知识点树里学科 + 学段对应的那棵排第一（前端默认选它）
+  const trees = db.prepare("SELECT id, name, subject, stage FROM bank_trees WHERE kind='knowledge' ORDER BY sort, id").all()
+    .sort((a, b) => ((b.subject === subject) * 2 + (b.stage === stage)) - ((a.subject === subject) * 2 + (a.stage === stage)));
+  ok(res, { video: { id: v.id, title: v.title, chapter_id: v.chapter_id }, subject, stage, nodes, trees, tree_id: trees.length ? trees[0].id : 0 });
+});
+admin.post('/videos/:id/nodes', (req, res) => {
+  const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
+  if (!v) return fail(res, '视频不存在');
+  const want = [...new Set((Array.isArray((req.body || {}).node_ids) ? req.body.node_ids : []).map(Number).filter(Boolean))].slice(0, 30);
+  const valid = want.length
+    ? db.prepare(`SELECT id FROM bank_tree_nodes WHERE id IN (${want.map(() => '?').join(',')})`).all(...want).map((r) => r.id)
+    : [];
+  db.transaction(() => {
+    db.prepare('DELETE FROM video_nodes WHERE video_id=?').run(v.id);
+    const ins = db.prepare('INSERT INTO video_nodes (video_id, node_id) VALUES (?,?)');
+    valid.forEach((nid) => ins.run(v.id, nid));
+  })();
+  ok(res, { count: valid.length }, valid.length ? `已关联 ${valid.length} 个知识点` : '已清空关联的知识点');
 });
 
 // ---------- 课文习题：Word 批量上传（题号.（题型）题干→选项→答案：→解析： 一键解析入库，插图自动提取） ----------
@@ -992,6 +1077,67 @@ stu.get('/lesson-questions', (req, res) => {
   ok(res, { title: v.title, list: rows.map(serveQ) });
 });
 
+/** R8：某课程目录对这个学生可见吗（同 lesson-questions 的口径） */
+function stuSeesChapter(uid, chapterId) {
+  if (!chapterId) return true;
+  const c = db.prepare('SELECT * FROM chapters WHERE id=?').get(Number(chapterId));
+  if (!c) return false;
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(uid) || {};
+  const grade = String(u.grade || '').trim(); const term = String(u.term || '').trim();
+  const stage = stageOfGrade(u.stage, grade);
+  const cat = String(c.category || '');
+  if (cat === '专项提升') return !!stage && String(c.stage || '') === stage;
+  if (cat === '中考冲刺') return stage === 'junior';
+  if (grade && String(c.grade || '') && String(c.grade) !== grade) return false;
+  if (term && String(c.term || '') && String(c.term) !== term) return false;
+  return true;
+}
+/** R8：小分组练习的题 = 小分组自己的题 + 组内视频的题（视频顺序在前，小分组自己的题在后） */
+function sectionPracticeQs(sec) {
+  return db.prepare(`SELECT q.* FROM questions q LEFT JOIN videos v ON v.id=q.video_id
+    WHERE q.section_id=? OR (q.video_id IS NOT NULL AND v.chapter_id=? AND ${accuracy.SEC_EXPR}=?)
+    ORDER BY CASE WHEN q.section_id=? THEN 1 ELSE 0 END, v.sort, v.id, q.id LIMIT 60`).all(sec.id, sec.chapter_id, sec.id, sec.id);
+}
+/** R8：小分组练习取题（不含答案） */
+stu.get('/section-questions', (req, res) => {
+  const sec = db.prepare('SELECT * FROM sections WHERE id=?').get(Number(req.query.section_id || 0));
+  if (!sec) return fail(res, '小分组不存在');
+  if (!stuSeesChapter(req.user.id, sec.chapter_id)) return fail(res, '这门课不属于你的年级 / 学段');
+  const rows = sectionPracticeQs(sec);
+  ok(res, { title: sec.name, section_id: sec.id, list: rows.map(serveQ) });
+});
+
+/** R8：某个知识点（知识点树节点，含子孙节点）的掌握情况：
+ *  题目范围 = 挂在该节点上的题（question_nodes）∪ 绑在「关联了该节点的视频」上的题（video_nodes，题目自动继承视频的知识点）
+ *  只列出本人做过的题（最近一次对错）；course_id 给了就顺带返回本课程里讲这个知识点的视频 */
+stu.get('/node-mastery', (req, res) => {
+  const uid = req.user.id;
+  const node = db.prepare('SELECT id, tree_id, parent_id, name FROM bank_tree_nodes WHERE id=?').get(Number(req.query.node_id || 0));
+  if (!node) return fail(res, '知识点不存在');
+  const all = db.prepare('SELECT id, parent_id FROM bank_tree_nodes WHERE tree_id=?').all(node.tree_id);
+  const kids = {}; all.forEach((n) => { if (n.parent_id) (kids[n.parent_id] = kids[n.parent_id] || []).push(n.id); });
+  const ids = []; const stack = [node.id]; const seen = new Set();
+  while (stack.length) { const x = stack.pop(); if (seen.has(x)) continue; seen.add(x); ids.push(x); (kids[x] || []).forEach((k) => stack.push(k)); }
+  const ph = ids.map(() => '?').join(',');
+  const qids = db.prepare(`SELECT DISTINCT q.id FROM questions q WHERE q.type<>'answer' AND (
+      q.id IN (SELECT question_id FROM question_nodes WHERE node_id IN (${ph}))
+      OR q.video_id IN (SELECT video_id FROM video_nodes WHERE node_id IN (${ph})))`).all(...ids, ...ids).map((r) => r.id);
+  const last = accuracy.lastAnswers(db, uid, qids);
+  const done = qids.filter((id) => last.has(id));
+  const correct = done.filter((id) => last.get(id).is_correct).length;
+  const list = done.length ? db.prepare(`SELECT id, type, stem FROM questions WHERE id IN (${done.map(() => '?').join(',')})`).all(...done)
+    .map((q) => ({ id: q.id, type: q.type, stem: String(q.stem || '').replace(/\[图\d+\]/g, '').replace(/\s+/g, ' ').slice(0, 80), ...last.get(q.id) }))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 30) : [];
+  let videos = [];
+  const cid = Number(req.query.course_id || 0);
+  if (cid && stuSeesChapter(uid, cid)) {
+    videos = db.prepare(`SELECT DISTINCT v.id AS video_id, v.title, v.sort FROM videos v JOIN video_nodes vn ON vn.video_id=v.id
+      WHERE v.chapter_id=? AND vn.node_id IN (${ph}) ORDER BY v.sort, v.id`).all(cid, ...ids).map((v) => ({ video_id: v.video_id, title: v.title }));
+  }
+  ok(res, { node: { id: node.id, name: node.name }, total: qids.length, answered: done.length, correct,
+    rate: done.length ? Math.round(correct / done.length * 100) : null, list, videos });
+});
+
 // ---------- 我的试卷 ----------
 // ---------- 我的任务：老师定向下发 + 全员下发的试卷 ----------
 stu.get('/tasks', (req, res) => {
@@ -1078,7 +1224,7 @@ stu.post('/submit', (req, res) => {
   const uid = req.user.id;
   const me = db.prepare('SELECT * FROM users WHERE id=?').get(uid);
   const b = req.body || {};
-  const kind = ['practice', 'paper', 'redo', 'review', 'mfpaper', 'self'].includes(b.kind) ? b.kind : 'practice';
+  const kind = ['practice', 'section', 'paper', 'redo', 'review', 'mfpaper', 'self'].includes(b.kind) ? b.kind : 'practice';
   const answers = Array.isArray(b.answers) ? b.answers : [];
   if (!answers.length) return fail(res, '没有作答内容');
   const videoId = b.video_id ? Number(b.video_id) : 0;
@@ -1107,6 +1253,14 @@ stu.post('/submit', (req, res) => {
     allowedIds = new Set(db.prepare("SELECT question_id FROM mf_paper_questions WHERE paper_id=? AND kind='question'").all(paperId).map((r) => r.question_id));
   }
 
+  // R8：小分组练习——题目必须是这个小分组自己的题或组内视频的题
+  let section = null;
+  if (kind === 'section') {
+    section = db.prepare('SELECT * FROM sections WHERE id=?').get(Number(b.section_id) || 0);
+    if (!section) return fail(res, '缺少小分组');
+    if (!stuSeesChapter(uid, section.chapter_id)) return fail(res, '这门课不属于你的年级 / 学段');
+    allowedIds = new Set(sectionPracticeQs(section).map((q) => q.id));
+  }
   // 知识点校验：视频所属课程对该学生可见
   let video = null;
   if (kind === 'practice') {
@@ -1145,7 +1299,7 @@ stu.post('/submit', (req, res) => {
       if (!q) continue;
       // 越权校验：练习题必须绑在指定知识点上；试卷题必须在卷面的题单里；错题重做 / 复习只能做错题本里有的题；自组卷（章节测评 / 学段冲刺）题目存在即可
       if (kind === 'practice') { if (Number(q.video_id) !== videoId) continue; }
-      else if (kind === 'paper' || kind === 'mfpaper') { if (!allowedIds.has(q.id)) continue; }
+      else if (kind === 'paper' || kind === 'mfpaper' || kind === 'section') { if (!allowedIds.has(q.id)) continue; }
       else if (kind === 'redo' || kind === 'review') {
         const m = db.prepare('SELECT id, review_stage FROM mistakes WHERE user_id=? AND question_id=?').get(uid, q.id);
         if (!m) continue;
@@ -1187,7 +1341,7 @@ stu.post('/submit', (req, res) => {
       results.push({
         question_id: q.id, type: q.type, stem: q.stem, material: q.material || '',
         options: o.options, my_answer: String(a.my_answer || ''), answer: q.answer,
-        analysis: q.analysis || '', difficulty: q.difficulty, is_correct: isOk,
+        analysis: q.analysis || '', difficulty: q.difficulty, is_correct: isOk, point: String(q.point || '').trim(),
       });
       detail.push({ question_id: q.id, my_answer: String(a.my_answer || ''), is_correct: isOk ? 1 : 0 });
     }
@@ -1207,7 +1361,7 @@ stu.post('/submit', (req, res) => {
         .run(uid, paperId, detail.length, correct, score, JSON.stringify(detail), now());
     } else {
       db.prepare('INSERT INTO practices (user_id,chapter_id,total,correct,duration,created_at) VALUES (?,?,?,?,?,?)')
-        .run(uid, (video && video.chapter_id) || 0, detail.length, correct, Number(b.duration) || 0, now());
+        .run(uid, (video && video.chapter_id) || (section && section.chapter_id) || 0, detail.length, correct, Number(b.duration) || 0, now());
     }
   });
   tx();
@@ -1222,6 +1376,13 @@ stu.post('/submit', (req, res) => {
   });
   // 做的是某个视频的练习：回传该视频和所属小分组"现在"的正确率（学生端立即刷新）
   let mastery = null;
+  if (kind === 'section' && section) {
+    // R8：小分组练习交卷后回传该小分组现在的正确率（组内视频的题 + 小分组自己的题）
+    const vids = accuracy.sectionVideoIds(db, section.chapter_id, section.id);
+    const vs = accuracy.videoStats(db, uid, vids);
+    const own = accuracy.ofVideo(accuracy.sectionOwnStats(db, uid, [section.id]), section.id);
+    mastery = { video: null, section: { id: section.id, name: section.name, ...accuracy.sum(vids.map((id) => accuracy.ofVideo(vs, id)).concat([own])) } };
+  }
   if (kind === 'practice' && video) {
     const sid = accuracy.sectionOfVideo(db, video.id);
     const secVids = sid ? accuracy.sectionVideoIds(db, video.chapter_id, sid) : [];
@@ -1229,7 +1390,8 @@ stu.post('/submit', (req, res) => {
     const sec = sid ? db.prepare('SELECT id, name FROM sections WHERE id=?').get(sid) : null;
     mastery = {
       video: { id: video.id, title: video.title, ...accuracy.ofVideo(stats, video.id) },
-      section: sec ? { id: sec.id, name: sec.name, ...accuracy.sum(secVids.map((id) => accuracy.ofVideo(stats, id))) } : null,
+      section: sec ? { id: sec.id, name: sec.name, ...accuracy.sum(secVids.map((id) => accuracy.ofVideo(stats, id))
+        .concat([accuracy.ofVideo(accuracy.sectionOwnStats(db, uid, [sec.id]), sec.id)])) } : null,   // R8：含小分组自己的题
     };
   }
   ok(res, { total: detail.length, correct, wrong, list: results, by_point: [...byPoint.values()], mastery, score: paperScore, score_total: paperTotal },
@@ -1415,7 +1577,15 @@ stu.post('/check', (req, res) => {
     if (!q) return { question_id: a.question_id, is_correct: false, answer: '', analysis: '', missing: true };
     if (q.type === 'answer') return { question_id: q.id, is_correct: false, ungraded: true, answer: q.answer, analysis: q.analysis || '' };
     const isOk = judgeQ(q, a.my_answer);
-    return { question_id: q.id, is_correct: isOk, answer: q.answer, analysis: q.analysis || '' };
+    const out1 = { question_id: q.id, is_correct: isOk, answer: q.answer, analysis: q.analysis || '' };
+    if (q.type === 'fill') {
+      // R8：填空逐空对错（学生端逐空打 ✓ / ✗）：把每一空单独当成一道单空题判
+      const PH = '\u0001';
+      const ans = String(q.answer || '').replace(/\|\|\|/g, PH).split('|');
+      const mine = String(a.my_answer || '').split('|');
+      out1.blanks = ans.map((x, i) => judgeQ({ type: 'fill', answer: x.split(PH).join('|||') }, mine[i] || ''));
+    }
+    return out1;
   });
   ok(res, { list: out });
 });
@@ -1470,6 +1640,95 @@ ${q.analysis ? '参考解析：' + q.analysis : ''}
   } catch (e) {
     return fail(res, 'AI 讲解暂时不可用：' + (e.message || '请稍后再试'));
   }
+});
+
+// ---------- R8：AI 老师浮层（流式讲解，SSE） ----------
+/* POST /api/stu/bank/ai-explain/stream  body: { question_id, my_answer, mode: 'explain' | 'guide', history: [{role,content}], ask }
+ * 返回 text/event-stream：data: {"t":"delta","text":"…"} … data: {"t":"done","model":"…"}；出错 data: {"t":"error","msg":"…"}
+ * explain：按「知识点 / 思路 / 步骤 / 易错点」分段的完整讲解；guide：苏格拉底式一步步引导（一次只问一个问题，学生可在输入框回答）
+ * 多轮：history 是前端保存的之前的对话，题目信息每次都放在 system 里，所以追问不会丢上下文。
+ * AI_MOCK=1：不调外部接口，按题目内容拼一段示例讲解，逐字分块推送（CI / 截图用）。 */
+const AI_EXPLAIN_SYS = '你是一位耐心、讲解清楚的中小学老师。学生刚做完下面这道题，请针对这道题讲解。\n'
+  + '严格用 Markdown 按以下四个三级标题输出，标题文字不要改：\n### 知识点\n（这道题考的知识点，1~2 句）\n### 思路\n（怎么想到解法，2~3 句）\n### 步骤\n（用 1. 2. 3. 有序列表写出完整解题步骤）\n### 易错点\n（结合学生的答案指出容易错在哪里，1~3 条无序列表）\n'
+  + '数学公式一律用 \\( … \\) 包住的 LaTeX。语言口语化、适合中小学生，总字数 600 字以内。不要输出 JSON 或代码块，不要用表情符号。\n'
+  + '学生之后的追问（例如“再讲细一点”“出一道同类题”或自己提的问题）：直接针对问题回答，不必再套上面四个标题，300 字以内。';
+const AI_GUIDE_SYS = '你是一位耐心的中小学老师，用苏格拉底式启发法一步步引导学生自己做出这道题：\n'
+  + '1. 每次回复只推进一步：先用一两句肯定或纠正学生上一条回答，再提出一个具体的小问题让学生思考，然后停下来等学生回答；\n'
+  + '2. 不要一次讲完，也不要直接说出最终答案，除非学生已经答对、或者连续两次说不会；\n'
+  + '3. 学生答对最后一步后，用 3 句以内总结关键思路；\n'
+  + '4. 每次回复 150 字以内，数学公式用 \\( … \\) 包住的 LaTeX，不要输出代码块，不要用表情符号。';
+function aiQuestionBrief(q, myAns) {
+  const o = parseQ(q);
+  const opts = o.options.length ? o.options.map((t, i) => `${LETTERS[i]}. ${t}`).join('\n') : '';
+  return `【题目】（${TYPE_NAMES[q.type] || '题目'}${q.point ? '，知识点：' + q.point : ''}）\n${String(q.stem || '').replace(/\[图\d+\]/g, '（见图）')}`
+    + (q.material ? `\n【材料】${String(q.material).slice(0, 1500)}` : '')
+    + (opts ? `\n【选项】\n${opts}` : '')
+    + `\n【学生的答案】${myAns || '（未作答）'}\n【正确答案】${q.answer || '（无）'}`
+    + (q.analysis ? `\n【参考解析】${q.analysis}` : '');
+}
+/** AI_MOCK 下的示例回复（不调外部接口） */
+function aiMockReply(q, mode, ask, turn, myAns) {
+  const pt = String(q.point || '').trim() || '本题知识点';
+  const ana = String(q.analysis || '').trim() || '先读懂题意，找出已知条件和要求的量，再一步步推出结果。';
+  const ansTxt = String(q.answer || '').replace(/\|\|\|/g, ' 或 ').replace(/\|/g, '，');
+  if (mode === 'guide') {
+    if (!turn) return `我们一起来想一想，不着急看答案。\n\n**第 1 步：** 这道题考的是「${pt}」。先读题，题目里告诉了我们哪些条件？要求的又是什么？\n\n把你的想法写在下面的输入框里告诉我。`;
+    if (/不会|不知道|不懂/.test(ask)) return `没关系，给你一个提示：${ana.slice(0, 60)}\n\n**第 ${turn + 1} 步：** 顺着这个提示，下一步你会怎么算？`;
+    return `嗯，你的想法有道理！\n\n**第 ${turn + 1} 步：** 现在请你把条件代进去算一算，结果是多少？算完和选项（或空格）对照一下。`;
+  }
+  if (/同类|考考|举一反三/.test(ask)) {
+    return `### 同类题\n\n这道题和刚才一样考「${pt}」：\n\n> 数轴上点 M 表示 \\(-4\\)，点 N 表示 \\(2\\)，那么 M、N 两点之间的距离是多少？\n\n先自己算一算，写在下面的输入框里，我来帮你批改。\n\n**提示：** 两点间距离 = 右边的数 \\(-\\) 左边的数。`;
+  }
+  if (/细|详细/.test(ask)) {
+    return `### 再讲细一点\n\n我们把关键的那一步拆开看：\n\n1. 先确定题目问的是什么：${String(q.stem || '').replace(/\[图\d+\]/g, '').slice(0, 40)}……\n2. 回忆「${pt}」的定义，把题目条件对应上；\n3. ${ana}\n4. 最后检查：结果是否符合常识（比如距离不能是负数）。\n\n所以正确答案是 **${ansTxt}**。`;
+  }
+  if (turn) return `你问的是：「${String(ask).slice(0, 40)}」。\n\n结合这道题来说：${ana}\n\n记住「${pt}」的关键点，下次遇到类似的题就不容易错了。`;
+  return `### 知识点\n\n这道题考的是 **${pt}**。\n\n### 思路\n\n先弄清题目给了什么、要求什么，再用「${pt}」的方法把条件联系起来。\n\n### 步骤\n\n1. 读题，圈出关键条件；\n2. ${ana}\n3. 得出答案：**${ansTxt}**。\n\n### 易错点\n\n- 你的答案是「${myAns || '未作答'}」，和正确答案不一样的地方要特别注意；\n- 符号（正负号）最容易看错，算完要再检查一遍；\n- 公式示例：\\(|a| \\ge 0\\)，任何数的绝对值都不是负数。`;
+}
+stu.post('/ai-explain/stream', async (req, res) => {
+  const b = req.body || {};
+  const q = db.prepare('SELECT * FROM questions WHERE id=?').get(Number(b.question_id) || 0);
+  if (!q) return fail(res, '题目不存在');
+  const mode = b.mode === 'guide' ? 'guide' : 'explain';
+  const myAns = String(b.my_answer || '').slice(0, 500);
+  const history = (Array.isArray(b.history) ? b.history : []).slice(-12)
+    .map((m) => ({ role: m && m.role === 'assistant' ? 'assistant' : 'user', content: String((m && m.content) || '').slice(0, 3000) }))
+    .filter((m) => m.content);
+  const ask = String(b.ask || '').trim().slice(0, 500) || (mode === 'guide' ? '请一步步引导我做这道题。' : '请讲解这道题。');
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');   // nginx 反代时不要缓冲，否则看不到逐字输出
+  if (res.flushHeaders) res.flushHeaders();
+  const send = (o) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(o)}\n\n`); };
+  const ac = new AbortController();
+  let closed = false;
+  res.on('close', () => { closed = true; ac.abort(); });
+  const t0 = Date.now();
+  send({ t: 'start', mode });
+  try {
+    const { getConfig } = require('./ai');
+    if (getConfig().mock) {
+      const text = aiMockReply(q, mode, ask, history.filter((m) => m.role === 'assistant').length, myAns);
+      for (let i = 0; i < text.length && !closed; i += 2) {
+        send({ t: 'delta', text: text.slice(i, i + 2) });
+        await new Promise((r) => setTimeout(r, 28));
+      }
+      send({ t: 'done', model: 'mock（演示模式）', ms: Date.now() - t0 });
+      return res.end();
+    }
+    const system = (mode === 'guide' ? AI_GUIDE_SYS : AI_EXPLAIN_SYS) + '\n\n' + aiQuestionBrief(q, myAns);
+    let first = 0;
+    const r = await require('./ai-client').chatStream({ role: 'reasoning', system, messages: history.concat([{ role: 'user', content: ask }]), maxTokens: 1600, temperature: 0.4 },
+      (piece) => { if (!first) first = Date.now() - t0; send({ t: 'delta', text: piece }); }, { signal: ac.signal });
+    send({ t: 'done', model: r.model, first_ms: first, ms: Date.now() - t0, streamed: r.streamed });
+    console.log(`[ai-stream] q=${q.id} mode=${mode} model=${r.model} streamed=${r.streamed} first=${first}ms total=${Date.now() - t0}ms len=${r.text.length}`);
+  } catch (e) {
+    if (!closed) send({ t: 'error', msg: 'AI 老师暂时没有回应：' + ((e && e.message) || '请稍后再试') });
+    console.log('[ai-stream] error', (e && e.message) || e);
+  }
+  res.end();
 });
 
 // ---------- 纸质错题上传（学生端） ----------

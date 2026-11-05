@@ -407,9 +407,9 @@
 | R6 | 智能组卷 | `/admin/#/paper` | 待做 | | |
 | R6 / R7 | 学生端试卷页 | `/#/papers` | 待做 | | |
 | R7 | 试卷管理 | `/admin/#/mfp` | 待做 | | |
-| R8 | 课文习题 | `/admin/#/lessonq` | 待做 | | |
-| R8 | 学生端课程页 | `/#/course/:id` | 待做 | | |
-| R8 | 做题弹窗 + AI 浮层 | 课程页 → 练习 | 待做 | | |
+| R8 | 课文习题 | `/admin/#/lessonq` | 已完成（分支 `feat/r8-course-quiz`） | `r8/before-admin-lessonq.png` | `r8/after-admin-lessonq.png`、`r8/after-admin-lessonq-video.png` |
+| R8 | 学生端课程页 | `/#/course/:id` | 已完成 | `r8/before-student-course.png` | `r8/after-student-course.png`、`-m.png` |
+| R8 | 做题弹窗 + AI 浮层 | 课程页 → 练习 | 已完成 | `r8/before-quiz-judged.png`、`r8/before-quiz-ai.png` | `r8/after-quiz-judged.png`、`r8/after-quiz-ai-followup.png`、`r8/after-quiz-report.png` |
 | R9 | 学生端错题本 | 学生端 → 错题本 | 待做 | | |
 | R9 | 扫码上传页 | `/upload.html` | 待做 | | |
 | R10 | 后台首页 | `/admin/#/dash` | 待做 | | |

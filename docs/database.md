@@ -53,3 +53,10 @@
 - `bank_tree_nodes.code VARCHAR(100) DEFAULT ''`（外部编号，如洋葱 / 组卷网节点 id）、`bank_tree_nodes.note MEDIUMTEXT`（备注）：树导入导出（`docs/tree-import-format.md`）带上，页面暂不显示。
 - 都在 `src/db.js` 幂等 `ALTER TABLE … ADD COLUMN`。种子章节树启动时按学段补版本并改正树名（`src/mfseed.js`，幂等；`source` 标识不变）：数学小学=苏教版（树名原来误写成「苏科版数学·教材章节」）、数学初中=苏科版、英语=译林版。
 - `settings.default_editions`（JSON）：默认版本表 `{ 学科: { 学段: 版本 } }`，默认 数学 小学苏教版 / 初中苏科版，英语 译林版，物理 初中苏科版，化学 初中沪教版；启动时没有才写，后台可改（`PUT /mf/editions`）。取树时没指定版本就按它选，见 `src/treepick.js`。
+
+## R8 小分组挂题、视频关联知识点：`questions` 加一列 + 新表 `video_nodes`（2026-11-04）
+
+- `questions.section_id INTEGER DEFAULT NULL`（索引 `idx_q_section`）：题目直接挂到课程目录下的「小分组」（`sections.id`）。和 `video_id` **二选一**：绑到视频时清掉 `section_id`，挂到小分组时清掉 `video_id`；挂小分组时 `chapter_id` 同时写成小分组所属课程。删小分组 / 删课程时把挂在上面的题 `section_id` 置空（题目保留在题库）。
+- `video_nodes(video_id INTEGER, node_id INTEGER, PRIMARY KEY(video_id,node_id))`（索引 `idx_vnode_node`）：视频关联的知识点树节点（`bank_tree_nodes.id`，多选）。学生端视频卡显示成知识点标签；统计某个知识点的掌握情况时，绑在「关联了该知识点的视频」上的题自动算进来（**不写 `question_nodes`**，见 D31）。删视频时一并删掉它的 `video_nodes`。
+- 两者都在 `src/db.js` 里幂等建：`ALTER TABLE … ADD COLUMN` + `CREATE TABLE IF NOT EXISTS`，只加不删。
+- 正确率口径（`src/accuracy.js`）：小分组 = 组内视频的题 + 小分组自己的题合并后再算；课程 = 全部视频的题 + 全部小分组自己的题。新增 `sectionOwnStats`（按 `section_id` 聚合）、`lastAnswers`（一组题各自最近一次作答），仍然只读 `records`，不新增作答表。

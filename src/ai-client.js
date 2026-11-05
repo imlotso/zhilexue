@@ -4,6 +4,7 @@
  *
  *   chat({ role, messages | (system, user), images, json, maxTokens, temperature, timeoutMs })
  *     → { text, model, via, format }
+ *   chatStream(同上入参, onDelta, { signal }) → 同上 + streamed（R8：流式，OpenAI 兼容走 stream:true，另两种退化为分块推送）
  *
  * 配置来源：后台「设置 → AI 配置中心」里的模型档案（表 mf_model_profiles，一条档案 = 一个接口）。
  * 档案有 `format` 字段决定协议，支持三种：
@@ -249,6 +250,90 @@ async function chat(input = {}) {
   return callWith(cfg, input, { timeoutMs: input.timeoutMs || 180000 });
 }
 
+/**
+ * 流式对话（R8，AI 老师浮层用）：chatStream(input, onDelta, { signal }) → { text, model, via, format, streamed }
+ *   · OpenAI 兼容：请求带 stream:true，按 SSE 逐行解析 choices[0].delta.content，每收到一段就 onDelta(片段)
+ *     （只取 content；qwen 等模型的 reasoning_content 思考过程不推给学生）
+ *   · Anthropic / Gemini：先退化为一次性返回，再按约 24 字一段推给 onDelta（前端体验一致，以后再接各自的流式协议）
+ *   · 服务商不认 stream 参数、直接回了一整段 JSON 时，也按一次性结果处理
+ *   · signal（AbortController.signal）：学生关掉面板 / 断开连接时中止上游请求，不再计费
+ */
+async function chatStream(input, onDelta, { signal, timeoutMs = 180000, idleMs = 60000 } = {}) {
+  const cfg = resolve(input.role || 'reasoning');
+  if (!cfg.base) throw new Error('还没有填写接口地址');
+  if (!cfg.model) throw new Error('还没有填写模型名');
+  if (!cfg.key) throw new Error('还没有写上 AI 密钥');
+  const emitChunks = (text) => { const t = String(text || ''); for (let i = 0; i < t.length; i += 24) onDelta(t.slice(i, i + 24)); };
+  if (cfg.format !== 'openai') {
+    const r = await callWith(cfg, input, { timeoutMs });
+    emitChunks(r.text);
+    return Object.assign(r, { streamed: false });
+  }
+  const o = {
+    json: false,
+    maxTokens: Number(input.maxTokens) || 0,
+    temperature: input.temperature === undefined ? 0.3 : input.temperature,
+  };
+  const rq = BUILDERS.openai(cfg, prepare(input), o);
+  rq.body.stream = true;
+  const body = JSON.stringify(rq.body);
+  let u;
+  try { u = new URL(rq.url); } catch (e) { throw new Error('接口地址无效：' + rq.url); }
+  const lib = u.protocol === 'http:' ? http : https;
+  return new Promise((resolveP, rejectP) => {
+    let full = ''; let settled = false; let buf = '';
+    const done = (err, val) => { if (settled) return; settled = true; clearTimeout(total); if (err) rejectP(err); else resolveP(val); };
+    const req = lib.request(u, { method: 'POST', headers: Object.assign({}, rq.headers, { Accept: 'text/event-stream', 'Content-Length': Buffer.byteLength(body) }), timeout: idleMs, signal }, (res) => {
+      const ctype = String(res.headers['content-type'] || '');
+      if (res.statusCode < 200 || res.statusCode >= 300 || !/event-stream/i.test(ctype)) {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          if (res.statusCode < 200 || res.statusCode >= 300) return done(httpError(res.statusCode, text, cfg));
+          // 服务商忽略了 stream：当一次性结果处理
+          let j; try { j = JSON.parse(text); } catch (e) { return done(new Error('AI 接口返回的不是 JSON —— 检查接口地址是否填对')); }
+          const t = PARSERS.openai(j);
+          if (!t) return done(new Error('AI 返回内容为空'));
+          emitChunks(t);
+          done(null, { text: t, model: cfg.model, via: cfg.via, format: cfg.format, streamed: false });
+        });
+        return;
+      }
+      res.setEncoding('utf8');
+      const onLine = (line) => {
+        const m = /^data:\s?(.*)$/.exec(line.trim());
+        if (!m) return;
+        if (m[1] === '[DONE]') return;
+        let j; try { j = JSON.parse(m[1]); } catch (e) { return; }
+        if (j && j.error) { done(new Error('AI 接口报错：' + String(j.error.message || JSON.stringify(j.error)).slice(0, 200))); req.destroy(); return; }
+        const d = j && j.choices && j.choices[0] && j.choices[0].delta;
+        const piece = d && typeof d.content === 'string' ? d.content : '';
+        if (piece) { full += piece; onDelta(piece); }
+      };
+      res.on('data', (c) => {
+        buf += c;
+        let i;
+        while ((i = buf.indexOf('\n')) >= 0) { onLine(buf.slice(0, i)); buf = buf.slice(i + 1); }
+      });
+      res.on('end', () => {
+        if (buf) onLine(buf);
+        if (!full) return done(new Error('AI 返回内容为空'));
+        done(null, { text: full, model: cfg.model, via: cfg.via, format: cfg.format, streamed: true });
+      });
+      res.on('error', (e) => done(netError(e, cfg, idleMs)));
+    });
+    const total = setTimeout(() => req.destroy(Object.assign(new Error('timeout'), { name: 'AbortError' })), timeoutMs);
+    req.on('timeout', () => req.destroy(Object.assign(new Error('timeout'), { name: 'AbortError' })));
+    req.on('error', (e) => {
+      if (signal && signal.aborted) return done(Object.assign(new Error('已取消'), { canceled: true }));
+      done(netError(e, cfg, e && e.name === 'AbortError' ? timeoutMs : idleMs));
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
 /** 测试连接：用给定的（可以是还没保存的）档案内容发一条最小请求，错误地址会给出明确原因 */
 async function testProfile(prof) {
   const role = String(prof.role || 'reasoning');
@@ -287,4 +372,4 @@ async function listModels({ format, base_url, api_key }) {
   return arr.map((m) => (typeof m === 'string' ? m : String(m.id || m.name || '').replace(/^models\//, ''))).filter(Boolean).sort();
 }
 
-module.exports = { chat, testProfile, listModels, resolve, pickProfile, FORMATS, FORMAT_NAMES, FORMAT_HINTS, normFormat, httpRequest, ROLE_FALLBACK };
+module.exports = { chat, chatStream, testProfile, listModels, resolve, pickProfile, FORMATS, FORMAT_NAMES, FORMAT_HINTS, normFormat, httpRequest, ROLE_FALLBACK };

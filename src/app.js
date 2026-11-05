@@ -843,6 +843,8 @@ admin.delete('/chapters/:id', (req, res) => {
   const id = Number(req.params.id);
   // 绑在该章节视频上的练习题解绑回题库；学习进度清理（视频/讲义文件按惯例保留）
   db.prepare('UPDATE questions SET video_id=NULL WHERE video_id IN (SELECT id FROM videos WHERE chapter_id=?)').run(id);
+  // R8：挂在本章小分组上的题同样解绑回题库
+  db.prepare('UPDATE questions SET section_id=NULL WHERE section_id IN (SELECT id FROM sections WHERE chapter_id=?)').run(id);
   db.prepare('DELETE FROM progress WHERE chapter_id=?').run(id);
   db.prepare('DELETE FROM sections WHERE chapter_id=?').run(id);
   db.prepare('DELETE FROM chapters WHERE id=?').run(id);
@@ -888,6 +890,7 @@ admin.delete('/sections/:id', (req, res) => {
   if (!s) return fail(res, '分级目录不存在');
   db.prepare('UPDATE videos SET section_id=NULL WHERE section_id=?').run(s.id);
   db.prepare('UPDATE handouts SET section_id=NULL WHERE section_id=?').run(s.id);
+  db.prepare('UPDATE questions SET section_id=NULL WHERE section_id=?').run(s.id);   // R8：小分组习题解绑回题库
   db.prepare('DELETE FROM sections WHERE id=?').run(s.id);
   ok(res, { id: s.id }, '已删除（原有视频与资料已变为不分组）');
 });
@@ -1185,6 +1188,7 @@ admin.delete('/videos/batch', async (req, res) => {
       db.prepare('DELETE FROM videos WHERE id=?').run(id);
       // 绑在该视频上的练习题解绑回题库（题目保留，可重新绑定其他视频）
       db.prepare('UPDATE questions SET video_id=NULL WHERE video_id=?').run(id);
+      db.prepare('DELETE FROM video_nodes WHERE video_id=?').run(id);   // R8：视频关联的知识点
       n++;
     }
   }
@@ -1197,6 +1201,7 @@ admin.delete('/videos/:id', async (req, res) => {
   db.prepare('DELETE FROM videos WHERE id=?').run(Number(req.params.id));
   // 题库与视频只靠绑定关系关联（T12）：删视频只解绑，题目（含图片 / 音频）原样保留，可重新绑定其他视频
   if (v) db.prepare('UPDATE questions SET video_id=NULL WHERE video_id=?').run(v.id);
+  if (v) db.prepare('DELETE FROM video_nodes WHERE video_id=?').run(v.id);   // R8：视频关联的知识点
   ok(res, null, '已删除');
 });
 /** 删掉一条视频文件：云端对象和切换 OSS 之前留在磁盘上的旧文件都清掉 */
@@ -1512,6 +1517,14 @@ function lessonsOf(chapterId, userId) {
   }
   // 习题正确率（T6）：按视频聚合最近一次作答，见 src/accuracy.js
   const accStats = userId ? accuracy.videoStats(db, userId, [...videoIds]) : new Map();
+  // R8：视频关联的知识点树节点（后台「课文习题 → 管理习题 → 关联知识点」），学生端显示成标签
+  const nodesOf = new Map();
+  if (videoIds.size) {
+    const ph = [...videoIds].map(() => '?').join(',');
+    db.prepare(`SELECT vn.video_id AS vid, n.id, n.name FROM video_nodes vn JOIN bank_tree_nodes n ON n.id=vn.node_id
+      WHERE vn.video_id IN (${ph}) ORDER BY n.sort, n.id`).all(...videoIds)
+      .forEach((r) => { if (!nodesOf.has(r.vid)) nodesOf.set(r.vid, []); nodesOf.get(r.vid).push({ id: r.id, name: r.name }); });
+  }
   const lessons = videos.map((v) => {
     const doc = byVideo.get(v.id) || null;
     const p = prog.get(v.id) || {};
@@ -1520,6 +1533,7 @@ function lessonsOf(chapterId, userId) {
       section_id: v.section_id || (doc && doc.section_id) || 0,
       qcount: qCount.get(v.id) || 0,
       acc: accuracy.ofVideo(accStats, v.id),
+      nodes: nodesOf.get(v.id) || [],
       done: Number(p.video_done) === 1 ? 1 : 0,
       handout: doc ? {
         id: doc.id, title: doc.title, file_name: doc.file_name, ext: doc.ext || '',
@@ -1536,24 +1550,53 @@ function lessonsOf(chapterId, userId) {
  *   · 章节下建过分级目录 → 返回 groups（含「未分组」兜底组）
  *   · 章节下没有分级目录 → grouped = false，学生端仍按平铺列表展示
  */
-function groupsOf(chapterId, lessons) {
+function groupsOf(chapterId, lessons, userId) {
   const secs = db.prepare('SELECT id,name,sort FROM sections WHERE chapter_id=? ORDER BY sort, id').all(Number(chapterId));
-  if (!secs.length) return { grouped: false, groups: [] };
+  if (!secs.length) return { grouped: false, groups: [], own: accuracy.sum([]) };
+  // R8：直接挂在小分组上的题（题数 + 本人正确率）；小分组的正确率 = 组内视频的题 + 小分组自己的题 合并计算
+  const ownN = new Map();
+  const sph = secs.map(() => '?').join(',');
+  db.prepare(`SELECT section_id AS sid, COUNT(*) n FROM questions WHERE section_id IN (${sph}) GROUP BY section_id`).all(...secs.map((x) => x.id))
+    .forEach((r) => ownN.set(Number(r.sid), Number(r.n) || 0));
+  const ownStats = userId ? accuracy.sectionOwnStats(db, userId, secs.map((x) => x.id)) : new Map();
   const bucket = new Map(secs.map((s) => [s.id, []]));
   const loose = [];
   for (const l of lessons) {
     if (l.section_id && bucket.has(Number(l.section_id))) bucket.get(Number(l.section_id)).push(l);
     else loose.push(l);
   }
-  const mk = (id, name, arr) => ({
-    id, name, lessons: arr, kp_total: arr.length,
-    acc: accuracy.sum(arr.map((x) => x.acc)),
-    kp_done: arr.filter((x) => x.done).length,
-    percent: arr.length ? Math.round(arr.filter((x) => x.done).length / arr.length * 100) : 0,
-  });
-  const groups = secs.filter((s) => bucket.get(s.id).length).map((s) => mk(s.id, s.name, bucket.get(s.id)));
+  const mk = (id, name, arr) => {
+    const own = accuracy.ofVideo(ownStats, id);   // 结构相同：Map(section_id -> stats)
+    const ownCount = ownN.get(id) || 0;
+    return {
+      id, name, lessons: arr, kp_total: arr.length,
+      acc: accuracy.sum(arr.map((x) => x.acc).concat([own])),
+      own_qcount: ownCount, own_acc: own,
+      practice_count: ownCount + arr.reduce((n, x) => n + (x.qcount || 0), 0),   // 小分组练习 = 本组视频的题 + 小分组自己的题
+      kp_done: arr.filter((x) => x.done).length,
+      percent: arr.length ? Math.round(arr.filter((x) => x.done).length / arr.length * 100) : 0,
+    };
+  };
+  // 有视频或有小分组习题的分组都显示（只挂了题、还没传视频的小分组也能做练习）
+  const groups = secs.filter((s) => bucket.get(s.id).length || ownN.get(s.id)).map((s) => mk(s.id, s.name, bucket.get(s.id)));
   if (loose.length) groups.push(mk(0, '未分组', loose)); // 没有归入分级目录的知识点
-  return { grouped: true, groups };
+  return { grouped: true, groups, own: accuracy.sum(secs.map((x) => accuracy.ofVideo(ownStats, x.id))) };
+}
+
+/** R8：下一个要学的知识点（按页面顺序第一个没看完的视频）；全部学完返回 null */
+function nextLessonOf(grouped, groups, lessons) {
+  const order = grouped ? groups.reduce((a, g) => a.concat(g.lessons.map((l) => ({ l, g }))), []) : lessons.map((l) => ({ l, g: null }));
+  const hit = order.find((x) => !x.l.done);
+  return hit ? { video_id: hit.l.video_id, title: hit.l.title, group_id: hit.g ? hit.g.id : 0, group_name: hit.g ? hit.g.name : '' } : null;
+}
+
+/** R8：课程列表卡片上的习题正确率（本课程所有视频的题 + 小分组的题，口径同 course-detail） */
+function courseAccOf(chapterId, userId) {
+  const vids = db.prepare('SELECT id FROM videos WHERE chapter_id=?').all(Number(chapterId)).map((r) => r.id);
+  const secs = db.prepare('SELECT id FROM sections WHERE chapter_id=?').all(Number(chapterId)).map((r) => r.id);
+  const vs = accuracy.videoStats(db, userId, vids);
+  const ss = accuracy.sectionOwnStats(db, userId, secs);
+  return accuracy.sum(vids.map((id) => accuracy.ofVideo(vs, id)).concat(secs.map((id) => accuracy.ofVideo(ss, id))));
 }
 
 /** 写入/更新某个知识点（视频）的学习进度 */
@@ -1599,6 +1642,7 @@ stu.get('/courses', (req, res) => {
       video_count: total, handout_count: qH.get(c.id, c.id).n, exercise_count: qE.get(c.id, c.id).n,
       kp_total: total, kp_done: done,
       percent: total ? Math.round(done / total * 100) : 0,
+      acc: courseAccOf(c.id, req.user.id),   // R8：课程卡片底部显示习题正确率
     };
   }).filter((c) => c.video_count > 0 || c.handout_count > 0 || c.exercise_count > 0);
   ok(res, list);
@@ -1617,7 +1661,7 @@ stu.get('/course-detail', (req, res) => {
     return fail(res, `这门课属于「${[c.grade, c.term].filter(Boolean).join(' ')}」，你的账号是「${[u.grade, u.term].filter(Boolean).join(' ')}」，请到对应年级 / 册别查看`);
   }
   const { lessons, library } = lessonsOf(c.id, u.id);
-  const { grouped, groups } = groupsOf(c.id, lessons);
+  const { grouped, groups, own } = groupsOf(c.id, lessons, u.id);
   const exercises = library.map((x) => ({ ...x, ext: x.ext || '' }));
   if (!lessons.length && !exercises.length) return fail(res, '该课程暂无可学习内容');
   const kpDone = lessons.filter((l) => l.done).length;
@@ -1628,7 +1672,8 @@ stu.get('/course-detail', (req, res) => {
     allow_speed: u.allow_speed === 0 ? 0 : 1,
     allow_seek: u.allow_seek === 0 ? 0 : 1,
     grouped, groups,
-    acc: accuracy.sum(lessons.map((l) => l.acc)),
+    acc: accuracy.sum(lessons.map((l) => l.acc).concat([own])),   // R8：含小分组自己的题
+    next: nextLessonOf(grouped, groups, lessons),                     // R8：「继续学习」要去的视频
     kp_total: lessons.length, kp_done: kpDone,
     percent: lessons.length ? Math.round(kpDone / lessons.length * 100) : 0,
     lessons, exercises,

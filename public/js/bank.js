@@ -146,16 +146,66 @@ function bindImageZoom(root) {
   });
 }
 
+/* ---- R8：做题弹窗用到的线性图标（stroke，继承 currentColor；不用 emoji） ---- */
+const R8_ICON = {
+  ok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.2 4.2L19 7"/></svg>',
+  no: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>',
+  ai: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.6 4.3 4.4 1.6-4.4 1.6L12 15.3l-1.6-4.3L6 9.4l4.4-1.6z"/><path d="M18.5 14.5l.8 2.1 2.2.8-2.2.8-.8 2.1-.8-2.1-2.2-.8 2.2-.8z"/><path d="M5.5 15.5l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6z"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.6 1.8M9.5 2.8h5"/></svg>',
+  min: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l16-7-6.5 16-2.6-6.6z"/></svg>',
+  book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/></svg>',
+  bulb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.3 1.1 2.2h5c0-.9.4-1.6 1.1-2.2A6 6 0 0 0 12 3z"/></svg>',
+  steps: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l9.5 16.5h-19z"/><path d="M12 10v4.5M12 17.6h.01"/></svg>',
+  retry: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
+};
+const r8Ic = (k, cls = '') => `<i class="r8-ic ${cls}">${R8_ICON[k] || ''}</i>`;
+
+/** R8：AI 回复的轻量 Markdown → HTML（标题 / 列表 / 引用 / 粗体 / 行内代码；先转义，公式分隔符原样保留给 mtxTypeset）。
+ *  「知识点 / 思路 / 步骤 / 易错点」四个三级标题渲染成带图标的分段标题。 */
+const R8_SEC = { 知识点: 'book', 思路: 'bulb', 步骤: 'steps', 易错点: 'warn', 同类题: 'bulb', 再讲细一点: 'steps' };
+function r8Md(src) {
+  const inline = (s) => s.replace(/\*\*([^*\n]+?)\*\*/g, '<b>$1</b>').replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+  const lines = esc(String(src || '')).split('\n');
+  const out = []; let list = null; let para = [];
+  const flushPara = () => { if (para.length) { out.push(`<p>${inline(para.join('<br>'))}</p>`); para = []; } };
+  const flushList = () => { if (list) { out.push(`<${list.t}>${list.items.map((x) => `<li>${inline(x)}</li>`).join('')}</${list.t}>`); list = null; } };
+  lines.forEach((raw) => {
+    const ln = raw.replace(/\s+$/, '');
+    let m;
+    if (!ln.trim()) { flushPara(); flushList(); return; }
+    if ((m = /^\s*#{1,4}\s+(.+)$/.exec(ln))) {
+      flushPara(); flushList();
+      const t = m[1].replace(/[*#]/g, '').trim();
+      const key = Object.keys(R8_SEC).find((k) => t.startsWith(k));
+      out.push(key ? `<h4 class="r8-md-sec" data-k="${key}">${r8Ic(R8_SEC[key])}${inline(t)}</h4>` : `<h4>${inline(t)}</h4>`);
+      return;
+    }
+    if ((m = /^\s*(?:[-*•])\s+(.+)$/.exec(ln))) { flushPara(); if (!list || list.t !== 'ul') { flushList(); list = { t: 'ul', items: [] }; } list.items.push(m[1]); return; }
+    if ((m = /^\s*\d+[.、)]\s*(.+)$/.exec(ln))) { flushPara(); if (!list || list.t !== 'ol') { flushList(); list = { t: 'ol', items: [] }; } list.items.push(m[1]); return; }
+    if ((m = /^\s*&gt;\s?(.*)$/.exec(ln))) { flushPara(); flushList(); out.push(`<blockquote>${inline(m[1])}</blockquote>`); return; }
+    flushList(); para.push(ln);
+  });
+  flushPara(); flushList();
+  return out.join('');
+}
+
+/** 把 mm:ss 秒数格式化成「x 分 y 秒」 */
+const r8Dur = (s) => { s = Math.max(0, Math.round(s || 0)); return (s >= 60 ? Math.floor(s / 60) + ' 分 ' : '') + (s % 60) + ' 秒'; };
+
 const BankQuiz = {
-  /** 打开全屏做题弹层
-   *  opt: { title, subtitle, questions, submit(answers, duration) -> Promise<result> , scoreTotal, onDone } */
+  /** 打开做题弹层（课文习题 / 小分组练习 / 试卷 / 错题重做 / 自组卷共用）
+   *  opt: { title, subtitle, questions, submit(answers, duration) -> Promise<result>, scoreTotal, onDone, mode, onWatch?, watchText? }
+   *  R8：桌面端定高（判分前后尺寸不变）、右侧题号四色方格 + 计时、逐题反馈、右下角 AI 老师浮层（流式）、做完后的报告。 */
   open(opt) {
     // 互斥：已有一个做题弹层时不再叠加（快速双击「开始作答」会开两层）
     if (document.querySelector('.quiz-mask')) { toast('请先完成当前的题目'); return; }
     const qs = (opt.questions || []).slice();
     if (!qs.length) { toast('这里还没有题目'); return; }
     const mask = document.createElement('div');
-    mask.className = 'mask quiz-mask';
+    mask.className = 'mask quiz-mask r8-qmask';
     document.body.appendChild(mask);
 
     const st = {
@@ -164,132 +214,173 @@ const BankQuiz = {
       phase: 'answer',      // answer | result
       result: null,
       startedAt: Date.now(),
+      endedAt: 0,
       busy: false,
-      checked: {},          // step 模式：idx -> { ok, answer, analysis, my }（做一题核对一题）
-      fontSize: 'md',       // step 模式：sm | md | lg 字体大小
+      checked: {},          // idx -> { ok, ungraded, answer, raw, analysis, my, myRaw, blanks }（做一题核对一题）
+      fontSize: 'md',
     };
     const isStep = opt.mode === 'step';
     const total = qs.length;
 
-    // 顶部计时器（step 模式显示用时）
+    // 计时（所有模式都显示）
     let timerId = null;
     const paintTimer = () => {
       const el = mask.querySelector('#qzTimer');
       if (!el) return;
-      const s = Math.floor((Date.now() - st.startedAt) / 1000);
+      const s = Math.floor(((st.endedAt || Date.now()) - st.startedAt) / 1000);
       el.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')} : ${String(s % 60).padStart(2, '0')}`;
     };
-    if (isStep) timerId = setInterval(paintTimer, 1000);
+    const startTimer = () => { stopTimer(); timerId = setInterval(paintTimer, 1000); paintTimer(); };
     const stopTimer = () => { if (timerId) { clearInterval(timerId); timerId = null; } };
 
-    const html = `
-      <div class="quiz-box ${isStep ? 'quiz-step' : ''}">
-        <div class="quiz-h">
-          <div class="quiz-h-t"><b>${esc(opt.title || '在线做题')}</b>${opt.subtitle ? `<span>${esc(opt.subtitle)}</span>` : ''}</div>
+    mask.innerHTML = `
+      <div class="quiz-box r8-qz fs-md ${isStep ? 'quiz-step' : ''}">
+        <div class="quiz-h r8-qz-h">
+          <div class="quiz-h-t"><b title="${esc(opt.title || '在线做题')}">${esc(opt.title || '在线做题')}</b>${opt.subtitle ? `<span>${esc(opt.subtitle)}</span>` : ''}</div>
           <div class="quiz-h-r">
             <span class="quiz-prog" id="qzProg"></span>
-            ${isStep ? `<span class="qz-timer" id="qzTimer">00 : 00</span>
-            <span class="qz-fs" id="qzFs"><button data-fs="sm">小</button><button class="on" data-fs="md">中</button><button data-fs="lg">大</button></span>` : ''}
+            <span class="qz-fs" id="qzFs" title="字体大小"><button data-fs="sm">小</button><button class="on" data-fs="md">中</button><button data-fs="lg">大</button></span>
             <button class="close-x" id="qzClose" title="退出">&times;</button>
           </div>
         </div>
         <div class="quiz-bar"><i id="qzBarFill"></i></div>
-        <div class="quiz-dots" id="qzDots"></div>
-        <div class="quiz-body" id="qzBody"></div>
-        <div class="qz-kpad" id="qzKpad" style="display:none"></div>
-        <div class="quiz-f" id="qzFoot"></div>
+        <div class="r8-qz-main">
+          <div class="r8-qz-left">
+            <div class="quiz-body" id="qzBody"></div>
+            <button type="button" class="r8-ai-fab" id="qzAiFab" hidden>${r8Ic('ai')}<span>AI 老师</span></button>
+            <div class="qz-kpad" id="qzKpad" style="display:none"></div>
+            <div class="quiz-f" id="qzFoot"></div>
+          </div>
+          <aside class="r8-qz-side" id="qzSide">
+            <div class="r8-side-timer">${r8Ic('clock')}<span>已用时间</span><b class="qz-timer" id="qzTimer">00 : 00</b></div>
+            <div class="r8-side-t">题号<em>（${total} 题）</em></div>
+            <div class="quiz-dots r8-dots" id="qzDots"></div>
+            <div class="r8-legend"><span><i class="u"></i>未做</span><span><i class="d"></i>已做</span><span><i class="ok"></i>答对</span><span><i class="no"></i>答错</span></div>
+          </aside>
+        </div>
       </div>`;
-    mask.innerHTML = html;
-    if (isStep) {
-      mask.querySelectorAll('#qzFs button').forEach((b) => b.onclick = () => {
-        st.fontSize = b.dataset.fs;
-        mask.querySelectorAll('#qzFs button').forEach((x) => x.classList.toggle('on', x === b));
-        const box = mask.querySelector('.quiz-box');
-        box.classList.remove('fs-sm', 'fs-md', 'fs-lg');
-        box.classList.add('fs-' + st.fontSize);
-      });
-    }
-
     const $ = (sel) => mask.querySelector(sel);
-    const bodyEl = $('#qzBody'), footEl = $('#qzFoot'), dotsEl = $('#qzDots');
+    const box = $('.quiz-box');
+    const bodyEl = $('#qzBody'), footEl = $('#qzFoot'), dotsEl = $('#qzDots'), fab = $('#qzAiFab');
+    mask.querySelectorAll('#qzFs button').forEach((b) => b.onclick = () => {
+      st.fontSize = b.dataset.fs;
+      mask.querySelectorAll('#qzFs button').forEach((x) => x.classList.toggle('on', x === b));
+      box.classList.remove('fs-sm', 'fs-md', 'fs-lg');
+      box.classList.add('fs-' + st.fontSize);
+    });
+    startTimer();
 
+    const destroy = () => { stopTimer(); aiDestroy(); mask.remove(); document.removeEventListener('keydown', onKey, true); };
     const close = () => {
       if (st.phase === 'answer' && Object.keys(st.answers).length) {
-        elConfirm({ title: '退出做题', message: isStep ? '还没完成，退出后本次作答不会保存。确定退出？' : '还没交卷，退出后本次作答不会保存。确定退出？', okText: '退出' })
-          .then((v) => { if (v) { stopTimer(); mask.remove(); } });
-      } else { stopTimer(); mask.remove(); }
+        elConfirm({ title: '退出做题', message: '还没完成，退出后本次作答不会保存。确定退出？', okText: '退出' })
+          .then((v) => { if (v) destroy(); });
+      } else destroy();
     };
     $('#qzClose').onclick = close;
+    const onKey = (e) => { if (e.key === 'Escape' && ai.open && !document.querySelector('.r0-lightbox')) { e.stopPropagation(); aiClose(); } };
+    document.addEventListener('keydown', onKey, true);
 
+    /* ---------------- 题号方格：未做 / 已做 / 答对 / 答错 四色，当前题加描边；可点击跳题 ---------------- */
+    const dotState = (q, i) => {
+      if (st.phase === 'result') {
+        const r = (st.result && st.result.list || []).find((x) => x.question_id === q.id);
+        return !r ? 'u' : r.ungraded ? 'd' : r.is_correct ? 'ok' : 'no';
+      }
+      const ck = st.checked[i];
+      if (ck) return ck.ungraded ? 'd' : ck.ok ? 'ok' : 'no';
+      return quizAnswerText(q, st.answers[q.id]) !== '' ? 'd' : 'u';
+    };
     const renderDots = () => {
       dotsEl.innerHTML = qs.map((q, i) => {
-        const answered = quizAnswerText(q, st.answers[q.id]) !== '';
-        const checked = !!st.checked[i];
-        const locked = isStep && i > st.idx && !checked;   // step 模式：没做到的题锁定
-        const stateCls = isStep ? (checked ? (st.checked[i].ok ? 'ok' : 'no') : (i === st.idx ? 'on' : '')) : (i === st.idx ? 'on' : '') + (answered ? ' done' : '');
-        return `<button class="qz-dot ${stateCls}" data-i="${i}" ${locked ? 'disabled title="先完成前面的题"' : ''}>${i + 1}</button>`;
+        const s = dotState(q, i);
+        const cls = { u: '', d: 'done', ok: 'ok', no: 'no' }[s];
+        return `<button type="button" class="qz-dot r8-dot ${cls} ${st.phase !== 'result' && i === st.idx ? 'on cur' : ''}" data-i="${i}" title="第 ${i + 1} 题">${i + 1}</button>`;
       }).join('');
-      dotsEl.querySelectorAll('.qz-dot:not([disabled])').forEach((b) => b.onclick = () => { st.idx = Number(b.dataset.i); paint(); });
-      const answeredN = isStep ? Object.keys(st.checked).length : qs.filter((q) => quizAnswerText(q, st.answers[q.id]) !== '').length;
-      $('#qzProg').textContent = st.phase === 'result' ? '已交卷' : isStep ? `已核对 ${answeredN} / ${total}` : `${answeredN} / ${total} 已作答`;
-      $('#qzBarFill').style.width = Math.round(answeredN / total * 100) + '%';
+      dotsEl.querySelectorAll('.qz-dot').forEach((b) => b.onclick = () => {
+        const i = Number(b.dataset.i);
+        if (st.phase === 'result') { const card = bodyEl.querySelector(`.qz-rq[data-qid="${qs[i].id}"]`); if (card) bodyEl.scrollTo({ top: bodyEl.scrollTop + card.getBoundingClientRect().top - bodyEl.getBoundingClientRect().top - 12, behavior: 'smooth' }); return; }
+        st.idx = i; paint();
+      });
+      const checkedN = Object.keys(st.checked).length;
+      $('#qzProg').textContent = st.phase === 'result' ? '已完成' : `已核对 ${checkedN} / ${total}`;
+      $('#qzBarFill').style.width = Math.round((st.phase === 'result' ? total : checkedN) / total * 100) + '%';
+      const cur = dotsEl.querySelector('.cur');
+      if (cur && dotsEl.scrollWidth > dotsEl.clientWidth) dotsEl.scrollLeft = Math.max(0, cur.offsetLeft - dotsEl.offsetLeft - dotsEl.clientWidth / 2 + cur.offsetWidth / 2);
     };
 
-    const optionHTML = (q) => {
+    /* ---------------- 选项 / 作答区（判分后进入只读、按对错着色） ---------------- */
+    const letterSet = (s) => new Set((String(s || '').toUpperCase().match(/[A-G]/g) || []));
+    const optionHTML = (q, ck) => {
       const opts = (q.options || []).map(optText);
-      const letters = opts.map((_, i) => QT_LETTERS[i]);
       if (q.type === 'single' || q.type === 'multi') {
         const multi = q.type === 'multi';
-        return `<div class="qz-opts ${multi ? 'multi' : ''}">` + opts.map((t, i) => {
-          const sel = multi ? (st.answers[q.id] || []).includes(QT_LETTERS[i]) : st.answers[q.id] === QT_LETTERS[i];
-          return `<button class="qz-opt ${sel ? 'on' : ''}" data-i="${i}">
-            <span class="qz-l">${QT_LETTERS[i]}</span><span class="qz-ot">${esc(t)}</span></button>`;
+        const right = ck ? letterSet(ck.raw) : null;
+        return `<div class="qz-opts ${multi ? 'multi' : ''} ${ck ? 'r8-judged' : ''}">` + opts.map((t, i) => {
+          const L = QT_LETTERS[i];
+          const sel = multi ? (st.answers[q.id] || []).includes(L) : st.answers[q.id] === L;
+          let cls = sel ? 'on' : '';
+          let mark = '';
+          if (ck && !ck.ungraded) {
+            if (right.has(L)) { cls += ' r8-right'; mark = r8Ic('ok', 'r8-om ok'); }
+            else if (sel) { cls += ' r8-wrong'; mark = r8Ic('no', 'r8-om no'); }
+          }
+          return `<button type="button" class="qz-opt ${cls}" data-i="${i}" ${ck ? 'disabled' : ''}>
+            <span class="qz-l">${L}</span><span class="qz-ot">${esc(t)}</span>${mark}</button>`;
         }).join('') + '</div>';
       }
       if (q.type === 'judge') {
         const cur = st.answers[q.id] || '';
-        return `<div class="qz-judge">
-          <button class="qz-jb ${cur === '正确' ? 'on ok' : ''}" data-v="正确"><i class="ai ai-check"></i> 正确</button>
-          <button class="qz-jb ${cur === '错误' ? 'on no' : ''}" data-v="错误"><i class="ai ai-delete"></i> 错误</button>
+        const rightV = ck ? (/^(正确|对|√|T|TRUE|A|Y|YES|是)$/i.test(String(ck.raw || '').trim()) ? '正确' : '错误') : '';
+        const cls = (v) => {
+          if (!ck) return cur === v ? `on ${v === '正确' ? 'ok' : 'no'}` : '';
+          if (v === rightV) return 'r8-right';
+          return cur === v ? 'r8-wrong' : '';
+        };
+        return `<div class="qz-judge ${ck ? 'r8-judged' : ''}">
+          <button type="button" class="qz-jb ${cls('正确')}" data-v="正确" ${ck ? 'disabled' : ''}><i class="ai ai-check"></i> 正确</button>
+          <button type="button" class="qz-jb ${cls('错误')}" data-v="错误" ${ck ? 'disabled' : ''}><i class="ai ai-delete"></i> 错误</button>
         </div>`;
       }
       if (q.type === 'fill') {
         const n = Math.max(1, Number(q.blanks) || 1);
         const arr = Array.isArray(st.answers[q.id]) ? st.answers[q.id] : [];
-        // T6：固定宽高的输入区（字多字少都不变形，内容多时框内滚动）；单空稍高、多空每空一行半
-        return `<div class="qz-fills t6-fills ${n === 1 ? 'single' : ''}">` + Array.from({ length: n }, (_, i) => `
-          <label class="qz-fill t6-fill"><span>${n === 1 ? '答案' : `第 ${i + 1} 空`}</span>
-            <textarea class="t6-input" data-blank="${i}" maxlength="500" placeholder="点这里填写答案" autocomplete="off" spellcheck="false">${esc(arr[i] || '')}</textarea>${t8On(q) ? t8Btn(i) : ''}</label>`).join('') + '</div>';
+        // T6：固定宽高的输入区（字多字少都不变形）；R8：判分后逐空打 ✓ / ✗
+        return `<div class="qz-fills t6-fills ${n === 1 ? 'single' : ''} ${ck ? 'r8-judged' : ''}">` + Array.from({ length: n }, (_, i) => {
+          const bOk = ck && Array.isArray(ck.blanks) ? ck.blanks[i] : null;
+          const mark = ck && !ck.ungraded && bOk !== null && bOk !== undefined ? r8Ic(bOk ? 'ok' : 'no', 'r8-bm ' + (bOk ? 'ok' : 'no')) : '';
+          return `
+          <label class="qz-fill t6-fill ${mark ? (bOk ? 'r8-bok' : 'r8-bno') : ''}"><span>${n === 1 ? '答案' : `第 ${i + 1} 空`}</span>
+            <textarea class="t6-input" data-blank="${i}" maxlength="500" placeholder="点这里填写答案" autocomplete="off" spellcheck="false" ${ck ? 'readonly' : ''}>${esc(arr[i] || '')}</textarea>${mark}${!ck && t8On(q) ? t8Btn(i) : ''}</label>`;
+        }).join('') + '</div>';
       }
       if (q.type === 'answer') {
-        // 问答 / 解答题：大一点的固定输入区。不自动判分，交卷后对照参考答案
+        // 问答 / 解答题：大一点的固定输入区。不自动判分，提交后对照参考答案
         return `<div class="qz-fills t6-fills"><label class="qz-fill t6-fill t6-fill-long"><span>解答</span>
-          <textarea class="t6-input t6-long" data-ans="1" maxlength="2000" placeholder="写下你的解答（问答题不自动判分，交卷后对照参考答案）" spellcheck="false">${esc(String(st.answers[q.id] || ''))}</textarea>${t8On(q) ? t8Btn(0) : ''}</label></div>`;
+          <textarea class="t6-input t6-long" data-ans="1" maxlength="2000" placeholder="写下你的解答（问答题不自动判分，提交后对照参考答案）" spellcheck="false" ${ck ? 'readonly' : ''}>${esc(String(st.answers[q.id] || ''))}</textarea>${!ck && t8On(q) ? t8Btn(0) : ''}</label></div>`;
       }
       if (q.type === 'sort') {
         // 排序 / 连词成句：展示顺序稳定打乱，学生按顺序点选，答案存原始位置序号
         const placed = Array.isArray(st.answers[q.id]) ? st.answers[q.id].slice() : [];
         const shuffled = quizShuffle(opts, q.id);
         const used = new Set(placed);
-        return `<div class="qz-sort">
-          <div class="qz-sort-built" id="qzSortBuilt">${placed.length
-            ? placed.map((n, k) => `<button class="qz-chip" data-undo="${k}">${esc(opts[n - 1] || ('#' + n))}</button>`).join('')
+        return `<div class="qz-sort ${ck ? 'r8-judged' : ''}">
+          <div class="qz-sort-built ${ck && !ck.ungraded ? (ck.ok ? 'r8-right' : 'r8-wrong') : ''}" id="qzSortBuilt">${placed.length
+            ? placed.map((n, k) => `<button type="button" class="qz-chip" data-undo="${k}" ${ck ? 'disabled' : ''}>${esc(opts[n - 1] || ('#' + n))}</button>`).join('')
             : '<span class="qz-sort-tip">从下面按顺序点选，组成正确的顺序 →</span>'}</div>
-          <div class="qz-sort-pool">${shuffled.map(({ v, i }) => {
+          ${ck ? '' : `<div class="qz-sort-pool">${shuffled.map(({ v, i }) => {
             const n = i + 1;
-            return `<button class="qz-pool-it ${used.has(n) ? 'used' : ''}" data-n="${n}" ${used.has(n) ? 'disabled' : ''}>${esc(v)}</button>`;
-          }).join('')}</div>
+            return `<button type="button" class="qz-pool-it ${used.has(n) ? 'used' : ''}" data-n="${n}" ${used.has(n) ? 'disabled' : ''}>${esc(v)}</button>`;
+          }).join('')}</div>`}
         </div>`;
       }
       return '';
     };
 
     const bindOptionEvents = (q) => {
+      if (st.checked[st.idx]) return;   // 判分后只读
       if (q.type === 'single') {
-        bodyEl.querySelectorAll('.qz-opt').forEach((b) => b.onclick = () => {
-          st.answers[q.id] = QT_LETTERS[Number(b.dataset.i)];
-          paint();
-        });
+        bodyEl.querySelectorAll('.qz-opt').forEach((b) => b.onclick = () => { st.answers[q.id] = QT_LETTERS[Number(b.dataset.i)]; paint(); });
       } else if (q.type === 'multi') {
         bodyEl.querySelectorAll('.qz-opt').forEach((b) => b.onclick = () => {
           const L = QT_LETTERS[Number(b.dataset.i)];
@@ -301,38 +392,29 @@ const BankQuiz = {
           paint();
         });
       } else if (q.type === 'judge') {
-        bodyEl.querySelectorAll('.qz-jb').forEach((btn) => btn.onclick = () => {
-          st.answers[q.id] = st.answers[q.id] === btn.dataset.v ? '' : btn.dataset.v;
-          paint();
-        });
+        bodyEl.querySelectorAll('.qz-jb').forEach((btn) => btn.onclick = () => { st.answers[q.id] = st.answers[q.id] === btn.dataset.v ? '' : btn.dataset.v; paint(); });
       } else if (q.type === 'fill') {
         bodyEl.querySelectorAll('[data-blank]').forEach((inp) => {
           inp.oninput = () => {
             // 填空答案是单行：回车 / 粘贴里的换行都当空格
             if (/[\r\n]/.test(inp.value)) inp.value = inp.value.replace(/[\r\n]+/g, ' ');
             const n = Math.max(1, Number(q.blanks) || 1);
-            const arr = Array.from({ length: n }, (_, i) => '');
+            const arr = Array.from({ length: n }, () => '');
             bodyEl.querySelectorAll('[data-blank]').forEach((x) => { arr[Number(x.dataset.blank)] = x.value; });
             st.answers[q.id] = arr;
+            renderDots();
           };
           inp.onkeydown = (e) => { if (e.key === 'Enter') e.preventDefault(); };
-          // 点填空处弹出数学键盘（也可直接用物理键盘输入）
-          inp.onfocus = () => showKpad(inp);
+          inp.onfocus = () => showKpad(inp);   // 点填空处弹出数学键盘（也可直接用物理键盘输入）
         });
       } else if (q.type === 'answer') {
-        bodyEl.querySelectorAll('textarea[data-ans]').forEach((ta) => { ta.oninput = () => { st.answers[q.id] = ta.value; }; ta.onfocus = () => hideKpad(); });
+        bodyEl.querySelectorAll('textarea[data-ans]').forEach((ta) => { ta.oninput = () => { st.answers[q.id] = ta.value; renderDots(); }; ta.onfocus = () => hideKpad(); });
       } else if (q.type === 'sort') {
         bodyEl.querySelectorAll('.qz-pool-it').forEach((b) => b.onclick = () => {
-          const cur = (st.answers[q.id] || []).slice();
-          cur.push(Number(b.dataset.n));
-          st.answers[q.id] = cur;
-          paint();
+          const cur = (st.answers[q.id] || []).slice(); cur.push(Number(b.dataset.n)); st.answers[q.id] = cur; paint();
         });
         bodyEl.querySelectorAll('[data-undo]').forEach((b) => b.onclick = () => {
-          const cur = (st.answers[q.id] || []).slice();
-          cur.splice(Number(b.dataset.undo), 1);
-          st.answers[q.id] = cur;
-          paint();
+          const cur = (st.answers[q.id] || []).slice(); cur.splice(Number(b.dataset.undo), 1); st.answers[q.id] = cur; paint();
         });
       }
     };
@@ -349,7 +431,7 @@ const BankQuiz = {
           <div class="kpad-sym">${syms.map((k) => `<button class="kpad-k" data-k="${k}">${k}</button>`).join('')}</div>
           <div class="kpad-grid">${kpadMode === 'num'
             ? numKeys.map((k) => `<button class="kpad-k ${k === 'abc' ? 'kpad-mode' : ''}" data-k="${k === 'abc' ? '' : k}" ${k === 'abc' ? 'data-act="mode"' : ''}>${k}</button>`).join('')
-            : abcKeys.map((k) => `<button class="kpad-k" data-k="${k}">${k}</button>`).join('') + `<button class="kpad-k kpad-mode" data-act="mode">123</button>`}</div>
+            : abcKeys.map((k) => `<button class="kpad-k" data-k="${k}">${k}</button>`).join('') + '<button class="kpad-k kpad-mode" data-act="mode">123</button>'}</div>
           <div class="kpad-fn">
             <button class="kpad-k" data-act="left">←</button>
             <button class="kpad-k" data-act="right">→</button>
@@ -380,7 +462,8 @@ const BankQuiz = {
       const p = Math.max(0, Math.min(kpadInput.value.length, caretPos() + d));
       kpadInput.setSelectionRange(p, p); kpadInput.focus();
     };
-    const showKpad = (inp) => { kpadInput = inp; kpadEl.style.display = ''; };
+    // 键盘浮在作答区底部（不改变弹窗高度，内容区内部滚动）
+    const showKpad = (inp) => { if (inp.readOnly) return; kpadInput = inp; kpadEl.style.display = ''; };
     const hideKpad = () => { kpadInput = null; kpadEl.style.display = 'none'; };
     kpadEl.addEventListener('click', (e) => {
       const b = e.target.closest('button'); if (!b) return;
@@ -393,44 +476,193 @@ const BankQuiz = {
       else if (act === 'mode') { kpadMode = kpadMode === 'num' ? 'abc' : 'num'; renderKpad(); }
     });
 
-    /* ---- AI 老师：苏格拉底式分步引导讲解 ---- */
-    const openAiExplain = (q, r) => {
-      const m = document.createElement('div');
-      m.className = 'mask qz-ai-mask';
-      m.innerHTML = `<div class="qz-ai-box">
-        <div class="qz-ai-h"><b>🧑‍🏫 AI 老师 · 分步引导</b><button class="close-x" id="qzAiX">&times;</button></div>
-        <div class="qz-ai-body" id="qzAiBody"><div class="bk-ai-loading"><span class="bai-spin"></span><b>AI 老师正在准备引导讲解…</b><span>大约需要几秒钟</span></div></div>
-        <div class="qz-ai-f" id="qzAiF"></div>
-      </div>`;
-      document.body.appendChild(m);
-      m.querySelector('#qzAiX').onclick = () => m.remove();
-      m.addEventListener('click', (e) => { if (e.target === m) m.remove(); });
-      api('/api/stu/bank/ai-explain', { method: 'POST', body: { question_id: q.id, my_answer: r ? r.my_answer : quizAnswerText(q, st.answers[q.id]) } })
-        .then((d) => {
-          let step = 0;
-          const body = m.querySelector('#qzAiBody'); const foot = m.querySelector('#qzAiF');
-          const paintStep = () => {
-            const s = d.steps[step];
-            body.innerHTML = `
-              <div class="qz-ai-stem">${stemImagesHTML(q).stem}</div>
-              <div class="qz-ai-step"><span class="qz-ai-no">第 ${step + 1} / ${d.steps.length} 步</span>
-                <p class="qz-ai-ask">${esc(s.ask)}</p>
-                <p class="qz-ai-hint">${esc(s.hint)}</p></div>`;
-            foot.innerHTML = `<button class="btn primary" id="qzAiNext">${step + 1 < d.steps.length ? '想好了，下一步 ›' : '看总结'}</button>`;
-            m.querySelector('#qzAiNext').onclick = () => {
-              step++;
-              if (step < d.steps.length) { paintStep(); return; }
-              body.innerHTML = `
-                <div class="qz-ai-stem">${stemImagesHTML(q).stem}</div>
-                <div class="qz-ai-step done"><span class="qz-ai-no">总结</span><p class="qz-ai-hint">${esc(d.conclusion || '继续加油！')}</p></div>`;
-              foot.innerHTML = `<button class="btn primary" id="qzAiOk">我知道了</button>`;
-              m.querySelector('#qzAiOk').onclick = () => m.remove();
-            };
-            if (window.mtxTypeset) mtxTypeset(body);
-          };
-          paintStep();
-        })
-        .catch((e) => { m.querySelector('#qzAiBody').innerHTML = `<div class="empty">${esc(e.message || 'AI 讲解暂时不可用')}</div>`; });
+    /* ================= AI 老师浮层（R8）：当前窗口右下方，流式输出，可追问、可切换「直接讲解 / 一步步引导」 =================
+     * 桌面端：浮层固定在视口右下角（400×60vh），做题弹窗整体向左让出位置，不遮挡题干和「下一题」按钮；
+     * 窄屏（< 1000px）：底部抽屉（70vh）。每道题、每种模式各自一段对话，切换题目时内容跟着当前题走。 */
+    const ai = { open: false, min: false, qid: 0, mode: 'explain', convs: {}, el: null, pill: null };
+    const convKey = (qid, mode) => qid + ':' + mode;
+    const curQ = () => qs.find((x) => x.id === ai.qid) || null;
+    const myAnswerOf = (q) => {
+      const i = qs.indexOf(q);
+      const ck = st.checked[i];
+      if (ck) return ck.myRaw;
+      const r = st.result && (st.result.list || []).find((x) => x.question_id === q.id);
+      return r ? r.my_answer : quizAnswerText(q, st.answers[q.id]);
+    };
+    const aiEnsure = () => {
+      if (ai.el) return;
+      const el = document.createElement('div');
+      el.className = 'r8-ai';
+      el.setAttribute('role', 'dialog');
+      el.setAttribute('aria-label', 'AI 老师');
+      el.innerHTML = `
+        <div class="r8-ai-h">
+          <b class="r8-ai-tt">${r8Ic('ai')}AI 老师</b>
+          <div class="r8-ai-modes" role="tablist"><button type="button" data-m="explain" class="on">直接讲解</button><button type="button" data-m="guide">一步步引导</button></div>
+          <button type="button" class="r8-ai-btn" data-act="min" title="最小化">${R8_ICON.min}</button>
+          <button type="button" class="r8-ai-btn" data-act="close" title="关闭">${R8_ICON.x}</button>
+        </div>
+        <div class="r8-ai-q" id="r8AiQ"></div>
+        <div class="r8-ai-body" id="r8AiBody"></div>
+        <div class="r8-ai-f">
+          <div class="r8-ai-chips"><button type="button" data-ask="再讲细一点">再讲细一点</button><button type="button" data-ask="出一道同类题考考我">出一道同类题考考我</button></div>
+          <form class="r8-ai-in" autocomplete="off"><textarea rows="1" maxlength="500" placeholder="有不懂的地方，直接问 AI 老师…"></textarea><button type="submit" title="发送">${R8_ICON.send}</button></form>
+        </div>`;
+      document.body.appendChild(el);
+      const pill = document.createElement('button');
+      pill.type = 'button'; pill.className = 'r8-ai-pill'; pill.hidden = true;
+      pill.innerHTML = `${r8Ic('ai')}<span>AI 老师</span><em>展开</em>`;
+      document.body.appendChild(pill);
+      ai.el = el; ai.pill = pill;
+      el.querySelector('[data-act="min"]').onclick = () => { ai.min = true; el.classList.add('r8-hide'); pill.hidden = false; mask.classList.remove('r8-ai-on'); };
+      el.querySelector('[data-act="close"]').onclick = () => aiClose();
+      pill.onclick = () => { ai.min = false; el.classList.remove('r8-hide'); pill.hidden = true; mask.classList.add('r8-ai-on'); aiPaint(true); };
+      el.querySelectorAll('[data-m]').forEach((b) => b.onclick = () => { if (ai.mode === b.dataset.m) return; ai.mode = b.dataset.m; aiShow(true); });
+      el.querySelectorAll('[data-ask]').forEach((b) => b.onclick = () => aiAsk(b.dataset.ask));
+      const form = el.querySelector('.r8-ai-in'); const ta = form.querySelector('textarea');
+      form.onsubmit = (e) => { e.preventDefault(); const v = ta.value.trim(); if (!v) return; ta.value = ''; aiAsk(v); };
+      ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit ? form.requestSubmit() : form.onsubmit(e); } };
+    };
+    const aiConv = () => {
+      const k = convKey(ai.qid, ai.mode);
+      if (!ai.convs[k]) ai.convs[k] = { msgs: [], busy: false, ctrl: null };
+      return ai.convs[k];
+    };
+    /** 打开（或切换到）某道题的浮层；autoStart = 没对话时自动开讲 */
+    const aiOpenFor = (q, autoStart) => {
+      aiEnsure();
+      ai.qid = q.id; ai.open = true; ai.min = false;
+      ai.el.classList.remove('r8-hide'); ai.el.classList.add('show'); ai.pill.hidden = true;
+      mask.classList.add('r8-ai-on');
+      aiShow(autoStart);
+    };
+    const aiShow = (autoStart) => {
+      const q = curQ(); if (!q) return;
+      ai.el.querySelectorAll('[data-m]').forEach((b) => b.classList.toggle('on', b.dataset.m === ai.mode));
+      const n = qs.indexOf(q) + 1;
+      ai.el.querySelector('#r8AiQ').innerHTML = `<span class="r8-ai-qno">第 ${n} 题</span><span class="r8-ai-qs">${esc(String(q.stem || '').replace(/\[图\d+\]/g, '（图）').replace(/\s+/g, ' ').slice(0, 60))}</span>`;
+      const c = aiConv();
+      const judged = st.phase === 'result' || !!st.checked[qs.indexOf(q)];
+      if (!c.msgs.length && judged && autoStart) { aiSend(ai.mode === 'guide' ? '请一步步引导我做这道题。' : '请讲解这道题。', true); return; }
+      aiPaint(true);
+    };
+    const aiPaint = (scroll) => {
+      if (!ai.el) return;
+      const q = curQ(); const c = aiConv(); const body = ai.el.querySelector('#r8AiBody');
+      const judged = q && (st.phase === 'result' || !!st.checked[qs.indexOf(q)]);
+      if (!c.msgs.length) {
+        body.innerHTML = judged
+          ? `<div class="r8-ai-empty">${r8Ic('ai')}<p>${ai.mode === 'guide' ? 'AI 老师会一步步提问，引导你自己做出来' : 'AI 老师会按「知识点 · 思路 · 步骤 · 易错点」讲解这道题'}</p><button type="button" class="btn primary sm" data-start="1">开始${ai.mode === 'guide' ? '引导' : '讲解'}</button></div>`
+          : `<div class="r8-ai-empty">${r8Ic('ai')}<p>先作答并提交这道题，AI 老师再来讲解（这样不会提前看到答案）</p></div>`;
+        const s = body.querySelector('[data-start]');
+        if (s) s.onclick = () => aiSend(ai.mode === 'guide' ? '请一步步引导我做这道题。' : '请讲解这道题。', true);
+      } else {
+        body.innerHTML = c.msgs.map((m, i) => {
+          if (m.hidden) return '';
+          if (m.role === 'user') return `<div class="r8-msg me"><div class="r8-bub">${esc(m.content)}</div></div>`;
+          if (m.err) return `<div class="r8-msg bot err"><div class="r8-bub">${r8Ic('warn')}<span>${esc(m.err)}</span><button type="button" class="btn ghost sm" data-retry="${i}">${r8Ic('retry')}重试</button></div></div>`;
+          const typing = m.streaming ? '<span class="r8-caret"></span>' : '';
+          return `<div class="r8-msg bot ${m.streaming ? 'streaming' : ''}" data-i="${i}"><div class="r8-bub r8-md">${m.content ? r8Md(m.content) : '<span class="r8-think">AI 老师正在思考<i></i><i></i><i></i></span>'}${typing}</div></div>`;
+        }).join('');
+        body.querySelectorAll('[data-retry]').forEach((b) => b.onclick = () => aiRetry(Number(b.dataset.retry)));
+        if (window.mtxTypeset) mtxTypeset(body.querySelectorAll('.r8-msg.bot:not(.streaming) .r8-bub'));
+      }
+      const busy = c.busy || !judged;
+      ai.el.querySelectorAll('[data-ask], .r8-ai-in button, .r8-ai-in textarea, [data-m]').forEach((x) => { x.disabled = (x.dataset && x.dataset.m) ? c.busy : busy; });
+      if (scroll) body.scrollTop = body.scrollHeight;
+    };
+    /** 流式请求：history = 之前的对话（不含出错 / 空消息），ask = 本次提问 */
+    const aiSend = async (text, hidden) => {
+      const q = curQ(); if (!q) return;
+      const c = aiConv(); if (c.busy) return;
+      const mode = ai.mode; const qid = q.id;
+      const history = c.msgs.filter((m) => !m.err && m.content).map((m) => ({ role: m.role, content: m.content }));
+      c.msgs.push({ role: 'user', content: text, hidden: !!hidden });
+      const am = { role: 'assistant', content: '', streaming: true };
+      c.msgs.push(am);
+      c.busy = true;
+      const ctrl = new AbortController(); c.ctrl = ctrl;
+      const visible = () => ai.open && !ai.min && ai.qid === qid && ai.mode === mode;
+      if (visible()) aiPaint(true);
+      let raf = 0;
+      const repaintLast = () => {
+        raf = 0;
+        if (!visible()) return;
+        const body = ai.el.querySelector('#r8AiBody');
+        const nodes = body.querySelectorAll('.r8-msg.bot');
+        const last = nodes[nodes.length - 1];
+        if (!last) return aiPaint(true);
+        const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 60;
+        last.querySelector('.r8-bub').innerHTML = r8Md(am.content) + '<span class="r8-caret"></span>';
+        if (nearBottom) body.scrollTop = body.scrollHeight;
+      };
+      try {
+        const res = await fetch('/api/stu/bank/ai-explain/stream', {
+          method: 'POST', signal: ctrl.signal,
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (Auth.token || '') },
+          body: JSON.stringify({ question_id: qid, my_answer: myAnswerOf(q), mode, history, ask: text }),
+        });
+        const ctype = res.headers.get('content-type') || '';
+        if (!/event-stream/.test(ctype)) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.msg || ('请求失败（' + res.status + '）'));
+        }
+        const rd = res.body.getReader(); const dec = new TextDecoder(); let buf = ''; let errMsg = '';
+        for (;;) {
+          const { done, value } = await rd.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let k;
+          while ((k = buf.indexOf('\n\n')) >= 0) {
+            const evt = buf.slice(0, k); buf = buf.slice(k + 2);
+            const line = evt.split('\n').find((l) => l.startsWith('data:'));
+            if (!line) continue;
+            let o; try { o = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+            if (o.t === 'delta') { am.content += o.text; if (!raf) raf = requestAnimationFrame(repaintLast); }
+            else if (o.t === 'error') errMsg = o.msg || 'AI 老师暂时没有回应';
+          }
+        }
+        if (errMsg && !am.content) throw new Error(errMsg);
+        if (!am.content) throw new Error('AI 老师没有返回内容');
+      } catch (e) {
+        if (ctrl.signal.aborted) { if (!am.content) am.content = '（已停止）'; }
+        else if (!am.content) { delete am.content; am.err = (e && e.message) || '网络异常，请重试'; am.content = ''; }
+        else am.content += '\n\n（连接中断，内容可能不完整）';
+      }
+      am.streaming = false; c.busy = false; c.ctrl = null;
+      if (raf) cancelAnimationFrame(raf);
+      if (visible()) aiPaint(false);
+      if (visible()) { const body = ai.el.querySelector('#r8AiBody'); const nb = body.scrollHeight - body.scrollTop - body.clientHeight < 140; if (nb) body.scrollTop = body.scrollHeight; }
+    };
+    const aiAsk = (text) => {
+      const q = curQ(); if (!q) return;
+      const judged = st.phase === 'result' || !!st.checked[qs.indexOf(q)];
+      if (!judged) { toast('先提交这道题，再问 AI 老师'); return; }
+      aiSend(text, false);
+    };
+    const aiRetry = (i) => {
+      const c = aiConv(); if (c.busy) return;
+      const u = c.msgs[i - 1];
+      c.msgs.splice(i - 1, 2);
+      if (u) aiSend(u.content, u.hidden);
+    };
+    const aiClose = () => {
+      if (!ai.el) return;
+      Object.values(ai.convs).forEach((c) => { if (c.ctrl) c.ctrl.abort(); });
+      ai.open = false; ai.min = false;
+      ai.el.classList.remove('show'); ai.pill.hidden = true;
+      mask.classList.remove('r8-ai-on');
+    };
+    const aiDestroy = () => {
+      Object.values(ai.convs).forEach((c) => { if (c.ctrl) c.ctrl.abort(); });
+      if (ai.el) ai.el.remove(); if (ai.pill) ai.pill.remove();
+      ai.el = null; ai.pill = null; ai.open = false;
+    };
+    /** 切题时浮层跟着当前题走（不自动开讲，避免没必要的调用） */
+    const aiFollow = (q) => {
+      if (!ai.el || !ai.open || ai.qid === q.id) return;
+      ai.qid = q.id;
+      if (!ai.min) aiShow(false);
     };
 
     /* ---- 题目反馈：提交到管理端「错题反馈记录」 ---- */
@@ -471,14 +703,86 @@ const BankQuiz = {
       };
     };
 
-    const resultOne = (q, r) => {
+    /* ---------------- 逐题反馈：大标签「答对了 / 答错了」+ 你的答案 / 正确答案 + 解析 ---------------- */
+    const stepJudgeHTML = (q, ck) => `
+      <div class="qz-judge-box r8-fb ${ck.ungraded ? 'ung' : ck.ok ? 'ok' : 'no'}">
+        <div class="r8-fb-tag">${ck.ungraded ? `${r8Ic('steps')}已提交，请对照参考答案（问答题不计分）` : ck.ok ? `${r8Ic('ok')}答对了` : `${r8Ic('no')}答错了`}</div>
+        <div class="qz-jb-r"><span>你的答案</span><em class="${ck.ungraded ? '' : ck.ok ? 'ok' : 'no'}">${esc(ck.my || '未作答')}</em></div>
+        ${ck.ok && !ck.ungraded ? '' : `<div class="qz-jb-r"><span>${ck.ungraded ? '参考答案' : '正确答案'}</span><em class="ok">${esc(ck.answer)}</em></div>`}
+        ${ck.analysis ? `<div class="qz-jb-ana"><span>解析</span><div class="r8-ana-t">${esc(ck.analysis)}</div></div>` : ''}
+        <div class="r8-fb-acts"><button type="button" class="r8-link" data-fb="1">对题目有反馈？</button></div>
+      </div>`;
+
+    /* ---------------- 主渲染 ---------------- */
+    const paint = () => {
+      if (st.phase === 'result') return paintResult();
+      const q = qs[st.idx];
+      hideKpad();
+      const si = stemImagesHTML(q);
+      const ck = st.checked[st.idx];
+      bodyEl.innerHTML = `
+        <div class="r8-qcard">
+          <div class="qz-qhead"><span class="qz-qno">第 ${st.idx + 1} / ${total} 题</span>
+            <span class="qz-qtype">${QT_NAME[q.type] || (q.type === 'answer' ? '问答题' : '')}</span>
+            ${q.type === 'multi' ? '<span class="qz-qtip">可多选</span>' : ''}
+            ${q.point ? `<span class="r8-qpoint">${esc(q.point)}</span>` : ''}
+            <span class="qz-raqno" title="题目编号">#${String(q.id).padStart(5, '0')}</span></div>
+          ${quizAudioHTML(q)}
+          ${q.material ? `<div class="qz-material"><div class="qz-mat-t">原文材料</div><pre class="qz-mat-b">${esc(q.material)}</pre></div>` : ''}
+          <div class="qz-stem"><b>${si.stem}</b></div>
+          ${si.rest}
+          ${optionHTML(q, ck)}
+          ${ck ? stepJudgeHTML(q, ck) : ''}
+        </div>`;
+      bodyEl.scrollTop = 0;
+      // 判分后把反馈块滚进可视区（弹窗本身尺寸不变，只是内容区内部滚动）
+      //（不用 scrollIntoView：它会连带滚动 overflow:hidden 的外层，手机上会把顶栏滚出去）
+      if (ck) setTimeout(() => {
+        const fb = bodyEl.querySelector('.r8-fb'); if (!fb) return;
+        const d = fb.getBoundingClientRect().bottom - bodyEl.getBoundingClientRect().bottom + 70;
+        if (d > 0) bodyEl.scrollTo({ top: bodyEl.scrollTop + d, behavior: 'smooth' });
+      }, 80);
+      bindOptionEvents(q);
+      bindImageZoom(bodyEl);
+      bindQuizAudio(bodyEl);
+      t8Bind(bodyEl);
+      if (window.mtxTypeset) mtxTypeset(bodyEl);   // 题干 / 选项 / 解析里的 LaTeX 排版
+      bodyEl.querySelectorAll('.qz-material').forEach((m) => { m.querySelector('.qz-mat-t').onclick = () => m.classList.toggle('folded'); });
+      bodyEl.querySelectorAll('[data-fb]').forEach((b) => b.onclick = () => openFeedback(q, { my_answer: ck ? ck.myRaw : quizAnswerText(q, st.answers[q.id]) }));
+      // 判分后：题卡右下角、「下一题」上方出现「AI 老师」（答错时高亮）
+      fab.hidden = !ck;
+      fab.classList.toggle('hot', !!ck && !ck.ok && !ck.ungraded);
+      fab.onclick = () => aiOpenFor(q, true);
+      const allDone = qs.every((_, i) => st.checked[i]);
+      const nextUnchecked = () => { for (let k = 1; k <= total; k++) { const j = (st.idx + k) % total; if (!st.checked[j]) return j; } return -1; };
+      if (ck) {
+        const nx = nextUnchecked();
+        footEl.innerHTML = allDone
+          ? `<button type="button" class="btn primary" id="qzFinishCheck"><i class="ai ai-check"></i> 查看报告</button>`
+          : `<button type="button" class="btn primary" id="qzGoNext">下一题 ›</button>`;
+        const go = $(allDone ? '#qzFinishCheck' : '#qzGoNext');
+        go.onclick = async () => { if (allDone) { await doSubmit(); return; } st.idx = nx; paint(); };
+      } else {
+        footEl.innerHTML = `
+          ${st.idx > 0 ? '<button type="button" class="btn ghost" id="qzPrev">上一题</button>' : ''}
+          <button type="button" class="btn primary" id="qzCheckOne"><i class="ai ai-check"></i> 提交本题</button>`;
+        const prevBtn = $('#qzPrev');
+        if (prevBtn) prevBtn.onclick = () => { if (st.idx > 0) { st.idx--; paint(); } };
+        $('#qzCheckOne').onclick = checkOne;
+      }
+      renderDots();
+      aiFollow(q);
+    };
+
+    /* ---------------- 做完后的报告：得分环 / 用时 / 题号红绿方块 / 各知识点掌握 / 薄弱知识点 / 错题已进错题本 ---------------- */
+    const resultOne = (q, r, no) => {
       const okk = r && r.is_correct;
       const mine = quizAnswerDisplay(q, r ? r.my_answer : quizAnswerText(q, st.answers[q.id]), q.options);
       const right = quizAnswerDisplay(q, r ? r.answer : '', q.options);
       const si = stemImagesHTML(q);
       const ung = !!(r && r.ungraded);
       return `<div class="qz-rq ${ung ? 'ung' : okk ? 'ok' : 'no'}" data-qid="${q.id}">
-        <div class="qz-rq-h"><span class="qz-rstate">${ung ? '✎ 对照参考答案（不计分）' : okk ? '✓ 回答正确' : '✗ 回答错误'}</span>
+        <div class="qz-rq-h"><span class="r8-rno ${ung ? 'd' : okk ? 'ok' : 'no'}">${no}</span><span class="qz-rstate">${ung ? '对照参考答案（不计分）' : okk ? '答对了' : '答错了'}</span>
           <span class="qz-rtag">${QT_NAME[q.type] || '题目'}</span>${q.point ? `<span class="qz-rpoint">${esc(q.point)}</span>` : ''}
           <span class="qz-raqno">#${String(q.id).padStart(5, '0')}</span></div>
         ${quizAudioHTML(q)}
@@ -487,150 +791,105 @@ const BankQuiz = {
         ${si.rest}
         <div class="qz-rrow my"><span>我的答案</span><em class="${okk ? 'ok' : ung ? '' : 'no'}">${esc(mine || '未作答')}</em></div>
         ${okk ? '' : `<div class="qz-rrow"><span>${ung ? '参考答案' : '正确答案'}</span><em class="ok">${esc(right)}</em></div>`}
-        ${r && r.analysis ? `<div class="qz-ana"><span>解析</span>${esc(r.analysis)}</div>` : ''}
-        ${okk || ung ? '' : `<div class="qz-racts">
-          <button class="btn ghost sm" data-ai="${q.id}">🧑‍🏫 AI 老师分步讲解</button>
-          <button class="btn ghost sm" data-fb="${q.id}">对题目有反馈？</button>
-        </div>`}
+        ${r && r.analysis ? `<div class="qz-ana"><span>解析</span><div>${esc(r.analysis)}</div></div>` : ''}
+        <div class="qz-racts">
+          <button type="button" class="btn ghost sm r8-ai-mini ${okk || ung ? '' : 'hot'}" data-ai="${q.id}">${r8Ic('ai')}AI 老师讲解</button>
+          <button type="button" class="btn ghost sm" data-fb="${q.id}">对题目有反馈？</button>
+        </div>
       </div>`;
     };
-
-    /** 学习报告（T6）：本次各知识点对错 + 视频 / 小分组现在的正确率 */
     const reportHTML = (r) => {
-      let h = '';
-      const ungN = (r.list || []).filter((x) => x.ungraded).length;
-      if (r.mastery) {
-        const v = r.mastery.video; const sc = r.mastery.section;
-        h += `<div class="t6-report"><div class="t6-rep-t">掌握情况</div>
-          <div class="t6-rep-row"><span>本视频习题</span><b>${esc(quizAccText(v))}</b></div>
-          ${sc ? `<div class="t6-rep-row"><span>小分组「${esc(sc.name)}」</span><b>${esc(quizAccText(sc))}</b></div>` : ''}</div>`;
-      }
-      if (r.by_point && r.by_point.length) {
-        h += `<div class="t6-report"><div class="t6-rep-t">本次各知识点</div>${r.by_point.map((p) => {
-          const pct = p.total ? Math.round(p.correct / p.total * 100) : 0;
-          return `<div class="t6-rep-row"><span>${esc(p.point)}</span><b>${p.correct} / ${p.total}</b><i class="t6-bar"><u class="${pct >= 80 ? 'good' : pct >= 60 ? 'mid' : 'low'}" style="width:${pct}%"></u></i></div>`;
-        }).join('')}</div>`;
-      }
-      if (ungN) h += `<div class="t6-report"><div class="t6-rep-row"><span>另有 ${ungN} 道问答题不自动判分，请对照下面的参考答案自己批改</span></div></div>`;
-      return h;
-    };
-
-    const paint = () => {
-      const q = qs[st.idx];
-      if (st.phase === 'result') {
-        const r = st.result;
-        const map = {};
-        (r.list || []).forEach((x) => { map[x.question_id] = x; });
-        bodyEl.innerHTML = `
-          <div class="qz-score ${r.correct >= r.total / 2 ? 'good' : 'bad'}">
-            <div class="v">${r.correct}<span> / ${r.total}</span></div>
-            <div class="l">答对 ${r.correct} 题 · 答错 ${r.wrong} 题${opt.scoreTotal ? ` · 得分 ${r.score != null ? r.score : Math.round(r.correct / Math.max(1, r.total) * opt.scoreTotal)} / ${r.score_total || opt.scoreTotal}` : ''}</div>
-            ${r.wrong ? '<div class="tip">答错的题已自动收进错题本，可以在错题本里重练</div>' : '<div class="tip">全对，太棒了！继续保持 🎉</div>'}
-          </div>
-          ${reportHTML(r)}
-          ${(r.list || []).length ? `<div class="qz-results">${qs.map((qq) => resultOne(qq, map[qq.id])).join('')}</div>` : ''}`;
-        footEl.innerHTML = `
-          <button class="btn ghost" id="qzRedo"><i class="ai ai-refresh"></i> 再做一遍</button>
-          <button class="btn primary" id="qzFinish">完 成</button>`;
-        $('#qzFinish').onclick = () => { mask.remove(); if (opt.onDone) opt.onDone(st.result); };
-        $('#qzRedo').onclick = () => {
-          st.answers = {}; st.idx = 0; st.phase = 'answer'; st.result = null; st.startedAt = Date.now(); st.checked = {};
-          stopTimer();
-          if (isStep) { timerId = setInterval(paintTimer, 1000); paintTimer(); }
-          paint();
-        };
-        // 原文折叠
-        bodyEl.querySelectorAll('.qz-material').forEach((m) => {
-          m.querySelector('.qz-mat-t').onclick = () => m.classList.toggle('folded');
-        });
-        // AI 讲解 / 反馈
-        bodyEl.querySelectorAll('[data-ai]').forEach((b) => b.onclick = () => {
-          const q = qs.find((x) => x.id === Number(b.dataset.ai));
-          if (q) openAiExplain(q, map[q.id]);
-        });
-        bodyEl.querySelectorAll('[data-fb]').forEach((b) => b.onclick = () => {
-          const q = qs.find((x) => x.id === Number(b.dataset.fb));
-          if (q) openFeedback(q, map[q.id]);
-        });
-        dotsEl.style.display = 'none';
-        renderDots();
-        bindImageZoom(bodyEl); bindQuizAudio(bodyEl);
-        if (window.mtxTypeset) mtxTypeset(bodyEl);   // 题干/解析里的 LaTeX 排版
-        return;
-      }
-      dotsEl.style.display = '';
-      hideKpad();
-      const si = stemImagesHTML(q);
-      const ck = st.checked[st.idx];
-      bodyEl.innerHTML = `
-        <div class="qz-qhead"><span class="qz-qno">第 ${st.idx + 1} / ${total} 题</span>
-          <span class="qz-qtype">${QT_NAME[q.type] || ''}</span>
-          ${q.type === 'multi' ? '<span class="qz-qtip">可多选</span>' : ''}
-          <span class="qz-raqno" title="题目编号">#${String(q.id).padStart(5, '0')}</span></div>
-        ${quizAudioHTML(q)}
-        ${q.material ? `<div class="qz-material"><div class="qz-mat-t">原文材料</div><pre class="qz-mat-b">${esc(q.material)}</pre></div>` : ''}
-        <div class="qz-stem"><b>${si.stem}</b></div>
-        ${si.rest}
-        ${optionHTML(q)}
-        ${ck ? stepJudgeHTML(q, ck) : ''}`;
-      bindOptionEvents(q);
-      bindImageZoom(bodyEl);
-      bindQuizAudio(bodyEl);
-      t8Bind(bodyEl);
-      if (window.mtxTypeset) mtxTypeset(bodyEl);   // 题干/选项里的 LaTeX 排版
-      bodyEl.querySelectorAll('.qz-material').forEach((m) => {
-        m.querySelector('.qz-mat-t').onclick = () => m.classList.toggle('folded');
+      const list = r.list || [];
+      const map = {}; list.forEach((x) => { map[x.question_id] = x; });
+      const graded = list.filter((x) => !x.ungraded);
+      const pct = graded.length ? Math.round(r.correct / graded.length * 100) : 0;
+      const secs = Math.round(((st.endedAt || Date.now()) - st.startedAt) / 1000);
+      const noOf = (qid) => qs.findIndex((x) => x.id === qid) + 1;
+      // 按知识点归组（题目自带的知识点文字；没标注的归「未标注知识点」）
+      const pts = new Map();
+      qs.forEach((q) => {
+        const x = map[q.id]; if (!x || x.ungraded) return;
+        const p = String(x.point || q.point || '').trim() || '未标注知识点';
+        const o = pts.get(p) || { point: p, total: 0, correct: 0, wrong: [] };
+        o.total++; if (x.is_correct) o.correct++; else o.wrong.push(noOf(q.id));
+        pts.set(p, o);
       });
-      bodyEl.querySelectorAll('[data-ai]').forEach((b) => b.onclick = () => openAiExplain(q, { my_answer: ck ? ck.my : quizAnswerText(q, st.answers[q.id]) }));
-      bodyEl.querySelectorAll('[data-fb]').forEach((b) => b.onclick = () => openFeedback(q, { my_answer: ck ? ck.my : quizAnswerText(q, st.answers[q.id]) }));
-      const last = st.idx >= total - 1;
-      if (ck) {
-        // 已核对：滚动到核对结果面板，只能去下一题 / 查看成绩
-        const panel = bodyEl.querySelector('.qz-judge-box');
-        if (panel) setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60);
-        footEl.innerHTML = last
-          ? `<button class="btn primary" id="qzFinishCheck"><i class="ai ai-check"></i> 查看成绩</button>`
-          : `<button class="btn primary" id="qzGoNext">下一题 ›</button>`;
-        const go = mask.querySelector(last ? '#qzFinishCheck' : '#qzGoNext');
-        go.onclick = async () => {
-          if (last) { await doSubmit(); return; }
-          st.idx++; paint();
-        };
-      } else {
-        footEl.innerHTML = `
-          ${st.idx > 0 ? '<button class="btn ghost" id="qzPrev">上一题</button>' : ''}
-          <button class="btn primary" id="qzCheckOne"><i class="ai ai-check"></i> 提交本题</button>`;
-        const prevBtn = mask.querySelector('#qzPrev');
-        if (prevBtn) prevBtn.onclick = () => { if (st.idx > 0) { st.idx--; paint(); } };
-        $('#qzCheckOne').onclick = checkOne;
-      }
+      const ptList = [...pts.values()];
+      const weak = ptList.filter((p) => p.wrong.length).sort((a, b) => (a.correct / a.total) - (b.correct / b.total));
+      const scoreTxt = opt.scoreTotal || r.score_total ? `${r.score != null ? r.score : Math.round(r.correct / Math.max(1, r.total) * opt.scoreTotal)} / ${r.score_total || opt.scoreTotal}` : '';
+      const ms = r.mastery || {};
+      const mrow = (label, a) => (a && a.total ? `<div class="r8-rep-acc"><span>${esc(label)}</span><b>${a.rate === null || a.rate === undefined ? '未做' : a.rate + '%'}</b><em>已做 ${a.answered} / ${a.total} 题</em></div>` : '');
+      const ungN = list.filter((x) => x.ungraded).length;
+      return `
+        <div class="r8-rep">
+          <div class="r8-rep-top">
+            <div class="r8-ring ${pct >= 80 ? 'good' : pct >= 60 ? 'mid' : 'low'}" style="--p:${pct}"><div><b>${pct}<small>%</small></b><span>正确率</span></div></div>
+            <div class="r8-rep-stats">
+              <div><span>答对</span><b class="ok">${r.correct}</b></div>
+              <div><span>答错</span><b class="no">${r.wrong}</b></div>
+              <div><span>用时</span><b>${r8Dur(secs)}</b></div>
+              ${scoreTxt ? `<div><span>得分</span><b>${scoreTxt}</b></div>` : ''}
+            </div>
+            <div class="r8-rep-msg">${r.wrong ? `${r8Ic('book')}<span>答错的 ${r.wrong} 道题已自动收进<b>错题本</b>，可以在错题本里重做和复习</span>` : `${r8Ic('ok')}<span>全部答对，太棒了，继续保持！</span>`}</div>
+          </div>
+          ${ms.video || ms.section ? `<div class="r8-rep-sec"><h4>现在的习题正确率</h4>${ms.video ? mrow('本视频「' + (ms.video.title || '') + '」', ms.video) : ''}${ms.section ? mrow('小分组「' + ms.section.name + '」', ms.section) : ''}</div>` : ''}
+          <div class="r8-rep-sec"><h4>题号<em>点方块查看这道题的解析</em></h4>
+            <div class="r8-rep-nos">${qs.map((q, i) => { const x = map[q.id]; const s = !x ? 'u' : x.ungraded ? 'd' : x.is_correct ? 'ok' : 'no'; return `<button type="button" class="r8-no ${s}" data-jump="${q.id}" title="第 ${i + 1} 题">${i + 1}</button>`; }).join('')}</div></div>
+          ${ptList.length ? `<div class="r8-rep-sec"><h4>各知识点掌握情况</h4>${ptList.map((p) => {
+            const v = Math.round(p.correct / p.total * 100);
+            return `<div class="r8-bar-row"><span title="${esc(p.point)}">${esc(p.point)}</span><i class="r8-bar"><u class="${v >= 80 ? 'good' : v >= 60 ? 'mid' : 'low'}" style="width:${Math.max(v, 3)}%"></u></i><b>${p.correct} / ${p.total}</b></div>`;
+          }).join('')}</div>` : ''}
+          <div class="r8-rep-sec"><h4>薄弱知识点</h4>${weak.length ? weak.map((p) => `
+            <div class="r8-weak"><span class="r8-weak-n">${esc(p.point)}</span><span class="r8-weak-r">正确率 ${Math.round(p.correct / p.total * 100)}%</span>
+              <span class="r8-weak-q">${p.wrong.map((n) => `<button type="button" class="r8-no no" data-jump="${qs[n - 1].id}">${n}</button>`).join('')}</span></div>`).join('')
+            : '<div class="r8-rep-empty">这次没有薄弱知识点</div>'}</div>
+          ${ungN ? `<div class="r8-rep-sec"><div class="r8-rep-empty">另有 ${ungN} 道问答题不自动判分，请对照下面的参考答案自己批改</div></div>` : ''}
+          <div class="r8-rep-sec r8-rep-list"><h4>题目与解析</h4>
+            <div class="qz-results">${qs.map((qq, i) => resultOne(qq, map[qq.id], i + 1)).join('')}</div></div>
+        </div>`;
+    };
+    const paintResult = () => {
+      const r = st.result;
+      const map = {}; (r.list || []).forEach((x) => { map[x.question_id] = x; });
+      hideKpad();
+      fab.hidden = true;
+      bodyEl.innerHTML = reportHTML(r);
+      bodyEl.scrollTop = 0;
+      footEl.innerHTML = `
+        <button type="button" class="btn ghost" id="qzRedo"><i class="ai ai-refresh"></i> 再练一次</button>
+        ${opt.onWatch ? `<button type="button" class="btn ghost" id="qzWatch"><i class="ai ai-play"></i> ${esc(opt.watchText || '去看视频')}</button>` : ''}
+        <button type="button" class="btn primary" id="qzFinish">完 成</button>`;
+      $('#qzFinish').onclick = () => { destroy(); if (opt.onDone) opt.onDone(st.result); };
+      const w = $('#qzWatch'); if (w) w.onclick = () => { destroy(); if (opt.onDone) opt.onDone(st.result); opt.onWatch(); };
+      $('#qzRedo').onclick = () => {
+        aiClose(); ai.convs = {};
+        st.answers = {}; st.idx = 0; st.phase = 'answer'; st.result = null; st.startedAt = Date.now(); st.endedAt = 0; st.checked = {};
+        startTimer(); paint();
+      };
+      bodyEl.querySelectorAll('.qz-material').forEach((m) => { m.querySelector('.qz-mat-t').onclick = () => m.classList.toggle('folded'); });
+      bodyEl.querySelectorAll('[data-jump]').forEach((b) => b.onclick = () => {
+        const card = bodyEl.querySelector(`.qz-rq[data-qid="${b.dataset.jump}"]`);
+        if (card) { bodyEl.scrollTo({ top: bodyEl.scrollTop + card.getBoundingClientRect().top - bodyEl.getBoundingClientRect().top - 12, behavior: 'smooth' }); card.classList.add('r8-flash'); setTimeout(() => card.classList.remove('r8-flash'), 1200); }
+      });
+      bodyEl.querySelectorAll('[data-ai]').forEach((b) => b.onclick = () => { const q = qs.find((x) => x.id === Number(b.dataset.ai)); if (q) aiOpenFor(q, true); });
+      bodyEl.querySelectorAll('[data-fb]').forEach((b) => b.onclick = () => { const q = qs.find((x) => x.id === Number(b.dataset.fb)); if (q) openFeedback(q, map[q.id]); });
       renderDots();
+      bindImageZoom(bodyEl); bindQuizAudio(bodyEl);
+      if (window.mtxTypeset) mtxTypeset(bodyEl);
     };
 
-    /* ---- step 模式：提交本题 → 立即核对（不落库），显示对错 / 答案 / 解析 / AI 讲解 ---- */
-    const stepJudgeHTML = (q, ck) => `
-      <div class="qz-judge-box ${ck.ok ? 'ok' : 'no'}">
-        <div class="qz-jb-h">${ck.ungraded ? '<i>✎</i> 已提交，请对照参考答案（问答题不计分）' : ck.ok ? '<i>✓</i> 回答正确，真棒！' : '<i>✗</i> 回答错误'}</div>
-        <div class="qz-jb-r"><span>你的答案</span><em class="${ck.ok ? 'ok' : 'no'}">${esc(ck.my || '未作答')}</em></div>
-        ${ck.ok && !ck.ungraded ? '' : `<div class="qz-jb-r"><span>${ck.ungraded ? '参考答案' : '正确答案'}</span><em class="ok">${esc(ck.answer)}</em></div>`}
-        ${ck.analysis ? `<div class="qz-jb-ana"><span>解析</span>${esc(ck.analysis)}</div>` : ''}
-        ${ck.ok || ck.ungraded ? '' : `<div class="qz-racts">
-          <button class="btn ghost sm" data-ai="1">🧑‍🏫 AI 老师分步讲解</button>
-          <button class="btn ghost sm" data-fb="1">对题目有反馈？</button>
-        </div>`}
-      </div>`;
-
+    /* ---- 提交本题 → 立即核对（不落库），显示对错 / 答案 / 解析，出现 AI 老师 ---- */
     const checkOne = async () => {
       if (st.busy) return;
       const q = qs[st.idx];
       const my = quizAnswerText(q, st.answers[q.id]);
-      if (my === '') { toast('先作答，再提交核对'); return; }
+      if (my === '') { toast('先作答，再提交'); return; }
       st.busy = true;
       const btn = $('#qzCheckOne'); if (btn) btn.disabled = true;
       try {
         const r = await api('/api/stu/bank/check', { method: 'POST', body: { items: [{ question_id: q.id, my_answer: my }] } });
         const x = (r.list || [])[0] || {};
-        st.checked[st.idx] = { ok: !!x.is_correct, ungraded: !!x.ungraded, answer: quizAnswerDisplay(q, x.answer, q.options), analysis: x.analysis || '', my: quizAnswerDisplay(q, my, q.options) };
+        st.checked[st.idx] = { ok: !!x.is_correct, ungraded: !!x.ungraded, raw: x.answer || '', answer: quizAnswerDisplay(q, x.answer, q.options), analysis: x.analysis || '', my: quizAnswerDisplay(q, my, q.options), myRaw: my, blanks: x.blanks || null };
         if (typeof FX !== 'undefined') FX.pop();
         paint();
       } catch (e) { toast(e.message || '核对失败，请重试', 'err'); if (btn) btn.disabled = false; }
@@ -639,21 +898,13 @@ const BankQuiz = {
 
     const doSubmit = async () => {
       if (st.busy) return;
-      if (!isStep) {
-        const unanswered = qs.filter((q) => quizAnswerText(q, st.answers[q.id]) === '').length;
-        if (unanswered && !(await elConfirm({ title: '交卷确认', message: `还有 ${unanswered} 题没作答，未作答按错误计。确定交卷？`, okText: '交卷' }))) return;
-        if (!unanswered && !(await elConfirm({ title: '交卷确认', message: '确定交卷吗？交卷后立即判分。', okText: '交卷' }))) return;
-      } else {
-        // step 模式：全部逐题核对完成后才会走到这里，直接落库
-        const miss = qs.filter((q, i) => !st.checked[i] && quizAnswerText(q, st.answers[q.id]) === '').length;
-        if (miss) { toast(`还有 ${miss} 题没有作答，先完成它们`); return; }
-      }
+      if (!isStep && !(await elConfirm({ title: '交卷确认', message: '全部题目已核对，确定交卷吗？交卷后记录成绩，错题进错题本。', okText: '交卷' }))) return;
       st.busy = true;
-      stopTimer();
       const answers = qs.map((q) => ({ question_id: q.id, my_answer: quizAnswerText(q, st.answers[q.id]) }));
       const duration = Math.round((Date.now() - st.startedAt) / 1000);
       try {
         const r = await opt.submit(answers, duration);
+        st.endedAt = Date.now(); stopTimer(); paintTimer();
         st.result = r; st.phase = 'result';
         if (typeof FX !== 'undefined') FX.pop();
         paint();
@@ -662,7 +913,7 @@ const BankQuiz = {
     };
 
     paint();
-    return { close: () => mask.remove() };
+    return { close: destroy };
   },
 };
 

@@ -2,7 +2,7 @@
  *  四个视图（由 admin.js 的 VIEWS 调用）：
  *    viewBank()      题库管理：筛选 / 新增编辑 / Excel 导入 / 删除
  *    viewPaper()     智能组卷：按题型数量一键抽题 → 预览调整 → 保存 / 下发
- *    viewLessonQ()   课文习题：选课本 → 左侧分组 → 右侧视频 → 给视频添加 / 绑定习题
+ *    viewLessonQ()   课文习题：选课本 → 左侧分组 → 右侧视频 → 给视频 / 小分组添加、绑定习题，视频关联知识点（R8）
  *    viewMistakeLog() 错题记录：按学生 / 学科查看，支持打印纸质版
  *  依赖 admin.js 的 modal / esc / api / toast / ic / pagerHTML / bindPager / loadMeta / ADM，api.js 的 elConfirm。 */
 'use strict';
@@ -858,16 +858,18 @@ async function viewLessonQ() {
     detail = await api('/api/admin/bank/chapters/' + st.chapter + '/lessons').catch(() => null);
   }
 
+  // R8：小分组也能挂题 —— 左侧每个小分组显示「小分组习题 N」+「管理习题」
   const groups = detail ? (detail.grouped
-    ? detail.sections.map((s) => ({ id: s.id, name: s.name })).concat(
-        detail.videos.some((v) => !v.section_id) ? [{ id: 0, name: '未分组' }] : [])
+    ? detail.sections.map((s) => ({ id: s.id, name: s.name, qn: Number(s.question_count) || 0 })).concat(
+        detail.videos.some((v) => !v.section_id) ? [{ id: 0, name: '未分组', qn: 0 }] : [])
     : []) : [];
   const curGroup = st.group === '' ? (groups.length ? groups[0].id : '') : st.group;
+  const curG = groups.find((g) => String(g.id) === String(curGroup)) || null;
   const videos = detail ? detail.videos.filter((v) => !detail.grouped || String(v.section_id || 0) === String(curGroup)) : [];
 
   const html = `
   <div class="card">
-    <div class="card-h"><h3>${ic('list')} 课文习题 · 给知识点视频配练习题</h3></div>
+    <div class="card-h"><h3>${ic('list')} 课文习题 · 给知识点视频和小分组配练习题</h3></div>
     <div class="bk-filters lq-filters">
       <select id="lq-subject">${SUBJECTS.map((s) => `<option ${st.subject === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
       <select id="lq-category"><option value="">全部分类</option>${cats.map((c) => `<option ${st.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
@@ -879,16 +881,23 @@ async function viewLessonQ() {
     </div>
     ${!detail ? '<div class="empty">先在上面的下拉里选择一门课本（课程目录）</div>' : `
     <div class="lq-layout ${detail.grouped ? 'grouped' : ''}">
-      ${detail.grouped ? `<aside class="lq-side">
-        ${groups.map((g) => `<a class="lq-side-item ${String(curGroup) === String(g.id) ? 'on' : ''}" data-g="${g.id}">
-          <span class="gs-name">${esc(g.name)}</span></a>`).join('')}
+      ${detail.grouped ? `<aside class="lq-side r8-lq-side">
+        ${groups.map((g) => `<a class="lq-side-item r8-lq-gi ${String(curGroup) === String(g.id) ? 'on' : ''}" data-g="${g.id}">
+          <span class="gs-name">${esc(g.name)}</span>
+          ${g.id ? `<span class="r8-lq-gmeta"><span class="tag ${g.qn ? 'ok' : 'gray'}">小分组习题 ${g.qn}</span>
+            <button type="button" class="r8-lq-gbtn" data-sq="${g.id}" title="给这个小分组挂题">${ic('doc')} 管理习题</button></span>` : '<span class="r8-lq-gmeta"><span class="tag gray">没有归组的视频</span></span>'}
+        </a>`).join('')}
       </aside>` : ''}
       <div class="lq-main">
+        ${curG && curG.id ? `<div class="r8-lq-secbar">
+          <div><b>小分组「${esc(curG.name)}」</b><span>小分组自己的习题 <em>${curG.qn}</em> 道 · 学生端「小分组练习」= 组内视频的题 + 这些题</span></div>
+          <button class="btn ghost sm" data-sq="${curG.id}">${ic('doc')} 管理小分组习题</button></div>` : ''}
         ${videos.length ? videos.map((v) => `
-          <div class="lq-video">
+          <div class="lq-video r8-lq-video">
             <div class="lq-v-info"><b>${esc(v.title)}</b><span class="tag ${v.question_count ? 'ok' : 'gray'}">${v.question_count ? v.question_count + ' 道习题' : '暂无习题'}</span></div>
+            <div class="r8-lq-nodes">${(v.nodes || []).length ? v.nodes.map((n) => `<span class="r8-lq-node">${esc(n.name)}</span>`).join('') : '<span class="r8-lq-node off">未关联知识点</span>'}</div>
             <button class="btn ghost sm" data-vq="${v.id}">${ic('doc')} 管理习题</button>
-          </div>`).join('') : '<div class="empty">这个分组下还没有视频，先到「视频管理」上传</div>'}
+          </div>`).join('') : '<div class="empty">这个分组下还没有视频，先到「视频管理」上传（小分组本身也可以直接挂题）</div>'}
       </div>
     </div>`}
   </div>`;
@@ -900,108 +909,211 @@ async function viewLessonQ() {
       document.getElementById('lq-category').onchange = (e) => { st.category = e.target.value; st.grade = ''; st.chapter = ''; st.group = ''; render(); };
       document.getElementById('lq-grade').onchange = (e) => { st.grade = e.target.value; st.chapter = ''; st.group = ''; render(); };
       document.getElementById('lq-chapter').onchange = (e) => { st.chapter = e.target.value; st.group = ''; render(); };
-      document.querySelectorAll('.lq-side-item').forEach((a) => a.onclick = () => { st.group = a.dataset.g; render(); });
-      document.querySelectorAll('[data-vq]').forEach((b) => b.onclick = () => bkVideoQuestions(Number(b.dataset.vq)));
+      document.querySelectorAll('.lq-side-item').forEach((a) => a.onclick = (e) => { if (e.target.closest('[data-sq]')) return; st.group = a.dataset.g; render(); });
+      document.querySelectorAll('[data-vq]').forEach((b) => b.onclick = () => {
+        const v = detail.videos.find((x) => x.id === Number(b.dataset.vq));
+        bkLessonQuestions({ videoId: Number(b.dataset.vq), sectionId: v && v.section_id ? Number(v.section_id) : 0 });
+      });
+      document.querySelectorAll('[data-sq]').forEach((b) => b.onclick = (e) => { e.stopPropagation(); bkLessonQuestions({ sectionId: Number(b.dataset.sq), tab: 'section' }); });
     },
   };
 }
 
-/** 某个视频的习题管理弹窗：查看已绑题 + 添加新题 + 从题库选绑 */
-async function bkVideoQuestions(videoId) {
-  let d;
-  try { d = await api('/api/admin/bank/videos/' + videoId + '/questions'); }
-  catch (e) { return; }
-  const paint = () => `
-    <div class="vq-head"><b>${esc(d.video.title)}</b><span class="tag ok">${d.list.length} 道题</span></div>
-    ${d.list.length ? `<div class="vq-list">${d.list.map((q) => `
-      <div class="vq-item"><div class="pp-q-main">
-        <b>[${BK_QTNAME[q.type]}]</b> ${esc(bkTrunc(q.stem, 60))}
-        <div class="vq-ans">答案：${esc(bkAnswerText(q))}</div></div>
-        <button class="link-btn danger" data-un="${q.id}">解绑</button></div>`).join('')}</div>`
-      : '<div class="empty" style="padding:20px 0">这个视频还没有习题，点下方按钮添加</div>'}`;
+/** R8：题目列表里的题干（[图N] 换成缩略图）、选项、答案、解析；渲染后由 mtxTypeset 排公式 */
+function bkQRich(q, i) {
+  const imgs = Array.isArray(q.images) ? q.images : [];
+  const used = new Set();
+  const img = (src, alt) => `<img class="r8-vq-img" src="${esc(src)}" alt="${esc(alt)}" loading="lazy" data-zoom="${esc(src)}">`;
+  const stem = esc(String(q.stem || '')).replace(/\[图(\d+)\]/g, (m, n) => { const s = imgs[Number(n) - 1]; if (!s) return m; used.add(Number(n) - 1); return img(s, '图' + n); }).replace(/\n/g, '<br>');
+  const rest = imgs.filter((_, k) => !used.has(k)).map((s) => img(s, '题图')).join('');
+  const opts = (q.type === 'single' || q.type === 'multi' || q.type === 'sort') && Array.isArray(q.options) && q.options.length
+    ? `<div class="r8-vq-opts">${q.options.map((o, k) => `<span><b>${BK_LETTERS[k]}.</b> ${esc(optText(o))}</span>`).join('')}</div>` : '';
+  return `<div class="r8-vq-q">
+    <div class="r8-vq-top"><span class="r8-vq-no">${i + 1}</span><span class="tag">${BK_QTNAME[q.type] || '题目'}</span>${q.point ? `<span class="tag gray">${esc(q.point)}</span>` : ''}<span class="r8-vq-id">#${String(q.id).padStart(5, '0')}</span></div>
+    <div class="r8-vq-stem">${stem}</div>${rest ? `<div class="r8-vq-imgs">${rest}</div>` : ''}${opts}
+    <div class="r8-vq-ans"><span>答案</span>${esc(bkAnswerText(q))}</div>
+    ${q.analysis ? `<div class="r8-vq-ana"><span>解析</span>${esc(q.analysis)}</div>` : ''}
+  </div>`;
+}
+
+/** R8：课文习题弹窗。页签：视频习题 / 小分组习题 / 关联知识点（从视频进入三个都有；从小分组进入只有「小分组习题」）
+ *  opt: { videoId?, sectionId?, tab? } */
+async function bkLessonQuestions(opt) {
+  const videoId = Number(opt.videoId) || 0;
+  const sectionId = Number(opt.sectionId) || 0;
+  let tab = opt.tab || (videoId ? 'video' : 'section');
+  let vd = null, sd = null;
+  const loadV = async () => { vd = videoId ? await api('/api/admin/bank/videos/' + videoId + '/questions') : null; };
+  const loadS = async () => { sd = sectionId ? await api('/api/admin/bank/sections/' + sectionId + '/questions') : null; };
+  try { await Promise.all([loadV(), loadS()]); } catch (e) { return; }
+  const title = videoId ? '知识点习题 · ' + vd.video.title : '小分组习题 · ' + sd.section.name;
+  const tabs = [videoId ? ['video', '视频习题'] : null, sectionId ? ['section', '小分组习题'] : null, videoId ? ['nodes', '关联知识点'] : null].filter(Boolean);
+  const list = (rows, kind) => (rows.length ? `<div class="vq-list r8-vq-list">${rows.map((q, i) => `
+      <div class="vq-item r8-vq-item">${bkQRich(q, i)}
+        <div class="r8-vq-acts"><button class="link-btn" data-edit="${q.id}">编辑</button><button class="link-btn danger" data-un="${q.id}" data-kind="${kind}">解绑</button></div></div>`).join('')}</div>`
+    : `<div class="empty" style="padding:22px 0">${kind === 'video' ? '这个视频还没有习题，点下方按钮添加' : '这个小分组还没有直接挂的习题'}</div>`);
+  const paintBody = () => {
+    if (tab === 'video') {
+      return `<div class="vq-head"><b>${esc(vd.video.title)}</b><span class="tag ok">${vd.list.length} 道题</span></div>${list(vd.list, 'video')}
+        <div class="r8-vq-btns"><button class="btn primary" data-add="video">${ic('plus')} 添加习题</button><button class="btn ghost" data-pick="video">${ic('search')} 从题库选择绑定</button><button class="btn ghost" id="vqUpload">${ic('upload')} 批量上传</button></div>`;
+    }
+    if (tab === 'section') {
+      return `<div class="vq-head"><b>小分组「${esc(sd.section.name)}」</b><span class="tag ok">${sd.list.length} 道题</span>
+          <span class="r8-vq-tip">组内视频还有 ${sd.video_question_count} 道题；学生端「小分组练习」会把两部分合在一起做，正确率计入小分组</span></div>${list(sd.list, 'section')}
+        <div class="r8-vq-btns"><button class="btn primary" data-add="section">${ic('plus')} 添加习题</button><button class="btn ghost" data-pick="section">${ic('search')} 从题库选择绑定</button></div>`;
+    }
+    return '<div id="r8NodeBox"><div class="empty">加载中…</div></div>';
+  };
   modal({
-    title: '知识点习题 · ' + d.video.title,
-    wide: true,
-    body: `<div id="vqBody">${paint()}</div>
-      <div style="display:flex;gap:10px;margin-top:14px">
-        <button class="btn primary" id="vqAdd">${ic('plus')} 添加习题</button>
-        <button class="btn ghost" id="vqPick">${ic('search')} 从题库选择绑定</button>
-        <button class="btn ghost" id="vqUpload">${ic('upload')} 批量上传</button>
-      </div>`,
+    title, wide: true,
+    body: `${tabs.length > 1 ? `<div class="r8-vq-tabs">${tabs.map(([k, t]) => `<a data-tab="${k}" class="${tab === k ? 'on' : ''}">${t}</a>`).join('')}</div>` : ''}
+      <div id="vqBody"></div>`,
     onMount: (w) => {
-      const refresh = async () => {
-        d = await api('/api/admin/bank/videos/' + videoId + '/questions');
-        w.querySelector('#vqBody').innerHTML = paint();
-        bindList();
-      };
-      const bindList = () => {
-        w.querySelectorAll('[data-un]').forEach((b) => b.onclick = async () => {
-          await api(`/api/admin/bank/videos/${videoId}/bind`, { method: 'POST', silent: true, body: { ids: [Number(b.dataset.un)], unbind: 1 } });
-          toast('已解绑', 'ok');
+      const wrap = w.closest('.el-dialog__wrapper') || w;
+      // 数据变了就顺手刷新背后的列表页（题数 / 知识点标签），弹窗挂在 body 上不受影响
+      const refresh = async () => { await Promise.all([loadV(), loadS()]); paint(); render(); };
+      const paint = () => {
+        wrap.querySelectorAll('[data-tab]').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
+        const box = w.querySelector('#vqBody');
+        box.innerHTML = paintBody();
+        if (tab === 'nodes') { bkVideoNodes(box.querySelector('#r8NodeBox'), videoId, () => { loadV().then(() => render()); }); return; }
+        if (window.mtxTypeset) mtxTypeset(box);
+        box.querySelectorAll('[data-zoom]').forEach((im) => { im.onclick = () => { if (typeof mfImgView === 'function') mfImgView(im.dataset.zoom); else window.open(im.dataset.zoom); }; });
+        box.querySelectorAll('[data-un]').forEach((b) => b.onclick = async () => {
+          const url = b.dataset.kind === 'section' ? `/api/admin/bank/sections/${sectionId}/bind` : `/api/admin/bank/videos/${videoId}/bind`;
+          await api(url, { method: 'POST', silent: true, body: { ids: [Number(b.dataset.un)], unbind: 1 } });
+          toast('已解绑（题目仍在题库里）', 'ok');
           refresh();
         });
-      };
-      bindList();
-      w.querySelector('#vqAdd').onclick = () => {
-        modal({
-          title: '添加习题（自动绑定到该知识点，同时存入题库）', wide: true, okText: '添加',
-          body: bkFormBody({}, { bind: false }),
-          onMount: (w3) => bkFormMount(w3, {}),
-          onOk: async (w3, err) => {
-            const body = bkFormRead(w3, err);
-            if (!body) return false;
-            body.video_id = videoId;
-            await api('/api/admin/bank/questions', { method: 'POST', silent: true, body });
-            toast('习题已添加并绑定', 'ok');
-            refresh();
-            return false;   // 保留外层弹窗，方便连续加题
-          },
+        box.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => {
+          // 复用题库管理的编辑弹窗；题目还没挂知识点时，默认勾上视频关联的知识点（题目继承视频的知识点）
+          if (typeof mfQEdit === 'function') mfQEdit(Number(b.dataset.edit), () => refresh(), { defaultNodes: tab === 'video' ? (vd.nodes || []).map((n) => n.id) : [] });
         });
-      };
-      w.querySelector('#vqPick').onclick = () => bkPickFromBank(videoId, () => refresh());
-      w.querySelector('#vqUpload').onclick = () => {
-        modal({
-          title: '批量上传习题（Word 一键解析）', wide: true,
-          body: `
-            <div class="mf-tip" style="margin-bottom:12px">支持「洋葱题库」样式的 Word 文档（.docx）：<br>
-              <b>1.（单选题）题干</b> → <b>A./B./C./D. 选项</b> → <b>答案：X</b> → <b>解析：……</b><br>
-              题干和解析里的<b>插图自动提取</b>并挂到对应题目；解析出的题直接入库并绑定到本知识点（学科/年级随课本自动带出）。</div>
-            <label class="btn primary" style="display:inline-block;cursor:pointer">${ic('upload')} 选择 .docx 文件
-              <input type="file" id="vqFile" accept=".docx" style="display:none"></label>
-            <span class="hint" style="margin-left:10px">选择文件后自动解析上传，多题一次入库</span>
-            <div id="vqUpOut" style="margin-top:14px"></div>`,
-          onMount: (w3) => {
-            w3.querySelector('#vqFile').onchange = async (e) => {
-              const file = e.target.files[0];
-              if (!file) return;
-              const out = w3.querySelector('#vqUpOut');
-              out.innerHTML = '<span class="spinner"></span> 正在解析上传，题目多时需要几秒…';
-              const fd = new FormData();
-              fd.append('file', file);
-              try {
-                const res = await fetch(`/api/admin/bank/videos/${videoId}/import-docx`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
-                const json = await res.json();
-                if (json.code !== 0) throw new Error(json.msg || '上传失败');
-                const d = json.data || {};
-                out.innerHTML = `<div class="tag ok" style="font-size:14px;padding:8px 14px">✅ ${esc(json.msg)}${d.skipped ? `，跳过 ${d.skipped} 段无法识别的内容` : ''}</div>`;
-                toast(json.msg, 'ok');
-                refresh();
-              } catch (err) {
-                out.innerHTML = `<div style="color:#dc2626;font-size:13px">${esc(err.message)}</div>`;
-              }
-            };
-          },
+        box.querySelectorAll('[data-add]').forEach((b) => b.onclick = () => {
+          const kind = b.dataset.add;
+          modal({
+            title: kind === 'video' ? '添加习题（自动绑定到该知识点视频，同时存入题库）' : '添加习题（直接挂到该小分组，同时存入题库）', wide: true, okText: '添加',
+            body: bkFormBody({}, { bind: false }),
+            onMount: (w3) => bkFormMount(w3, {}),
+            onOk: async (w3, err) => {
+              const body = bkFormRead(w3, err);
+              if (!body) return false;
+              if (kind === 'video') body.video_id = videoId; else body.section_id = sectionId;
+              await api('/api/admin/bank/questions', { method: 'POST', silent: true, body });
+              toast('习题已添加', 'ok');
+              refresh();
+              return false;   // 保留外层弹窗，方便连续加题
+            },
+          });
         });
+        box.querySelectorAll('[data-pick]').forEach((b) => b.onclick = () => bkPickFromBank(b.dataset.pick === 'video' ? { kind: 'video', id: videoId } : { kind: 'section', id: sectionId }, () => refresh()));
+        const up = box.querySelector('#vqUpload');
+        if (up) up.onclick = () => bkDocxUpload(videoId, () => refresh());
+      };
+      wrap.querySelectorAll('[data-tab]').forEach((a) => a.onclick = () => { tab = a.dataset.tab; paint(); });
+      paint();
+    },
+  });
+}
+// 兼容旧调用
+function bkVideoQuestions(videoId) { return bkLessonQuestions({ videoId }); }
+
+/** R8：视频关联知识点（知识点树多选；默认选学科 + 学段对应的那棵树） */
+async function bkVideoNodes(host, videoId, onSaved) {
+  let d;
+  try { d = await api('/api/admin/bank/videos/' + videoId + '/nodes'); } catch (e) { host.innerHTML = `<div class="empty">${esc(e.message || '加载失败')}</div>`; return; }
+  const chosen = new Map(d.nodes.map((n) => [n.id, n.name]));
+  let treeId = d.tree_id;
+  let nodes = [];
+  host.innerHTML = `
+    <div class="r8-vn-tip">选中的知识点会显示在学生端这个视频的卡片上；学生点标签能看到这个知识点下做过的题和正确率。<br>这个视频绑定的题目在统计知识点掌握情况时，自动算到这些知识点下（题目继承视频的知识点）。</div>
+    <div class="r8-vn-bar">
+      <select id="r8VnTree">${d.trees.length ? d.trees.map((t) => `<option value="${t.id}" ${t.id === treeId ? 'selected' : ''}>${esc(t.name)}</option>`).join('') : '<option value="">（还没有知识点树）</option>'}</select>
+      <input class="input" id="r8VnKw" placeholder="搜索知识点">
+    </div>
+    <div class="r8-vn-chosen" id="r8VnChosen"></div>
+    <div class="r8-vn-tree" id="r8VnTree2"></div>
+    <div class="r8-vq-btns"><button class="btn primary" id="r8VnSave">${ic('check')} 保存关联</button><span class="r8-vq-tip" id="r8VnMsg"></span></div>`;
+  const paintChosen = () => {
+    host.querySelector('#r8VnChosen').innerHTML = chosen.size
+      ? [...chosen.entries()].map(([id, name]) => `<span class="r8-vn-chip">${esc(name)}<button type="button" data-rm="${id}" title="移除">×</button></span>`).join('')
+      : '<span class="r8-vq-tip">还没有关联知识点，在下面的树里勾选</span>';
+    host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => { chosen.delete(Number(b.dataset.rm)); paintChosen(); paintTree(); });
+  };
+  const depth = (n) => { let k = 0, p = n; while (p && p.parent_id && k < 9) { p = nodes.find((x) => x.id === p.parent_id); k++; } return k; };
+  const paintTree = () => {
+    const kw = host.querySelector('#r8VnKw').value.trim();
+    // 按树的先序排好（父在前、子在后）
+    const byP = {}; nodes.forEach((n) => { (byP[n.parent_id || 0] = byP[n.parent_id || 0] || []).push(n); });
+    const order = []; const walk = (pid) => (byP[pid] || []).forEach((n) => { order.push(n); walk(n.id); }); walk(0);
+    const shown = kw ? order.filter((n) => n.name.includes(kw)) : order;
+    host.querySelector('#r8VnTree2').innerHTML = shown.length ? shown.map((n) => `<label class="r8-vn-row" style="padding-left:${(kw ? 0 : depth(n)) * 18 + 8}px">
+        <input type="checkbox" value="${n.id}" ${chosen.has(n.id) ? 'checked' : ''}><span>${esc(n.name)}</span>${n.qcount ? `<em>${n.qcount} 题</em>` : ''}</label>`).join('')
+      : '<div class="empty" style="padding:16px 0">没有匹配的知识点</div>';
+    host.querySelectorAll('#r8VnTree2 input').forEach((c) => c.onchange = () => {
+      const n = nodes.find((x) => x.id === Number(c.value));
+      if (c.checked) chosen.set(n.id, n.name); else chosen.delete(n.id);
+      paintChosen();
+    });
+  };
+  const loadTree = async () => {
+    nodes = treeId ? ((await api(`/api/admin/bank/mf/trees/${treeId}/nodes`, { silent: true }).catch(() => ({ list: [] }))).list || []) : [];
+    paintTree();
+  };
+  host.querySelector('#r8VnTree').onchange = (e) => { treeId = Number(e.target.value) || 0; loadTree(); };
+  host.querySelector('#r8VnKw').oninput = () => paintTree();
+  host.querySelector('#r8VnSave').onclick = async () => {
+    const r = await api('/api/admin/bank/videos/' + videoId + '/nodes', { method: 'POST', silent: true, body: { node_ids: [...chosen.keys()] } });
+    host.querySelector('#r8VnMsg').textContent = `已保存：关联 ${r && r.count !== undefined ? r.count : chosen.size} 个知识点`;
+    toast('已保存关联的知识点', 'ok');
+    if (onSaved) onSaved();
+  };
+  paintChosen();
+  loadTree();
+}
+
+/** Word 批量上传习题到视频（原「批量上传」按钮，逻辑不变） */
+function bkDocxUpload(videoId, refresh) {
+  modal({
+    title: '批量上传习题（Word 一键解析）', wide: true,
+    body: `
+      <div class="mf-tip" style="margin-bottom:12px">支持「洋葱题库」样式的 Word 文档（.docx）：<br>
+        <b>1.（单选题）题干</b> → <b>A./B./C./D. 选项</b> → <b>答案：X</b> → <b>解析：……</b><br>
+        题干和解析里的<b>插图自动提取</b>并挂到对应题目；解析出的题直接入库并绑定到本知识点（学科/年级随课本自动带出）。</div>
+      <label class="btn primary" style="display:inline-block;cursor:pointer">${ic('upload')} 选择 .docx 文件
+        <input type="file" id="vqFile" accept=".docx" style="display:none"></label>
+      <span class="hint" style="margin-left:10px">选择文件后自动解析上传，多题一次入库</span>
+      <div id="vqUpOut" style="margin-top:14px"></div>`,
+    onMount: (w3) => {
+      w3.querySelector('#vqFile').onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const out = w3.querySelector('#vqUpOut');
+        out.innerHTML = '<span class="spinner"></span> 正在解析上传，题目多时需要几秒…';
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+          const res = await fetch(`/api/admin/bank/videos/${videoId}/import-docx`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
+          const json = await res.json();
+          if (json.code !== 0) throw new Error(json.msg || '上传失败');
+          const d = json.data || {};
+          out.innerHTML = `<div class="tag ok" style="font-size:14px;padding:8px 14px">${esc(json.msg)}${d.skipped ? `，跳过 ${d.skipped} 段无法识别的内容` : ''}</div>`;
+          toast(json.msg, 'ok');
+          refresh();
+        } catch (err) {
+          out.innerHTML = `<div style="color:#dc2626;font-size:13px">${esc(err.message)}</div>`;
+        }
       };
     },
   });
 }
 
-/** 从题库挑题绑到视频 */
-function bkPickFromBank(videoId, onDone) {
+/** 从题库挑题绑到视频 / 小分组（R8：只列既没绑视频、也没挂小分组的题）。target: 视频 id（旧调用）或 { kind:'video'|'section', id } */
+function bkPickFromBank(target, onDone) {
+  const tg = typeof target === 'object' ? target : { kind: 'video', id: Number(target) };
   const st = { kw: '', page: 1 };
   modal({
-    title: '从题库选择题目绑定',
+    title: tg.kind === 'section' ? '从题库选择题目挂到小分组' : '从题库选择题目绑定到视频',
     wide: true,
     okText: '绑定所选',
     body: `
@@ -1015,13 +1127,14 @@ function bkPickFromBank(videoId, onDone) {
       const chosen = new Set();
       const wrap = w.closest('.el-dialog__wrapper');
       const load = async () => {
-        const r = await api(`/api/admin/bank/questions?page=${st.page}&size=8&video=none${st.kw ? '&kw=' + encodeURIComponent(st.kw) : ''}`, { silent: true });
+        const r = await api(`/api/admin/bank/questions?page=${st.page}&size=8&video=free${st.kw ? '&kw=' + encodeURIComponent(st.kw) : ''}`, { silent: true });
         w.querySelector('#pkList').innerHTML = (r.list || []).map((q) => `
           <label class="pk-row"><input type="checkbox" data-id="${q.id}" ${chosen.has(q.id) ? 'checked' : ''}>
-            <b>[${BK_QTNAME[q.type]}]</b> ${esc(bkTrunc(q.stem, 66))}</label>`).join('') || '<div class="empty">没有符合条件的未绑定题目</div>';
+            <b>[${BK_QTNAME[q.type] || '题目'}]</b> ${esc(bkTrunc(q.stem, 66))}</label>`).join('') || '<div class="empty">没有符合条件的未绑定题目</div>';
         w.querySelectorAll('[data-id]').forEach((c) => c.onchange = () => {
           if (c.checked) chosen.add(Number(c.dataset.id)); else chosen.delete(Number(c.dataset.id));
         });
+        if (window.mtxTypeset) mtxTypeset(w.querySelector('#pkList'));
         const pages = Math.max(1, Math.ceil(r.total / 8));
         w.querySelector('#pkPager').innerHTML = pages > 1
           ? `<button class="btn ghost sm" id="pkPrev" ${st.page <= 1 ? 'disabled' : ''}>上一页</button>
@@ -1038,7 +1151,8 @@ function bkPickFromBank(videoId, onDone) {
       load();
       wrap.querySelector('#mOk').onclick = async () => {
         if (!chosen.size) { toast('请先勾选题目', 'err'); return; }
-        await api(`/api/admin/bank/videos/${videoId}/bind`, { method: 'POST', silent: true, body: { ids: [...chosen] } });
+        const url = tg.kind === 'section' ? `/api/admin/bank/sections/${tg.id}/bind` : `/api/admin/bank/videos/${tg.id}/bind`;
+        await api(url, { method: 'POST', silent: true, body: { ids: [...chosen] } });
         toast(`已绑定 ${chosen.size} 道题`, 'ok');
         wrap.remove();
         if (onDone) onDone();
