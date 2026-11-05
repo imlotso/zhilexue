@@ -94,7 +94,8 @@ function cleanup() {
   const sub1 = await req('/api/stu/bank/submit', { method: 'POST', token: ST, body: { kind: 'mfpaper', paper_id: pid, answers: [{ question_id: id1, my_answer: '\\sqrt{2}' }] } });
   log(sub1.code === 0 && sub1.data.correct === 1, '学生提交公式键盘输入的答案，服务端判对', sub1.msg);
   const sub2 = await req('/api/stu/bank/submit', { method: 'POST', token: ST, body: { kind: 'mfpaper', paper_id: pid, answers: [{ question_id: id1, my_answer: '\\sqrt{3}' }] } });
-  log(sub2.code === 0 && sub2.data.wrong === 1, '答错的公式判错', sub2.msg);
+  const wrongFormula = (sub2.data && sub2.data.list || []).find((q) => q.question_id === id1);
+  log(sub2.code === 0 && wrongFormula && wrongFormula.is_correct === false && sub2.data.correct === 0 && sub2.data.wrong === 3 && sub2.data.ungraded_count === 1, '答错的公式判错；未答的客观题计错、问答题待评分', sub2.msg);
 
   // ---------- 5) 页面接线 ----------
   const adm = read('public/admin/index.html'), stu = read('public/index.html');

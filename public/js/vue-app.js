@@ -275,7 +275,7 @@ const App = {
         this.error = '';
         this.$nextTick(() => {
           const host = document.getElementById(this.page + 'Host');
-          if (host && window.BankPages) BankPages[this.page](host);
+          if (host && window.BankPages) BankPages[this.page](host, this.subject);
         });
         return;
       }

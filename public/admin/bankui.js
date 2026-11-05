@@ -9,13 +9,13 @@
 
 const BK_TYPES = [
   ['single', '单选题'], ['multi', '多选题'], ['judge', '判断题'],
-  ['fill', '填空题'], ['sort', '排序·连词成句'],
+  ['fill', '填空题'], ['sort', '排序·连词成句'], ['answer', '解答题'],
 ];
 const BK_TYPE_NAME = Object.fromEntries(BK_TYPES);
-const BK_LETTERS = 'ABCDEFG';
+const BK_LETTERS = 'ABCDEFGHIJ';
 const BK_STAGES = [['', '全部学段'], ['primary', '小学'], ['junior', '初中']];
 const BK_GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
-const BK_QTNAME = { single: '单选题', multi: '多选题', judge: '判断题', fill: '填空题', sort: '排序题' };
+const BK_QTNAME = { single: '单选题', multi: '多选题', judge: '判断题', fill: '填空题', sort: '排序题', answer: '解答题' };
 
 const bkStageName = (s) => (s === 'primary' ? '小学' : s === 'junior' ? '初中' : '');
 const bkDiffName = (n) => ['☆', '★', '★★', '★★★', '★★★★', '★★★★★'][Number(n) || 3] || '★★★';
@@ -58,7 +58,8 @@ function bkFormBody(cur, opts = {}) {
         <option value="junior" ${cur.stage === 'junior' ? 'selected' : ''}>初中</option></select></div>
       <div class="field"><label>学科</label><select id="qf-subject">${SUBJECTS.map((s) => `<option ${cur.subject === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
       <div class="field"><label>年级</label><select id="qf-grade"><option value="">不限</option>${BK_GRADES.map((g) => `<option ${cur.grade === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
-      <div class="field"><label>难度</label><select id="qf-difficulty">${[1, 2, 3, 4, 5].map((d) => `<option value="${d}" ${Number(cur.difficulty || 3) === d ? 'selected' : ''}>${'★'.repeat(d)}</option>`).join('')}</select></div>
+      <div class="field"><label>难度（五星）</label><select id="qf-difficulty">${[1, 2, 3, 4, 5].map((d) => `<option value="${d}" ${Number(cur.difficulty || 3) === d ? 'selected' : ''}>${'★'.repeat(d)}</option>`).join('')}</select></div>
+      <div class="field"><label for="qf-difficulty10">难度（1–10，可空）</label><input id="qf-difficulty10" type="number" min="1" max="10" step="1" placeholder="未细分" value="${cur.difficulty_score_10 == null ? '' : Number(cur.difficulty_score_10)}"></div>
       <div class="field" style="flex:1"><label>知识点（标签，可用于组卷筛选）</label><input id="qf-point" value="${esc(cur.point || '')}" placeholder="如：一元二次方程" list="qfPointList"><datalist id="qfPointList"></datalist></div>
     </div>
     <div class="field"><label>题干（填空题用 ____ 表示空；支持 LaTeX 公式，如 \(x^2+1\) 或 $x^2+1$）</label>
@@ -84,6 +85,7 @@ function bkFormBody(cur, opts = {}) {
 }
 
 function bkFormMount(w, cur) {
+  qcBindDifficultyInputs(w.querySelector('#qf-difficulty'), w.querySelector('#qf-difficulty10'));
   // AI 归属建议：按当前题干/选项问模型，自动回填 学段/年级/知识点/难度
   const aiBtn = w.querySelector('#qfAiAttri');
   if (aiBtn) aiBtn.onclick = async () => {
@@ -102,7 +104,7 @@ function bkFormMount(w, cur) {
       if (r.stage) w.querySelector('#qf-stage').value = r.stage;
       if (r.grade) w.querySelector('#qf-grade').value = r.grade;
       if (r.point) w.querySelector('#qf-point').value = r.point;
-      if (r.difficulty) w.querySelector('#qf-difficulty').value = String(r.difficulty);
+      if (r.difficulty && !w.querySelector('#qf-difficulty10').value) w.querySelector('#qf-difficulty').value = String(r.difficulty);
       if (tip) tip.textContent = `AI 建议：${r.stage === 'primary' ? '小学' : '初中'}${r.grade || ''} · ${r.unit || ''} · ${r.point || ''} · 难度 ${'★'.repeat(r.difficulty || 3)}（${r.reason || ''}），已回填，请核对`;
       toast('AI 归属已回填，请核对后保存', 'ok');
     } catch (e) {
@@ -132,7 +134,7 @@ function bkFormMount(w, cur) {
               <input class="input bk-opt-in" data-i="${i}" value="${esc(o)}" placeholder="选项 ${BK_LETTERS[i]}">
               <button type="button" class="link-btn danger" data-rm="${i}" ${options.length <= 2 ? 'disabled' : ''}>×</button>
             </div>`).join('')}
-            ${options.length < 7 ? '<button type="button" class="btn ghost sm" id="qfAddOpt">+ 加一个选项</button>' : ''}
+            ${options.length < 10 ? '<button type="button" class="btn ghost sm" id="qfAddOpt">+ 加一个选项</button>' : ''}
           </div></div>`;
       const add = w.querySelector('#qfAddOpt');
       if (add) add.onclick = () => { options.push(''); renderType(); };
@@ -158,6 +160,8 @@ function bkFormMount(w, cur) {
       const add = w.querySelector('#qfAddOpt');
       if (add) add.onclick = () => { options.push(''); renderType(); };
       typeBody.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => { options.splice(Number(b.dataset.rm), 1); renderType(); });
+    } else if (t === 'answer') {
+      typeBody.innerHTML = `<div class="field"><label>参考答案（可空）</label><textarea id="qf-ans" class="input" rows="3" style="height:auto">${esc(cur.answer || '')}</textarea></div>`;
     }
     typeBody.querySelectorAll('.bk-opt-in').forEach((inp) => inp.oninput = () => { options[Number(inp.dataset.i)] = inp.value; });
   };
@@ -195,6 +199,8 @@ function bkFormRead(w, err) {
   w.querySelectorAll('.bk-opt-in').forEach((inp) => { options[Number(inp.dataset.i)] = inp.value; });
   const optClean = options.map((s) => String(s || '').trim()).filter((s) => s !== '');
   const stem = w.querySelector('#qf-stem').value.trim();
+  const score10 = w.querySelector('#qf-difficulty10').value;
+  if (score10 !== '' && (!Number.isInteger(Number(score10)) || Number(score10) < 1 || Number(score10) > 10)) return err('十级难度须为 1 至 10 的整数'), null;
   let answer = '';
   if (t === 'single' || t === 'multi') {
     const checked = [...w.querySelectorAll('input[name="qfAns"]:checked')].map((c) => c.value);
@@ -213,6 +219,9 @@ function bkFormRead(w, err) {
     if (!stem) return err('请填写题干'), null;
     if (optClean.length < 2) return err('请至少填写 2 个待排序项'), null;
     answer = w.querySelector('#qf-ans').value.trim();
+  } else if (t === 'answer') {
+    if (!stem) return err('请填写题干'), null;
+    answer = w.querySelector('#qf-ans').value.trim();
   }
   return {
     type: t,
@@ -220,6 +229,7 @@ function bkFormRead(w, err) {
     subject: w.querySelector('#qf-subject').value,
     grade: w.querySelector('#qf-grade').value,
     difficulty: Number(w.querySelector('#qf-difficulty').value) || 3,
+    difficulty_score_10: score10 === '' ? null : Number(score10),
     point: w.querySelector('#qf-point').value.trim(),
     stem,
     material: w.querySelector('#qf-material') ? w.querySelector('#qf-material').value.trim() : '',
@@ -462,10 +472,10 @@ function bkImportForm() {
       const errs = json.data.errors || [];
       box.classList.remove('hide');
       box.innerHTML = `
-        <div class="im-ok">✅ 成功导入 <b>${json.data.imported}</b> 道题${errs.length ? `，<b style="color:#e5484d">${errs.length}</b> 条未通过` : '，全部通过'}</div>
+        <div class="im-ok">已送入待审核 <b>${json.data.imported}</b> 道题${errs.length ? `，<b style="color:#e5484d">${errs.length}</b> 条未通过` : '，全部通过'}</div>
         ${errs.length ? `<div class="im-errs"><b>未通过的原因（改好后可只把这些行重新导一次）：</b>
           <ul>${errs.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>` : ''}`;
-      toast(`成功导入 ${json.data.imported} 道题`, 'ok');
+      toast(`已将 ${json.data.imported} 道题送到待审核`, 'ok');
       setTimeout(() => { render(); }, 800);
       return false;   // 不关弹窗，让老师看到导入结果
     },
@@ -481,12 +491,15 @@ async function ppAssignDialog(pid, title) {
   if (!students.length) return toast('还没有学生账号，先去组织管理 → 学生管理开通', 'err');
   let assigned = [];
   try { assigned = (await api(`/api/admin/bank/papers/${pid}/assignees`, { silent: true })).map((r) => r.user_id); } catch (e) { assigned = []; }
-  let kw = '';
+  let kw = '', grade = '', campus = '', classId = '';
+  const campuses = new Map(students.filter(s=>s.created_by).map(s=>[String(s.created_by),s.branch_name || `账号 #${s.created_by}`]));
+  const classes = new Map(students.filter(s=>s.class_id).map(s=>[String(s.class_id),s.class_name || `班级 #${s.class_id}`]));
   const paint = (w) => {
-    const shown = students.filter((s) => !kw || (s.name || '').includes(kw) || (s.username || '').includes(kw) || (s.grade || '').includes(kw));
-    w.querySelector('#asList').innerHTML = shown.map((s) => `<label class="mf-pickitem"><input type="checkbox" class="as-uid" value="${s.id}" ${assigned.includes(s.id) ? 'checked' : ''}><span>${esc(s.name || s.username)} <i class="hint">${esc([s.grade, s.stage === 'primary' ? '小学' : s.stage === 'junior' ? '初中' : ''].filter(Boolean).join('·'))}</i></span></label>`).join('') || '<span class="hint">没有符合的学生</span>';
+    const shown = students.filter((s) => (!kw || (s.name || '').includes(kw) || (s.username || '').includes(kw) || (s.grade || '').includes(kw)) && (!grade || s.grade === grade) && (!campus || String(s.created_by || '') === campus) && (!classId || String(s.class_id || '') === classId));
+    w.querySelector('#asList').innerHTML = shown.map((s) => `<label class="mf-pickitem"><input type="checkbox" class="as-uid" value="${s.id}" ${assigned.includes(s.id) ? 'checked' : ''}><span>${esc(s.name || s.username)} <i class="hint">${esc([s.grade, s.class_name, s.branch_name].filter(Boolean).join(' · '))}</i></span></label>`).join('') || '<span class="hint">没有符合的学生</span>';
+    countSel(w);
   };
-  const countSel = (w) => { w.querySelector('#asCount').textContent = w.querySelectorAll('.as-uid:checked').length; };
+  const countSel = (w) => { w.querySelector('#asCount').textContent = assigned.length; const boxes=[...w.querySelectorAll('.as-uid')];const selected=boxes.filter(c=>c.checked).length;const all=w.querySelector('#asAll');all.checked=!!boxes.length&&selected===boxes.length;all.indeterminate=selected>0&&selected<boxes.length; };
   modal({
     title: `下发试卷 · ${title || ''}`, wide: true, okText: '确认下发',
     body: `<div class="row" style="gap:8px;margin-bottom:8px">
@@ -494,17 +507,27 @@ async function ppAssignDialog(pid, title) {
         <span>已选 <b id="asCount">0</b> 人</span>
         <label class="hint" style="cursor:pointer"><input type="checkbox" id="asAll"> 全选</label></div>
       <div id="asList" class="mf-pick" style="max-height:340px"></div>
+      <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+        <label>年级 <select id="asGrade"><option value="">全部年级</option>${[...new Set(students.map(s => s.grade).filter(Boolean))].map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}</select></label>
+        <label>分校 <select id="asCampus"><option value="">全部分校</option>${[...campuses].map(([v,name]) => `<option value="${esc(v)}">${esc(name)}</option>`).join('')}</select></label>
+        <label>班级 <select id="asClass"><option value="">全部班级</option>${[...classes].map(([v,name]) => `<option value="${esc(v)}">${esc(name)}</option>`).join('')}</select></label>
+        <label>截止时间 <input id="asDue" type="datetime-local"></label>
+      </div>
       <div class="hint" style="margin-top:6px">下发的试卷出现在学生端「试卷 → 我的任务」，<b>只有勾选的学生能看到</b>（可单选 / 多选）。</div>`,
     onMount: (w) => {
       paint(w); countSel(w);
       w.querySelector('#asKw').oninput = (e) => { kw = e.target.value.trim(); paint(w); };
-      w.addEventListener('change', () => countSel(w));
-      w.querySelector('#asAll').onchange = (e) => { w.querySelectorAll('.as-uid').forEach((c) => { c.checked = e.target.checked; }); countSel(w); };
+      w.querySelector('#asGrade').onchange = (e) => { grade = e.target.value; paint(w); };
+      w.querySelector('#asCampus').onchange = (e) => { campus = e.target.value; paint(w); };
+      w.querySelector('#asClass').onchange = (e) => { classId = e.target.value; paint(w); };
+      w.querySelector('#asList').onchange = (e) => { const c=e.target.closest('.as-uid'); if (!c) return; const id=Number(c.value); assigned = c.checked ? [...new Set([...assigned,id])] : assigned.filter(x=>x!==id); countSel(w); };
+      w.querySelector('#asAll').onchange = (e) => { w.querySelectorAll('.as-uid').forEach((c) => { c.checked = e.target.checked; const id=Number(c.value); assigned = c.checked ? [...new Set([...assigned,id])] : assigned.filter(x=>x!==id); }); countSel(w); };
     },
     onOk: async (w) => {
-      const ids = [...w.querySelectorAll('.as-uid:checked')].map((c) => Number(c.value));
+      const ids = assigned;
       if (!ids.length) { toast('请至少选择一名学生', 'err'); return false; }
-      await api(`/api/admin/bank/papers/${pid}/assign`, { method: 'POST', body: { user_ids: ids } });
+      const due = w.querySelector('#asDue').value;
+      await api(`/api/admin/bank/papers/${pid}/assign`, { method: 'POST', body: Object.assign({ user_ids: ids }, due ? { due_at: new Date(due).toISOString() } : {}) });
       toast(`已下发给 ${ids.length} 名学生，他们的「我的任务」里可见`, 'ok'); render();
     },
   });
@@ -544,8 +567,10 @@ async function viewPaper() {
         ${BK_TYPES.map(([k, t]) => `<div class="field pp-n"><label>${t}</label><input id="pp-n-${k}" type="number" min="0" max="50" value="0"></div>`).join('')}
         <div class="field pp-n" style="align-self:flex-end"><button class="btn primary" id="ppGo" style="white-space:nowrap">${ic('flash')} 一键组卷</button></div>
       </div>
+      <div class="pp-node-count"><label><input type="checkbox" id="pp-per-node-on"> 按每个知识点抽题</label><label id="pp-per-node-field" hidden>每个知识点 <input id="pp-per-node" type="number" min="1" max="50" value="1"> 题</label><span class="hint">选择「按知识点选题」并勾选范围；各范围包含下级知识点。此模式与题型数量、难度比例分开设置。</span></div>
+      <div class="pp-ratios"><label><input type="checkbox" id="pp-ratio-on"> 按难度比例抽题</label><div id="pp-ratio-fields" hidden><label>容易（1–2 星） <input id="pp-ratio-easy" type="number" min="0" max="100" value="30"> %</label><label>普通（3 星） <input id="pp-ratio-medium" type="number" min="0" max="100" value="50"> %</label><label>困难（4–5 星） <input id="pp-ratio-hard" type="number" min="0" max="100" value="20"> %</label></div><span class="hint">比例合计 100%；题量不足会列出缺口，不自动改变难度。</span></div>
       <div class="t5-pool" id="ppPool"></div>
-      <div class="w-tip">组卷说明：按上面的条件从题库随机抽题；题库某题型数量不够时会在预览里提示。抽完可以在预览里移除题目，再保存或下发。学生的「试卷」页面会按年级 / 学段自动匹配能看到哪些卷子。</div>
+      <div class="w-tip">组卷说明：按条件从题库随机抽题，某题型或难度题量不足时会提示缺口。抽完可以逐题换题或移除，再保存或下发。</div>
     </div>
     <div id="ppPreview"></div>
   </div>
@@ -575,6 +600,7 @@ async function viewPaper() {
     html,
     after: () => {
       let picked = [];   // 组卷方案里的题目
+      let generatedScope = null, generatedNodeNames = {}, missingNotice = [], replacing = false, generation = 0;
       const sc = { kind: '', tree: null, nodes: [], sel: new Set(), open: new Set() };   // 树范围：章节树 / 知识点树
       api('/api/admin/bank/points', { silent: true }).then((pts) => {
         document.getElementById('ppPointList').innerHTML = (pts || []).map((p) => `<option value="${esc(p)}">`).join('');
@@ -650,6 +676,15 @@ async function viewPaper() {
       document.getElementById('pp-scope').onchange = loadScope;
       ['pp-subject', 'pp-stage'].forEach((id) => { document.getElementById(id).addEventListener('change', loadScope); });
       ['pp-grade', 'pp-difficulty'].forEach((id) => { document.getElementById(id).addEventListener('change', refreshPool); });
+      document.getElementById('pp-ratio-on').onchange = e => { document.getElementById('pp-ratio-fields').hidden = !e.target.checked; };
+      document.getElementById('pp-per-node-on').onchange = e => {
+        const active = e.target.checked;
+        document.getElementById('pp-per-node-field').hidden = !active;
+        BK_TYPES.forEach(([k])=>{document.getElementById('pp-n-'+k).disabled=active;});
+        const ratio = document.getElementById('pp-ratio-on');
+        if(active){ratio.checked=false;document.getElementById('pp-ratio-fields').hidden=true;}
+        ratio.disabled=active;
+      };
       document.getElementById('pp-point').addEventListener('input', refreshPool);
       document.getElementById('pp-tree').onchange = (e) => { sc.tree = (sc.trees || []).find((t) => String(t.id) === e.target.value) || null; loadNodes(); };
       document.getElementById('pp-clearsel').onclick = () => { sc.sel.clear(); paintTree(); refreshPool(); };
@@ -677,11 +712,26 @@ async function viewPaper() {
             <div class="pp-group"><div class="pp-gt">${['一', '二', '三', '四', '五'][gi] || gi + 1}、${t}</div>
             ${arr.map((q, qi) => `<div class="pp-q">
               <div class="pp-q-main">${q.material ? `<div class="pp-mat">【原文】${esc(bkTrunc(q.material, 80))}</div>` : ''}<b>${qi + 1}.</b> ${esc(bkTrunc(q.stem, 100))}
-                ${q.point ? `<span class="tag gray" style="margin-left:6px">${esc(q.point)}</span>` : ''}</div>
-              <button class="link-btn danger" data-rm="${q.id}">移除</button></div>`).join('')}</div>`).join('')}`;
+                ${q._source_node_id && generatedNodeNames[q._source_node_id] ? `<span class="tag gray" style="margin-left:6px">范围：${esc(generatedNodeNames[q._source_node_id])}</span>` : (q.point ? `<span class="tag gray" style="margin-left:6px">${esc(q.point)}</span>` : '')}</div>
+              <button class="link-btn" data-replace="${q.id}">换一题</button><button class="link-btn danger" data-rm="${q.id}">移除</button></div>`).join('')}</div>`).join('')}`;
         previewEl.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => {
           picked = picked.filter((q) => String(q.id) !== b.dataset.rm);
-          paintPreview([]);
+          paintPreview(missingNotice);
+        });
+        previewEl.querySelectorAll('[data-replace]').forEach((b) => b.onclick = async () => {
+          const id = Number(b.dataset.replace);
+          if (replacing || !picked.some(q => q.id === id) || !generatedScope) return;
+          const version = generation;
+          replacing = true; previewEl.querySelectorAll('[data-replace]').forEach(el=>{el.disabled=true;}); b.textContent = '查找中…';
+          try {
+            const original = picked.find(q=>q.id===id);
+            const result = await api('/api/admin/bank/papers/replace', { method:'POST', silent:true, body:{ ...generatedScope, question_id:id, ...(original && original._source_node_id ? { node_id:original._source_node_id } : {}), exclude_ids:picked.map(q=>q.id) } });
+            const at = picked.findIndex(q => q.id === id);
+            if (version !== generation) return;
+            if (at >= 0 && !picked.some(q => q.id === result.question.id)) picked[at] = result.question;
+            paintPreview(missingNotice);
+          } catch (e) { toast(e.message || '换题失败，请稍后重试', 'err'); }
+          finally { replacing = false; previewEl.querySelectorAll('[data-replace]').forEach(el=>{el.disabled=false;el.textContent='换一题';}); }
         });
         if (window.mtxTypeset) mtxTypeset(previewEl);
         const save = async (publish) => {
@@ -705,17 +755,32 @@ async function viewPaper() {
       };
       document.getElementById('ppGo').onclick = async () => {
         const f = readForm();
+        const perNodeMode = document.getElementById('pp-per-node-on').checked;
         const counts = {};
         BK_TYPES.forEach(([k]) => { counts[k] = Number(document.getElementById('pp-n-' + k).value) || 0; });
-        if (!Object.values(counts).some((n) => n > 0)) { toast('请至少填写一种题型的数量', 'err'); return; }
+        if (!perNodeMode && !Object.values(counts).some((n) => n > 0)) { toast('请至少填写一种题型的数量', 'err'); return; }
+        if (!perNodeMode && Object.values(counts).some(n => !Number.isInteger(n) || n < 0 || n > 50)) { toast('各题型数量须为 0 至 50 的整数', 'err'); return; }
+        const perNode = Number(document.getElementById('pp-per-node').value);
+        if (perNodeMode && (sc.kind !== 'knowledge' || !f.node_ids.length)) { toast('请在组卷范围中选择「按知识点选题」并勾选知识点', 'err'); return; }
+        if (perNodeMode && (!Number.isInteger(perNode) || perNode < 1 || perNode > 50 || f.node_ids.length * perNode > 250)) { toast('每个知识点须抽 1 至 50 题，整卷不超过 250 题', 'err'); return; }
+        let ratios;
+        if (document.getElementById('pp-ratio-on').checked) {
+          if (f.difficulty) { toast('使用难度比例时，请将上方难度设为不限', 'err'); return; }
+          ratios = Object.fromEntries(['easy','medium','hard'].map(k=>[k, Number(document.getElementById('pp-ratio-'+k).value)]));
+          if (Object.values(ratios).some(n=>!Number.isInteger(n)||n<0||n>100) || Object.values(ratios).reduce((a,b)=>a+b,0)!==100) { toast('容易、普通、困难比例须为整数且合计 100%', 'err'); return; }
+        }
         const btn = document.getElementById('ppGo');
+        generation++;
         btn.disabled = true; btn.textContent = '抽题中…';
         try {
-          const r = await api('/api/admin/bank/papers/auto', { method: 'POST', silent: true, body: { ...f, counts } });
+          const r = await api(perNodeMode ? '/api/admin/bank/papers/auto-by-node' : '/api/admin/bank/papers/auto', { method: 'POST', silent: true, body: perNodeMode ? { ...f, per_node_count:perNode } : { ...f, counts, ...(ratios ? { difficulty_ratios: ratios } : {}) } });
           picked = r.list || [];
-          paintPreview(r.missing || []);
-          if (!picked.length) toast('题库里没有符合条件的题目，请调整条件或先去题库管理录题', 'err');
-        } catch (e) { /* api 已提示 */ }
+          generatedScope = f;
+          generatedNodeNames = Object.fromEntries(sc.nodes.map(n=>[n.id,n.name]));
+          missingNotice = r.missing || [];
+          paintPreview(missingNotice);
+          if (!picked.length) toast(missingNotice.length ? missingNotice.join('、') : '题库里没有符合条件的题目，请调整条件或先去题库管理录题', 'err');
+        } catch (e) { toast(e.message || '组卷失败，请稍后重试', 'err'); }
         btn.disabled = false; btn.innerHTML = ic('flash') + ' 一键组卷';
       };
       document.getElementById('pp-filter-subject').onchange = (e) => { st.subject = e.target.value; render(); };
@@ -747,19 +812,28 @@ async function viewPaper() {
 /** 试卷预览弹窗（含答案解析切换 + 打印） */
 function bkPaperPreview(p) {
   const paint = (showAns) => {
-    const groups = BK_TYPES.map(([k, t]) => [k, t, p.questions.filter((q) => q.type === k)]);
+    // 保留试卷实际顺序，避免预览时把工作台里调整过的题型顺序重新排序。
+    const groups = [];
+    p.questions.forEach((q) => {
+      let group = groups[groups.length - 1];
+      if (!group || group[0] !== q.type) {
+        group = [q.type, (BK_TYPES.find(([k]) => k === q.type) || [q.type, q.type || '其他题型'])[1], []];
+        groups.push(group);
+      }
+      group[2].push(q);
+    });
     return `
       <div class="pp-print">
         <h2 style="text-align:center;margin-bottom:4px">${esc(p.title)}</h2>
         <p style="text-align:center;color:#667;margin-bottom:14px;font-size:12px">
           ${[p.subject, bkStageName(p.stage), p.grade, p.term].filter(Boolean).join(' · ')} ｜ 共 ${p.questions.length} 题 ｜ 满分 ${p.total_score} 分 ｜ 建议 ${p.duration} 分钟</p>
         ${groups.filter(([, , arr]) => arr.length).map(([k, t, arr], gi) => `
-          <div style="font-weight:700;margin:12px 0 6px">${['一', '二', '三', '四', '五'][gi] || gi + 1}、${t}</div>
+          <div style="font-weight:700;margin:12px 0 6px">${['一', '二', '三', '四', '五'][gi] || gi + 1}、${esc(t)}</div>
           ${arr.map((q, qi) => `<div style="margin:10px 0;line-height:1.8">
             ${q.material ? `<div style="background:#f6f9ff;border:1px solid #e3ecff;border-radius:8px;padding:8px 12px;margin-bottom:6px;white-space:pre-wrap;font-size:12.5px;color:#445">${esc(q.material)}</div>` : ''}
             <b>${qi + 1}.</b> ${esc(q.stem)}
             ${(q.options || []).length && q.type !== 'sort' ? `<div style="padding-left:22px;color:#333">${q.options.map((o, i) => `<div>${BK_LETTERS[i]}. ${esc(optText(o))}</div>`).join('')}</div>` : ''}
-            ${q.type === 'fill' || q.type === 'sort' ? '<div style="height:44px;border-bottom:1px dashed #ccc"></div>' : ''}
+            ${q.type === 'fill' || q.type === 'sort' || q.type === 'answer' ? '<div style="height:44px;border-bottom:1px dashed #ccc"></div>' : ''}
             ${showAns ? `<div style="padding-left:22px;font-size:12.5px"><b style="color:#12b76a">答案：</b>${esc(bkAnswerText(q))}${q.analysis ? ` <b style="color:#2f6bff">解析：</b>${esc(q.analysis)}` : ''}</div>` : ''}
           </div>`).join('')}`).join('')}
       </div>`;
@@ -767,9 +841,11 @@ function bkPaperPreview(p) {
   modal({
     title: '预览 · ' + p.title,
     wide: true,
-    body: `<div id="ppPrevBar" style="display:flex;gap:10px;margin-bottom:10px">
+    body: `<div id="ppPrevBar" style="display:flex;gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
         <button class="btn ghost sm" id="ppAnsToggle">显示答案解析</button>
-        <button class="btn ghost sm" id="ppPrint">打印 / 导出 PDF</button></div>
+        <button class="btn ghost sm" id="ppPrint">打印 / 导出 PDF</button>
+        <label for="ppDocxMode">Word 版本</label><select id="ppDocxMode"><option value="student">学生版</option><option value="answers">附答案</option><option value="teacher">教师版（含解析）</option></select>
+        <button class="btn ghost sm" id="ppDocx">导出 Word</button></div>
       <div id="ppPrevBody">${paint(false)}</div>`,
     onMount: (w) => {
       let show = false;
@@ -779,6 +855,20 @@ function bkPaperPreview(p) {
         w.querySelector('#ppPrevBody').innerHTML = paint(show);
       };
       w.querySelector('#ppPrint').onclick = () => bkPrintWindow(p.title, paint(true));
+      w.querySelector('#ppDocx').onclick = async (e) => {
+        const btn = e.currentTarget, mode = w.querySelector('#ppDocxMode').value;
+        btn.disabled = true;
+        try {
+          const res = await fetch(`/api/admin/bank/papers/${p.id}/export-docx?mode=${encodeURIComponent(mode)}`, { headers: { Authorization: 'Bearer ' + Auth.token } });
+          if (!res.ok || (res.headers.get('content-type') || '').includes('application/json')) {
+            const err = await res.json().catch(() => ({})); throw new Error(err.msg || '导出失败');
+          }
+          const url = URL.createObjectURL(await res.blob());
+          const a = document.createElement('a'); a.href = url; a.download = `${p.title}-${{ student: '学生版', answers: '附答案', teacher: '教师版' }[mode]}.docx`.replace(/[\\/:*?"<>|]/g, '_'); a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+        } catch (err) { toast(err.message || '导出失败', 'err'); }
+        finally { btn.disabled = false; }
+      };
     },
   });
 }
@@ -960,7 +1050,7 @@ async function bkLessonQuestions(opt) {
     if (tab === 'section') {
       return `<div class="vq-head"><b>小分组「${esc(sd.section.name)}」</b><span class="tag ok">${sd.list.length} 道题</span>
           <span class="r8-vq-tip">组内视频还有 ${sd.video_question_count} 道题；学生端「小分组练习」会把两部分合在一起做，正确率计入小分组</span></div>${list(sd.list, 'section')}
-        <div class="r8-vq-btns"><button class="btn primary" data-add="section">${ic('plus')} 添加习题</button><button class="btn ghost" data-pick="section">${ic('search')} 从题库选择绑定</button></div>`;
+        <div class="r8-vq-btns"><button class="btn primary" data-add="section">${ic('plus')} 添加习题</button><button class="btn ghost" data-pick="section">${ic('search')} 从题库选择绑定</button><button class="btn ghost" id="vqUpload">${ic('upload')} 批量上传</button></div>`;
     }
     return '<div id="r8NodeBox"><div class="empty">加载中…</div></div>';
   };
@@ -1008,7 +1098,7 @@ async function bkLessonQuestions(opt) {
         });
         box.querySelectorAll('[data-pick]').forEach((b) => b.onclick = () => bkPickFromBank(b.dataset.pick === 'video' ? { kind: 'video', id: videoId } : { kind: 'section', id: sectionId }, () => refresh()));
         const up = box.querySelector('#vqUpload');
-        if (up) up.onclick = () => bkDocxUpload(videoId, () => refresh());
+        if (up) up.onclick = () => bkDocxUpload(tab === 'section' ? { kind: 'section', id: sectionId } : { kind: 'video', id: videoId }, () => refresh());
       };
       wrap.querySelectorAll('[data-tab]').forEach((a) => a.onclick = () => { tab = a.dataset.tab; paint(); });
       paint();
@@ -1072,17 +1162,18 @@ async function bkVideoNodes(host, videoId, onSaved) {
   loadTree();
 }
 
-/** Word 批量上传习题到视频（原「批量上传」按钮，逻辑不变） */
-function bkDocxUpload(videoId, refresh) {
+/** Word 批量上传习题到视频或小分组，审核后回挂。 */
+function bkDocxUpload(target, refresh) {
+  const tg = typeof target === 'object' ? target : { kind: 'video', id: Number(target) };
   modal({
     title: '批量上传习题（Word 一键解析）', wide: true,
     body: `
       <div class="mf-tip" style="margin-bottom:12px">支持「洋葱题库」样式的 Word 文档（.docx）：<br>
         <b>1.（单选题）题干</b> → <b>A./B./C./D. 选项</b> → <b>答案：X</b> → <b>解析：……</b><br>
-        题干和解析里的<b>插图自动提取</b>并挂到对应题目；解析出的题直接入库并绑定到本知识点（学科/年级随课本自动带出）。</div>
+        题干和解析里的<b>插图自动提取</b>并挂到对应题目；解析后先进入待审核，审核入库后自动绑定到${tg.kind === 'section' ? '本小分组' : '本知识点视频'}。</div>
       <label class="btn primary" style="display:inline-block;cursor:pointer">${ic('upload')} 选择 .docx 文件
         <input type="file" id="vqFile" accept=".docx" style="display:none"></label>
-      <span class="hint" style="margin-left:10px">选择文件后自动解析上传，多题一次入库</span>
+      <span class="hint" style="margin-left:10px">选择文件后自动解析，审核后入库</span>
       <div id="vqUpOut" style="margin-top:14px"></div>`,
     onMount: (w3) => {
       w3.querySelector('#vqFile').onchange = async (e) => {
@@ -1093,7 +1184,7 @@ function bkDocxUpload(videoId, refresh) {
         const fd = new FormData();
         fd.append('file', file);
         try {
-          const res = await fetch(`/api/admin/bank/videos/${videoId}/import-docx`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
+          const res = await fetch(`/api/admin/bank/${tg.kind === 'section' ? 'sections' : 'videos'}/${tg.id}/import-docx`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
           const json = await res.json();
           if (json.code !== 0) throw new Error(json.msg || '上传失败');
           const d = json.data || {};

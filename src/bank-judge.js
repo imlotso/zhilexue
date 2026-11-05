@@ -7,15 +7,38 @@
  *  · fill：多空按 | 对齐；一个空可有多个可接受答案（||| 分隔）；忽略大小写与空格
  *  · sort：按「选项位置序号」序列比对（1 基，如 3,1,2,4,5），字母序列 C,A,B 会先转成序号
  */
-const LETTERS = 'ABCDEFG';
+const LETTERS = 'ABCDEFGHIJ';
+const MatchQ = require('./match-question');
+
+// 连线每个左项等权，空项记 0；标准答案仍须满足对应题型的完整约束。
+function matchScore(q, myAnswer) {
+  if (!q || q.type !== 'sort' || !['math_match', 'listen_match'].includes(q.question_subtype)) return null;
+  let opts = q.options;
+  if (typeof opts === 'string') { try { opts = JSON.parse(opts); } catch (_) { opts = []; } }
+  const correct = MatchQ.normalize(q.match_prompts, opts, q.answer, false, q.question_subtype);
+  if (correct.error) return null;
+  const expected = correct.answer.split(',').map(Number);
+  const text = String(myAnswer == null ? '' : myAnswer).trim();
+  let submitted = [];
+  if (/^[A-G\s,，、;；]+$/i.test(text)) submitted = (text.toUpperCase().match(/[A-G]/g) || []).map((v) => LETTERS.indexOf(v) + 1);
+  else if (/^[0-7\s,，、;；]*$/.test(text)) submitted = text ? text.split(/[,，、;；]/).map((s) => /^\s*[0-7]\s*$/.test(s) ? Number(s.trim()) : 0) : [];
+  if (submitted.length > expected.length) submitted = [];
+  const parts = expected.map((n, i) => submitted[i] === n);
+  return { match_correct: parts.filter(Boolean).length, match_total: expected.length, match_parts: parts };
+}
 
 function judgeQ(q, myAnswer) {
+  if (q.type === 'answer' || ['writing', 'drawing'].includes(q.question_subtype) || (q.question_subtype === 'translation' && !String(q.answer || '').trim())) throw new Error('该题不支持自动判分');
   const mine = String(myAnswer == null ? '' : myAnswer).trim();
   const ans = String(q.answer || '').trim();
   if (!mine) return false;
   const type = q.type;
   if (type === 'single' || type === 'multi') {
-    const norm = (s) => [...new Set((String(s).toUpperCase().match(/[A-G]/g) || []))].sort().join(',');
+    const norm = (s) => {
+      const value = String(s).trim().toUpperCase();
+      if (!/^[A-J\s,，、;；]+$/.test(value)) return '';
+      return [...new Set(value.match(/[A-J]/g) || [])].sort().join(',');
+    };
     return norm(ans) !== '' && norm(ans) === norm(mine);
   }
   if (type === 'judge') {
@@ -39,6 +62,10 @@ function judgeQ(q, myAnswer) {
     return a.every((alt, i) => (alt.length ? alt.includes(b[i]) : b[i] === ''));
   }
   if (type === 'sort') {
+    if (q.question_subtype === 'math_match' || q.question_subtype === 'listen_match') {
+      const score = matchScore(q, mine);
+      return !!score && score.match_correct === score.match_total;
+    }
     const toSeq = (s) => {
       const up = String(s || '').toUpperCase();
       if (/[A-G]/.test(up) && !/[1-9]/.test(up)) {
@@ -52,4 +79,4 @@ function judgeQ(q, myAnswer) {
   return mine === ans;
 }
 
-module.exports = { judgeQ };
+module.exports = { judgeQ, matchScore };

@@ -19,6 +19,14 @@ jobs:
       - run: node bank-test.js
       - run: node wordq-test.js    # Word 规则解析（T3，客户样例文档在 docs/原始需求，不需要数据库）
       - run: node excel-test.js    # Excel 模板解析（T3，同上）
+      - run: node choices-ten-test.js
+      - run: node matching-test.js
+      - run: node drawing-answer-test.js
+      - run: node question-ticket-test.js    # 学生题目票据的身份绑定、到期与篡改
+      - run: node mfpack-adapter-test.js
+      - run: node writing-translation-test.js
+      - run: node match-export-test.js
+      - run: node group-basket-test.js   # 组合题篮顺序、已有分值与去重
 
   api:
     runs-on: ubuntu-24.04
@@ -59,12 +67,26 @@ jobs:
         if: ${{ !cancelled() }}   # 知识树统一（T4）：需要启动时种子树，所以放在服务启动之后
       - run: node pending-test.js
         if: ${{ !cancelled() }}   # 待审核题目（T3）：需要服务和种子树
+      - run: node choices-ten-flow-test.js
+        if: ${{ !cancelled() }}   # 十选项模板、导入、审核和学生判分
+      - run: node match-partial-flow-test.js
+        if: ${{ !cancelled() }}   # 连线部分分、漏答、试卷及人工评分
+      - run: node ai-answer-review-test.js
+        if: ${{ !cancelled() }}   # AI 答案、解析建议的人工确认
+        env:
+          STORAGE_DRIVER: local
+          AI_MOCK: '1'
+          TTS_MOCK: '1'
       - run: node compose-test.js
         if: ${{ !cancelled() }}   # 组卷（T5）：章节树 / 知识点树组卷、定向下发、学生自组卷
+      - run: node group-compose-test.js
+        if: ${{ !cancelled() }}   # 组合题分组、材料、来源和试卷顺序
       - run: node lessonq-test.js
         if: ${{ !cancelled() }}   # 课文习题（T6）：视频 / 小分组正确率、学习报告、后台按学生查看
       - run: node aiclient-test.js
         if: ${{ !cancelled() }}   # AI 配置中心（T2）：三种格式的模拟服务，不调真实 AI
+      - run: node aiproxy-test.js
+        if: ${{ !cancelled() }}   # 代理、NO_PROXY、流式取消与证书校验
       - run: node mistake-test.js
         if: ${{ !cancelled() }}   # 错题本 Word 导出 + 手机扫码错题 AI 识别（T9）
       - run: node paper-test.js
@@ -75,6 +97,8 @@ jobs:
         if: ${{ !cancelled() }}   # 公式输入（T8）：本地 MathLive、题目存 \( … \)、学生用公式键盘作答判分、有浏览器时点一遍
       - run: node bankstore-test.js
         if: ${{ !cancelled() }}   # 题库与视频存储解耦（T12）：bank/ 前缀、BANK_BUCKET 口子、删视频不删题
+      - run: node bank-image-test.js
+        if: ${{ !cancelled() }}   # 题图稳定地址及受控云存储读取
       - run: node theme-test.js
         if: ${{ !cancelled() }}   # 后台 UI 统一（T11）：theme.css 作用范围、菜单分组、手机宽度抽屉侧栏、页面不横向撑破
       - run: node flow-test.js

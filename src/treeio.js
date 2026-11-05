@@ -98,9 +98,10 @@ function normalizeInput(input) {
  * 导入一棵（已整理过的）树。dry=true 只统计不写库。
  * 返回 { tree_id, name, kind, subject, stage, edition, created_tree, added, existing, total }
  */
-function importDoc(db, doc, { dry = false } = {}) {
-  let tree = db.prepare('SELECT * FROM bank_trees WHERE kind=? AND subject=? AND IFNULL(stage,\'\')=? AND IFNULL(edition,\'\')=? ORDER BY sort, id')
+function importDoc(db, doc, { dry = false, treeId = 0 } = {}) {
+  let tree = treeId ? db.prepare('SELECT * FROM bank_trees WHERE id=?').get(treeId) : db.prepare('SELECT * FROM bank_trees WHERE kind=? AND subject=? AND IFNULL(stage,\'\')=? AND IFNULL(edition,\'\')=? ORDER BY sort, id')
     .get(doc.kind, doc.subject, doc.stage, doc.edition);
+  if (treeId && (!tree || tree.kind !== doc.kind || tree.subject !== doc.subject || (tree.stage || '') !== doc.stage || (tree.edition || '') !== doc.edition)) throw new Error('所选树与学段、学科、版本或树类型不一致');
   let createdTree = false;
   if (!tree) {
     createdTree = true;

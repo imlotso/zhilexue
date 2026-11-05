@@ -11,6 +11,7 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const https = require('https');
 const { UPLOAD_DIR } = require('./db');
 const BUILTIN = require('./builtin-config');
 
@@ -108,11 +109,9 @@ function folderOf(key) {
 const LOCAL_FOLDERS = String(process.env.LOCAL_FOLDERS === undefined ? 'wrong,guidedocs' : process.env.LOCAL_FOLDERS)
   .split(',').map((s) => s.trim()).filter(Boolean);
 
-// ---------------- 题库资源的独立存储口子（T12） ----------------
+// ---------------- 题库资源按目录分类（T12） ----------------
 // 题目的图片 / 音频 / 导入附件统一放在 bank/ 目录（bankFolder()，见 mfbank.js），视频放 videos/，两类资源只靠 key 前缀区分。
-// BANK_BUCKET：可选，将来想把题库资源迁到另一个 Bucket 时填它的名字；缺省为空 = 与视频同一个 Bucket（现状）。
-// 本次只留口子、不做多 Bucket 切换：bucketFor(key) 告诉调用方"这个 key 该去哪个桶"（空串 = 默认桶），
-// 真要拆桶时只需要在 saveFile / getUrlSync / deleteFile 里按它选 client（见 README「题库资源独立存储」）。
+// BANK_BUCKET / bucketFor 为历史预留接口，实际读写均使用当前存储配置，不切换桶、不迁移旧文件。
 const BANK_BUCKET = String(process.env.BANK_BUCKET || '').trim();
 const BANK_PREFIX = String(process.env.BANK_FOLDER || 'bank').trim().replace(/^\/+|\/+$/g, '') || 'bank';
 /** key 是否属于题库资源（bank/ 目录；目录名可由 settings.bank_folder 改，改了之后调用方传入 prefix） */
@@ -123,6 +122,41 @@ function isBankKey(key, prefix) {
 /** 该 key 应该放进哪个 Bucket：题库资源且配了 BANK_BUCKET → 它；否则空串（默认桶） */
 function bucketFor(key, prefix) {
   return BANK_BUCKET && isBankKey(key, prefix) ? BANK_BUCKET : '';
+}
+
+// 图片只保存可稳定恢复的对象 key；不要把 OSS/七牛一小时签名地址写入题目。
+// 同时识别当前配置的存储域名下的历史图片 URL，外站链接绝不能当作本桶 key。
+const BANK_IMAGE_KEY_RE = /^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.(?:png|jpe?g|gif|webp)$/i;
+function bankImageProxyUrl(key) {
+  return '/api/file?' + new URLSearchParams({ key: String(key) }).toString();
+}
+function bankImageKey(value, prefix) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (!/\.(?:png|jpe?g|gif|webp)(?:[?&#]|$)/i.test(text)) return '';
+  let key = '';
+  if (BANK_IMAGE_KEY_RE.test(text)) key = text;
+  else if (text.startsWith('/api/file?')) {
+    try {
+      const u = new URL(text, 'http://localhost');
+      if (u.pathname !== '/api/file' || u.searchParams.getAll('key').length !== 1) return '';
+      key = u.searchParams.get('key') || '';
+    } catch (_) { return ''; }
+  } else if (/^https?:\/\//i.test(text)) {
+    let u;
+    try { u = new URL(text); } catch (_) { return ''; }
+    if (u.username || u.password) return '';
+    const allowedHosts = new Set();
+    if (ossClient) {
+      try { allowedHosts.add(new URL(ossClient.signatureUrl('bank/img/probe.png', { expires: 60 })).host.toLowerCase()); } catch (_) { /* 无效配置不转换历史地址 */ }
+      if (CDN_DOMAIN) { try { allowedHosts.add(new URL('https://' + CDN_DOMAIN).host.toLowerCase()); } catch (_) { /* 保留原地址 */ } }
+    }
+    if (qiniuCtx && qiniuDomain) { try { allowedHosts.add(new URL('https://' + qiniuDomain).host.toLowerCase()); } catch (_) { /* 保留原地址 */ } }
+    if (!allowedHosts.has(u.host.toLowerCase())) return '';
+    try { key = decodeURIComponent(u.pathname.replace(/^\/+/, '')); } catch (_) { return ''; }
+  }
+  if (!BANK_IMAGE_KEY_RE.test(key) || !(isBankKey(key) || isBankKey(key, prefix))) return '';
+  return key;
 }
 
 /** 该 key 是否存到七牛（未启用七牛恒为 false；启用后按 QINIU_FOLDERS 分流） */
@@ -314,9 +348,41 @@ function unlinkLocal(abs, tries = 5) {
   return true;
 }
 
+// 七牛读取只访问当前配置的存储域名，不接受调用方传入网址或跳转。
+// readBuffer 也服务 PDF 预览，沿用上传上限 100 MiB，防止响应无限占用内存。
+function readQiniuBuffer(key) {
+  if (!qiniuCovers(key) || typeof key !== 'string' || !key || key.startsWith('/') || key.includes('\\') || key.split('/').includes('..') || /^[a-z][a-z0-9+.-]*:/i.test(key) || /[?#\x00-\x1f\x7f]/.test(key)) return Promise.resolve(null);
+  let url, configured;
+  try { url = new URL(getUrlSync(key)); configured = new URL('https://' + qiniuDomain); } catch (_) { return Promise.resolve(null); }
+  if (url.protocol !== 'https:' || url.host !== configured.host || url.username || url.password) return Promise.resolve(null);
+  const max = 100 * 1024 * 1024;
+  return new Promise((resolve) => {
+    let finished = false, timer, req;
+    const done = (value) => { if (finished) return; finished = true; clearTimeout(timer); resolve(value); };
+    try {
+      const { agentForAiRequest } = require('./ai-proxy');
+      req = https.request(url, { method: 'GET', agent: agentForAiRequest(url) }, (res) => {
+        if (res.statusCode !== 200 || Number(res.headers['content-length']) > max) { res.destroy(); return done(null); }
+        let total = 0; const parts = [];
+        res.on('data', (chunk) => { total += chunk.length; if (total > max) { res.destroy(); done(null); } else parts.push(chunk); });
+        res.on('error', () => done(null));
+        res.on('aborted', () => done(null));
+        res.on('end', () => done(Buffer.concat(parts)));
+      });
+      req.on('error', () => done(null));
+      timer = setTimeout(() => { req.destroy(); done(null); }, 30000);
+      req.end();
+    } catch (_) { if (req) req.destroy(); done(null); }
+  });
+}
+
 /** 读出文件内容。云端没有时再看本地（旧文件可能还在磁盘上）。 */
 async function readBuffer(key) {
-  if (!key) return null;
+  if (typeof key !== 'string' || !key || key.startsWith('/') || key.includes('\\') || key.split('/').includes('..') || /^[a-z][a-z0-9+.-]*:/i.test(key) || /[?#\x00-\x1f\x7f]/.test(key)) return null;
+  if (qiniuCovers(key)) {
+    const b = await readQiniuBuffer(key);
+    if (b) return b;
+  }
   if (ossClient) {
     try {
       const r = await ossClient.get(key);
@@ -417,5 +483,5 @@ module.exports = {
   isOss, isQiniu, isCloudKey, usingCdn, driverName, getQiniuDomain,
   isVideoKey, initVideoUpload, signVideoPart, completeVideoUpload, abortVideoUpload, videoExists,
   DRIVER, CDN_DOMAIN, QINIU_FOLDERS, LOCAL_FOLDERS,
-  BANK_BUCKET, isBankKey, bucketFor,
+  BANK_BUCKET, isBankKey, bucketFor, bankImageKey, bankImageProxyUrl,
 };

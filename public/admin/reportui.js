@@ -403,14 +403,19 @@ async function r1OpenDrawer(uid) {
   // ③ 试卷成绩 / 最近作答
   const paperRows = (det.papers || []).map((p) => {
     const full = Number(p.total_score) || 100;                      // 试卷满分；score 已按满分折算
+    if (p.ungraded_count) {
+      const objective = p.objective_score_total ? `客观题 ${p.objective_score} / ${p.objective_score_total}` : '暂无客观题';
+      return `<tr><td><b>${esc(p.title || '试卷已删除')}</b></td><td>${esc(objective)} · ${p.ungraded_count} 题未评分</td><td>${p.correct} / ${p.total} 题</td><td>—</td><td class="r1-time">${esc((p.created_at || '').slice(0, 16))}</td></tr>`;
+    }
     const rate = Math.round(Number(p.score) / full * 100);
     return `<tr><td><b>${esc(p.title || '试卷已删除')}</b></td><td><b class="r1-c-${r1RateCls(rate)}">${p.score}</b> / ${full}</td><td>${p.correct} / ${p.total} 题</td><td>${rate}%</td><td class="r1-time">${esc((p.created_at || '').slice(0, 16))}</td></tr>`;
   }).join('');
   const recRows = (det.rows || []).map((r) => `<tr>
     <td>${esc(QT_NAME[r.type] || r.type || '—')}</td><td>${esc(r.subject || '—')}</td>
     <td title="${esc(r.stem || '')}">${esc(String(r.stem || '').slice(0, 40))}${String(r.stem || '').length > 40 ? '…' : ''}</td>
-    <td>${Number(r.is_correct) === 1 ? '<span class="tag ok">对</span>' : '<span class="tag no">错</span>'}</td>
+    <td>${r.match_total ? `<span class="tag ${Number(r.is_correct) === 1 ? 'ok' : 'no'}">连对 ${Number(r.match_correct)} / ${Number(r.match_total)} 项</span>` : Number(r.is_correct) === 1 ? '<span class="tag ok">对</span>' : '<span class="tag no">错</span>'}</td>
     <td class="r1-time">${esc((r.created_at || '').slice(0, 16))}</td></tr>`).join('');
+  const subjectiveRows = (det.subjective || []).map((r) => `<tr><td>${esc(({ writing: '书面表达', translation: '翻译', calculation: '计算题', drawing: '作图题' })[r.question_subtype] || '问答题')}</td><td>${esc(r.subject || '—')}</td><td>${esc(r.stem || '题目已删除')}</td><td>${r.has_drawing ? `<button type="button" class="btn ghost xs" data-subjective-drawing="${Number(r.id)}">查看作图</button>` : esc(r.my_answer || '未作答').replace(/\n/g, '<br>')}</td><td>${r.score == null ? '未评分' : `${Number(r.score)} / ${r.max_score == null ? 100 : Number(r.max_score)} 分`}${r.review_comment ? `<div>${esc(r.review_comment).replace(/\n/g, '<br>')}</div>` : ''}</td><td class="r1-time">${esc((r.created_at || '').slice(0, 16))}</td><td><button type="button" class="btn ghost xs" data-subjective-grade="${Number(r.id)}">${r.score == null ? '评分' : '修改评分'}</button></td></tr>`).join('');
 
   const body = wrap.querySelector('.r1-body');
   body.innerHTML = `
@@ -433,12 +438,42 @@ async function r1OpenDrawer(uid) {
       ${paperRows ? `<div class="r1-scroll"><table><thead><tr><th>试卷</th><th>得分</th><th>答对</th><th>得分率</th><th>交卷时间</th></tr></thead><tbody>${paperRows}</tbody></table></div>` : '<p class="r1-note">还没有参加过试卷</p>'}
       <h4 class="r1-h4b">最近作答（最近 100 条）</h4>
       ${recRows ? `<div class="r1-scroll r1-scroll-tall"><table><thead><tr><th>题型</th><th>学科</th><th>题目</th><th>结果</th><th>时间</th></tr></thead><tbody>${recRows}</tbody></table></div>` : '<p class="r1-note">还没有做题记录</p>'}
+      <h4 class="r1-h4b">主观题作答（每次作答单独评分）</h4>${subjectiveRows ? `<div class="r1-scroll r1-scroll-tall"><table><thead><tr><th>题型</th><th>学科</th><th>题目</th><th>学生作答</th><th>评分与评语</th><th>时间</th><th>操作</th></tr></thead><tbody>${subjectiveRows}</tbody></table></div>` : '<p class="r1-note">还没有主观题作答</p>'}
     </section>`;
 
   // 交互：导出 / 树折叠 / 只看未掌握
   body.querySelector('#r1Docx').onclick = (e) => r1DownloadMistakes(s, {
     subject: body.querySelector('#r1Subj').value, bucket: body.querySelector('#r1Bucket').value, days: Number(body.querySelector('#r1Days').value) || 0,
   }, e.currentTarget);
+  const loadDrawing = async (id, image, status) => {
+    try {
+      const res = await fetch('/api/admin/xreport/subjective/' + id + '/drawing', { headers: { Authorization: 'Bearer ' + Auth.token } });
+      if (!res.ok || !(res.headers.get('content-type') || '').startsWith('image/png')) throw new Error('作图加载失败');
+      const url = URL.createObjectURL(await res.blob());
+      if (!image.isConnected) { URL.revokeObjectURL(url); return; }
+      image.onload = () => URL.revokeObjectURL(url); image.onerror = () => { URL.revokeObjectURL(url); status.textContent = '作图加载失败'; };
+      image.src = url; status.textContent = '';
+    } catch (_) { status.textContent = '作图加载失败，请重试'; }
+  };
+  body.querySelectorAll('[data-subjective-drawing]').forEach((button) => { button.onclick = () => {
+    const id = Number(button.dataset.subjectiveDrawing);
+    modal({ title: '学生作图', body: '<p data-drawing-status>正在加载…</p><img class="r4-drawing-image" data-drawing-image alt="学生作图">', onMount: (w) => loadDrawing(id, w.querySelector('[data-drawing-image]'), w.querySelector('[data-drawing-status]')) });
+  }; });
+  body.querySelectorAll('[data-subjective-grade]').forEach((button) => {
+    button.onclick = () => {
+      const response = (det.subjective || []).find((r) => String(r.id) === button.dataset.subjectiveGrade); if (!response) return;
+      const max = response.max_score == null ? 100 : Number(response.max_score);
+      modal({ title: '主观题评分', okText: '保存评分', wide: true,
+        body: `<p class="pd-tip">此评分只作用于 ${esc((response.created_at || '').slice(0, 16))} 的这次作答。满分 ${max} 分。${!response.try_id && ['paper', 'mfpaper'].includes(response.kind) ? ' 这条历史作答未关联具体试卷记录，评分不会修改旧试卷总分。' : ''}</p><p><b>题目：</b>${esc(response.stem || '题目已删除')}</p><p><b>学生作答：</b>${response.has_drawing ? '<span data-drawing-status>正在加载作图…</span><img class="r4-drawing-image" data-drawing-image alt="学生作图">' : esc(response.my_answer || '未作答').replace(/\n/g, '<br>')}</p><div class="field"><label>分数（0–${max}）<input class="input" type="number" min="0" max="${max}" step="0.01" id="r1SubjScore" value="${response.score == null ? '' : Number(response.score)}"></label></div><div class="field"><label>评语（选填）<textarea class="input" id="r1SubjComment" rows="3">${esc(response.review_comment || '')}</textarea></label></div>`,
+        onMount: (w) => { if (response.has_drawing) loadDrawing(response.id, w.querySelector('[data-drawing-image]'), w.querySelector('[data-drawing-status]')); },
+        onOk: async (w, showErr) => {
+          const raw = w.querySelector('#r1SubjScore').value;
+          if (raw === '' || !Number.isFinite(Number(raw)) || Number(raw) < 0 || Number(raw) > max) return showErr(`分数应在 0 至 ${max} 之间`);
+          await api('/api/admin/xreport/subjective/' + response.id + '/grade', { method: 'POST', body: { score: Number(raw), comment: w.querySelector('#r1SubjComment').value } });
+          toast('已保存本次作答评分', 'ok'); setTimeout(() => r1OpenDrawer(uid), 0);
+        } });
+    };
+  });
   if (!acc) return;
   const closed = new Set();
   const tree = body.querySelector('#r1Tree');

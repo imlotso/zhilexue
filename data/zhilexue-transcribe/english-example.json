@@ -1,0 +1,35 @@
+{
+  "format": "mofang-question-pack",
+  "schemaVersion": 1,
+  "packageId": "zhilexue-example-english-reading",
+  "datasetId": "zhilexue-example-source",
+  "title": "英语共享材料与小题示例",
+  "sources": [{"id":"source-1","name":"示例原文","kind":"text"}],
+  "assets": [],
+  "questions": [
+    {
+      "recordKey": "reading-1#1",
+      "source": {"sourceId":"source-1"},
+      "metadata": {
+        "subject":{"label":"英语","basis":"source"},
+        "stage":{"label":"初中","basis":"source"},
+        "questionType":{"label":"单项选择","basis":"source"},
+        "extra":{"zhilexue":{"material":"Tom has a red book. He reads every day.","group_ref":"reading-1","group_position":1,"grade":"七年级"}}
+      },
+      "content":{"format":"mofang-md-v1","stem":"What color is Tom's book?","options":[{"label":"A","text":"Red"},{"label":"B","text":"Blue"}],"answer":null,"analysis":null,"figures":[]},
+      "issues":[]
+    },
+    {
+      "recordKey": "reading-1#2",
+      "source": {"sourceId":"source-1"},
+      "metadata": {
+        "subject":{"label":"英语","basis":"source"},
+        "stage":{"label":"初中","basis":"source"},
+        "questionType":{"label":"单项选择","basis":"source"},
+        "extra":{"zhilexue":{"material":"Tom has a red book. He reads every day.","group_ref":"reading-1","group_position":2,"grade":"七年级"}}
+      },
+      "content":{"format":"mofang-md-v1","stem":"When does Tom read?","options":[{"label":"A","text":"Every day"},{"label":"B","text":"Once a month"}],"answer":null,"analysis":null,"figures":[]},
+      "issues":[]
+    }
+  ]
+}

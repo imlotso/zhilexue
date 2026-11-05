@@ -1,3 +1,5 @@
+// R10 首页及嵌入工作台样式，按需加载，独立于各子应用。
+if (!document.getElementById('r10Styles')) { const link = document.createElement('link'); link.id = 'r10Styles'; link.rel = 'stylesheet'; link.href = '/admin/r10.css'; document.head.appendChild(link); }
 /* 管理端 SPA（校长后台 / 分校后台） */
 const $app = document.getElementById('app');
 const ADM = { chapters: [], page: {} };
@@ -23,6 +25,7 @@ const NAV = [
   { k: 'mfc', t: '网络采集', i: 'link' },
   { k: 'mfp', t: '试卷管理', i: 'folder' },
   { k: 'mfi', t: '录题上传', i: 'upload' },
+  { k: 'intake', t: '录题中心', i: 'upload' },
   { k: 'bkfb', t: '错题反馈', i: 'chat' },
   { k: 'mfset', t: 'AI 配置中心', i: 'setting' },
   { k: 'words', t: '词书管理', i: 'book' },
@@ -35,13 +38,16 @@ const NAV_GROUPS = [
   { k: 'g-home', t: '首页', i: 'home', leaf: 'dash' },
   { k: 'g-org', t: '学生与账号', i: 'building', items: ['branches', 'students', 'xreport'] },
   { k: 'g-res', t: '教学资源', i: 'folder', items: ['chapters', 'videos', 'handouts', 'words', 'letters', 'phonics'] },
-  { k: 'g-bank', t: '智能题库', i: 'doc', items: ['mfq', 'pending', 'ktree', 'mfp', 'paper', 'lessonq', 'bkup'] },
+  { k: 'g-bank', t: '智能题库', i: 'doc', items: ['mfq', 'intake', 'pending', 'ktree', 'mfp', 'paper', 'lessonq', 'bkup'] },
   { k: 'g-study', t: '学情与报告', i: 'chart', items: ['grades', 'talks', 'care', 'aireport'] },
   { k: 'g-sys', t: '系统设置', i: 'setting', items: ['mfset', 'oplog'] },
 ];
 const navItem = (k) => NAV.find((n) => n.k === k);
 const navOf = () => NAV.filter((n) => !n.principalOnly || (Auth.user && Auth.user.role === 'admin'));
-const TITLE = { mfq: '题库管理', pending: '待审核题目', ktree: '知识树管理', mfset: 'AI 配置中心', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '首页', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
+const TITLE = { intake: '录题中心', 'intake-excel': 'Excel 模板导入', mfq: '题库管理', pending: '待审核题目', ktree: '知识树管理', mfset: 'AI 配置中心', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '首页', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
+TITLE['intake-photo'] = '拍照 / 截图识别';
+TITLE['intake-pdf'] = 'PDF 识别'; TITLE['intake-word'] = 'Word 规则导入';
+TITLE['intake-skill'] = 'JSON / 技能包导入'; TITLE['intake-teacher'] = '老师扫码录题'; TITLE['intake-manual'] = '手动创建';
 function sideFoldGet() { try { return localStorage.getItem('xuexi_admin_side') === '1'; } catch (e) { return false; } }
 function sideFoldSet(v) { try { localStorage.setItem('xuexi_admin_side', v ? '1' : '0'); } catch (e) { /* 忽略 */ } }
 function openGroupsGet() {
@@ -702,49 +708,32 @@ function bindShell() {
 
 // ------------------------------------------------------------ 数据概览
 async function viewDash() {
-  await loadMeta();
-  const s = await api('/api/admin/stats');
-  const recent = await api('/api/admin/students/recent');
-  // 待审核题目数：取不到（分校账号没有题库权限等）就不显示这一条
-  const bc = await api('/api/admin/bank/mf/ext/badge-counts', { silent: true }).catch(() => null);
-  const pend = bc ? Number(bc.pending) || 0 : 0;
-  const cards = [
-    { i: 'student', v: s.students, l: '学生总数', go: 'students' },
-    { i: 'book', v: s.handouts, l: '讲义数量', go: 'handouts' },
-    { i: 'doc', v: s.exercises, l: '习题数量', go: 'lessonq' },
-    { i: 'video', v: s.videos, l: '视频数量', go: 'videos' },
-    { i: 'list', v: s.chapters, l: '课程目录', go: 'chapters' },
+  const d = await api('/api/admin/dashboard');
+  // 题目审核池尚未按分校隔离，分校首页不展示全局待审核数量。
+  const bc = Auth.user && Auth.user.role === 'admin' ? await api('/api/admin/bank/mf/ext/badge-counts', { silent: true }).catch(() => null) : null;
+  const period = ADM.page.dashPeriod === 'week' ? 'week' : 'today';
+  const data = d[period];
+  const rate = data.answers ? Math.round(data.correct * 100 / data.answers) + '%' : '—';
+  const max = Math.max(1, ...d.trend.map((x) => x.answers));
+  const pending = bc && Number.isFinite(Number(bc.pending)) ? Number(bc.pending) : null;
+  const metrics = [
+    ['活跃学生', data.active, '登录、做题或学习进度有更新'],
+    ['做题量', data.answers, '提交的题目作答次数'],
+    ['答题正确率', rate, '正确作答次数 ÷ 作答次数'],
+    ['视频完播', data.completed, '已完播且进度在所选期间更新'],
+    ['待复习错题', d.due, '截至今天待复习的错题'],
   ];
-  const quick = [
-    { go: 'students', i: 'student', t: '开通学生' }, { go: 'chapters', i: 'list', t: '新增课程' },
-    { go: 'videos', i: 'upload', t: '上传视频' }, { go: 'handouts', i: 'book', t: '上传讲义' },
-    { go: 'mfq', i: 'doc', t: '题库管理' }, { go: 'xreport', i: 'chart', t: '学习报告' },
-  ];
-  return {
-    html: `
-    <div class="grid g4 dash-stats">
-      ${cards.map((c) => `<div class="stat t11-statlink" data-go="${c.go}" title="进入${c.l.replace('数量', '').replace('总数', '')}管理"><div class="ic">${ic(c.i)}</div><div><div class="v">${c.v}</div><div class="l">${c.l}</div></div></div>`).join('')}
-    </div>
-    <div class="t11-dash-grid">
-      <div class="card">
-        <div class="card-h"><h3>${ic('flash')} 快捷操作</h3></div>
-        <div class="t11-quick">
-          ${quick.map((q) => `<button class="btn ghost" data-go="${q.go}">${ic(q.i)}<span>${q.t}</span></button>`).join('')}
-        </div>
-        ${pend > 0 ? `<div class="t11-todo" data-go="pending"><span>有 <b>${pend}</b> 道题目等待审核入库</span><span class="link-btn">去处理</span></div>` : ''}
-      </div>
-      <div class="card">
-        <div class="card-h"><h3>${ic('user')} 最近开通</h3><a href="#/students">查看全部</a></div>
-        ${recent.length ? `<table><thead><tr><th>学生</th><th>账号</th><th>年级</th><th>到期</th><th>倍速</th></tr></thead><tbody>
-          ${recent.slice(0, 8).map((r) => `<tr><td><b>${esc(r.name)}</b></td><td>${esc(r.username)}</td>
-            <td>${esc((r.grade || '') + (r.term || '') || '-')}</td>
-            <td>${esc((r.expire_at || '-').slice(0, 10))}</td>
-            <td>${r.allow_speed ? '<span class="tag ok">开启</span>' : '<span class="tag gray">关闭</span>'}</td></tr>`).join('')}
-        </tbody></table>` : '<div class="empty">暂无学生</div>'}
-      </div>
-    </div>`,
-    after: () => document.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => location.hash = '#/' + b.dataset.go),
-  };
+  const quick = [['students','student','学生管理'],['mfq','doc','题库管理'],['pending','list','待审核题目'],['paper','book','智能组卷'],['videos','video','视频管理'],['xreport','chart','学习报告']];
+  return { html: `<section class="r10-dash">
+    <div class="r10-heading"><div><h2>学习概览</h2><p>关注学生学习进展与需要处理的事项</p></div><div class="r10-period" role="group" aria-label="统计时间"><button class="${period === 'today' ? 'active' : ''}" data-period="today">今日</button><button class="${period === 'week' ? 'active' : ''}" data-period="week">本周</button></div></div>
+    <div class="r10-metrics">${metrics.map(([name,value,hint]) => `<div class="r10-metric" title="${esc(hint)}"><span>${name}</span><strong>${value}</strong><small>${esc(hint)}</small></div>`).join('')}</div>
+    <div class="r10-grid"><section class="card r10-panel"><div class="r10-panel-head"><div><h3>近 14 天学习趋势</h3><p>每日题目作答次数</p></div></div><div class="r10-chart" role="img" aria-label="近14天每日题目作答次数">${d.trend.map((x) => `<div class="r10-bar-col" title="${esc(x.date)}：${x.answers} 次"><span>${x.answers || ''}</span><div class="r10-bar" style="height:${Math.max(x.answers ? 4 : 1, Math.round(x.answers / max * 100))}%"></div><small>${esc(x.date.slice(5))}</small></div>`).join('')}</div></section>
+    <section class="card r10-panel"><div class="r10-panel-head"><div><h3>待办事项</h3><p>及时跟进教学工作</p></div></div><div class="r10-todos">${pending === null ? '' : `<button data-go="pending"><span>待审核题目</span><b>${pending}</b></button>`}<button data-go="bkfb"><span>待处理错题反馈</span><b>${d.feedback}</b></button><button data-go="students"><span>7 天内到期学生</span><b>${d.expiring}</b></button></div></section></div>
+    <section class="card r10-panel"><div class="r10-panel-head"><div><h3>快捷入口</h3><p>常用教学管理功能</p></div></div><div class="r10-quick">${quick.map(([go,icon,name]) => `<button data-go="${go}">${ic(icon)}<span>${name}</span></button>`).join('')}</div></section>
+  </section>`, after: () => {
+    document.querySelectorAll('.r10-dash [data-go]').forEach((b) => b.onclick = () => { location.hash = '#/' + b.dataset.go; });
+    document.querySelectorAll('.r10-dash [data-period]').forEach((b) => b.onclick = () => { ADM.page.dashPeriod = b.dataset.period; render(); });
+  } };
 }
 
 // ------------------------------------------------------------ 学生管理
@@ -1950,27 +1939,41 @@ function branchForm(b) {
 
 // ------------------------------------------------------------ 路由
 /* ---------------- 学情管理 · 成绩管理（iframe 嵌入校区成绩系统） ---------------- */
-function viewGrades() {
+function r10EmbeddedApp(kind, initial) {
+  const grades = kind === 'grades';
+  const tabs = grades ? [['dashboard','总览看板'],['records','成绩列表'],['tracking','考试对比'],['students','学生档案']] : [['talks','谈心谈话'],['contacts','家校沟通'],['students','学生信息'],['settings','设置']];
+  const src = grades ? '/apps/grades/index.html' : '/apps/care/index.html';
   return {
-    html: `<iframe class="grades-frame" src="/apps/grades/index.html" title="成绩管理"></iframe>`,
+    html: `<div class="r10-embed"><div class="r10-embed-nav" role="navigation" aria-label="${grades ? '成绩管理' : '班主任工作台'}">${tabs.map(([key,label]) => `<button type="button" data-r10-tab="${key}">${label}</button>`).join('')}${grades ? '<div class="r10-embed-actions"><button type="button" data-r10-action="btnCampusManage">校区管理</button><button type="button" data-r10-action="btnPrintPage">打印本页</button></div>' : ''}</div><iframe class="grades-frame" id="r10Embedded" src="${src}#/${initial}" ${grades ? '' : 'allow="microphone; camera"'} title="${grades ? '成绩管理' : '班主任工作台'}"></iframe></div>`,
+    after: () => {
+      const frame = document.getElementById('r10Embedded');
+      const root = frame && frame.closest('.r10-embed');
+      if (!frame || !root) return;
+      const highlight = (key) => root.querySelectorAll('[data-r10-tab]').forEach((button) => { const active = button.dataset.r10Tab === key; button.classList.toggle('active', active); button.setAttribute('aria-current', active ? 'page' : 'false'); });
+      highlight(initial);
+      root.querySelectorAll('[data-r10-tab]').forEach((button) => { button.onclick = () => { frame.contentWindow.location.hash = '#/' + button.dataset.r10Tab; highlight(button.dataset.r10Tab); }; });
+      root.querySelectorAll('[data-r10-action]').forEach((button) => { button.onclick = () => { const target = frame.contentDocument && frame.contentDocument.getElementById(button.dataset.r10Action); if (target) target.click(); }; });
+      frame.addEventListener('load', () => {
+        try {
+          const doc = frame.contentDocument;
+          const style = doc.createElement('style');
+          style.textContent = grades ? '.topbar,.sidebar{display:none!important}.layout{display:block!important}.main{margin:0!important;width:auto!important;max-width:none!important;padding:16px!important}body{background:#f6f8fc!important}' : '.topbar{display:none!important}.content{padding:16px!important}body{background:#f6f8fc!important}';
+          doc.head.appendChild(style);
+          const sync = () => highlight(frame.contentWindow.location.hash.replace(/^#\//,'').split('?')[0] || initial);
+          frame.contentWindow.addEventListener('hashchange', sync); sync();
+        } catch (_) { /* 独立应用仍可在 iframe 中使用 */ }
+      });
+    },
   };
 }
-
-/* ---------------- 学情管理 · 谈心谈话 / 家校沟通（班主任工作台 iframe） ---------------- */
-function viewCareApp(page) {
-  const t = page === 'talks' ? '谈心谈话' : '家校沟通';
-  // care 应用的家校沟通页内部路由名是 contacts（#/care 无效会回落到 talks）
-  const route = page === 'care' ? 'contacts' : page;
-  return {
-    html: `<iframe class="grades-frame" src="/apps/care/index.html#/${route}" allow="microphone; camera" title="${t}"></iframe>`,
-  };
-}
+function viewGrades() { return r10EmbeddedApp('grades', 'dashboard'); }
+function viewCareApp(page) { return r10EmbeddedApp('care', page === 'care' ? 'contacts' : 'talks'); }
 
 const VIEWS = {
   dash: viewDash, branches: viewBranches, students: viewStudents, chapters: viewChapters,
   handouts: viewHandouts, videos: viewVideos,
-  bank: () => viewBank(), paper: () => viewPaper(), lessonq: () => viewLessonQ(), mistakelog: () => viewMistakeLog(), bkup: () => viewUploads(),
-  mfq: () => viewMfBank(), pending: () => viewPending(), ktree: () => viewKTree(), mfc: () => viewMfCapture(), mfp: () => viewMfPapers(), mfi: () => viewMfIntake(), mfset: () => viewMfSet(),
+  bank: () => viewBank(), paper: () => viewPaperR6(), lessonq: () => viewLessonQ(), mistakelog: () => viewMistakeLog(), bkup: () => viewUploads(),
+  intake: () => viewIntakeCenter(), 'intake-excel': () => viewIntakeExcel(), 'intake-word': () => viewIntakeExcel('word'), 'intake-photo': () => viewIntakePhoto(), 'intake-pdf': () => viewIntakePhoto('pdf'), 'intake-skill': () => viewIntakeSkill(), 'intake-teacher': () => viewIntakeTeacher(), 'intake-manual': () => viewIntakeManual(), mfq: () => viewMfBank(), pending: () => viewPending(), ktree: () => viewKTree(), mfc: () => viewMfCapture(), mfp: () => viewMfPapers(), mfi: () => viewMfIntake(), mfset: () => viewMfSet(),
   bkfb: () => viewBankFeedback(),
   words: () => viewWords(),
   letters: () => viewPhonicsLetters(), phonics: () => viewPhonicsPhonetic(),

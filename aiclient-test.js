@@ -41,6 +41,7 @@ function startMock(name) {
       m.calls.push(call);
       const send = (code, obj) => { rs.writeHead(code, { 'Content-Type': 'application/json' }); rs.end(typeof obj === 'string' ? obj : JSON.stringify(obj)); };
       if (m.mode === 'auth') return send(401, { error: { message: 'invalid api key' } });
+      if (m.mode === 'proxy-dns') return send(403, 'No approved upstream IPv4 address');
       if (m.mode === 'notfound') return send(404, { error: 'no such model' });
       if (m.mode === 'html') { rs.writeHead(200, { 'Content-Type': 'text/html' }); return rs.end('<html>hello</html>'); }
       if (m.mode === 'empty') return send(200, { choices: [{ message: { content: '' } }], content: [], candidates: [] });
@@ -137,6 +138,8 @@ function cleanup() {
     const t = (extra, mode, fmt = 'openai', base) => { oa.mode = mode || 'ok'; return aiClient.testProfile(Object.assign({ role: 'reasoning', format: fmt, base_url: base || oa.root + '/v1', model: 'x', api_key: 'k' }, extra)).then(() => null, (e) => e.message); };
     let msg = await t({}, 'auth');
     log(/401/.test(msg) && /密钥/.test(msg), '密钥错（401）：提示检查 API Key', msg);
+    msg = await t({}, 'proxy-dns');
+    log(/无法连接目标服务器/.test(msg) && !/密钥/.test(msg), '网络代理无法访问目标地址时不误报密钥错误', msg);
     msg = await t({}, 'notfound');
     log(/404/.test(msg) && /接口地址或模型名/.test(msg), '地址 / 模型错（404）：提示检查接口地址、模型名、格式', msg);
     msg = await t({}, 'html');

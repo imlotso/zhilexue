@@ -200,19 +200,25 @@ function cleanup() {
     '知识点掌握：返回本课程里讲这个知识点的视频（视频一、视频三）和做过的题（最近一次对错）');
 
   // ---------------- 逐题核对：填空逐空 ----------------
-  r = await req('/api/stu/bank/check', { method: 'POST', token: TA, body: { items: [{ question_id: q2, my_answer: '2|3' }] } });
+  const lessonTicket = await req(`/api/stu/bank/lesson-questions?video_id=${v1}`, { token: TA });
+  const lessonQ = lessonTicket.data.list.find((q) => q.id === q1);
+  const lessonCheck = await req('/api/stu/bank/check', { method: 'POST', token: TA, body: { items: [{ question_id: q1, quiz_ticket: lessonQ.quiz_ticket, my_answer: 'B' }] } });
+  log(lessonCheck.code === 0, '视频课文习题票据可用于核对');
+  const ticketQ1 = sqs.data.list.find((q) => q.id === q1).quiz_ticket;
+  const ticketQ2 = sqs.data.list.find((q) => q.id === q2).quiz_ticket;
+  r = await req('/api/stu/bank/check', { method: 'POST', token: TA, body: { items: [{ question_id: q2, quiz_ticket: ticketQ2, my_answer: '2|3' }] } });
   log(r.code === 0 && JSON.stringify(r.data.list[0].blanks) === '[true,false]' && r.data.list[0].is_correct === false, '填空逐空判分：第 1 空对、第 2 空错', JSON.stringify(r.data.list[0].blanks));
 
   // ---------------- SSE 讲解（AI_MOCK） ----------------
   const t0 = Date.now();
-  const e1 = await sse(TA, { question_id: q1, my_answer: 'B' });
+  const e1 = await sse(TA, { question_id: q1, quiz_ticket: ticketQ1, my_answer: 'B' });
   const deltas = e1.events.filter((x) => x.t === 'delta');
   log(/text\/event-stream/.test(e1.ctype) && deltas.length >= 5 && e1.chunks >= 3 && e1.events.some((x) => x.t === 'done'),
     'SSE：返回 text/event-stream，分多块推送（delta 事件若干 + done）', `${deltas.length} 个 delta / ${e1.chunks} 次读到数据 / ${Date.now() - t0}ms`);
   log(['知识点', '思路', '步骤', '易错点'].every((k) => e1.text.includes('### ' + k)), '讲解按「知识点 / 思路 / 步骤 / 易错点」分段（Markdown 三级标题）');
-  const e2 = await sse(TA, { question_id: q1, my_answer: 'B', history: [{ role: 'user', content: '请讲解这道题。' }, { role: 'assistant', content: e1.text }], ask: '出一道同类题考考我' });
+  const e2 = await sse(TA, { question_id: q1, quiz_ticket: ticketQ1, my_answer: 'B', history: [{ role: 'user', content: '请讲解这道题。' }, { role: 'assistant', content: e1.text }], ask: '出一道同类题考考我' });
   log(e2.text.length > 20 && e2.text !== e1.text && /同类/.test(e2.text), '追问（带上之前的对话）：得到新的回复', e2.text.slice(0, 30).replace(/\n/g, ' '));
-  const e3 = await sse(TA, { question_id: q1, my_answer: 'B', mode: 'guide' });
+  const e3 = await sse(TA, { question_id: q1, quiz_ticket: ticketQ1, my_answer: 'B', mode: 'guide' });
   log(e3.events.some((x) => x.t === 'start' && x.mode === 'guide') && /第 1 步/.test(e3.text), '「一步步引导」模式：同一个接口，按引导口吻输出');
   const e4 = await sse(TA, { question_id: 99999999 });
   log(!/event-stream/.test(e4.ctype) && e4.json && e4.json.code !== 0, '题目不存在：直接返回 JSON 错误（不进流）', e4.json && e4.json.msg);

@@ -8,7 +8,7 @@ const fs = require('fs');
 const XLSX = require('xlsx');
 
 const HEADERS = [
-  '题型', '题干', '选项A', '选项B', '选项C', '选项D', '选项E', '选项F',
+  '题型', '题干', '选项A', '选项B', '选项C', '选项D', '选项E', '选项F', '选项G', '选项H', '选项I', '选项J',
   '答案', '解析', '难度', '章节编码', '学科', '年级',
 ];
 
@@ -45,7 +45,7 @@ function makeTemplate(outPath) {
     ['字段', '填写说明'],
     ['题型', '单选题 / 多选题 / 填空题（也支持 single/multi/fill）'],
     ['题干', '必填。选择题必须包含 A/B 两个以上选项'],
-    ['选项A~F', '选择题填写；填空题留空'],
+    ['选项A~J', '选择题从 A 开始连续填写；填空题留空'],
     ['答案', '单选：填 A；多选：填 A,C 或 AC；填空：多个空用竖线 | 分隔，如 5|-5'],
     ['解析', '选填，学生答题后可查看'],
     ['难度', '1~5 的整数，1 最简单，5 最难'],
@@ -61,7 +61,7 @@ function makeTemplate(outPath) {
 }
 
 const TYPES = { '单选题': 'single', '多选题': 'multi', '填空题': 'fill', single: 'single', multi: 'multi', fill: 'fill' };
-const LETTERS = 'ABCDEF';
+const LETTERS = 'ABCDEFGHIJ';
 
 /** 解析上传的 Excel → { items, errors } */
 function parseWorkbook(buffer, chapters) {
@@ -92,15 +92,19 @@ function parseWorkbook(buffer, chapters) {
     if (!answerRaw) { errors.push(`第 ${line} 行：答案为空`); return; }
 
     const options = [];
+    let gap = false;
     for (const L of LETTERS) {
       const v = String(r['选项' + L] || '').trim();
-      if (v) options.push(v.replace(/^[A-Fa-f][.、．)）]\s*/, ''));
+      if (!v) { gap = true; continue; }
+      if (gap && (type === 'single' || type === 'multi')) { errors.push(`第 ${line} 行：选项须从 A 开始连续填写`); return; }
+      options.push(v.replace(/^[A-Ja-j][.、．)）]\s*/, ''));
     }
 
     let answer = answerRaw;
     if (type === 'single' || type === 'multi') {
       if (options.length < 2) { errors.push(`第 ${line} 行：选择题至少需要 2 个选项`); return; }
-      const letters = (answerRaw.toUpperCase().match(/[A-F]/g) || []);
+      if (!/^[A-J\s,，、;；]+$/i.test(answerRaw)) { errors.push(`第 ${line} 行：选择题答案应为 A–J 选项字母`); return; }
+      const letters = (answerRaw.toUpperCase().match(/[A-J]/g) || []);
       if (!letters.length) { errors.push(`第 ${line} 行：选择题答案应为选项字母，如 A 或 A,C`); return; }
       const bad = letters.find((L) => LETTERS.indexOf(L) >= options.length);
       if (bad) { errors.push(`第 ${line} 行：答案包含不存在的选项 ${bad}`); return; }

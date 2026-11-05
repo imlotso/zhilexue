@@ -62,7 +62,7 @@ async function parseDocx(buffer, { saveImage } = {}) {
 
 const RE_Q_STRICT = /^(\d{1,3})\s*[.、．]\s*[（(]\s*([^）)]{1,8})\s*[)）]\s*(.*)$/;   // 1.（单选题）xxx
 const RE_Q_LOOSE = /^(\d{1,3})\s*[.、．]\s*(.+)$/;                                     // 1. xxx
-const RE_OPT = /^([A-H])\s*[.、．、]\s*(.+)$/;                                        // A. xxx
+const RE_OPT = /^([A-J])\s*[.、．、]\s*(.+)$/;                                        // A. xxx
 const RE_ANS = /^(?:答案|正确答案|参考答案)\s*[:：]\s*(.*)$/;                          // 答案：C
 const RE_ANA = /^(?:解析|点拨|【解析】|分析)\s*[:：]?\s*(.*)$/;                        // 解析：…
 
@@ -111,6 +111,7 @@ function parseDocxQuestions(paras) {
     list.push({
       no: cur.no, type,
       stem,
+      ...(cur.difficulty_score_10 != null ? { difficulty_score_10: cur.difficulty_score_10 } : {}),
       options: cur.options,
       answer: cur.answer.trim(),
       analysis: cur.analysis.trim(),
@@ -136,6 +137,14 @@ function parseDocxQuestions(paras) {
       }
     }
     if (!cur) continue;   // 题头（标题/章节路径）直接跳过
+    // 只识别明确声明十级制的独立字段，避免改变普通题干和旧版五星难度的含义。
+    const md = line.match(/^(?:十级难度|难度\s*[（(]\s*1\s*[-–—~～]\s*10\s*[)）])\s*[:：]\s*(.*?)\s*$/);
+    if (md) {
+      if (cur.difficulty_score_10 != null) throw new Error(`第 ${cur.no} 题十级难度重复，请每题只填写一次`);
+      if (!/^(?:10|[1-9])$/.test(md[1])) throw new Error(`第 ${cur.no} 题十级难度须为 1 至 10 的整数`);
+      cur.difficulty_score_10 = Number(md[1]);
+      continue;
+    }
     const mo = line.match(RE_OPT);
     if (mo && mode !== 'ana') {
       cur.options.push({ label: mo[1], content: mo[2].trim() });

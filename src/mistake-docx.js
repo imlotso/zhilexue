@@ -7,7 +7,7 @@
  *   → 「错题练习」：每题 日期 · [多次答错] · 题号 + 题干（含图片）· 选项 · 知识点
  *   → 「错题解析」：每题 日期 · 题号 · 答案 · 解析 · 答题记录（对错 + 当时的答案 + 时间）
  *   页脚：第 X 页 / 共 Y 页
- * 公式按 LaTeX 文本原样写入（不转 OMML）。图片从本地 public/ 或存储读取字节后内嵌（只支持 JPEG / PNG，其它格式在原位置留一句提示）。
+ * 常见分式、根式和上下标转为可编辑 Word 公式；其他可识别的公式转为图片，无法安全渲染时保留原文。
  *
  * 两个入口共用：学生端 GET /api/stu/mistakes/export-docx、后台 GET /api/admin/bank/mistakes/export-docx。
  */
@@ -16,8 +16,12 @@ const path = require('path');
 const {
   Document, Packer, Paragraph, TextRun, ImageRun, Footer, PageNumber, AlignmentType, Table, TableRow, TableCell,
   WidthType, BorderStyle, ShadingType, PageBreak, VerticalAlign,
+  Math: DocxMath, MathRun, MathFraction, MathRadical, MathSuperScript, MathSubScript, MathSubSuperScript,
 } = require('docx');
 const pdfimg = require('./pdfimg');
+const { formulaImage } = require('./formula-image');
+const MatchQ = require('./match-question');
+const QSubtype = require('../public/js/question-subtypes');
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const BODY_FONT = { ascii: 'Times New Roman', hAnsi: 'Times New Roman', eastAsia: '宋体', cs: 'Times New Roman' };
@@ -34,6 +38,15 @@ function answerText(q, ans) {
   const s = String(ans == null ? '' : ans).trim();
   if (!s) return '';
   const opts = (Array.isArray(q.options) ? q.options : []).map(optText);
+  if (QSubtype.isMatch(q.question_subtype)) {
+    const prompts = MatchQ.list(q.match_prompts);
+    return s.split(/[,，]/).map((entry, i) => {
+      const value = entry.trim();
+      const n = /^[A-G]$/i.test(value) ? LETTERS.indexOf(value.toUpperCase()) : Number(value) - 1;
+      const label = n >= 0 && n < opts.length ? `${LETTERS[n]}. ${opts[n]}` : value;
+      return `${prompts[i] || `第 ${i + 1} 项`}：${label}`;
+    }).join('；');
+  }
   if (q.type === 'single' || q.type === 'multi') return s.split(/[,，]/).map((x) => x.trim()).filter(Boolean).join('、');
   if (q.type === 'fill') {
     const PH = '\u0001';
@@ -51,6 +64,19 @@ async function readImageBytes(src) {
   if (!s) return null;
   const m = /^data:image\/[a-z0-9.+-]+;base64,(.*)$/is.exec(s);
   if (m) return Buffer.from(m[1], 'base64');
+  try {
+    const store = require('./storage');
+    const key = store.bankImageKey(s, require('./mfbank').bankFolder());
+    if (key) return await store.readBuffer(key);
+  } catch (_) { /* 沿用历史非题库图片读取方式 */ }
+  try {
+    const u = new URL(s, 'http://localhost');
+    if (u.pathname === '/api/file') {
+      const key = u.searchParams.get('key') || '';
+      if (!key || key.startsWith('/') || key.split('/').includes('..')) return null;
+      return await require('./storage').readBuffer(key);
+    }
+  } catch (e) { return null; }
   const rel = s.replace(/^https?:\/\/[^/]+/i, '').replace(/^\/+/, '');
   if (!rel || rel.includes('..')) return null;
   const local = path.join(__dirname, '..', 'public', rel);
@@ -70,7 +96,7 @@ function collectMistakes(db, userId, opts = {}) {
   const ids = (Array.isArray(opts.ids) ? opts.ids : []).map(Number).filter(Boolean);
   if (ids.length) { where += ` AND m.question_id IN (${ids.map(() => '?').join(',')})`; args.push(...ids); }
   let rows = db.prepare(`SELECT m.question_id, m.wrong_count, m.last_answer, m.resolved, m.updated_at,
-      q.type, q.stem, q.options, q.answer, q.analysis, q.material, q.subject, q.point, q.images
+      q.type, q.question_subtype, q.match_prompts, q.stem, q.options, q.answer, q.analysis, q.material, q.subject, q.point, q.images
     FROM mistakes m JOIN questions q ON q.id=m.question_id${where}
     ORDER BY SUBSTR(m.updated_at,1,10) DESC, m.id DESC LIMIT 300`).all(...args).reverse();   // 取最近的 300 道，再按时间从早到晚排（打印出来按先后顺序看）
   const rec = db.prepare('SELECT my_answer, is_correct, created_at FROM records WHERE user_id=? AND question_id=? ORDER BY id DESC LIMIT 8');
@@ -79,21 +105,119 @@ function collectMistakes(db, userId, opts = {}) {
     const records = rec.all(Number(userId), r.question_id);
     // 只有一条"最后作答"、没有作答流水时（如手机扫码上传的纸质题），用 last_answer 补一条
     if (!records.length && r.last_answer) records.push({ my_answer: r.last_answer, is_correct: 0, created_at: r.updated_at });
-    return { ...r, options: j(r.options), images: j(r.images), records };
+    return { ...r, options: j(r.options), match_prompts: j(r.match_prompts), images: j(r.images), records };
   });
   return rows;
 }
 
 // ------------------------------------------------------------ 段落小工具
 const T = (text, o = {}) => new TextRun(Object.assign({ text: String(text), font: BODY_FONT, size: 22 }, o));   // 11pt
+// 不支持的命令明确保留原文，避免把未知语义转换成错误公式。
+function latexMath(input) {
+  const s = String(input); let i = 0;
+  const symbols = {
+    times:'×', div:'÷', cdot:'·', pm:'±', mp:'∓', le:'≤', leq:'≤', ge:'≥', geq:'≥', ne:'≠', neq:'≠', approx:'≈', sim:'∼', simeq:'≃', equiv:'≡',
+    alpha:'α', beta:'β', gamma:'γ', delta:'δ', epsilon:'ε', varepsilon:'ε', zeta:'ζ', eta:'η', theta:'θ', vartheta:'ϑ', iota:'ι', kappa:'κ', lambda:'λ', mu:'μ', nu:'ν', xi:'ξ', pi:'π', varpi:'ϖ', rho:'ρ', sigma:'σ', tau:'τ', upsilon:'υ', phi:'φ', varphi:'ϕ', chi:'χ', psi:'ψ', omega:'ω',
+    Gamma:'Γ', Delta:'Δ', Theta:'Θ', Lambda:'Λ', Xi:'Ξ', Pi:'Π', Sigma:'Σ', Upsilon:'Υ', Phi:'Φ', Psi:'Ψ', Omega:'Ω',
+    infty:'∞', degree:'°', circ:'∘', angle:'∠', triangle:'△', parallel:'∥', perp:'⊥', therefore:'∴', because:'∵',
+    in:'∈', notin:'∉', subset:'⊂', subseteq:'⊆', cup:'∪', cap:'∩', emptyset:'∅', forall:'∀', exists:'∃',
+    to:'→', rightarrow:'→', leftarrow:'←', leftrightarrow:'↔', Rightarrow:'⇒', Leftarrow:'⇐', Leftrightarrow:'⇔',
+    sum:'∑', prod:'∏', int:'∫', partial:'∂', nabla:'∇', ell:'ℓ', ldots:'…', cdots:'⋯', vdots:'⋮', ddots:'⋱',
+  };
+  const functions = new Set(['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin', 'arccos', 'arctan', 'log', 'ln', 'exp', 'lim', 'max', 'min', 'gcd']);
+  const group = () => {
+    while (s[i] === ' ') i++;
+    if (s[i] === '{') { i++; const nodes = seq('}'); if (s[i] !== '}' || !nodes.length) throw Error('invalid group'); i++; return nodes; }
+    return [atom()];
+  };
+  const atom = () => {
+    const c = s[i++]; if (!c) throw Error('missing token');
+    if (c === '{') { const nodes=seq('}'); if(s[i]!=='}' || !nodes.length)throw Error('invalid group');i++;return nodes; }
+    if (c === '}' || c === '^' || c === '_') throw Error('unexpected token');
+    if (c !== '\\') return new MathRun(c);
+    const m = /^[A-Za-z]+/.exec(s.slice(i));
+    const command = m ? m[0] : s[i++]; if(m)i+=m[0].length;
+    if (['frac','dfrac','tfrac'].includes(command)) return new MathFraction({ numerator:group(), denominator:group() });
+    if (command === 'sqrt') {
+      while (s[i] === ' ') i++;
+      let degree;
+      if (s[i] === '[') { i++; degree = seq(']'); if (s[i] !== ']' || !degree.length) throw Error('invalid root degree'); i++; }
+      return new MathRadical({ children:group(), ...(degree ? { degree } : {}) });
+    }
+    if (['left','right'].includes(command)) {
+      while (s[i] === ' ') i++;
+      if (s[i] === '.') { i++; return []; } // TeX 的空定界符不应显示为点
+      return atom();
+    }
+    if (['mathrm','mathbf','mathit','text','operatorname'].includes(command)) return group();
+    if (symbols[command]) return new MathRun(symbols[command]);
+    if (functions.has(command)) return new MathRun(command);
+    if (['{','}','%','_',' ', ',', ';', '!'].includes(command)) return new MathRun(command === ',' || command === ';' || command === '!' ? ' ' : command);
+    throw Error('unsupported command');
+  };
+  const seq = (stop) => {
+    const out=[];
+    while(i<s.length && (!stop || s[i]!==stop)) {
+      let base=atom(); if(!Array.isArray(base))base=[base]; let sub, sup;
+      while(s[i]==='_' || s[i]==='^') { const k=s[i++], v=group(); if(k==='_') { if(sub)throw Error('duplicate subscript');sub=v; } else { if(sup)throw Error('duplicate superscript');sup=v; } }
+      if(sub && sup)out.push(new MathSubSuperScript({children:base,subScript:sub,superScript:sup}));
+      else if(sub)out.push(new MathSubScript({children:base,subScript:sub}));
+      else if(sup)out.push(new MathSuperScript({children:base,superScript:sup}));
+      else out.push(...base);
+    }
+    return out;
+  };
+  const children=seq(''); if(i!==s.length || !children.length)throw Error('invalid formula');
+  return new DocxMath({children});
+}
 const lines = (text, o = {}) => {
-  // 多行文字：换行写成 Word 的软回车，保持在同一段里
-  const parts = String(text == null ? '' : text).replace(/\r/g, '').split('\n');
-  return parts.map((p, i) => new TextRun(Object.assign({ text: p, font: BODY_FONT, size: 22, break: i ? 1 : 0 }, o)));
+  const source=String(text == null ? '' : text).replace(/\r/g, '');
+  const re=/\\\(([\s\S]*?)\\\)|\\\[([\s\S]*?)\\\]|(?<!\\)\$([^$\n]+)\$/g;
+  const out=[]; let pos=0, m;
+  const appendText=(v)=>v.split('\n').forEach((part,n)=>out.push(new TextRun(Object.assign({text:part,font:BODY_FONT,size:22,break:n?1:0},o))));
+  while((m=re.exec(source))) {
+    appendText(source.slice(pos,m.index));
+    const latex = m[1] || m[2] || m[3];
+    try { out.push(latexMath(latex)); }
+    catch (_) {
+      const rendered = formulaImage(latex);
+      if (rendered) out.push(new ImageRun({ data: rendered.png, transformation: { width: rendered.width, height: rendered.height }, altText: { name: '数学公式', title: '公式', description: latex.slice(0, 240) } }));
+      else appendText(m[0]);
+    }
+    pos=re.lastIndex;
+  }
+  appendText(source.slice(pos));
+  return out;
 };
 const P = (children, o = {}) => new Paragraph(Object.assign({ children, spacing: { after: 80, line: 340 } }, o));
 const NOBORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
 const NOBORDERS = { top: NOBORDER, bottom: NOBORDER, left: NOBORDER, right: NOBORDER };
+
+/** 连线/听力匹配：左右项目必须同时出现在学生版和教师版，答案另行展示。 */
+async function matchQuestionBlocks(q) {
+  if (!QSubtype.isMatch(q.question_subtype)) return [];
+  const prompts = MatchQ.list(q.match_prompts);
+  const opts = Array.isArray(q.options) ? q.options : (() => { try { return JSON.parse(q.options || '[]'); } catch (_) { return []; } })();
+  if (!prompts.length || !Array.isArray(opts) || !opts.length) return [];
+  let images = q.images || [];
+  if (typeof images === 'string') { try { images = JSON.parse(images); } catch (_) { images = []; } }
+  const cell = async (text) => {
+    const children = [];
+    for (const part of text.split(/(\[图\d+\])/g)) {
+      const m = /^\[图(\d+)\]$/.exec(part);
+      if (m && images[Number(m[1]) - 1]) children.push(await imageParagraph(images[Number(m[1]) - 1]));
+      else if (part) children.push(new Paragraph({ children: lines(part), spacing: { after: 80, line: 320 } }));
+    }
+    if (!children.length) children.push(P([T('')]));
+    return new TableCell({ borders: NOBORDERS, width: { size: 50, type: WidthType.PERCENTAGE }, verticalAlign: VerticalAlign.TOP, children });
+  };
+  const rows = [];
+  for (let i = 0; i < Math.max(prompts.length, opts.length); i++) rows.push(new TableRow({ cantSplit: true, children: [
+    await cell(prompts[i] ? `${i + 1}. ${prompts[i]}` : ''),
+    await cell(opts[i] != null ? `${LETTERS[i]}. ${optText(opts[i])}` : ''),
+  ] }));
+  return [new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE }, borders: { top: NOBORDER, bottom: NOBORDER, left: NOBORDER, right: NOBORDER, insideHorizontal: NOBORDER, insideVertical: NOBORDER } })];
+}
 
 function band(text) {
   return new Paragraph({
@@ -119,7 +243,9 @@ async function imageParagraph(src) {
 }
 
 /** 选项：都很短 → 两列表格（和样本一致）；否则一行一个 */
-function optionBlocks(q) {
+async function optionBlocks(q) {
+  const match = await matchQuestionBlocks(q);
+  if (match.length) return match;
   const opts = (q.options || []).map(optText);
   if (!opts.length || q.type === 'fill' || q.type === 'sort' || q.type === 'judge') return [];
   const items = opts.map((t, i) => `${LETTERS[i]}. ${t}`);
@@ -141,7 +267,7 @@ function optionBlocks(q) {
  * @param {{student:{name:string}, subject:string, items:Array, generatedAt?:string, from?:string, to?:string, title?:string}} p
  * @returns {Promise<Buffer>}
  */
-async function buildMistakeDocx({ student, subject, items, generatedAt, from, to, title }) {
+async function buildMistakeDocx({ student, subject, items, generatedAt, from, to, title, includeAnswers = true }) {
   const list = Array.isArray(items) ? items : [];
   const dates = list.map((m) => dateOf(m.updated_at)).filter(Boolean).sort();
   const d0 = from ? dateOf(from) : (dates[0] || dateOf(generatedAt));
@@ -165,12 +291,16 @@ async function buildMistakeDocx({ student, subject, items, generatedAt, from, to
     if (Number(m.wrong_count) >= 2) children.push(P([T('⚑ 多次答错', { bold: true, size: 18, color: 'D93025', font: SANS_FONT })], { keepNext: true, spacing: { after: 40 } }));
     if (m.material) children.push(P(lines(m.material, { color: '444444', size: 20 }), { keepNext: true, indent: { left: 240 }, border: { left: { style: BorderStyle.SINGLE, size: 12, color: 'BBBBBB', space: 6 } } }));
     children.push(P([T(`${i + 1}. `, { bold: true }), ...lines(m.stem)], { keepNext: true, keepLines: true }));
-    for (const src of (m.images || []).slice(0, MAX_IMGS_PER_Q)) children.push(await imageParagraph(src));
-    optionBlocks(m).forEach((b) => children.push(b));
+    const matchText = QSubtype.isMatch(m.question_subtype) ? [...MatchQ.list(m.match_prompts), ...(m.options || []).map(optText)].join(' ') : '';
+    const used = new Set([...matchText.matchAll(/\[图(\d+)\]/g)].map((x) => Number(x[1]) - 1));
+    for (const [j, src] of (m.images || []).slice(0, MAX_IMGS_PER_Q).entries()) if (!used.has(j)) children.push(await imageParagraph(src));
+    (await optionBlocks(m)).forEach((b) => children.push(b));
     if (m.point) children.push(P([T('知识点： ', { bold: true, font: SANS_FONT, size: 20 }), T(m.point, { size: 20 })], { spacing: { before: 80, after: 160 } }));
     else children.push(P([T('')], { spacing: { after: 120 } }));
   }
   if (!list.length) children.push(P([T('（没有符合条件的错题）', { color: '999999' })], { alignment: AlignmentType.CENTER }));
+  // 仅题目模式不包含答案、解析或作答记录。
+  if (includeAnswers) {
   children.push(new Paragraph({ children: [new PageBreak()] }));
 
   // ---- 错题解析
@@ -197,6 +327,8 @@ async function buildMistakeDocx({ student, subject, items, generatedAt, from, to
     children.push(P([T('')], { spacing: { after: 100 } }));
   }
   if (!list.length) children.push(P([T('（没有符合条件的错题）', { color: '999999' })], { alignment: AlignmentType.CENTER }));
+
+  }
 
   const doc = new Document({
     creator: '智学课堂', title: `${(student && student.name) || ''}${subject || ''}错题集`.trim() || '错题集',
@@ -235,7 +367,7 @@ async function sendMistakeDocx(db, res, student, query = {}) {
   if (q.ids) opts.ids = String(q.ids).split(',').map((x) => parseInt(x, 10)).filter(Boolean).slice(0, 300);
   const items = collectMistakes(db, student.id, opts);
   if (!items.length) { res.status(200).json({ code: 1, msg: '没有符合条件的错题可以导出' }); return; }
-  const buf = await buildMistakeDocx({ student, subject: opts.subject, items, generatedAt: nowStr(), from: opts.from, to: opts.to });
+  const buf = await buildMistakeDocx({ student, subject: opts.subject, items, generatedAt: nowStr(), from: opts.from, to: opts.to, includeAnswers: q.include_answers !== '0' });
   const fname = `${(student.name || student.username || '学生')}-${opts.subject || '全部科目'}-错题集.docx`.replace(/[\\/:*?"<>|]/g, '_');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   res.setHeader('Content-Disposition', `attachment; filename="mistakes.docx"; filename*=UTF-8''${encodeURIComponent(fname)}`);
@@ -244,4 +376,4 @@ async function sendMistakeDocx(db, res, student, query = {}) {
   res.end(buf);
 }
 
-module.exports = { buildMistakeDocx, collectMistakes, answerText, readImageBytes, sendMistakeDocx };
+module.exports = { buildMistakeDocx, collectMistakes, answerText, readImageBytes, sendMistakeDocx, lines, imageParagraph, matchQuestionBlocks };

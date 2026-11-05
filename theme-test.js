@@ -2,7 +2,7 @@
 /**
  * 后台 UI 统一（T11）自测： node theme-test.js
  * 需先启动服务（默认 http://localhost:3000）并 npm run seed。
- * 静态检查：theme.css 在所有样式之后加载、规则全部挂在 body.t11 下（不改旧选择器）、菜单按任务书分成五组、
+ * 静态检查：theme.css 在通用样式之后加载，后置页面样式只影响各自页面；主题规则全部挂在 body.t11 下、菜单按任务书分组，
  *           AI 配置中心在「系统设置」下、待审核题目在「智能题库」下并带角标。
  * 有浏览器时（Playwright）：桌面和手机宽度下后台主要页面都不横向撑破页面；手机宽度侧栏是抽屉（点三道杠开、点遮罩关、点菜单换页后自动关）；
  *           待审核角标有数字时显示；首页有「快捷操作」和「最近开通」。
@@ -23,7 +23,28 @@ const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8');
 
   // ---------- 1) theme.css 的加载与作用范围 ----------
   const hrefs = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1].split('?')[0]);
-  log(hrefs.length > 1 && hrefs[hrefs.length - 1] === './theme.css', 'theme.css 放在所有样式表之后加载', hrefs.join(' → '));
+  // 页面样式允许在主题后覆盖其局部组件；任何新增通用样式仍须放在主题之前。
+  const pageStyles = {
+    './r3.css': /\.(?:r3|qc|qb)-[\w-]+/,
+    './ktree.css': /\.kt-[\w-]+/,
+    './intake-center.css': /\.(?:r4|pd)-[\w-]+/,
+    './intake-skill.css': /\.(?:r4|r4s)-[\w-]+/,
+    './intake-teacher.css': /\.rt-[\w-]+/,
+    './intake-manual.css': /\.(?:r4|r4m)-[\w-]+/,
+    './r6-compose.css': /\.(?:r6|pp)-[\w-]+/,
+  };
+  const themeIndex = hrefs.indexOf('./theme.css');
+  const afterTheme = hrefs.slice(themeIndex + 1);
+  log(themeIndex > 0 && hrefs.lastIndexOf('./theme.css') === themeIndex && afterTheme.every(h => pageStyles[h]), 'theme.css 在所有通用样式之后，后置样式仅限页面组件', hrefs.join(' → '));
+  const unscoped = [];
+  afterTheme.filter(h => pageStyles[h]).forEach(h => {
+    const pageCss = read('public/admin/' + h.slice(2)).replace(/\/\*[\s\S]*?\*\//g, '');
+    pageCss.replace(/(^|[}{])\s*([^{}@]+)\{/g, (_, pre, sel) => {
+      sel.split(',').map(s => s.trim()).filter(Boolean).forEach(s => { if (!pageStyles[h].test(s)) unscoped.push(`${h}: ${s}`); });
+      return '';
+    });
+  });
+  log(unscoped.length === 0, '主题之后的选择器均限定在对应页面组件内', unscoped.slice(0, 3).join(' | '));
   log(/<body class="t11">/.test(html), '<body> 带 t11 类（去掉它就退回旧样式）');
   const res = await fetch(BASE + '/admin/theme.css');
   log(res.status === 200 && (await res.text()).includes('--t11-primary'), '服务器能取到 theme.css');

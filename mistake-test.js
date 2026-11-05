@@ -118,9 +118,9 @@ const xmlText = (xml) => xml.replace(/<w:br\/>/g, '\n').replace(/<\/w:p>/g, '\n'
   log(['1. T9测试多项式', '2. T9测试下列从左边', '3. T9测试把下列各多项式', '10. T9测试下列各式从等号左边'].map((x) => exPart.indexOf(x)).every((v, i, a) => v > 0 && (i === 0 || v > a[i - 1])), '同一天的错题按录入先后排列（样本里的第 1、2、3 … 10 题顺序）');
   log([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].every((n) => new RegExp('(^|\\n)' + n + '\\. ').test(exPart)), '错题练习里有 1~10 题的题号');
   log(/知识点： 公因式/.test(exPart) && /知识点： 完全平方式/.test(exPart) && /知识点： 因式分解-完全平方公式法/.test(exPart), '每题带「知识点」');
-  log(/A\. \$-a\(a-b\)\^2\$/.test(exPart) && /D\. \$x\^2\+3x-4=\(x-1\)\(x\+4\)\$/.test(exPart), '选择题带选项 A~D，公式按 LaTeX 文本原样写入（不转换）');
+  log(/A\. -a\(a-b\)2/.test(exPart) && /D\. x2\+3x-4=\(x-1\)\(x\+4\)/.test(exPart) && /<m:oMath>/.test(docXml) && /<m:sSup>/.test(docXml), '选择题选项完整，公式以上标等可编辑 Word 公式保存');
   log((exPart.match(/⚑ 多次答错/g) || []).length === 5 && (anPart.match(/⚑ 多次答错/g) || []).length === 5, '答错 2 次及以上的题（样本里的第 2、3、5、9、10 题）标「多次答错」，练习和解析两部分各 5 处', String((exPart.match(/多次答错/g) || []).length));
-  log(/答案：D/.test(anPart) && /答案：\$\(2a\+3b\)\^2\$；\$\(3p-3q-1\)\^2\$/.test(anPart) && /答案：3/.test(anPart), '错题解析：答案（选择题字母 / 填空多个空用「；」隔开）');
+  log(/答案：D/.test(anPart) && /答案：\(2a\+3b\)2；\(3p-3q-1\)2/.test(anPart) && /答案：3/.test(anPart), '错题解析：答案（选择题字母 / 填空多个空用「；」隔开）');
   log(/解析：A\.左边是单项式,不是因式分解,故选项A错误;/.test(anPart) && /D\.是因式分解,故选项D正确\./.test(anPart), '错题解析：解析原文多行保留');
   log(/答题记录：/.test(anPart) && /✗ C\s+2026-10-26 11:50/.test(anPart) && /✗ B\s+2026-10-21 15:34/.test(anPart), '错题解析：答题记录（对错 + 当时的答案 + 时间，按时间倒序）');
   log(/<w:fldChar|<w:instrText/.test(await zip.file(names.find((n) => /word\/footer\d*\.xml/.test(n))).async('string')) && /PAGE/.test(await zip.file(names.find((n) => /word\/footer\d*\.xml/.test(n))).async('string')) && /NUMPAGES/.test(await zip.file(names.find((n) => /word\/footer\d*\.xml/.test(n))).async('string')), '页脚：第 X 页 / 共 Y 页（PAGE / NUMPAGES 域）');
@@ -129,6 +129,18 @@ const xmlText = (xml) => xml.replace(/<w:br\/>/g, '\n').replace(/<\/w:p>/g, '\n'
   log(media.length === 1 && (await zip.file(media[0]).async('nodebuffer')).equals(JPG), '图片题：JPEG 字节原样内嵌（从 public/pu 读取）', media.join());
   log(/<w:drawing>/.test(docXml) && /<a:blip /.test(docXml), '图片以 drawing 内嵌在题干后面');
   log(media.length === 1 && /\.jpe?g$/i.test(media[0]), 'JPEG 的内嵌文件扩展名是 .jpg（不是 .png）——Word / WPS 更稳', media[0]);
+
+  // 只验证公式的两种导出路径：能编辑的分数仍为 OMML，其他可识别公式变为 PNG；无效公式保留原文。
+  const { buildMistakeDocx } = require('./src/mistake-docx');
+  const formulaDoc = await buildMistakeDocx({ student: { name: '测试' }, subject: '数学', includeAnswers: false, items: [{
+    type: 'answer', stem: String.raw`分数 \(\frac{1}{2}\)，线段 \(\overline{AB}\)，未知 \(\badcommand{x}\)`,
+    updated_at: '2026-11-05', images: [], options: [], records: [],
+  }] });
+  const formulaZip = await JSZip.loadAsync(formulaDoc);
+  const formulaXml = await formulaZip.file('word/document.xml').async('string');
+  const formulaMedia = Object.keys(formulaZip.files).filter((n) => /^word\/media\/.*\.png$/.test(n));
+  const png = formulaMedia.length === 1 ? await formulaZip.file(formulaMedia[0]).async('nodebuffer') : Buffer.alloc(0);
+  log(/<m:f>/.test(formulaXml) && png.slice(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')) && /\\badcommand\{x\}/.test(formulaXml), '常见公式可编辑，其他可识别公式嵌入 PNG，未知语法保留原文');
 
   // 2) 本机有 python-docx / LibreOffice 就真正打开
   const tmp = path.join(require('os').tmpdir(), 't9-' + uniq + '.docx'); fs.writeFileSync(tmp, buf); made.files.push(tmp);
@@ -193,18 +205,21 @@ const xmlText = (xml) => xml.replace(/<w:br\/>/g, '\n').replace(/<\/w:p>/g, '\n'
   const wasEnabled = db.prepare("SELECT id FROM mf_model_profiles WHERE role='vision' AND is_enabled=1 AND id<>?").all(pid).map((r) => r.id);
   wasEnabled.forEach((id) => db.prepare('UPDATE mf_model_profiles SET is_enabled=0 WHERE id=?').run(id));
   try {
-    // 学生没选学科就上传：当时不建题；AI 识别出学科后补建题、进错题本
+    // AI 识别填充待审核草稿；审核前不建题、不写错题本。
     const upId = db.prepare("INSERT INTO paper_uploads (user_id, subject, grade, stem_text, answer, chapter, point, error_type, note, images, status, created_at) VALUES (?,'', '', '', '', '', '', '', '', ?, 'pending', ?)")
       .run(A.id, JSON.stringify(['/pu/' + jpgName]), now).lastInsertRowid;
     await bank.aiRecognizeUpload(upId);
     const up = db.prepare('SELECT * FROM paper_uploads WHERE id=?').get(upId);
-    const q = up.question_id ? db.prepare('SELECT * FROM questions WHERE id=?').get(up.question_id) : null;
-    log(up.subject === '数学' && up.point === '因式分解-提公因式' && !!q, 'AI 识别（analyze）：自动分出学科 / 知识点，没选学科的上传也补建了题目', JSON.stringify({ subject: up.subject, point: up.point, q: !!q }));
-    log(q && q.subject === '数学' && /扫码识别出的题干/.test(q.stem) && q.point === '因式分解-提公因式' && /填空题/.test(q.source_detail || ''), '题目带上识别出的题干 / 知识点，题型记在来源说明里', q && q.source_detail);
-    log(q && db.prepare('SELECT COUNT(*) n FROM mistakes WHERE user_id=? AND question_id=?').get(A.id, q.id).n === 1, '同时进了该学生的错题本');
+    const draft = JSON.parse(up.draft_json || '{}');
+    log(up.subject === '数学' && up.point === '因式分解-提公因式' && !up.question_id, 'AI 识别学科和知识点，审核前不建题', JSON.stringify({ subject: up.subject, point: up.point }));
+    log(/扫码识别出的题干/.test(draft.stem) && /填空题/.test(draft.ai_type_suggestion || ''), '审核草稿带有识别题干和题型建议');
+    log(!up.question_id, '审核前没有进入学生错题本');
     const pend = await req('/api/admin/bank/mf/ext/pending?source=scan', { token: AT });
-    const hit = (pend.data && pend.data.list || []).find((x) => x.qid === (q && q.id));
+    const hit = (pend.data && pend.data.list || []).find((x) => x.id === 'up:' + upId);
     log(!!hit && hit.source_label === '手机扫码（错题）' && hit.point === '因式分解-提公因式', '进「待审核题目」，来源标「手机扫码（错题）」，已自动分类', hit && hit.source_label);
+    const approved = await req('/api/admin/bank/mf/ext/pending/commit', { method:'POST', token:AT, body:{ ids:['up:' + upId], subject:'数学', stage:'junior' } });
+    const qid = approved.data && approved.data.question_ids[0];
+    log(approved.code === 0 && qid && db.prepare('SELECT COUNT(*) n FROM mistakes WHERE user_id=? AND question_id=?').get(A.id, qid).n === 1, '审核通过后才加入该学生错题本');
     // 已选学科的上传：识别结果补齐知识点，不重复建题
     const q2 = db.prepare("INSERT INTO questions (subject,grade,stage,type,stem,options,answer,analysis,difficulty,point,source,created_at) VALUES ('数学','八年级','junior','single','（纸质错题，看图作答）','[]','','',3,'','学生上传',?)").run(now).lastInsertRowid;
     const up2 = db.prepare("INSERT INTO paper_uploads (user_id, subject, grade, stem_text, answer, chapter, point, error_type, note, images, status, question_id, created_at) VALUES (?,'数学','八年级','', '', '', '', '', '', ?, 'pending', ?, ?)")

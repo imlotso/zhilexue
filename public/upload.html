@@ -20,10 +20,12 @@
   .subj-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
   .subj-chip{border:1.5px solid #dfe6f3;background:#fbfcff;border-radius:10px;padding:9px 0;font-size:14px;font-weight:600;color:#5b6779;cursor:pointer;transition:.15s;font-family:inherit}
   .subj-chip.on{border-color:#2f6bff;background:#e8f1ff;color:#2f6bff;font-weight:700}
+  .r9-modes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}.r9-mode{border:1px solid #dfe6f3;border-radius:10px;background:#fff;padding:10px 4px;color:#53647c;cursor:pointer}.r9-mode.on{border-color:#2f6bff;color:#2f6bff;background:#edf4ff}.r9-edit{position:absolute;bottom:3px;left:3px;right:3px;border:0;border-radius:7px;padding:5px;color:#fff;background:#243855c9;font-size:12px}.r9-editor{position:fixed;inset:0;z-index:100;background:#101827ef;display:flex;flex-direction:column;padding:12px;gap:8px}.r9-editor p{color:#fff;line-height:1.5;font-size:13px}.r9-canvas-wrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}.r9-editor canvas{max-width:100%;max-height:100%;touch-action:none;background:#fff}.r9-tools{display:flex;gap:6px;flex-wrap:wrap}.r9-tools button{flex:1;min-width:68px;padding:10px 6px;border:0;border-radius:8px;font-size:14px}.r9-tools button.on{background:#2f6bff;color:#fff}
   .tip{font-size:12.5px;color:#7a8699;line-height:1.65;margin-bottom:8px}
   .files{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:10px}
   .fslot{position:relative;aspect-ratio:1;border-radius:12px;overflow:hidden;border:1px dashed #c9d4ea;background:#f7f9fe}
   .fslot img{width:100%;height:100%;object-fit:cover}
+  .fslot .r9-file-label{position:absolute;top:4px;left:4px;max-width:calc(100% - 32px);padding:3px 6px;border-radius:6px;background:#243855c9;color:#fff;font-size:11px;line-height:1.2}
   .fslot .del{position:absolute;right:4px;top:4px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:14px;line-height:22px;cursor:pointer}
   .fslot.add{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:#5b8cff;font-size:12px;cursor:pointer;border:1.5px dashed #9db8f5}
   .fslot.add .plus{font-size:24px;line-height:1}
@@ -80,8 +82,10 @@
         <div class="subj-row" id="subjRow"></div>
       </div>
       <div class="fld">
-        <label>题干</label>
-        <p class="tip">一次上传 <b>一道题</b>（最多 4 张照片），拍清楚一点，老师才能看懂题目哦。也可以补充文字描述。</p>
+        <label>上传方式</label>
+        <div class="r9-modes" id="modes"><button type="button" class="r9-mode on" data-mode="single">单题</button><button type="button" class="r9-mode" data-mode="pages">跨页题</button><button type="button" class="r9-mode" data-mode="split">多题拆分</button></div>
+        <label>题干照片</label>
+        <p class="tip" id="modeTip">拍摄一道完整题目，保持光线充足、文字清晰。点击照片可圈出错误。</p>
         <div class="files" id="files"></div>
         <input type="file" id="picker" accept="image/*" capture="environment" multiple style="display:none">
         <textarea id="stemText" maxlength="500" placeholder="输入文字描述题目（选填）"></textarea>
@@ -126,7 +130,8 @@
 (function () {
   var token = new URLSearchParams(location.search).get('t') || '';
   var files = [];            // File 对象
-  var MAX = 4, MAXMB = 10;
+  var isTeacher = false;
+  var MAX = 4, MAXMB = 10, mode = 'single';
   var $ = function (s) { return document.querySelector(s); };
   var showErr = function (msg) { var e = $('#err'); e.textContent = msg; e.style.display = 'block'; window.scrollTo(0, 0); };
 
@@ -140,10 +145,17 @@
   if (!token) { $('#greet').textContent = '链接无效，请回到错题本重新获取二维码'; return; }
 
   api('info', null, function (d) {
-    $('#greet').textContent = '你好，' + (d.name || '同学') + (d.grade ? '（' + d.grade + '）' : '') + '，把不会的题拍下来交给老师吧！';
+    isTeacher = !!d.teacher;
+    if (isTeacher) {
+      document.querySelector('.hero h1').textContent = '手机拍照录题';
+      document.querySelector('.foot').textContent = '智学课堂 · 教师录题通道';
+      document.querySelector('#ulist').closest('.card').style.display = 'none';
+      $('#submit').textContent = '提交到待审核';
+    }
+    $('#greet').textContent = isTeacher ? '你好，' + (d.name || '老师') + '，选择学科和年级，拍照后提交到待审核。' : '你好，' + (d.name || '同学') + (d.grade ? '（' + d.grade + '）' : '') + '，把不会的题拍下来交给老师吧！';
     if (!grade && d.grade && GRADES.indexOf(d.grade) >= 0) { grade = d.grade; paintPicks(); }
     $('#main').style.display = '';
-    loadMine();
+    if (!isTeacher) loadMine();
   }, function (msg) { $('#greet').textContent = msg || '二维码已过期，请回到错题本重新获取'; });
 
   function api(path, body, onOk, onErr, isForm) {
@@ -193,23 +205,81 @@
   $('#gradePick').onclick = function () { openSheet('所属年级', GRADES, grade, function (v) { grade = v; paintPicks(); }); };
   $('#errPick').onclick = function () { openSheet('错误类型', ERR_TYPES, errorType, function (v) { errorType = v; paintPicks(); }); };
 
+  var tips = { single: '拍摄一道完整题目，保持光线充足、文字清晰。点击照片可圈出错误。', pages: '同一道跨页题按顺序上传 2–4 张，点击照片可圈出错误。', split: '点原图选择「框出一题」，逐题框选并点击完成。每个框会作为一道题提交，最多 4 道。题干和答案请由老师分别核对。' };
+  $('#modes').querySelectorAll('button').forEach(function (b) { b.onclick = function () {
+    mode = b.dataset.mode;
+    $('#modes').querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    $('#modeTip').textContent = tips[mode];
+    $('#stemText').style.display = mode === 'split' ? 'none' : '';
+    $('#answer').closest('.card').style.display = mode === 'split' ? 'none' : '';
+    paintFiles();
+  }; });
+  // 图片直接绘制标记；框题生成独立图片，提交时仍使用普通文件上传接口。
+  function editImage(index) {
+    var item = files[index], overlay = document.createElement('div'); overlay.className = 'r9-editor';
+    overlay.innerHTML = '<p>在图片上拖动圈出错误；多题拆分时选择“框出一题”，依次框选每道题。</p><div class="r9-canvas-wrap"><canvas></canvas></div><div class="r9-tools"><button type="button" data-tool="draw" class="on">圈出错误</button><button type="button" data-tool="crop">框出一题</button><button type="button" data-tool="undo">撤销</button><button type="button" data-tool="done">完成</button><button type="button" data-tool="cancel">取消</button></div>';
+    document.body.appendChild(overlay);
+    var canvas = overlay.querySelector('canvas'), ctx = canvas.getContext('2d'), img = new Image(), tool = 'draw', drawing = false, start = null, snapshot = null, dirty = false;
+    var newCrops = [], pendingCrops = 0, editorClosed = false, lastAction = '';
+    var doneButton = overlay.querySelector('[data-tool=done]');
+    img.onload = function () { var scale = Math.min(1, 2400 / Math.max(img.width, img.height)); canvas.width = Math.round(img.width * scale); canvas.height = Math.round(img.height * scale); ctx.drawImage(img, 0, 0, canvas.width, canvas.height); };
+    img.onerror = function () { overlay.remove(); showErr('图片无法打开，请换一张 JPG 或 PNG 照片'); };
+    img.src = item.url;
+    function point(e) { var r = canvas.getBoundingClientRect(); return { x: (e.clientX-r.left)*canvas.width/r.width, y: (e.clientY-r.top)*canvas.height/r.height }; }
+    canvas.onpointerdown = function (e) { e.preventDefault(); if (!canvas.width) return; canvas.setPointerCapture(e.pointerId); drawing = true; start = point(e); snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height); ctx.strokeStyle = '#ed2637'; ctx.lineWidth = Math.max(3, canvas.width/220); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(start.x,start.y); };
+    canvas.onpointermove = function (e) { if (!drawing) return; e.preventDefault(); var p = point(e); if (tool === 'crop') { ctx.putImageData(snapshot,0,0); ctx.strokeRect(start.x,start.y,p.x-start.x,p.y-start.y); } else { ctx.lineTo(p.x,p.y); ctx.stroke(); dirty=true; lastAction='draw'; } };
+    canvas.onpointerup = function (e) {
+      if (!drawing) return; drawing=false; if (tool !== 'crop') return;
+      var end=point(e), x=Math.max(0,Math.floor(Math.min(start.x,end.x))), y=Math.max(0,Math.floor(Math.min(start.y,end.y))), w=Math.min(canvas.width-x,Math.floor(Math.abs(end.x-start.x))), h=Math.min(canvas.height-y,Math.floor(Math.abs(end.y-start.y)));
+      ctx.putImageData(snapshot,0,0); if (w<20 || h<20) return;
+      if (files.filter(function(f){return f.split;}).length + newCrops.length + pendingCrops >= MAX) { alert('最多拆分 4 道题，请先提交或删除多余图片'); return; }
+      var cut=document.createElement('canvas'); cut.width=w; cut.height=h; cut.getContext('2d').drawImage(canvas,x,y,w,h,0,0,w,h);
+      pendingCrops++; doneButton.disabled=true;
+      cut.toBlob(function(blob){
+        pendingCrops--; doneButton.disabled=!!pendingCrops;
+        if (!blob || editorClosed) return;
+        var file=new File([blob],'question.png',{type:'image/png'});
+        newCrops.push({file:file,url:URL.createObjectURL(file),split:true}); lastAction='crop';
+        overlay.querySelector('p').textContent='已框出 '+newCrops.length+' 题；可继续框选，或点击完成。';
+      },'image/png');
+    };
+    overlay.querySelectorAll('[data-tool]').forEach(function (b) { b.onclick=function () {
+      var action=b.dataset.tool;
+      if(action==='draw'||action==='crop'){tool=action;overlay.querySelectorAll('[data-tool=draw],[data-tool=crop]').forEach(function(x){x.classList.toggle('on',x===b);});}
+      else if(action==='undo'){
+        if (lastAction==='crop' && newCrops.length) { var removed=newCrops.pop(); URL.revokeObjectURL(removed.url); overlay.querySelector('p').textContent='已框出 '+newCrops.length+' 题；可继续框选，或点击完成。'; }
+        else if(snapshot){ctx.putImageData(snapshot,0,0);snapshot=null;}
+        lastAction='';
+      } else if(action==='cancel'){
+        editorClosed=true; newCrops.forEach(function(f){URL.revokeObjectURL(f.url);}); overlay.remove();
+      } else if(action==='done'){
+        var finish=function(){editorClosed=true;newCrops.forEach(function(f){files.push(f);});paintFiles();overlay.remove();};
+        if(!dirty){finish();return;}
+        doneButton.disabled=true;
+        canvas.toBlob(function(blob){if(editorClosed)return;if(blob){URL.revokeObjectURL(item.url);item.file=new File([blob],'marked.png',{type:'image/png'});item.url=URL.createObjectURL(item.file);}finish();},'image/png');
+      }
+    }; });
+  }
   // ---- 图片选择 ----
   function paintFiles() {
     var box = $('#files');
     box.innerHTML = '';
     files.forEach(function (f, i) {
+      if (f.split && mode !== 'split') return;
       var d = document.createElement('div'); d.className = 'fslot';
-      d.innerHTML = '<img src="' + f.url + '"><button class="del" data-i="' + i + '">×</button>';
+      var number = files.slice(0, i + 1).filter(function(x){return !!x.split === !!f.split;}).length;
+      d.innerHTML = '<img src="' + f.url + '" alt="题目照片"><span class="r9-file-label">' + (f.split ? '题目 ' : '原图 ') + number + '</span><button class="del" data-i="' + i + '" aria-label="删除图片">×</button><button type="button" class="r9-edit">' + (f.split ? '标记题目' : '标记 / 框题') + '</button>';
+      d.querySelector('.r9-edit').onclick = function () { editImage(i); };
       box.appendChild(d);
     });
-    if (files.length < MAX) {
+    if (files.filter(function(f){return !f.split;}).length < MAX) {
       var a = document.createElement('div'); a.className = 'fslot add';
       a.innerHTML = '<span class="plus">＋</span>拍照 / 选图';
       a.onclick = function () { $('#picker').click(); };
       box.appendChild(a);
     }
     box.querySelectorAll('.del').forEach(function (b) {
-      b.onclick = function (e) { e.stopPropagation(); files.splice(Number(b.dataset.i), 1); paintFiles(); };
+      b.onclick = function (e) { e.stopPropagation(); var removed = files.splice(Number(b.dataset.i), 1)[0]; if (removed) URL.revokeObjectURL(removed.url); paintFiles(); };
     });
   }
   paintFiles();
@@ -219,7 +289,7 @@
     list.forEach(function (f) {
       if (!/^image\//.test(f.type)) return;
       if (f.size > MAXMB * 1024 * 1024) { showErr('图片太大（超过 ' + MAXMB + 'MB），请拍小一点再试'); return; }
-      if (files.length >= MAX) return;
+      if (files.filter(function(x){return !x.split;}).length >= MAX) return;
       files.push({ file: f, url: URL.createObjectURL(f) });
     });
     paintFiles();
@@ -227,25 +297,23 @@
 
   // ---- 提交 ----
   $('#submit').onclick = function () {
+    var originals = files.filter(function(f){return !f.split;});
     if (!files.length) return showErr('请先拍照或选择至少 1 张图片');
     if (!subject) return showErr('请先选择学科');
-    var btn = this; btn.disabled = true; btn.textContent = '上传中…';
-    var fd = new FormData();
-    files.forEach(function (f) { fd.append('images', f.file); });
-    fd.append('subject', subject);
-    fd.append('stem_text', $('#stemText').value.trim());
-    fd.append('answer', $('#answer').value.trim());
-    fd.append('grade', grade);
-    fd.append('chapter', $('#chapter').value.trim());
-    fd.append('point', $('#point').value.trim());
-    fd.append('error_type', errorType);
-    fd.append('note', $('#note').value.trim());
-    api('submit', fd, function () {
-      $('#main').innerHTML = '<div class="card ok-box"><div class="ic">🎉</div><b>上传成功！</b><p>题目已自动进入你的错题本，可以先去做一做～<br>老师审核确认后会一直保留，题目不合适会被移出。</p></div>';
-    }, function (msg) {
-      btn.disabled = false; btn.textContent = '提交给老师审核';
-      showErr(msg || '上传失败，请重试');
-    }, true);
+    if (isTeacher && !grade) return showErr('请先选择年级');
+    if (mode === 'pages' && originals.length < 2) return showErr('跨页题请按顺序上传至少 2 张照片');
+    var groups = mode === 'split' ? files.filter(function(f){return f.split;}).map(function(f){return [f];}) : [originals];
+    if (mode === 'split' && !groups.length) return showErr('请先打开照片，使用“框出一题”框选每一道题');
+    if (mode !== 'split' && !originals.length) return showErr('请先拍照或选择至少 1 张原图');
+    var btn = this, sent = 0; btn.disabled = true; btn.textContent = '上传中…';
+    function sendNext() {
+      var group = groups.shift(); if (!group) { $('#main').innerHTML = '<div class="card ok-box"><b>上传成功！</b><p>已提交 ' + sent + ' 道题，老师可以查看原图和标记。</p></div>'; return; }
+      var fd = new FormData(); group.forEach(function(f){fd.append('images',f.file);});
+      fd.append('subject',subject);fd.append('stem_text',mode === 'split' ? '' : $('#stemText').value.trim());fd.append('answer',mode === 'split' ? '' : $('#answer').value.trim());fd.append('grade',grade);fd.append('chapter',$('#chapter').value.trim());fd.append('point',$('#point').value.trim());fd.append('error_type',errorType);
+      fd.append('note', (mode === 'pages' ? '【跨页题】' : mode === 'split' ? '【多题拆分】' : '') + $('#note').value.trim());
+      api('submit',fd,function(){sent++;group.forEach(function(f){var i=files.indexOf(f);if(i>=0)files.splice(i,1);URL.revokeObjectURL(f.url);});sendNext();},function(msg){btn.disabled=false;btn.textContent='提交给老师审核';paintFiles();showErr((sent ? '已成功提交 '+sent+' 道，剩余题目未提交。' : '')+(msg || '上传失败，请重试'));},true);
+    }
+    sendNext();
   };
 
   // ---- 我的上传 ----

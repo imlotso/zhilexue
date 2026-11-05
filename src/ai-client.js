@@ -16,6 +16,7 @@
  */
 const http = require('http');
 const https = require('https');
+const { agentForAiRequest } = require('./ai-proxy');
 const { db } = require('./db');
 const BUILTIN = require('./builtin-config');
 
@@ -48,7 +49,9 @@ function httpRequest(url, { method = 'GET', headers = {}, body = null, timeoutMs
     const lib = u.protocol === 'http:' ? http : https;
     const h = Object.assign({}, headers);
     if (body != null && h['Content-Length'] === undefined) h['Content-Length'] = Buffer.byteLength(body);
-    const req = lib.request(u, { method, headers: h, timeout: timeoutMs }, (res) => {
+    let agent;
+    try { agent = agentForAiRequest(u); } catch (e) { return reject(e); }
+    const req = lib.request(u, { method, headers: h, timeout: timeoutMs, ...(agent ? { agent } : {}) }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
@@ -56,6 +59,14 @@ function httpRequest(url, { method = 'GET', headers = {}, body = null, timeoutMs
         resolve({ status: res.statusCode, text: buf.toString('utf8') });
       });
     });
+    // CONNECT 握手期间尚未绑定目标 socket，Node 的 socket 超时尚未生效。
+    // 只给代理握手加上限，直连和响应期间的既有超时语义保持不变。
+    if (agent) {
+      const handshake = setTimeout(() => { const error = Object.assign(new Error('timeout'), { name: 'AbortError' }); req.destroy(error); reject(error); }, timeoutMs);
+      const clearHandshake = () => clearTimeout(handshake);
+      req.once('socket', clearHandshake);
+      req.once('error', clearHandshake);
+    }
     req.on('timeout', () => req.destroy(Object.assign(new Error('timeout'), { name: 'AbortError' })));
     req.on('error', reject);
     if (body != null) req.write(body);
@@ -204,7 +215,8 @@ const PARSERS = {
 function httpError(status, bodyText, cfg) {
   const snippet = String(bodyText || '').replace(/\s+/g, ' ').slice(0, 200);
   let why = '';
-  if (status === 401 || status === 403) why = '密钥无效或没有权限，请检查 API Key';
+  if (status === 403 && /No approved upstream IPv4 address/i.test(snippet)) why = '无法连接目标服务器：网络代理未能解析或访问该地址，请检查接口地址和网络访问权限';
+  else if (status === 401 || status === 403) why = '密钥无效或没有权限，请检查 API Key';
   else if (status === 404) why = '接口地址或模型名不对（404），请检查「接口地址」和「模型名」，以及格式是否选对';
   else if (status === 429) why = '请求太频繁或额度用完（429）';
   else if (status >= 500) why = '服务商那边出错了（' + status + '），稍后再试';
@@ -281,9 +293,11 @@ async function chatStream(input, onDelta, { signal, timeoutMs = 180000, idleMs =
   try { u = new URL(rq.url); } catch (e) { throw new Error('接口地址无效：' + rq.url); }
   const lib = u.protocol === 'http:' ? http : https;
   return new Promise((resolveP, rejectP) => {
-    let full = ''; let settled = false; let buf = '';
-    const done = (err, val) => { if (settled) return; settled = true; clearTimeout(total); if (err) rejectP(err); else resolveP(val); };
-    const req = lib.request(u, { method: 'POST', headers: Object.assign({}, rq.headers, { Accept: 'text/event-stream', 'Content-Length': Buffer.byteLength(body) }), timeout: idleMs, signal }, (res) => {
+    let full = ''; let settled = false; let buf = ''; let total; let abortHandler;
+    const done = (err, val) => { if (settled) return; settled = true; clearTimeout(total); if (signal && abortHandler) signal.removeEventListener('abort', abortHandler); if (err) rejectP(err); else resolveP(val); };
+    let agent;
+    try { agent = agentForAiRequest(u); } catch (e) { return done(netError(e, cfg, timeoutMs)); }
+    const req = lib.request(u, { method: 'POST', headers: Object.assign({}, rq.headers, { Accept: 'text/event-stream', 'Content-Length': Buffer.byteLength(body) }), timeout: idleMs, signal, ...(agent ? { agent } : {}) }, (res) => {
       const ctype = String(res.headers['content-type'] || '');
       if (res.statusCode < 200 || res.statusCode >= 300 || !/event-stream/i.test(ctype)) {
         const chunks = [];
@@ -323,12 +337,17 @@ async function chatStream(input, onDelta, { signal, timeoutMs = 180000, idleMs =
       });
       res.on('error', (e) => done(netError(e, cfg, idleMs)));
     });
-    const total = setTimeout(() => req.destroy(Object.assign(new Error('timeout'), { name: 'AbortError' })), timeoutMs);
+    total = setTimeout(() => { const error = Object.assign(new Error('timeout'), { name: 'AbortError' }); req.destroy(error); done(netError(error, cfg, timeoutMs)); }, timeoutMs);
     req.on('timeout', () => req.destroy(Object.assign(new Error('timeout'), { name: 'AbortError' })));
     req.on('error', (e) => {
       if (signal && signal.aborted) return done(Object.assign(new Error('已取消'), { canceled: true }));
       done(netError(e, cfg, e && e.name === 'AbortError' ? timeoutMs : idleMs));
     });
+    if (signal) {
+      abortHandler = () => { req.destroy(); done(Object.assign(new Error('已取消'), { canceled: true })); };
+      if (signal.aborted) abortHandler(); else signal.addEventListener('abort', abortHandler, { once: true });
+    }
+    if (settled) return;
     req.write(body);
     req.end();
   });

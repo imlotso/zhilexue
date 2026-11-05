@@ -11,6 +11,7 @@ const express = require('express');
 const multer = require('multer');
 
 const { db, DATA_DIR, DB_INFO } = require('./db');
+const { resolveDifficulty } = require('./difficulty');
 const { hash, check, sign, auth, signFileTicket, verifyFileTicket } = require('./auth');
 const store = require('./storage');
 const accuracy = require('./accuracy');
@@ -103,7 +104,10 @@ function addBankImgTickets(str) {
 }
 function bankImgTicketJson(req, res, next) {
   res.json = function (body) {
-    let s = JSON.stringify(body);
+    let folder = 'bank';
+    try { folder = require('./mfbank').bankFolder(); } catch (_) { /* 使用默认目录 */ }
+    const normalized = require('./bank-images').normalizeBankImages(body, folder);
+    let s = JSON.stringify(normalized);
     if (s === undefined) return res.send();
     if (s.includes('/api/file?key=')) s = addBankImgTickets(s);
     if (!res.get('Content-Type')) res.set('Content-Type', 'application/json; charset=utf-8');
@@ -122,7 +126,7 @@ function judge(q, myAnswer) {
     if (a.length !== b.length) return false;
     return a.every((v, i) => v === b[i]);
   }
-  const norm = (s) => [...new Set((s.toUpperCase().match(/[A-F]/g) || []))].sort().join(',');
+  const norm = (s) => /^[A-J\s,，、;；]+$/i.test(s) ? [...new Set((s.toUpperCase().match(/[A-J]/g) || []))].sort().join(',') : '';
   return norm(ans) !== '' && norm(ans) === norm(mine);
 }
 
@@ -908,17 +912,23 @@ admin.get('/questions', (req, res) => {
   ok(res, { total, list: rows });
 });
 admin.post('/questions', (req, res) => {
+  const diff = resolveDifficulty(req.body || {});
+  if (diff.error) return fail(res, diff.error);
   const q = normalizeQ(req.body || {});
   if (!q) return fail(res, '题型/题干/答案请填写完整');
-  const info = db.prepare('INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,sort,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-    .run(q.chapter_id, q.subject, q.grade, q.type, q.stem, JSON.stringify(q.options), q.answer, q.analysis, q.difficulty, 0, now());
+  const info = db.prepare('INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,difficulty_score_10,sort,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(q.chapter_id, q.subject, q.grade, q.type, q.stem, JSON.stringify(q.options), q.answer, q.analysis, diff.difficulty, diff.difficulty_score_10, 0, now());
   ok(res, { id: info.lastInsertRowid }, '已添加');
 });
 admin.put('/questions/:id', (req, res) => {
+  const cur = db.prepare('SELECT difficulty,difficulty_score_10 FROM questions WHERE id=?').get(Number(req.params.id));
+  if (!cur) return fail(res, '题目不存在');
+  const diff = resolveDifficulty(req.body || {}, cur);
+  if (diff.error) return fail(res, diff.error);
   const q = normalizeQ(req.body || {});
   if (!q) return fail(res, '题型/题干/答案请填写完整');
-  db.prepare('UPDATE questions SET chapter_id=?,subject=?,grade=?,type=?,stem=?,options=?,answer=?,analysis=?,difficulty=? WHERE id=?')
-    .run(q.chapter_id, q.subject, q.grade, q.type, q.stem, JSON.stringify(q.options), q.answer, q.analysis, q.difficulty, Number(req.params.id));
+  db.prepare('UPDATE questions SET chapter_id=?,subject=?,grade=?,type=?,stem=?,options=?,answer=?,analysis=?,difficulty=?,difficulty_score_10=? WHERE id=?')
+    .run(q.chapter_id, q.subject, q.grade, q.type, q.stem, JSON.stringify(q.options), q.answer, q.analysis, diff.difficulty, diff.difficulty_score_10, Number(req.params.id));
   ok(res, null, '已保存');
 });
 admin.delete('/questions/:id', (req, res) => {
@@ -1295,6 +1305,26 @@ admin.get('/stats', (req, res) => {
   });
 });
 
+// 后台首页：所有学生相关统计按当前分校限定，日期范围使用服务器本地日历。
+admin.get('/dashboard', (req, res) => {
+  const today = new Date();
+  const date = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const shift = (days) => { const d = new Date(today.getFullYear(), today.getMonth(), today.getDate()); d.setDate(d.getDate()+days); return date(d); };
+  const scope = req.user.role === 'branch' ? ' AND u.created_by=?' : '';
+  const args = req.user.role === 'branch' ? [req.user.id] : [];
+  const startWeek = shift(-((today.getDay()+6)%7));
+  const activity = (start) => Number(db.prepare(`SELECT COUNT(DISTINCT u.id) n FROM users u WHERE u.role='student'${scope} AND (u.last_login>=? OR EXISTS (SELECT 1 FROM records r WHERE r.user_id=u.id AND r.created_at>=?) OR EXISTS (SELECT 1 FROM progress p WHERE p.user_id=u.id AND p.updated_at>=?))`).get(...args, start, start, start).n) || 0;
+  const questions = (start) => db.prepare(`SELECT COUNT(*) n, COALESCE(SUM(r.is_correct),0) correct FROM records r JOIN users u ON u.id=r.user_id WHERE u.role='student'${scope} AND r.created_at>=?`).get(...args, start);
+  const day = questions(shift(0)), week = questions(startWeek);
+  const completed = (start) => Number(db.prepare(`SELECT COUNT(*) n FROM progress p JOIN users u ON u.id=p.user_id WHERE u.role='student'${scope} AND p.video_done=1 AND p.updated_at>=?`).get(...args, start).n) || 0;
+  const due = Number(db.prepare(`SELECT COUNT(*) n FROM mistakes m JOIN users u ON u.id=m.user_id WHERE u.role='student'${scope} AND m.resolved=0 AND (m.next_review='' OR m.next_review IS NULL OR m.next_review<=?)`).get(...args, shift(0)).n) || 0;
+  const expiring = Number(db.prepare(`SELECT COUNT(*) n FROM users u WHERE u.role='student'${scope} AND u.expire_at>=? AND u.expire_at<?`).get(...args, shift(0), shift(8)).n) || 0;
+  const feedback = Number(db.prepare(`SELECT COUNT(*) n FROM bank_feedback f JOIN users u ON u.id=f.user_id WHERE u.role='student'${scope} AND f.status='pending'`).get(...args).n) || 0;
+  const trendRows = db.prepare(`SELECT SUBSTR(r.created_at,1,10) d, COUNT(*) n FROM records r JOIN users u ON u.id=r.user_id WHERE u.role='student'${scope} AND r.created_at>=? GROUP BY SUBSTR(r.created_at,1,10)`).all(...args, shift(-13));
+  const byDay = new Map(trendRows.map((r) => [r.d, Number(r.n)]));
+  ok(res, { today: { active: activity(shift(0)), answers: Number(day.n), correct: Number(day.correct), completed: completed(shift(0)) }, week: { active: activity(startWeek), answers: Number(week.n), correct: Number(week.correct), completed: completed(startWeek) }, due, expiring, feedback, trend: Array.from({length:14}, (_, i) => { const d=shift(i-13); return { date:d, answers:byDay.get(d)||0 }; }) });
+});
+
 // 最近开通的学生（首页展示用）
 admin.get('/students/recent', (req, res) => {
   let where = " WHERE role='student'";
@@ -1372,6 +1402,7 @@ admin.use('/phonics', require('./phonics').admin);
 stu.use('/phonics', require('./phonics').stu);
 // ---------- 智能题库（题库管理 / 智能组卷 / 课文习题 / 错题记录） ----------
 admin.use('/bank', require('./bank').admin);
+admin.use('/bank/tree-mapping', require('./tree-mapping'));
 stu.use('/bank', require('./bank').stu);
 // ---------- 魔方题库（题库管理·目录树 / 网络采集 / 试卷管理 / 录题工作台） ----------
 // 挂 /bank/mf 下，复用智能题库的鉴权与操作日志分类；采集回传单独走 /api/mfcap（采集票据）

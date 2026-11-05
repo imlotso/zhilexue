@@ -12,8 +12,11 @@
 const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
+const QSubtype = require('../public/js/question-subtypes');
+const MatchQ = require('./match-question');
+const { resolveDifficulty } = require('./difficulty');
 
-const LETTERS = 'ABCDEFG';
+const LETTERS = 'ABCDEFGHIJ';
 const TYPE_NAMES = { single: '单选题', multi: '多选题', judge: '判断题', fill: '填空题', sort: '排序题' };
 
 /** 归一化表头：「选项 A\n（必填）」→「选项A」 */
@@ -42,7 +45,12 @@ function withNormKeys(rows) {
 }
 /** 选项单元格可能自带「A、」前缀，去掉 */
 function stripPrefix(s) {
-  return String(s || '').replace(/^[A-Ga-g][.、．)）]\s*/, '').trim();
+  return String(s || '').replace(/^[A-Ja-j][.、．)）]\s*/, '').trim();
+}
+function choiceOptions(row) {
+  const values = [...LETTERS].map((letter) => stripPrefix(pick(row, ['选项' + letter])));
+  const last = values.reduce((result, value, i) => value ? i : result, -1);
+  return values.slice(0, last + 1).some((value) => !value) ? null : values.slice(0, last + 1);
 }
 /** 判断题答案归一：正确/错误 */
 function normJudge(v) {
@@ -62,6 +70,28 @@ function normDiff(v) {
   return Number.isFinite(n) ? Math.min(5, Math.max(1, n)) : 3;
 }
 
+/** 显式十级列与旧五星列分开识别，不能因为表头归一化而把 1–5 数字猜成十级。 */
+function rowDifficulty(row) {
+  const keys = Object.keys(row).filter(k => k !== '__nk');
+  const compact = k => String(k).replace(/\s+/g, '');
+  const isTen = k => /^(?:十级难度|难度10分|difficulty_score_10)(?:[（(]|$)/i.test(compact(k)) || /^难度[（(]1[-–—~～至]10(?:[，,）)]|$)/.test(compact(k));
+  const tenKey = keys.find(k => isTen(k) && cellStr(row[k]) !== '');
+  const fiveKey = keys.find(k => !isTen(k) && ['难度', '五星难度'].includes(normKey(k)) && cellStr(row[k]) !== '');
+  const input = {};
+  if (fiveKey) {
+    const value = cellStr(row[fiveKey]);
+    if (/^\d+$/.test(value)) {
+      const n = Number(value);
+      if (n < 1 || n > 5) return { error: '五星难度须为 1 至 5 的整数' };
+      input.difficulty = n;
+    } else if (/基础|中档|压轴/.test(value)) input.difficulty = normDiff(value);
+    else return { error: '五星难度请填写 1–5、基础、中档或压轴' };
+  }
+  if (tenKey) input.difficulty_score_10 = cellStr(row[tenKey]);
+  if (!Object.keys(input).length) return null;
+  return resolveDifficulty(input);
+}
+
 /** 解析上传的 Excel（多 sheet 模板）→ { items, errors } */
 function parseBankWorkbook(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
@@ -69,21 +99,42 @@ function parseBankWorkbook(buffer) {
   const errors = [];
   let examples = 0;   // 模板里的【例题】示例行（不当成真题）
   let seq = 0;
+  let rowSubtype = '';
+  let rowMatch = '';
+  let rowGroup = '';
+  let activeRow = null;
 
   const push = (q, where) => {
     seq++;
+    const diff = rowDifficulty(activeRow);
+    if (diff && diff.error) { errors.push(`${where}：${diff.error}`); return; }
+    if (diff) { q.difficulty = diff.difficulty; q.difficulty_score_10 = diff.difficulty_score_10; }
     q.point = q.point || '';
+    if (q.material && rowGroup) q.group_ref = rowGroup;
+    if (rowSubtype) {
+      const subtype = QSubtype.find(rowSubtype);
+      if (!subtype) { errors.push(`${where}：不支持的细分题型「${rowSubtype}」`); return; }
+      if (subtype.type !== q.type) { errors.push(`${where}：细分题型「${rowSubtype}」与本表基础题型不匹配`); return; }
+      q.question_subtype = subtype.code;
+      if (QSubtype.isMatch(subtype.code)) {
+        const checked = MatchQ.normalize(rowMatch.split(/\r?\n/), q.options, q.answer, true, subtype.code);
+        if (checked.error) { errors.push(`${where}：${checked.error}`); return; }
+        q.match_prompts = checked.prompts; q.answer = checked.answer;
+      }
+    }
     if (!q.stem && q.type !== 'single') { errors.push(`${where}：题目为空`); return; }
     if (q.type === 'single' || q.type === 'multi') {
       if ((q.options || []).length < 2) { errors.push(`${where}：选择题至少需要 2 个选项`); return; }
-      const letters = [...new Set((String(q.answer).toUpperCase().match(/[A-G]/g) || []))].sort();
+      if ((q.options || []).length > 10) { errors.push(`${where}：选择题最多支持 10 个选项`); return; }
+      if (!/^[A-J\s,，、;；]+$/i.test(String(q.answer))) { errors.push(`${where}：选择题答案应为选项字母（A–J）`); return; }
+      const letters = [...new Set((String(q.answer).toUpperCase().match(/[A-J]/g) || []))].sort();
       if (!letters.length) { errors.push(`${where}：选择题答案应为选项字母（如 B 或 AB）`); return; }
       const bad = letters.find((L) => LETTERS.indexOf(L) >= q.options.length);
       if (bad) { errors.push(`${where}：答案包含不存在的选项 ${bad}`); return; }
       if (q.type === 'single' && letters.length > 1) { errors.push(`${where}：单选题答案只能有一个字母`); return; }
       q.answer = letters.join(',');
     }
-    if (!q.answer && q.answer !== 0) { errors.push(`${where}：答案为空`); return; }
+    if (!q.answer && q.answer !== 0 && !['writing', 'drawing'].includes(q.question_subtype) && !QSubtype.isMatch(q.question_subtype)) { errors.push(`${where}：答案为空`); return; }
     items.push(q);
   };
 
@@ -97,11 +148,14 @@ function parseBankWorkbook(buffer) {
       let cm = '';
       rows.forEach((r) => {
         const m = pick(r, ['原文', '题干']); if (m) cm = m;
-        const a = pick(r, ['小题答案']).replace(/^[A-Ga-g][.、．)）]\s*/, '');
+        const a = pick(r, ['小题答案']).replace(/^[A-Ja-j][.、．)）]\s*/, '');
         if (cm && a) (selAnswers[cm] = selAnswers[cm] || []).push(a);
       });
     }
     rows.forEach((r, idx) => {
+      activeRow = r;
+      rowSubtype = pick(r, ['英语细分题型', '数学细分题型', '细分题型']);
+      rowMatch = pick(r, ['匹配左侧项目']);
       const line = `${name} 第 ${idx + 2} 行`;
       const tag = pick(r, ['标签', '知识点', '考点']);
       const analysis = pick(r, ['解析', '试题解析', '小题解析', '答案解析']);
@@ -111,19 +165,32 @@ function parseBankWorkbook(buffer) {
       const headCell = pick(r, ['原文', '题干', '题目']);
       if (headCell) carry.example = /^\s*【例题】/.test(headCell);
       if (carry.example) { if (headCell) examples++; return; }
-      if (matNow) carry.material = matNow;
+      if (matNow) { carry.material = matNow; carry.group = `${name}:${idx + 2}`; }
       const material = carry.material;
+      rowGroup = carry.group || '';
 
-      if (sheet === '单选题') {
+      if (sheet === '作图题') {
         const stem = pick(r, ['题目']);
         if (!stem) return;
-        const options = LETTERS.split('').map((L) => stripPrefix(pick(r, ['选项' + L]))).filter(Boolean);
+        push({ type: 'answer', question_subtype: 'drawing', stem, options: [], answer: pick(r, ['参考答案', '答案']), analysis, point: tag, material: '' }, line);
+
+      } else if (sheet === '书面表达题') {
+        const stem = pick(r, ['题目']);
+        if (!stem) return;
+        push({ type: 'answer', question_subtype: 'writing', stem, options: [], answer: pick(r, ['参考范文', '参考答案', '答案']), analysis, point: tag, material: '' }, line);
+
+      } else if (sheet === '单选题') {
+        const stem = pick(r, ['题目']);
+        if (!stem) return;
+        const options = choiceOptions(r);
+        if (!options) { errors.push(`${line}：选项须从 A 开始连续填写`); return; }
         push({ type: 'single', stem, options, answer: pick(r, ['正确选项', '答案']), analysis, point: tag, material: '' }, line);
 
       } else if (sheet === '多选题') {
         const stem = pick(r, ['题目']);
         if (!stem) return;
-        const options = LETTERS.split('').map((L) => stripPrefix(pick(r, ['选项' + L]))).filter(Boolean);
+        const options = choiceOptions(r);
+        if (!options) { errors.push(`${line}：选项须从 A 开始连续填写`); return; }
         push({ type: 'multi', stem, options, answer: pick(r, ['正确选项', '答案']), analysis, point: tag, material: '' }, line);
 
       } else if (sheet === '判断题') {
@@ -158,19 +225,22 @@ function parseBankWorkbook(buffer) {
       } else if (sheet === '排序题') {
         const stem = pick(r, ['题目']);
         if (!stem) return;
-        const options = LETTERS.split('').map((L) => stripPrefix(pick(r, ['选项' + L]))).filter(Boolean);
-        const ans = String(pick(r, ['答案'])).toUpperCase().replace(/[^A-G]/g, '');
-        if (!ans) { errors.push(`${line}：排序题答案应为字母序列（如 CABDE）`); return; }
+        const options = LETTERS.slice(0, 7).split('').map((L) => stripPrefix(pick(r, ['选项' + L]))).filter(Boolean);
+        const rawAnswer = String(pick(r, ['答案'])).trim();
+        const ans = rawAnswer.toUpperCase().replace(/[^A-G]/g, '');
+        const isMatch = QSubtype.isMatch((QSubtype.find(rowSubtype) || {}).code);
+        if (!ans && !isMatch) { errors.push(`${line}：排序题答案应为字母序列（如 CABDE）`); return; }
         const bad = [...new Set(ans.split(''))].find((L) => LETTERS.indexOf(L) >= options.length);
         if (bad) { errors.push(`${line}：答案包含不存在的选项 ${bad}`); return; }
         // 答案统一转成「选项位置序号」（1 基），与做题端作答格式一致
-        push({ type: 'sort', stem, options, answer: ans.split('').map((L) => LETTERS.indexOf(L) + 1).join(','), analysis, point: tag, material: '' }, line);
+        push({ type: 'sort', stem, options, answer: isMatch ? rawAnswer : ans.split('').map((L) => LETTERS.indexOf(L) + 1).join(','), analysis, point: tag, material: '' }, line);
 
       } else if (sheet === '完形填空题' || sheet === '选词填空' ) {
         // 原文 + 多个小题；原文只在第一行，后续行留空沿用
         const no = pick(r, ['小题序号']);
         if (!material || !no) return;
-        const options = LETTERS.split('').map((L) => stripPrefix(pick(r, ['选项' + L]))).filter(Boolean);
+        const options = choiceOptions(r);
+        if (!options) { errors.push(`${line}：选项须从 A 开始连续填写`); return; }
         push({
           type: 'single', stem: `选择最佳选项补全第 ${no} 空`, options,
           answer: pick(r, ['正确选项', '小题答案']), analysis, point: tag, material,
@@ -181,7 +251,7 @@ function parseBankWorkbook(buffer) {
         const no = pick(r, ['小题序号']);
         const sub = pick(r, ['小题题目']);
         if (!material || !no || !sub) return;
-        const ansText = pick(r, ['小题答案']).replace(/^[A-Ga-g][.、．)）]\s*/, '');
+        const ansText = pick(r, ['小题答案']).replace(/^[A-Ja-j][.、．)）]\s*/, '');
         const distractors = [1, 2, 3].map((i) => pick(r, ['干扰项' + i])).filter(Boolean);
         let pool = [ansText].concat(distractors);
         // 没填干扰项：用同一题干下所有小题的答案做共用选项（至少要有 2 个小题）；填了干扰项就用「本题答案 + 干扰项」
@@ -206,7 +276,8 @@ function parseBankWorkbook(buffer) {
         const sub = pick(r, ['小题题目']);
         if (!material || !no || !sub) return;
         if (subType.includes('选择')) {
-          const options = LETTERS.split('').map((L) => stripPrefix(pick(r, ['选项' + L]))).filter(Boolean);
+          const options = choiceOptions(r);
+          if (!options) { errors.push(`${line}：选项须从 A 开始连续填写`); return; }
           push({
             type: 'single', stem: sub, options, answer: pick(r, ['正确选项']),
             analysis, point: tag, material,
@@ -233,8 +304,11 @@ function makeBankTemplate(outPath, subject) {
   const s = subject || '';
   const wb = XLSX.utils.book_new();
   const add = (name, header, rows) => {
-    const ws = XLSX.utils.aoa_to_sheet([header].concat(rows));
-    ws['!cols'] = header.map(() => ({ wch: 26 }));
+    const missing = ['单选题', '多选题', '完形填空题', '阅读理解题'].includes(name)
+      ? [...LETTERS].filter((letter) => !header.some((cell) => normKey(cell) === normKey('选项' + letter))).map((letter) => '选项 ' + letter) : [];
+    const cols = [...header, ...missing, '十级难度（1–10，选填）'];
+    const ws = XLSX.utils.aoa_to_sheet([cols].concat(rows.map(row=>[...row, ...missing.map(() => ''), ''])));
+    ws['!cols'] = cols.map(() => ({ wch: 26 }));
     XLSX.utils.book_append_sheet(wb, ws, name);
   };
 
@@ -282,6 +356,7 @@ function makeBankTemplate(outPath, subject) {
     ['选择填空题', '第一行填题干；每行一个小题：小题题目 + 小题答案 + 干扰项，系统自动合成选择题'],
     ['阅读理解题', '第一行填原文；小题题型填 选择题 或 填空题，按对应列填写'],
     ['标签', '即知识点，会显示在题库管理里，可用于筛选和组卷'],
+    ['十级难度', '可选填 1–10 整数；原有五星难度仍按 1–5 解读，不确定时留空。'],
     ['导入位置', '管理后台 → 智能题库 → 题库管理 → 「⬆ 导入 Excel」'],
   ];
   const wsH = XLSX.utils.aoa_to_sheet(help);

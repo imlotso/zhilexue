@@ -4,7 +4,7 @@
 
 - 后端：Node.js + Express，入口 `src/app.js`，端口 3000（`PORT` 可改），生产用 pm2（`ecosystem.config.js`，单实例 fork）。
 - 数据库：MySQL（`src/config.local.js` 指向 `127.0.0.1:3306`，库名 `xuexi`）。`src/mysql-sync.js` 提供与 better-sqlite3 同接口的同步封装（查询在 `mysql-worker.js` 的独立线程里执行），业务代码不用 async。库为空时 `import-sqlite.js` 会从 `data/xuexi.db`（SQLite）导入旧数据。
-- 存储：`src/storage.js`，阿里云 OSS / 七牛 / 本地磁盘三选一（环境变量 `STORAGE_DRIVER`）。视频走前端分片直传 OSS（单个上限 4GB），可配 `CDN_DOMAIN`。`LOCAL_FOLDERS` 默认 `wrong,guidedocs` 留在本地。题库资源（题目图 / 听力音频 / 录题页图 / 导出试卷）统一在 `bank/` 目录，视频在 `videos/`，二者只靠 key 前缀和 `video_id` 绑定关系关联；可选 `BANK_BUCKET` 是将来拆桶的预留口子（T12，README 有做法）。
+- 存储：`src/storage.js`，阿里云 OSS / 七牛 / 本地磁盘三选一（环境变量 `STORAGE_DRIVER`）。视频走前端分片直传 OSS（单个上限 4GB），可配 `CDN_DOMAIN`。`LOCAL_FOLDERS` 默认 `wrong,guidedocs` 留在本地。题库资源（题目图 / 听力音频 / 录题页图 / 导出试卷）统一在 `bank/` 目录，视频在 `videos/`，二者通过 key 前缀和 `video_id` 绑定关系隔离，不要求独立存储桶。题图使用稳定的 `/api/file?key=…` 地址；读取时短票据和云存储 URL 重新签发，兼容当前存储域名下可识别的历史签名图。
 - 前端：原生 JS，无构建。
 
 ## 数据库如何选择（MySQL / SQLite）
@@ -50,7 +50,7 @@ zhilexue/
 | `app.js` | 主服务：登录、文件代理、管理端基础接口（分校/学生/目录/视频/讲义）、学生端基础接口、路由挂载 |
 | `kbtree.js` | 知识树统一（T4）：旧 `kb_*` 复制进 `bank_trees` 知识点树、旧 `/kbtree*` 接口的读写、知识点名清单（供 AI 补全/下拉用）；被 `bank.js`、`mfbank.js` 调用 |
 | `treepick.js` / `treeio.js` | 目录树的教材版本（R2）：`treepick.js` = 默认版本表（`settings.default_editions`）+ 统一取树 `pickTree`（所有"按 学段+学科 取一棵树"的地方都走它：`kbtree.js`、`bank.js` 学生端 `scan-tree`、`mfcollect.js`）；`treeio.js` = 树导入 / 导出（格式见 `docs/tree-import-format.md`，被 `mfbank.js` 的 `/trees/import`、`/trees/:id/export` 和 `scripts/import-trees.js` 共用） |
-| `mfpending.js` | 待审核题目（T3）：把拍照识别 / Word / Excel / 技能包（都是 `mf_recog_runs` 批次）、网络采集批次、手机扫码上传统一成一个列表，逐题编辑/入库/删除，以及 Excel、Word 导入入口；由 `mfbank.js` 末尾挂载，复用它抽出的 `commitRunCards` / `commitCaptureItems`；T10 的「上传真题试卷」`POST /papers/import-word`（Word → 试卷 + 入题库）也在这里 |
+| `mfpending.js` | 待审核题目（T3）：把拍照识别 / Word / Excel / 技能包（都是 `mf_recog_runs` 批次）、网络采集批次、手机扫码上传统一成一个列表，逐题编辑/入库/删除，以及 Excel、Word 导入入口；由 `mfbank.js` 末尾挂载，复用它抽出的 `commitRunCards` / `commitCaptureItems`；真题和课文习题题卡先进入审核，审核后回挂试卷或视频 |
 | `wordq.js` | Word 题目规则解析（T3）：按客户《word (1).docx》的格式规则解析，不调 AI，不合规的题给出段号和原因 |
 | `db.js` / `mysql-sync.js` / `mysql-worker.js` / `import-sqlite.js` | 建表、数据库连接与 SQLite→MySQL 转换 |
 | `auth.js` / `delpwd.js` | JWT 鉴权；删除确认密码 |
@@ -82,3 +82,9 @@ zhilexue/
 - 做题弹窗 `BankQuiz.open()`（`public/js/bank.js`）是课文习题、小分组练习、试卷、错题重做 / 复习、自组卷共用的一个 DOM 组件：桌面端定高（`min(86vh,760px)`），右侧栏 = 计时 + 题号四色方格（未做 / 已做 / 答对 / 答错，可点击跳题），左侧 = 题卡（内部滚动）+ 底部按钮；所有模式都是「提交本题 → 立即核对（`/check`，不落库）→ 全部核对完交卷（`/submit`）→ 报告」。手机端（≤760px）全屏，题号改成顶栏下的横向滚动条。
 - AI 老师浮层也在 `bank.js` 里（每个做题弹窗各自一份状态）：对话按「题目 × 模式（直接讲解 / 一步步引导）」分别保存；用 `fetch` + `ReadableStream` 读 `/api/stu/bank/ai-explain/stream` 的 SSE（`EventSource` 不支持 POST 和登录头）；Markdown 用 `r8Md()` 轻量渲染，流结束后 `mtxTypeset` 排公式。
 - 课程页（`public/js/vue-app.js` 的 `course` 页）：右上角进度 + 正确率、顶部「知识点掌握」卡（环形 + 两个指标 + 继续学习）、左侧小分组卡（已学 / 正确率 / 小分组练习）、视频卡知识点标签（点开是 `showNodeMastery` 弹窗）。样式都在 `public/css/app.css` 末尾的 `r8-` 段。
+
+二轮进行中：`tree-mapping.js` 负责章节与知识点映射；`mfpack-adapter.js` 负责常见外部题卡转换；`r6-compose.js` 复用题库的目录、题卡和本地试题篮。
+
+`difficulty.js` 统一处理十级精度与原有五星字段的校验和同步；无十级来源时保留空值，既有按五星的筛选和组卷不变。
+
+`ai-proxy.js` 仅为 `ai-client.js` 的 AI 请求选择 HTTP(S) 代理，按标准代理环境变量与 `NO_PROXY` 判断，回环地址直连；不更改全局 Agent 和 TLS 校验。

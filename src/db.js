@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS questions (
   answer TEXT NOT NULL DEFAULT '',
   analysis TEXT DEFAULT '',
   difficulty INTEGER DEFAULT 3,
+  difficulty_score_10 INTEGER DEFAULT NULL,
   sort INTEGER DEFAULT 0,
   created_at TEXT NOT NULL
 );
@@ -197,6 +198,8 @@ CREATE TABLE IF NOT EXISTS records (
   chapter_id INTEGER DEFAULT NULL,
   my_answer TEXT DEFAULT '',
   is_correct INTEGER NOT NULL DEFAULT 0,
+  match_correct INTEGER DEFAULT NULL,
+  match_total INTEGER DEFAULT NULL,
   created_at TEXT NOT NULL
 );
 
@@ -460,6 +463,8 @@ CREATE TABLE IF NOT EXISTS papers (
   duration INTEGER DEFAULT 90,
   total_score INTEGER DEFAULT 100,
   q_ids TEXT DEFAULT '[]',
+  question_scores TEXT DEFAULT '',
+  due_at TEXT DEFAULT '',
   status TEXT DEFAULT 'draft',
   created_by INTEGER DEFAULT NULL,
   created_at TEXT NOT NULL,
@@ -473,7 +478,7 @@ CREATE TABLE IF NOT EXISTS paper_tries (
   paper_id INTEGER NOT NULL,
   total INTEGER DEFAULT 0,
   correct INTEGER DEFAULT 0,
-  score INTEGER DEFAULT 0,
+  score DECIMAL(10,2) DEFAULT 0,
   detail TEXT DEFAULT '[]',
   created_at TEXT NOT NULL
 );
@@ -498,7 +503,7 @@ CREATE TABLE IF NOT EXISTS mf_paper_tries (
   paper_id INTEGER NOT NULL,
   total INTEGER DEFAULT 0,
   correct INTEGER DEFAULT 0,
-  score INTEGER DEFAULT 0,
+  score DECIMAL(10,2) DEFAULT 0,
   detail TEXT DEFAULT '[]',
   created_at TEXT NOT NULL
 );
@@ -567,6 +572,16 @@ CREATE TABLE IF NOT EXISTS bank_tree_nodes (
 );
 CREATE INDEX IF NOT EXISTS idx_bnode_tree ON bank_tree_nodes(tree_id, parent_id, sort);
 CREATE INDEX IF NOT EXISTS idx_bnode_parent ON bank_tree_nodes(parent_id);
+
+-- 章节节点与知识点节点映射；删除节点时清除相关映射，不影响题目。
+CREATE TABLE IF NOT EXISTS bank_tree_node_mappings (
+  chapter_node_id INTEGER NOT NULL,
+  knowledge_node_id INTEGER NOT NULL,
+  PRIMARY KEY (chapter_node_id, knowledge_node_id),
+  FOREIGN KEY (chapter_node_id) REFERENCES bank_tree_nodes(id) ON DELETE CASCADE,
+  FOREIGN KEY (knowledge_node_id) REFERENCES bank_tree_nodes(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_tree_mapping_knowledge ON bank_tree_node_mappings(knowledge_node_id);
 
 -- 题目 ↔ 树节点（多挂：一题可同时属于「教材 4.2 等差数列」和「知识点 数列求和」）
 CREATE TABLE IF NOT EXISTS question_nodes (
@@ -669,6 +684,7 @@ CREATE TABLE IF NOT EXISTS paper_uploads (
   point TEXT DEFAULT '',
   note TEXT DEFAULT '',
   images MEDIUMTEXT DEFAULT '[]',          -- JSON 数组，存 /pu/xxx.jpg 相对路径
+  draft_json MEDIUMTEXT,                  -- 审核前的题干、选项和解析
   status TEXT DEFAULT 'pending',
   review_note TEXT DEFAULT '',
   question_id INTEGER DEFAULT 0,
@@ -714,14 +730,28 @@ CREATE INDEX IF NOT EXISTS idx_w_rec_book ON word_records(student_id, book_id);
 // ---- 智能题库（2026-10）：题目表扩展，支持 完形填空/阅读理解原文、知识点、来源、年份、绑定知识点视频 ----
 // 注意：这批加列必须放在建表（runSchema）之后；空库初始化时表是刚建出来的，靠它补齐列，并且依赖这些列的索引要在它之后再建
 try { db.exec("ALTER TABLE questions ADD COLUMN stage TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE papers ADD COLUMN question_scores MEDIUMTEXT"); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE records ADD COLUMN match_correct INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE records ADD COLUMN match_total INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
+for (const table of ['paper_tries', 'mf_paper_tries']) {
+  const column = db.prepare('SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=?').get(DB_INFO.database, table, 'score');
+  if (column && String(column.DATA_TYPE || column.data_type).toLowerCase() !== 'decimal') db.exec(`ALTER TABLE ${table} MODIFY COLUMN score DECIMAL(10,2) DEFAULT 0`);
+}
+try { db.exec("ALTER TABLE papers ADD COLUMN due_at VARCHAR(30) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE paper_uploads ADD COLUMN draft_json MEDIUMTEXT'); } catch (e) { /* 列已存在 */ }
 try { db.exec("ALTER TABLE questions ADD COLUMN point TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 try { db.exec("ALTER TABLE questions ADD COLUMN material MEDIUMTEXT"); } catch (e) { /* 列已存在 */ }
 try { db.exec("ALTER TABLE questions ADD COLUMN source TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 try { db.exec("ALTER TABLE questions ADD COLUMN year TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 try { db.exec("ALTER TABLE questions ADD COLUMN video_id INTEGER DEFAULT NULL"); } catch (e) { /* 列已存在 */ }
+// 十级难度仅保存明确提供的精确值；历史五星题保留 NULL。
+try { db.exec('ALTER TABLE questions ADD COLUMN difficulty_score_10 INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
 try { db.exec("ALTER TABLE questions ADD COLUMN images MEDIUMTEXT"); } catch (e) { /* 列已存在 */ }
 // 录题批次：半自动 OCR 转写全文（按页存 JSON 数组）
 try { db.exec('ALTER TABLE mf_recog_runs ADD COLUMN ocr_texts MEDIUMTEXT'); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE mf_recog_runs ADD COLUMN edition VARCHAR(80) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE mf_recog_runs ADD COLUMN term VARCHAR(24) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE mf_recog_runs ADD COLUMN material_type VARCHAR(24) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 // 错题复习（艾宾浩斯简化版）字段
 try { db.exec("ALTER TABLE mistakes ADD COLUMN review_stage INTEGER DEFAULT 0"); } catch (e) { /* 列已存在 */ }
 try { db.exec("ALTER TABLE mistakes ADD COLUMN next_review TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
@@ -858,8 +888,37 @@ try { db.exec('ALTER TABLE mf_capture_batches ADD COLUMN paper_mode INTEGER DEFA
 try { db.exec('ALTER TABLE mf_papers ADD COLUMN published INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ }
 // T7：听力题——题目挂一段音频（存储 key，目录前缀 bank/audio/；题型不新增，在现有题型上附加听力材料）
 try { db.exec("ALTER TABLE questions ADD COLUMN audio_key VARCHAR(255) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+// 0 表示不限制；正数为一道听力题每次练习允许开始播放的次数。
+try { db.exec('ALTER TABLE questions ADD COLUMN audio_play_limit INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ }
+// 记录经老师逐项确认的 AI 答案/解析来源；原有题目保持空值。
+try { db.exec('ALTER TABLE questions ADD COLUMN ai_review_metadata MEDIUMTEXT'); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE questions ADD COLUMN question_subtype VARCHAR(50) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE questions ADD COLUMN match_prompts MEDIUMTEXT"); } catch (e) { /* 列已存在 */ }
+runSchema(`
+CREATE TABLE IF NOT EXISTS subjective_responses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  question_id INTEGER NOT NULL,
+  kind VARCHAR(20) NOT NULL DEFAULT '',
+  paper_id INTEGER DEFAULT NULL,
+  my_answer MEDIUMTEXT,
+  created_at VARCHAR(32) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_subjective_user ON subjective_responses(user_id, id);
+`);
+try { db.exec('ALTER TABLE subjective_responses ADD COLUMN try_id INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE subjective_responses ADD COLUMN max_score REAL DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE subjective_responses ADD COLUMN score REAL DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE subjective_responses ADD COLUMN review_comment MEDIUMTEXT'); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE subjective_responses ADD COLUMN reviewed_by INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE subjective_responses ADD COLUMN reviewed_at VARCHAR(32) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE subjective_responses ADD COLUMN drawing_data MEDIUMTEXT'); } catch (e) { /* 列已存在 */ }
 // T10：真题试卷的年份（学生端试卷库按名称 / 学科 / 年级 / 年份搜索）
 try { db.exec("ALTER TABLE mf_papers ADD COLUMN year VARCHAR(8) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+// 卷型与 paper_type（统一卷 / 一人一卷）不同，旧数据不臆测分类。
+try { db.exec("ALTER TABLE mf_papers ADD COLUMN exam_category VARCHAR(16) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE mf_papers ADD COLUMN edition VARCHAR(80) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE mf_papers ADD COLUMN term VARCHAR(16) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 // R8：题目也能直接挂到课程的「小分组」（sections）上（与 video_id 二选一：绑小分组时清掉 video_id，反之亦然）
 try { db.exec('ALTER TABLE questions ADD COLUMN section_id INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
 // R8：视频 ↔ 知识点树节点（多选）。学生端视频卡显示知识点标签；视频的题在统计该知识点掌握情况时自动算进来（不写 question_nodes）

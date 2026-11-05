@@ -59,4 +59,20 @@ function verifyFileTicket(key, ticket) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-module.exports = { hash, check, sign, auth, signFileTicket, verifyFileTicket };
+// 学生做题票据：与学生和具体题目绑定，不能当登录令牌或文件票据使用。
+const QUESTION_TICKET_TTL = 2 * 3600;
+function questionTicketSig(uid, qid, exp) {
+  return crypto.createHmac('sha256', SECRET).update(`question-ticket|${uid}|${qid}|${exp}`).digest('base64url').slice(0, 32);
+}
+function signQuestionTicket(uid, qid, ttl = QUESTION_TICKET_TTL) {
+  const exp = Math.floor(Date.now() / 1000) + ttl;
+  return exp + '.' + questionTicketSig(uid, qid, exp);
+}
+function verifyQuestionTicket(uid, qid, ticket) {
+  const m = /^(\d{9,12})\.([A-Za-z0-9_-]{32})$/.exec(String(ticket || ''));
+  if (!Number.isSafeInteger(Number(uid)) || Number(uid) <= 0 || !Number.isSafeInteger(Number(qid)) || Number(qid) <= 0 || !m || Number(m[1]) <= Math.floor(Date.now() / 1000)) return false;
+  const a = Buffer.from(questionTicketSig(uid, qid, m[1])), b = Buffer.from(m[2]);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+module.exports = { hash, check, sign, auth, signFileTicket, verifyFileTicket, signQuestionTicket, verifyQuestionTicket };

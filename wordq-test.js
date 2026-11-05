@@ -5,7 +5,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { parseDocx } = require('./src/docxtext');
+const { parseDocx, parseDocxQuestions } = require('./src/docxtext');
 const { parseWordQuestions, splitOptions } = require('./src/wordq');
 
 let pass = 0, fail = 0;
@@ -73,6 +73,29 @@ ok(r1.warnings.length === 1 && /当作第 1 题解析的一部分/.test(r1.warni
   const e8 = parseWordQuestions(P('问答题\n2.[问答题]读文章\n材料\n（1）第一问\n答案：甲\n（2）第二问\n[问答题结束]'));
   ok(/小问（2）缺少「答案：」/.test(e8.errors[0].msg) && e8.list.length === 1, '多小问里某一问缺答案：只报那一问，其它小问保留', e8.errors[0].msg);
   ok(parseWordQuestions(P('随便一段没有题号的文字\n另一段')).list.length === 0, '没有题号的文档：识别 0 题、不报错（调用方提示"没认出题目"）');
+
+  const eng = parseWordQuestions(P('听力选择题\n1. 听音选答\nA. a\nB. b\n答案：A\n2.（单词拼写题）I have a ____\n答案：book'));
+  ok(eng.errors.length === 0 && eng.list.length === 2 && eng.list[0].question_subtype === 'listen_choice' && eng.list[1].question_subtype === 'word_spelling', '英语细分题型可由章节标题或题号括号识别');
+  const match = parseWordQuestions(P('听力匹配题\n1. 听音匹配\n匹配项：甲\n匹配项：乙\nA. 苹果\nB. 香蕉\n答案：B,A'));
+  ok(match.errors.length === 0 && match.list.length === 1 && match.list[0].type === 'sort' && match.list[0].question_subtype === 'listen_match' && match.list[0].match_prompts.join() === '甲,乙' && match.list[0].answer === '2,1', 'Word 听力匹配：显式匹配项及字母答案被正确解析');
+  const matchBlank = parseWordQuestions(P('1.（听力匹配题）听音匹配\n匹配项：甲\n匹配项：乙\nA. 苹果\nB. 香蕉'));
+  ok(matchBlank.errors.length === 0 && matchBlank.list.length === 1 && matchBlank.list[0].answer === '', 'Word 听力匹配：无答案时留空进入审核');
+  const matchBad = parseWordQuestions(P('听力匹配题\n1. 听音匹配\n匹配项：甲\n匹配项：乙\nA. 苹果\nB. 香蕉\n答案：A,A'));
+  ok(matchBad.errors.length === 1 && /每个右侧选项使用一次/.test(matchBad.errors[0].msg), 'Word 听力匹配：重复答案明确报错');
+  const matchBadOptions = parseWordQuestions(P('听力匹配题\n1. 听音匹配\n匹配项：甲\n匹配项：乙\nB. 苹果\nC. 香蕉\n答案：B,C'));
+  ok(matchBadOptions.errors.length === 1 && /从 A 开始/.test(matchBadOptions.errors[0].msg), 'Word 听力匹配：非连续选项明确报错');
+  const math = parseWordQuestions(P('连线题\n1. 将数字与名称连线\n匹配项：1\n匹配项：2\nA. 二\nB. 一\n答案：2,1\n作图题\n1. 作线段 AB 的垂直平分线'));
+  ok(math.errors.length === 0 && math.list.length === 2 && math.list[0].question_subtype === 'math_match' && math.list[0].answer === '2,1' && math.list[1].question_subtype === 'drawing' && math.list[1].answer === '', 'Word 数学连线和无参考答案作图可解析');
+  const ten = parseWordQuestions(P('单选题\n1. 甲\n难度（1–10）：7\nA. 一\nB. 二\n答案：A\n2. 乙\nA. 一\nB. 二\n答案：B'));
+  ok(ten.errors.length === 0 && ten.list[0].difficulty_score_10 === 7 && ten.list[1].difficulty_score_10 == null && ten.list[0].stem === '甲', '明确十级难度被提取，旧题不猜测难度且元数据不进入题干');
+  const tenBad = parseWordQuestions(P('判断题\n1. 甲\n十级难度：11\n答案：对'));
+  ok(!tenBad.list.length && /1 至 10/.test(tenBad.errors[0].msg), '无效十级难度拒绝导入并说明原因');
+  const tenBlock = parseWordQuestions(P('问答题\n1.[问答题]材料\n难度（1-10）：6\n（1）第一问\n答案：甲\n（2）第二问\n十级难度：9\n答案：乙\n[问答题结束]'));
+  ok(tenBlock.list.length === 2 && tenBlock.list[0].difficulty_score_10 === 6 && tenBlock.list[1].difficulty_score_10 === 9, '多小问继承大题十级难度，小问可单独标注');
+  const lesson = parseDocxQuestions(P('1.（填空题）结果是____\n难度（1-10）：10\n答案：1'));
+  ok(lesson.list.length === 1 && lesson.list[0].difficulty_score_10 === 10 && !lesson.list[0].stem.includes('难度'), '课文习题 Word 同样提取明确十级难度');
+  let badLesson = false; try { parseDocxQuestions(P('1.（填空题）结果是____\n十级难度：12\n答案：1')); } catch (e) { badLesson = /1 至 10/.test(e.message); }
+  ok(badLesson, '课文习题 Word 的无效难度明确报错');
 
   console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
   process.exit(fail ? 1 : 0);

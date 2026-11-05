@@ -45,5 +45,49 @@ const ws = one.Sheets['选择填空题']; XLSX.utils.sheet_add_aoa(ws, [['单独
 const r1 = parseBankWorkbook(XLSX.write(one, { type: 'buffer', bookType: 'xlsx' }));
 ok(r1.errors.length === 1 && /至少填 1 个干扰项/.test(r1.errors[0]), '只有 1 个小题又没填干扰项：明确报错（选项不够）', r1.errors[0]);
 
+const subtypeWb = XLSX.utils.book_new();
+const subtypeSheet = XLSX.utils.aoa_to_sheet([
+  ['题目', '选项A', '选项B', '正确选项', '英语细分题型（选填）'],
+  ['听音选答', 'a', 'b', 'A', '听力选择'],
+  ['错误题型', 'a', 'b', 'A', '听力填空'],
+]);
+XLSX.utils.book_append_sheet(subtypeWb, subtypeSheet, '单选题');
+const subtypeResult = parseBankWorkbook(XLSX.write(subtypeWb, { type: 'buffer', bookType: 'xlsx' }));
+ok(subtypeResult.items.length === 1 && subtypeResult.items[0].question_subtype === 'listen_choice' && subtypeResult.errors.some((e) => /不匹配/.test(e)), '英语细分题型正确导入，不匹配时明确报错');
+const matchWb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(matchWb, XLSX.utils.aoa_to_sheet([
+  ['题目', '选项A', '选项B', '答案', '英语细分题型（选填）', '匹配左侧项目（每行一项）'],
+  ['听音匹配', '苹果', '香蕉', 'BA', '听力匹配', '甲\n乙'],
+]), '排序题');
+const matchResult = parseBankWorkbook(XLSX.write(matchWb, { type: 'buffer', bookType: 'xlsx' }));
+ok(matchResult.items.length === 1 && matchResult.items[0].question_subtype === 'listen_match' && matchResult.items[0].match_prompts.join() === '甲,乙' && matchResult.items[0].answer === '2,1', '听力匹配扩展表保留左右项目及答案', matchResult.errors.join('；'));
+const mathWb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(mathWb, XLSX.utils.aoa_to_sheet([
+  ['题目', '选项A', '选项B', '答案', '数学细分题型（选填）', '匹配左侧项目（每行一项）'],
+  ['数字连线', '二', '一', '2,1', '连线', '1\n2'],
+  ['无答案连线', '二', '一', '', '连线', '1\n2'],
+]), '排序题');
+XLSX.utils.book_append_sheet(mathWb, XLSX.utils.aoa_to_sheet([['题目', '参考答案'], ['画直线', '']]), '作图题');
+const mathResult = parseBankWorkbook(XLSX.write(mathWb, { type: 'buffer', bookType: 'xlsx' }));
+ok(mathResult.errors.length === 0 && mathResult.items.length === 3 && mathResult.items[0].answer === '2,1' && mathResult.items[1].answer === '' && mathResult.items[2].question_subtype === 'drawing', '数学扩展表支持连线和作图，缺答案保留空白', mathResult.errors.join('；'));
+
+const diffWb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(diffWb, XLSX.utils.aoa_to_sheet([
+  ['题目', '选项A', '选项B', '正确选项', '难度（1–5）', '十级难度（1–10，选填）'],
+  ['双口径一致', '甲', '乙', 'A', 4, 7],
+  ['只提供五星', '甲', '乙', 'A', 3, ''],
+  ['只提供十级', '甲', '乙', 'A', '', 10],
+  ['数值冲突', '甲', '乙', 'A', 2, 7],
+  ['十级越界', '甲', '乙', 'A', '', 11],
+  ['五星越界', '甲', '乙', 'A', 8, ''],
+]), '单选题');
+const diffResult = parseBankWorkbook(XLSX.write(diffWb, { type:'buffer', bookType:'xlsx' }));
+ok(diffResult.items.length === 3 && diffResult.items[0].difficulty === 4 && diffResult.items[0].difficulty_score_10 === 7 && diffResult.items[1].difficulty === 3 && diffResult.items[1].difficulty_score_10 === null && diffResult.items[2].difficulty === 5 && diffResult.items[2].difficulty_score_10 === 10, 'Excel 分别保留五星和明确十级难度，旧五星不反推分值');
+ok(diffResult.errors.length === 3 && diffResult.errors.some(e=>/不一致/.test(e)) && diffResult.errors.some(e=>/十级难度须/.test(e)) && diffResult.errors.some(e=>/五星难度须/.test(e)), '难度冲突与越界逐行报错');
+const alternateWb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(alternateWb, XLSX.utils.aoa_to_sheet([['题目','第1空答案','难度（1–10）'],['另一个十级表头','答案',1]]), '填空题');
+const alternate = parseBankWorkbook(XLSX.write(alternateWb, { type:'buffer', bookType:'xlsx' }));
+ok(alternate.items.length === 1 && alternate.items[0].difficulty === 1 && alternate.items[0].difficulty_score_10 === 1, '带范围的十级表头不会误判为旧五星列');
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);

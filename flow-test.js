@@ -124,7 +124,7 @@ function cleanup() {
   // ---------- 4) 组卷 ----------
   console.log('【4 组卷】');
   const pool = await req(`${ADM}/papers/pool`, { method: 'POST', token: AT, body: { subject: '数学', stage: 'junior', node_ids: [kNode.id] } });
-  log(pool.code === 0 && pool.data.total >= 14 && pool.data.single >= singles.length, '知识点范围的题池里有刚入库的题（15 题里问答题不参与组卷）', JSON.stringify(pool.data));
+  log(pool.code === 0 && pool.data.total >= 14 && pool.data.single >= singles.length, '知识点范围的题池里有刚入库的题', JSON.stringify(pool.data));
   const auto = await req(`${ADM}/papers/auto`, { method: 'POST', token: AT, body: { subject: '数学', stage: 'junior', node_ids: [kNode.id], counts: { single: 3 } } });
   log(auto.code === 0 && (auto.data.list || []).length === 3, '一键组卷：按知识点范围抽 3 道单选', auto.msg);
   const chap = await req(`${ADM}/papers/auto`, { method: 'POST', token: AT, body: { subject: '数学', stage: 'junior', node_ids: [cNode.id], counts: { single: 2 } } });

@@ -10,7 +10,7 @@
 
 1. GitHub 上 `main` 最新提交的 CI 全绿（`unit` + `api`）。
 2. 看 `docs/pending-human-actions.md`，确认没有"必须发布前处理"的阻塞项。尤其注意：
-   - **T12 题目图片地址有效期**：线上若是 OSS 且没配 `CDN_DOMAIN`，题目图片地址 1 小时过期。先确认线上有没有配 `CDN_DOMAIN`。
+   - **T12 题库图片与存储**：题库和视频按目录分类，不需拆桶。新题图通过稳定 key 代理访问；已识别的当前存储域名历史题图会重新签发。先在测试环境核对历史题图是否属于当前桶/域名；换过桶、域名或自定义题库目录的记录不能自动推断，需要对应原始配置与文件。此检查不会迁移文件。
    - **T1** 的真实库视频编码核对（H.265 / 非 faststart 的视频）。
 3. 在 `main` 上打好要发布的标签（BOBO 手动，例如 `v20261107`）。**记下"上一个标签或提交"**——回滚时要用（第 7 步）。
 4. 选一个学生不在线的时间窗口。整个过程大约 20～30 分钟；服务重启的几秒钟内页面会打不开。
@@ -68,10 +68,16 @@ rsync -avz --dry-run --delete \
 
 ```bash
 cd /www/xuexi-system
-npm install --omit=dev
+npm ci --omit=dev
 ```
 
-这次新增了依赖 `docx`（错题本 Word 导出），不装会在导出时报错；`ali-oss` / `qiniu` 是可选依赖，已经装过的不受影响。
+错题本和教师试卷 Word 导出使用 `docx`；复杂公式图片使用锁定版本的 `mathjax-full` 和 `@resvg/resvg-js`。`resvg` 的平台二进制通过 optional 依赖安装，**不要使用 `--omit=optional`、`--no-optional` 或设置 npm 的 omit=optional**。部署机器须安装适合其系统架构的包；可运行下面的检查（正常输出 `PNG 渲染可用`）：
+
+```bash
+node -e 'const {Resvg}=require("@resvg/resvg-js"); const s="<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"><path d=\"M0 0h8v8H0z\"/></svg>"; if(!new Resvg(s).render().asPng().length) process.exit(1); console.log("PNG 渲染可用")'
+```
+
+图片渲染不依赖系统 TeX、浏览器或外部网络。无法安全渲染的公式（包括未知语法、需系统字体的文本或超出限制的表达式）保留 LaTeX 原文。`ali-oss` / `qiniu` 仍属于可选依赖。
 
 **不要**在生产环境设置 `AI_MOCK=1`、`TTS_MOCK=1`（那是开发 / CI 用的演示开关，设了之后 AI 和朗读都返回假数据）。生产保持 `STORAGE_DRIVER` 为原来的值（默认 `oss`）。
 

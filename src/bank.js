@@ -17,8 +17,14 @@ const express = require('express');
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const { db, DATA_DIR } = require('./db');
+const { signQuestionTicket, verifyQuestionTicket } = require('./auth');
+const { resolveDifficulty } = require('./difficulty');
 const { parseBankWorkbook, makeBankTemplate } = require('./bank-excel');
-const { judgeQ } = require('./bank-judge');
+const { judgeQ, matchScore } = require('./bank-judge');
+const { presentAttempt } = require('./paper-attempt');
+const { decodeDrawing } = require('./drawing-answer');
+const QSubtype = require('../public/js/question-subtypes');
+const isUngradedQ = (q) => !!q && (q.type === 'answer' || ['writing', 'drawing'].includes(q.question_subtype) || (q.question_subtype === 'translation' && !String(q.answer || '').trim()));
 const kbtree = require('./kbtree');
 const compose = require('./compose');
 const { pickTree } = require('./treepick');   // R2：按 学段+学科+默认版本 取树
@@ -34,9 +40,9 @@ const now = () => {
 const ok = (res, data = null, msg = 'ok') => res.json({ code: 0, msg, data });
 const fail = (res, msg = '操作失败', code = 1) => res.json({ code, msg });
 
-const TYPES = ['single', 'multi', 'judge', 'fill', 'sort'];
-const TYPE_NAMES = { single: '单选题', multi: '多选题', judge: '判断题', fill: '填空题', sort: '排序题' };
-const LETTERS = 'ABCDEFG';
+const TYPES = ['single', 'multi', 'judge', 'fill', 'sort', 'answer'];
+const TYPE_NAMES = { single: '单选题', multi: '多选题', judge: '判断题', fill: '填空题', sort: '排序题', answer: '解答题' };
+const LETTERS = 'ABCDEFGHIJ';
 const STAGES = [['primary', '小学'], ['junior', '初中']];
 const GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const SUBJECTS = ['数学', '英语', '物理', '化学'];
@@ -62,13 +68,33 @@ const parseIds = (s) => {
   try { const a = JSON.parse(s || '[]'); return Array.isArray(a) ? a.map(Number).filter(Boolean) : []; } catch (e) { return []; }
 };
 const num = (v, d = 0) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
+const roundScore = (n) => Math.round((Number(n) + 1e-9) * 100) / 100;
+// R6：旧试卷没有逐题分值时继续使用原先的平均计分方式。
+function paperScores(value, ids) {
+  if (value == null || value === '') return null;
+  let obj = value;
+  if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch (_) { return null; } }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const out = {};
+  for (const id of ids) {
+    const n = Number(obj[id]);
+    if (!Number.isInteger(n) || n <= 0 || n > 1000) return null;
+    out[id] = n;
+  }
+  return out;
+}
+function paperDeadline(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
 
 // ------------------------------------------------------------------ 判分
 // judgeQ 在 src/bank-judge.js（独立模块，便于本地单测）
 
 // ------------------------------------------------------------------ 入库校验
 /** 新增/编辑题目：校验并归一化，返回 { q, err } */
-function normalizeBankQ(b) {
+function normalizeBankQ(b, current) {
   const type = TYPES.includes(b.type) ? b.type : '';
   const stem = String(b.stem || '').trim();
   if (!type) return { err: '请选择题型' };
@@ -77,7 +103,9 @@ function normalizeBankQ(b) {
   let answer = String(b.answer || '').trim();
   if (type === 'single' || type === 'multi') {
     if (options.length < 2) return { err: '选择题至少需要 2 个选项' };
-    const letters = [...new Set((answer.toUpperCase().match(/[A-G]/g) || []))].sort();
+    if (options.length > 10) return { err: '选择题最多支持 10 个选项' };
+    if (!/^[A-J\s,，、;；]+$/i.test(answer)) return { err: '答案应为选项字母，如 B 或 A,J' };
+    const letters = [...new Set((answer.toUpperCase().match(/[A-J]/g) || []))].sort();
     if (!letters.length) return { err: '答案应为选项字母，如 B 或 A,B' };
     const bad = letters.find((L) => LETTERS.indexOf(L) >= options.length);
     if (bad) return { err: `答案包含不存在的选项 ${bad}` };
@@ -102,10 +130,14 @@ function normalizeBankQ(b) {
     if (seq.length !== options.length) return { err: `排序答案需要包含全部 ${options.length} 个选项` };
     if (new Set(seq).size !== options.length || seq.some((n) => n < 1 || n > options.length)) return { err: '排序答案格式不正确' };
     answer = seq.join(',');
+  } else if (type === 'answer') {
+    options = [];
   }
   let video = null;
   if (b.video_id) video = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(b.video_id));
   const imgs = (Array.isArray(b.images) ? b.images : []).map((s) => String(s || '').trim()).filter((s) => /^\/pu\/[A-Za-z0-9_.-]+$/.test(s)).slice(0, 6);
+  const diff = resolveDifficulty(b, current);
+  if (diff.error) return { err: diff.error };
   return {
     q: {
       stage: String(b.stage || '').trim(),
@@ -117,7 +149,8 @@ function normalizeBankQ(b) {
       options,
       answer,
       analysis: String(b.analysis || '').trim(),
-      difficulty: Math.min(5, Math.max(1, Number(b.difficulty) || 3)),
+      difficulty: diff.difficulty,
+      difficulty_score_10: diff.difficulty_score_10,
       source: String(b.source || '').trim(),
       year: String(b.year || '').trim(),
       images: imgs,
@@ -129,12 +162,15 @@ function normalizeBankQ(b) {
 }
 
 /** 给学生返回的题目（不含答案与解析） */
-function serveQ(q) {
+function serveQ(q, uid) {
   const imgs = (() => { try { const a = JSON.parse(q.images || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } })();
+  const writing = ['writing', 'drawing'].includes(q.question_subtype);
   return {
-    id: q.id, type: q.type, subject: q.subject || '', stem: q.stem, material: q.material || '',
+    id: q.id, quiz_ticket: signQuestionTicket(uid, q.id), type: writing ? 'answer' : q.type, subject: q.subject || '', stem: q.stem, material: q.material || '',
     options: parseQ(q).options, difficulty: q.difficulty, point: q.point || '', images: imgs,
+    question_subtype: writing ? q.question_subtype : QSubtype.compatible(q.question_subtype, q.subject, q.type), match_prompts: q.type === 'sort' && QSubtype.isMatch(q.question_subtype) ? require('./match-question').list(q.match_prompts) : [],
     audio_url: q.audio_key ? store.getUrlSync(q.audio_key) : '',   // 听力题的音频（T7）；本地存储时是 /api/file?key=…，前端播放时补登录票据
+    audio_play_limit: Math.max(0, Number(q.audio_play_limit) || 0),
     blanks: q.type === 'fill' ? String(q.answer || '').replace(/\|\|\|/g, '\u0001').split('|').length : 0,
   };
 }
@@ -145,6 +181,7 @@ admin.use((req, res, next) => {   // 由 app.js 挂载前已完成鉴权；这�
   if (!req.user || !['admin', 'branch'].includes(req.user.role)) return res.status(403).json({ code: 403, msg: '无权限' });
   next();
 });
+require('./paper-docx').registerPaperDocx(admin, db);
 
 // ---------- 题库管理 ----------
 admin.get('/questions', (req, res) => {
@@ -174,9 +211,9 @@ admin.get('/questions', (req, res) => {
 admin.post('/questions', (req, res) => {
   const { q, err } = normalizeBankQ(req.body || {});
   if (err) return fail(res, err);
-  const info = db.prepare(`INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,sort,stage,point,material,source,year,video_id,images,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?)`)
-    .run(q.chapter_id, q.subject, q.grade, q.type, q.stem, JSON.stringify(q.options), q.answer, q.analysis, q.difficulty,
+  const info = db.prepare(`INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,difficulty_score_10,sort,stage,point,material,source,year,video_id,images,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?)`)
+    .run(q.chapter_id, q.subject, q.grade, q.type, q.stem, JSON.stringify(q.options), q.answer, q.analysis, q.difficulty, q.difficulty_score_10,
       q.stage, q.point, q.material, q.source, q.year, q.video_id, JSON.stringify(q.images || []), now());
   // R8：课文习题里给「小分组」添加的题，直接挂到该小分组（与 video_id 二选一）
   const sec = !q.video_id && req.body && req.body.section_id ? db.prepare('SELECT * FROM sections WHERE id=?').get(Number(req.body.section_id)) : null;
@@ -188,10 +225,10 @@ admin.put('/questions/:id', (req, res) => {
   const id = Number(req.params.id);
   const cur = db.prepare('SELECT * FROM questions WHERE id=?').get(id);
   if (!cur) return fail(res, '题目不存在');
-  const { q, err } = normalizeBankQ(req.body || {});
+  const { q, err } = normalizeBankQ(req.body || {}, cur);
   if (err) return fail(res, err);
-  db.prepare(`UPDATE questions SET chapter_id=?,subject=?,grade=?,type=?,stem=?,options=?,answer=?,analysis=?,difficulty=?,stage=?,point=?,material=?,source=?,year=?,video_id=?,images=? WHERE id=?`)
-    .run(q.chapter_id, q.subject, q.grade, q.type, q.stem, JSON.stringify(q.options), q.answer, q.analysis, q.difficulty,
+  db.prepare(`UPDATE questions SET chapter_id=?,subject=?,grade=?,type=?,stem=?,options=?,answer=?,analysis=?,difficulty=?,difficulty_score_10=?,stage=?,point=?,material=?,source=?,year=?,video_id=?,images=? WHERE id=?`)
+    .run(q.chapter_id, q.subject, q.grade, q.type, q.stem, JSON.stringify(q.options), q.answer, q.analysis, q.difficulty, q.difficulty_score_10,
       q.stage, q.point, q.material, q.source, q.year, q.video_id, JSON.stringify(q.images || []), id);
   ok(res, null, '已保存');
 });
@@ -224,20 +261,13 @@ admin.post('/questions/import', upload.single('file'), (req, res) => {
   const defSubject = String(b.subject || '').trim();
   const defGrade = String(b.grade || '').trim();
   const defPoint = String(b.point || '').trim();
-  const ins = db.prepare(`INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,sort,stage,point,material,source,year,video_id,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?,'',?,NULL,?)`);
-  const made = [];
-  const tx = db.transaction(() => {
-    for (const q of parsed.items) {
-      const info = ins.run(null, q.subject || defSubject, q.grade || defGrade, q.type, q.stem,
-        JSON.stringify(q.options || []), q.answer, q.analysis || '', 3, q.stage || defStage,
-        q.point || defPoint, q.material || '', q.year || '', now());
-      made.push(info.lastInsertRowid);
-    }
-  });
-  tx();
-  ok(res, { imported: parsed.items.length, errors: parsed.errors },
-    `成功导入 ${parsed.items.length} 道题` + (parsed.errors.length ? `，${parsed.errors.length} 条未通过` : ''));
+  const types = { single:'单选', multi:'多选', judge:'判断', fill:'填空', sort:'排序', answer:'解答' };
+  const cards = parsed.items.map((q) => ({ questionType: types[q.type] || '解答', question_subtype:q.question_subtype || '', match_prompts:q.match_prompts || [], group_ref:q.group_ref || '', stem: q.stem, options: (q.options || []).map((o,i) => ({ label: typeof o === 'object' && o ? o.label : String.fromCharCode(65+i), content: typeof o === 'object' && o ? (o.text || o.content || '') : String(o || '') })), answer:q.answer || '', analysis:q.analysis || '', subject:q.subject || defSubject, stage:q.stage || defStage, grade:q.grade || defGrade, point:q.point || defPoint, material:q.material || '', year:q.year || '', difficulty:q.difficulty, difficulty_score_10:q.difficulty_score_10 }));
+  if (!cards.length) return fail(res, '没有识别到可导入的题目');
+  const run = db.prepare(`INSERT INTO mf_recog_runs (title,subject,stage,grade,source_kind,source_name,status,pages,drafts,ocr_texts,error,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run('Excel 批量导入', defSubject, defStage, defGrade, 'excel', 'Excel 批量导入', 'recognized', '[]', JSON.stringify(cards), '[]', '', now());
+  ok(res, { imported: cards.length, run_id: run.lastInsertRowid, errors: parsed.errors },
+    `已将 ${cards.length} 道题送到待审核` + (parsed.errors.length ? `，${parsed.errors.length} 条未通过` : ''));
 });
 
 admin.get('/questions/template', (req, res) => {
@@ -412,11 +442,17 @@ admin.post('/papers', (req, res) => {
   const ph = ids.map(() => '?').join(',');
   const found = db.prepare(`SELECT id FROM questions WHERE id IN (${ph})`).all(...ids).length;
   if (found !== ids.length) return fail(res, '有题目已不存在，请重新组卷');
-  const info = db.prepare(`INSERT INTO papers (title,subject,stage,grade,term,duration,total_score,q_ids,status,created_by,created_at,published_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+  const scores = paperScores(b.question_scores, ids);
+  if (b.question_scores != null && !scores) return fail(res, '请为每道题设置有效的正整数分值');
+  const due = paperDeadline(b.due_at);
+  if (due === null) return fail(res, '截止时间格式不正确');
+  const totalScore = scores ? Object.values(scores).reduce((a, v) => a + v, 0) : (Number(b.total_score) || 100);
+  const info = db.prepare(`INSERT INTO papers (title,subject,stage,grade,term,duration,total_score,q_ids,status,created_by,created_at,published_at,question_scores,due_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(title, String(b.subject || ''), String(b.stage || ''), String(b.grade || ''), String(b.term || ''),
-      Number(b.duration) || 90, Number(b.total_score) || 100, JSON.stringify(ids),
-      b.status === 'published' ? 'published' : 'draft', req.user.id, now(), b.status === 'published' ? now() : null);
+      Number(b.duration) || 90, totalScore, JSON.stringify(ids),
+      b.status === 'published' ? 'published' : 'draft', req.user.id, now(), b.status === 'published' ? now() : null,
+      scores ? JSON.stringify(scores) : '', due);
   ok(res, { id: info.lastInsertRowid }, b.status === 'published' ? '试卷已保存并下发' : '试卷已保存');
 });
 
@@ -435,15 +471,20 @@ admin.put('/papers/:id', (req, res) => {
     const found = db.prepare(`SELECT id FROM questions WHERE id IN (${ph})`).all(...arr).length;
     if (found !== arr.length) return fail(res, '有题目已不存在，请重新组卷');
   }
-  db.prepare('UPDATE papers SET title=?,subject=?,stage=?,grade=?,term=?,duration=?,total_score=?,q_ids=? WHERE id=?')
+  const idList = parseIds(ids);
+  const scores = paperScores(b.question_scores === undefined ? p.question_scores : b.question_scores, idList);
+  if (b.question_scores != null && !scores) return fail(res, '请为每道题设置有效的正整数分值');
+  const due = b.due_at === undefined ? (p.due_at || '') : paperDeadline(b.due_at);
+  if (due === null) return fail(res, '截止时间格式不正确');
+  db.prepare('UPDATE papers SET title=?,subject=?,stage=?,grade=?,term=?,duration=?,total_score=?,q_ids=?,question_scores=?,due_at=? WHERE id=?')
     .run(title,
       b.subject === undefined ? p.subject : String(b.subject || ''),
       b.stage === undefined ? p.stage : String(b.stage || ''),
       b.grade === undefined ? p.grade : String(b.grade || ''),
       b.term === undefined ? p.term : String(b.term || ''),
       b.duration === undefined ? p.duration : (Number(b.duration) || 90),
-      b.total_score === undefined ? p.total_score : (Number(b.total_score) || 100),
-      ids, p.id);
+      scores ? Object.values(scores).reduce((a, v) => a + v, 0) : (b.total_score === undefined ? p.total_score : (Number(b.total_score) || 100)),
+      ids, scores ? JSON.stringify(scores) : '', due, p.id);
   ok(res, null, '已保存');
 });
 
@@ -475,13 +516,18 @@ admin.post('/papers/:id/assign', (req, res) => {
   if (!parseIds(p.q_ids).length) return fail(res, '卷面还没有题目，不能下发');
   const ids = [...new Set((Array.isArray((req.body || {}).user_ids) ? req.body.user_ids : []).map(Number).filter(Boolean))];
   if (!ids.length) return fail(res, '请至少选择一名学生');
+  const due = req.body.due_at === undefined ? (p.due_at || '') : paperDeadline(req.body.due_at);
+  if (due === null) return fail(res, '截止时间格式不正确');
+  const allowed = db.prepare(`SELECT id FROM users WHERE role='student' AND status=1 AND id IN (${ids.map(() => '?').join(',')})${req.user.role === 'branch' ? ' AND created_by=?' : ''}`)
+    .all(...ids, ...(req.user.role === 'branch' ? [req.user.id] : []));
+  if (allowed.length !== ids.length) return fail(res, '学生不存在或不属于当前分校');
   const ins = db.prepare('INSERT OR IGNORE INTO paper_assignments (paper_id, user_id, assigned_by, created_at) VALUES (?,?,?,?)');
   let added = 0;
   const tx = db.transaction(() => {
     ids.forEach((uid) => { const r = ins.run(pid, uid, req.user.id, now()); if (r.changes) added++; });
   });
   tx();
-  db.prepare('UPDATE papers SET status=?, published_at=CASE WHEN published_at IS NULL THEN ? ELSE published_at END WHERE id=?').run('published', now(), pid);
+  db.prepare('UPDATE papers SET status=?, due_at=?, published_at=CASE WHEN published_at IS NULL THEN ? ELSE published_at END WHERE id=?').run('published', due, now(), pid);
   ok(res, { added, total: ids.length }, `已下发给 ${ids.length} 名学生（新增 ${added}）`);
 });
 
@@ -504,20 +550,67 @@ admin.post('/papers/pool', (req, res) => {
 });
 
 // 一键组卷：按条件从题库抽题（题库不足时返回 missing 提示）。与学生端「章节组卷 / 知识点组卷」共用 compose.js
+const autoQuestion = (row) => {
+  const q = parseQ(row);
+  return { id: q.id, type: q.type, stem: q.stem, material: q.material || '', options: q.options,
+    difficulty: q.difficulty, subject: q.subject, grade: q.grade, stage: q.stage, point: q.point || '' };
+};
 admin.post('/papers/auto', (req, res) => {
   const b = req.body || {};
   const counts = b.counts || {};
   if (!TYPES.some((t) => Number(counts[t]) > 0)) return fail(res, '请至少填写一种题型的数量');
-  const r = compose.pickByCounts(db, composeScope(b), counts);
-  const missing = r.missing.map((m) => `${TYPE_NAMES[m.type]} 差 ${m.need} 题`);
+  if (TYPES.some(t => counts[t] !== undefined && (!Number.isInteger(Number(counts[t])) || Number(counts[t]) < 0 || Number(counts[t]) > 50))) return fail(res, '各题型数量须为 0 至 50 的整数');
+  let ratios = null;
+  if (b.difficulty_ratios !== undefined && b.difficulty_ratios !== null) {
+    if (b.difficulty) return fail(res, '指定难度和难度比例不能同时使用');
+    const x = b.difficulty_ratios;
+    if (!x || typeof x !== 'object' || !['easy', 'medium', 'hard'].every(k => Number.isInteger(Number(x[k])) && Number(x[k]) >= 0 && Number(x[k]) <= 100) || ['easy', 'medium', 'hard'].reduce((s,k) => s + Number(x[k]), 0) !== 100) return fail(res, '容易、普通、困难比例须为整数且合计 100%');
+    ratios = { easy: Number(x.easy), medium: Number(x.medium), hard: Number(x.hard) };
+  }
+  const r = compose.pickByCounts(db, composeScope(b), counts, ratios);
+  const bandNames = { easy: '容易', medium: '普通', hard: '困难' };
+  const missing = r.missing.map((m) => `${TYPE_NAMES[m.type]}${m.band ? '（' + bandNames[m.band] + '）' : ''}差 ${m.need} 题`);
   // 按题型归组返回（预览按题型分大题）
   ok(res, {
-    list: r.rows.map(parseQ).map((q) => ({
-      id: q.id, type: q.type, stem: q.stem, material: q.material || '', options: q.options,
-      difficulty: q.difficulty, subject: q.subject, grade: q.grade, stage: q.stage, point: q.point || '',
-    })),
+    list: r.rows.map(autoQuestion),
     missing,
   }, missing.length ? `已抽出 ${r.rows.length} 题（${missing.join('、')}）` : `已抽出 ${r.rows.length} 题`);
+});
+
+// 按选中的知识点（含后代）分别抽题；节点必须来自当前学科的知识点树。
+admin.post('/papers/auto-by-node', (req, res) => {
+  const b = req.body || {};
+  const perNode = Number(b.per_node_count);
+  const ids = [...new Set((Array.isArray(b.node_ids) ? b.node_ids : []).map(Number).filter(n => Number.isInteger(n) && n > 0))];
+  if (!b.subject || !ids.length || ids.length > 100) return fail(res, '请选择 1 至 100 个知识点');
+  if (!Number.isInteger(perNode) || perNode < 1 || perNode > 50 || perNode * ids.length > 250) return fail(res, '每个知识点须抽 1 至 50 题，整卷不超过 250 题');
+  if (b.difficulty_ratios || (b.counts && TYPES.some(t=>Number(b.counts[t])>0))) return fail(res, '按知识点抽题不能同时设置题型数量或难度比例');
+  const args = [...ids, String(b.subject)];
+  let treeWhere = "t.kind='knowledge' AND t.subject=?";
+  if (b.stage) { treeWhere += ' AND t.stage=?'; args.push(String(b.stage)); }
+  const nodes = db.prepare(`SELECT n.id,n.name FROM bank_tree_nodes n JOIN bank_trees t ON t.id=n.tree_id WHERE n.id IN (${ids.map(()=>'?').join(',')}) AND ${treeWhere}`).all(...args);
+  if (nodes.length !== ids.length) return fail(res, '所选节点不属于当前学科、学段的知识点树，请重新选择');
+  const r = compose.pickByNodes(db, composeScope(b), nodes, perNode);
+  const missing = r.missing.map(x => `${x.name}差 ${x.need} 题`);
+  ok(res, { list: r.rows.map(row=>({ ...autoQuestion(row), _source_node_id:r.nodeByQuestion[row.id] })), missing }, missing.length ? `已抽出 ${r.rows.length} 题（${missing.join('、')}）` : `已抽出 ${r.rows.length} 题`);
+});
+
+// 换题沿用原范围、题型与难度档次，并排除当前卷中全部题目。
+admin.post('/papers/replace', (req, res) => {
+  const b = req.body || {}; const id = Number(b.question_id);
+  const excluded = [...new Set((Array.isArray(b.exclude_ids) ? b.exclude_ids : []).map(Number).filter(n => Number.isInteger(n) && n > 0))];
+  if (!Number.isInteger(id) || id <= 0 || excluded.length > 250) return fail(res, '题目或排除列表无效');
+  const nodeId = b.node_id ? Number(b.node_id) : 0;
+  if (nodeId && !(Array.isArray(b.node_ids) && b.node_ids.map(Number).includes(nodeId))) return fail(res, '换题知识点不在原组卷范围内');
+  const base = compose.scopeSql(db, { ...composeScope(b), ...(nodeId ? { nodeIds: [nodeId] } : {}) });
+  const old = db.prepare(`SELECT q.id, q.type, q.difficulty FROM questions q${base.where} AND q.id=?`).get(...base.args, id);
+  if (!old || !TYPES.includes(old.type)) return fail(res, '原题已不存在或不在组卷范围内');
+  const allExcluded = [...new Set([...excluded, id])];
+  const diff = Number(old.difficulty);
+  const band = diff <= 2 ? [1,2] : diff === 3 ? [3] : [4,5];
+  const rows = db.prepare(`SELECT q.* FROM questions q${base.where} AND q.type=? AND q.difficulty IN (${band.map(()=>'?').join(',')}) AND q.id NOT IN (${allExcluded.map(()=>'?').join(',')}) ORDER BY RANDOM() LIMIT 1`).all(...base.args, old.type, ...band, ...allExcluded);
+  if (!rows.length) return fail(res, '当前范围没有其他同题型、同难度的题目，请调整范围或保留原题');
+  ok(res, { question: { ...autoQuestion(rows[0]), ...(nodeId ? { _source_node_id: nodeId } : {}) } });
 });
 
 // 试卷详情（组卷编辑时回显，含答案）
@@ -714,10 +807,11 @@ const bankImgFolder = () => {
   } catch (e) { /* settings 表还没建好 */ }
   return 'bank';
 };
-admin.post('/videos/:id/import-docx', upDocx.single('file'), async (req, res) => {
-  const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
-  if (!v) return fail(res, '知识点视频不存在');
-  const ch = v.chapter_id ? db.prepare('SELECT * FROM chapters WHERE id=?').get(v.chapter_id) : null;
+async function importLessonDocx(req, res, kind) {
+  const isSection = kind === 'section';
+  const target = db.prepare(`SELECT * FROM ${isSection ? 'sections' : 'videos'} WHERE id=?`).get(Number(req.params.id));
+  if (!target) return fail(res, isSection ? '小分组不存在' : '知识点视频不存在');
+  const ch = target.chapter_id ? db.prepare('SELECT * FROM chapters WHERE id=?').get(target.chapter_id) : null;
   const f = req.file;
   if (!f) return fail(res, '请选择 .docx 文件');
   if (!/\.docx$/i.test(f.originalname || '')) return fail(res, '只支持 .docx（老 .doc 请先用 Word 另存为 .docx）');
@@ -728,7 +822,7 @@ admin.post('/videos/:id/import-docx', upDocx.single('file'), async (req, res) =>
       saveImage: async (buf, name) => {
         try {
           const saved = await store.saveFile(buf, name, `${bankImgFolder()}/img`);
-          return await store.getUrl(saved.key);
+          return store.bankImageKey(saved.key, bankImgFolder()) ? store.bankImageProxyUrl(saved.key) : await store.getUrl(saved.key);
         } catch (e) { return ''; }   // 单图上传失败不影响整卷
       },
     });
@@ -741,27 +835,24 @@ admin.post('/videos/:id/import-docx', upDocx.single('file'), async (req, res) =>
     return fail(res, '没认出题目。请确认文档格式：1.（单选题）题干 → A. 选项 → 答案：X → 解析：……（洋葱题库样例格式）');
   }
   const subject = (ch && ch.subject) || String((req.body || {}).subject || '').trim();
-  const stage = (ch && ch.stage) || String((req.body || {}).stage || '').trim();
   const grade = (ch && ch.grade) || String((req.body || {}).grade || '').trim();
+  const stage = (ch && ch.stage) || String((req.body || {}).stage || '').trim() || stageOfGrade('', grade);
   const point = (ch && ch.name) || '';
-  const source = 'Word批量上传';
-  const ins = db.prepare(`INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,sort,stage,point,material,source,year,video_id,images,created_at)
-    VALUES (?,?,?,?,?,?,?,?,3,0,?,?, '', ?, '', ?, ?, ?)`);
-  const ids = [];
+  const types = { single:'单选', multi:'多选', judge:'判断', fill:'填空', sort:'排序', answer:'解答' };
+  let runId;
   try {
-    parsed.list.forEach((q) => {
+    const cards = parsed.list.map((q) => {
       const imgs = q.imgRefs.map((n) => (figs[n - 1] || {}).url).filter(Boolean);
-      const info = ins.run(
-        v.chapter_id || null, subject, grade, q.type,
-        String(q.stem).replace(/\s+/g, ' ').trim(),
-        JSON.stringify(q.options.map((o) => ({ label: o.label, text: String(o.content).replace(/\s+/g, ' ').trim() }))),
-        q.answer, q.analysis, stage, point, source, v.id, JSON.stringify(imgs), now());
-      ids.push(info.lastInsertRowid);
+      return { questionType: types[q.type] || '解答', stem: String(q.stem).trim(), options: q.options, answer: q.answer, analysis: q.analysis, subject, stage, grade, point, chapter_id: target.chapter_id || 0, figures: imgs.map(url => ({url})), ...(q.difficulty_score_10 != null ? { difficulty_score_10: q.difficulty_score_10 } : {}), ...(isSection ? { _lesson_section_id: target.id } : { _lesson_video_id: target.id }) };
     });
-  } catch (e) { return fail(res, '入库失败：' + e.message); }
-  ok(res, { added: ids.length, ids, images: figs.length, skipped: parsed.skipped },
-    `已导入 ${ids.length} 题（插图 ${figs.length} 张）并绑定到本知识点`);
-});
+    runId = db.prepare(`INSERT INTO mf_recog_runs (title,subject,stage,grade,source_kind,source_name,status,pages,drafts,ocr_texts,error,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(`课文习题 · ${isSection ? target.name : target.title || target.id}`, subject, stage, grade, 'lesson', '课文习题 Word', 'recognized', '[]', JSON.stringify(cards), '[]', '', now()).lastInsertRowid;
+  } catch (e) { return fail(res, '保存待审核批次失败：' + e.message); }
+  ok(res, { added: parsed.list.length, ids: [], run_id: runId, images: figs.length, skipped: parsed.skipped },
+    `已提交 ${parsed.list.length} 题到待审核；审核入库后自动绑定到该${isSection ? '小分组' : '视频'}`);
+}
+admin.post('/videos/:id/import-docx', upDocx.single('file'), (req, res) => importLessonDocx(req, res, 'video'));
+admin.post('/sections/:id/import-docx', upDocx.single('file'), (req, res) => importLessonDocx(req, res, 'section'));
 
 // ---------- 错题记录 ----------
 // 校区下拉（总校用；分校账号返回空，前端不显示该筛选）
@@ -814,7 +905,10 @@ admin.get('/students-options', (req, res) => {
   const args = [];
   if (req.user.role === 'branch') { where += ' AND created_by=?'; args.push(req.user.id); }
   else if (campus) { where += ' AND created_by=?'; args.push(Number(campus)); }
-  const rows = db.prepare(`SELECT id, name, username, grade, stage FROM users${where} ORDER BY id DESC`).all(...args);
+  const rows = db.prepare(`SELECT id, name, username, grade, stage, class_id, created_by,
+    (SELECT c.name FROM classes c WHERE c.id=users.class_id) AS class_name,
+    (SELECT b.name FROM users b WHERE b.id=users.created_by AND b.role='branch') AS branch_name
+    FROM users${where} ORDER BY id DESC`).all(...args);
   ok(res, rows);
 });
 
@@ -898,18 +992,40 @@ function removeUploadQuestion(questionId) {
  * 上传时没选学科（所以还没建题）的，识别出学科后补建题目并放进该学生错题本，同样进「待审核题目」。 */
 const UP_MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.heic': 'image/heic', '.heif': 'image/heif' };
 const UP_SUBJECTS = ['数学', '英语', '物理', '化学'];
+// 教师扫码：仅补充题干和建议，不修改原始答案或自动入库。
+async function recognizeTeacherPhoto(runId, files) {
+  const aiLib = require('./ai');
+  const cfg = aiLib.getConfig('vision');
+  if (cfg.mock || !cfg.hasKey) {
+    db.prepare("UPDATE mf_recog_runs SET status='error', error=? WHERE id=? AND status<>'done'")
+      .run(cfg.mock ? '当前为演示模式，请打开待审核对照图片录入题干' : '视觉识别尚未配置，请打开待审核对照图片录入题干', runId);
+    return;
+  }
+  const images = files.map((f) => ({ buf: f.buffer, mime: f.mimetype }));
+  const { info } = await aiLib.analyzeWrongQuestion({ images, hint: '图片按页序组成同一道题，请结合所有图片识别题干和知识点，不要编造答案或解析。' });
+  const run = db.prepare('SELECT drafts, status FROM mf_recog_runs WHERE id=?').get(runId);
+  if (!run || run.status === 'done') return;
+  let cards; try { cards = JSON.parse(run.drafts || '[]'); } catch (_) { return; }
+  const card = Array.isArray(cards) && cards[0];
+  if (!card || card.committed) return;
+  const stem = String(info.stem || '').trim().slice(0, 20000);
+  if (stem && card.stem === '（请对照图片录入题干）') card.stem = stem;
+  const suggestion = String(info.knowledge || '').trim().slice(0, 200);
+  if (suggestion && !/^(无|暂无|没|未|未知|无法|不能|不是)/.test(suggestion)) card.ai_point_suggestion = suggestion;
+  card.ai_recognized = true;
+  db.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=?').run(JSON.stringify(cards), runId);
+}
 async function aiRecognizeUpload(id) {
   const row = parseUp(db.prepare('SELECT * FROM paper_uploads WHERE id=?').get(id));
   if (!row || !Array.isArray(row.images) || !row.images.length) return;
-  const imgPath = path.join(__dirname, '..', 'public', String(row.images[0]).replace(/^\//, ''));
-  if (!fs.existsSync(imgPath)) return;
+  const paths = row.images.map((img) => path.join(__dirname, '..', 'public', String(img).replace(/^\//, '')));
+  if (paths.some((p) => !fs.existsSync(p))) return;
   const aiLib = require('./ai');
   const cfg = aiLib.getConfig('vision');
   if (cfg.mock || !cfg.hasKey) return;
-  const buf = fs.readFileSync(imgPath);
-  const mime = UP_MIME[path.extname(imgPath).toLowerCase()] || 'image/jpeg';
-  const hint = row.stem_text ? `学生补充说明：${row.stem_text}。请识别这道题。` : undefined;
-  const { info } = await aiLib.analyzeWrongQuestion({ buf, mime, hint });
+  const images = paths.map((p) => ({ buf: fs.readFileSync(p), mime: UP_MIME[path.extname(p).toLowerCase()] || 'image/jpeg' }));
+  const hint = `图片按页序组成同一道题，请结合全部图片识别题目。${row.stem_text ? `学生补充说明：${row.stem_text}。` : ''}`;
+  const { info } = await aiLib.analyzeWrongQuestion({ images, hint });
   const subj = UP_SUBJECTS.includes(String(info.subject || '')) ? info.subject : '';
   const grade = String(info.grade || '').trim().slice(0, 20);
   let point = String(info.knowledge || '').trim().slice(0, 50);
@@ -918,6 +1034,8 @@ async function aiRecognizeUpload(id) {
   const qtype = String(info.type || '').trim().slice(0, 20);
   if (!subj && !point && !stem) return;
   const detail = qtype ? `AI识别题型：${qtype}` : '';
+  const fresh = db.prepare('SELECT * FROM paper_uploads WHERE id=?').get(id);
+  if (!fresh || !['pending', 'reviewed'].includes(fresh.status)) return;
   if (row.question_id) {
     // 更新题目：补学科/年级/知识点；题干为占位文字时换成 AI 转录的题干
     const q = db.prepare('SELECT subject, grade, stem FROM questions WHERE id=?').get(row.question_id);
@@ -930,19 +1048,11 @@ async function aiRecognizeUpload(id) {
       if (detail) { try { db.prepare("UPDATE questions SET source_detail=? WHERE id=? AND IFNULL(source_detail,'')=''").run(detail, row.question_id); } catch (e) { /* 老库没有这一列 */ } }
     }
   }
-  db.prepare("UPDATE paper_uploads SET subject=IF(?='',subject,?), grade=NULLIF(?,''), point=IF(?='',point,?) WHERE id=?")
-    .run(subj, subj, grade, point, point, id);
-  // 上传时没选学科 → 当时没建题；现在识别出学科了，补建题目 + 进错题本（于是也会出现在「待审核题目」里）
-  if (!row.question_id && subj) {
-    const fresh = parseUp(db.prepare(`SELECT p.*, u.grade AS student_grade, u.stage AS student_stage
-      FROM paper_uploads p JOIN users u ON u.id=p.user_id WHERE p.id=?`).get(id));
-    if (fresh && !fresh.question_id) {
-      if (!String(fresh.stem_text || '').trim() && stem) fresh.stem_text = stem;
-      const qid = autoImportUpload(fresh);
-      db.prepare('UPDATE paper_uploads SET question_id=? WHERE id=?').run(qid, id);
-      if (detail) { try { db.prepare('UPDATE questions SET source_detail=? WHERE id=?').run(detail, qid); } catch (e) { /* 老库没有这一列 */ } }
-    }
-  }
+  let draft; try { draft = JSON.parse(fresh.draft_json || '{}'); } catch (_) { draft = {}; }
+  if (!draft.stem && !fresh.stem_text && stem) draft.stem = stem;
+  if (qtype) draft.ai_type_suggestion = qtype;
+  db.prepare('UPDATE paper_uploads SET subject=?, grade=?, stage=?, point=?, draft_json=? WHERE id=?')
+    .run(fresh.subject || subj, fresh.grade || grade, fresh.stage || stageOfGrade('', fresh.grade || grade), fresh.point || point, JSON.stringify(draft), id);
 }
 
 admin.get('/uploads', (req, res) => {
@@ -1074,7 +1184,7 @@ stu.get('/lesson-questions', (req, res) => {
     if (!visible) return fail(res, '这门课不属于你的年级 / 学段');
   }
   const rows = db.prepare('SELECT * FROM questions WHERE video_id=? ORDER BY id LIMIT 50').all(v.id);
-  ok(res, { title: v.title, list: rows.map(serveQ) });
+  ok(res, { title: v.title, list: rows.map((q) => serveQ(q, req.user.id)) });
 });
 
 /** R8：某课程目录对这个学生可见吗（同 lesson-questions 的口径） */
@@ -1104,7 +1214,7 @@ stu.get('/section-questions', (req, res) => {
   if (!sec) return fail(res, '小分组不存在');
   if (!stuSeesChapter(req.user.id, sec.chapter_id)) return fail(res, '这门课不属于你的年级 / 学段');
   const rows = sectionPracticeQs(sec);
-  ok(res, { title: sec.name, section_id: sec.id, list: rows.map(serveQ) });
+  ok(res, { title: sec.name, section_id: sec.id, list: rows.map((q) => serveQ(q, req.user.id)) });
 });
 
 /** R8：某个知识点（知识点树节点，含子孙节点）的掌握情况：
@@ -1156,16 +1266,16 @@ stu.get('/tasks', (req, res) => {
         AND (IFNULL(p.term,'')='' OR ?='' OR p.term=?))
     ) ORDER BY p.published_at DESC, p.id DESC`)
     .all(uid, grade, grade, stage, stage, term, term);
-  const qTries = db.prepare('SELECT total, correct, score, created_at FROM paper_tries WHERE user_id=? AND paper_id=? ORDER BY id DESC LIMIT 1');
+  const qTries = db.prepare('SELECT total, correct, score, detail, created_at FROM paper_tries WHERE user_id=? AND paper_id=? ORDER BY id DESC LIMIT 1');
   ok(res, rows.map((p) => {
     const t = qTries.get(uid, p.id);
     return {
       id: p.id, title: p.title, subject: p.subject, stage: p.stage, grade: p.grade,
       duration: p.duration, total_score: p.total_score,
       q_count: parseIds(p.q_ids).length,
-      published_at: p.published_at,
+      published_at: p.published_at, due_at: p.due_at || '',
       assigned: !!db.prepare('SELECT 1 FROM paper_assignments WHERE paper_id=? AND user_id=?').get(p.id, uid),
-      tried: !!t, last: t || null,
+      tried: !!t, last: presentAttempt(t),
     };
   }));
 });
@@ -1185,15 +1295,15 @@ stu.get('/papers', (req, res) => {
           AND (IFNULL(p.term,'')='' OR ?='' OR p.term=?)))
     ORDER BY p.published_at DESC, p.id DESC`)
     .all(uid, grade, grade, stage, stage, term, term);
-  const qTries = db.prepare('SELECT total, correct, score, created_at FROM paper_tries WHERE user_id=? AND paper_id=? ORDER BY id DESC LIMIT 1');
+  const qTries = db.prepare('SELECT total, correct, score, detail, created_at FROM paper_tries WHERE user_id=? AND paper_id=? ORDER BY id DESC LIMIT 1');
   ok(res, rows.map((p) => {
     const t = qTries.get(uid, p.id);
     return {
       id: p.id, title: p.title, subject: p.subject, grade: p.grade, stage: p.stage, term: p.term,
       duration: p.duration, total_score: p.total_score,
       q_count: parseIds(p.q_ids).length,
-      published_at: p.published_at,
-      tried: !!t, last: t || null,
+      published_at: p.published_at, due_at: p.due_at || '',
+      tried: !!t, last: presentAttempt(t),
     };
   }));
 });
@@ -1211,11 +1321,11 @@ stu.get('/papers/:id', (req, res) => {
     return fail(res, '这份试卷不属于你的年级 / 学段');
   }
   const ids = parseIds(p.q_ids);
-  const questions = ids.map((id) => db.prepare('SELECT * FROM questions WHERE id=?').get(id)).filter(Boolean).map(serveQ);
-  const last = db.prepare('SELECT total, correct, score, created_at FROM paper_tries WHERE user_id=? AND paper_id=? ORDER BY id DESC LIMIT 1').get(uid, p.id) || null;
+  const questions = ids.map((id) => db.prepare('SELECT * FROM questions WHERE id=?').get(id)).filter(Boolean).map((q) => serveQ(q, req.user.id));
+  const last = presentAttempt(db.prepare('SELECT total, correct, score, detail, created_at FROM paper_tries WHERE user_id=? AND paper_id=? ORDER BY id DESC LIMIT 1').get(uid, p.id));
   ok(res, {
     id: p.id, title: p.title, subject: p.subject, duration: p.duration, total_score: p.total_score,
-    published_at: p.published_at, questions, last,
+    published_at: p.published_at, due_at: p.due_at || '', questions, last,
   });
 });
 
@@ -1225,8 +1335,9 @@ stu.post('/submit', (req, res) => {
   const me = db.prepare('SELECT * FROM users WHERE id=?').get(uid);
   const b = req.body || {};
   const kind = ['practice', 'section', 'paper', 'redo', 'review', 'mfpaper', 'self'].includes(b.kind) ? b.kind : 'practice';
-  const answers = Array.isArray(b.answers) ? b.answers : [];
+  const answers = Array.isArray(b.answers) ? b.answers.filter((a) => a && typeof a === 'object') : [];
   if (!answers.length) return fail(res, '没有作答内容');
+  if (kind === 'self' && answers.some((a) => !verifyQuestionTicket(uid, Number(a.question_id), a.quiz_ticket))) return res.status(403).json({ code: 403, msg: '题目授权已失效或客户端版本过旧，请重新打开练习' });
   const videoId = b.video_id ? Number(b.video_id) : 0;
   const paperId = b.paper_id ? Number(b.paper_id) : 0;
   if (kind === 'practice' && !videoId) return fail(res, '缺少知识点');
@@ -1238,6 +1349,7 @@ stu.post('/submit', (req, res) => {
   if (kind === 'paper') {
     paper = db.prepare('SELECT * FROM papers WHERE id=?').get(paperId);
     if (!paper || paper.status !== 'published') return fail(res, '试卷不存在或未下发');
+    if (paper.due_at && Date.now() > Date.parse(paper.due_at)) return fail(res, '已超过试卷的提交截止时间');
     const assigned = !!db.prepare('SELECT 1 FROM paper_assignments WHERE paper_id=? AND user_id=?').get(paperId, uid);
     const grade = String(me.grade || '').trim(); const term = String(me.term || '').trim();
     const stage = stageOfGrade(me.stage, grade);
@@ -1249,8 +1361,15 @@ stu.post('/submit', (req, res) => {
   }
   if (kind === 'mfpaper') {
     paper = db.prepare('SELECT * FROM mf_papers WHERE id=?').get(paperId);
-    if (!paper || !Number(paper.published)) return fail(res, '试卷不存在或未发布');
+    if (!paper || !Number(paper.published) || ['basket', 'trashed', 'archived'].includes(paper.status)) return fail(res, '试卷不存在或未发布');
     allowedIds = new Set(db.prepare("SELECT question_id FROM mf_paper_questions WHERE paper_id=? AND kind='question'").all(paperId).map((r) => r.question_id));
+  }
+
+  // 服务端必须按整张试卷判分：客户端遗漏的题视为未作答，不能只按提交的题数计算满分。
+  // 前端正常交卷已提交所有题；这里也保证接口调用、网络异常后的重试和旧客户端行为一致。
+  if (kind === 'paper' || kind === 'mfpaper') {
+    const supplied = new Set(answers.map((a) => Number(a.question_id)));
+    allowedIds.forEach((id) => { if (!supplied.has(Number(id))) answers.push({ question_id: id, my_answer: '' }); });
   }
 
   // R8：小分组练习——题目必须是这个小分组自己的题或组内视频的题
@@ -1286,17 +1405,28 @@ stu.post('/submit', (req, res) => {
 
   const results = [];
   let correct = 0;
-  const insRec = db.prepare('INSERT INTO records (user_id,question_id,chapter_id,my_answer,is_correct,created_at) VALUES (?,?,?,?,?,?)');
+  const insRec = db.prepare('INSERT INTO records (user_id,question_id,chapter_id,my_answer,is_correct,match_correct,match_total,created_at) VALUES (?,?,?,?,?,?,?,?)');
   const upMis = db.prepare(`INSERT INTO mistakes (user_id,question_id,wrong_count,last_answer,resolved,updated_at,review_stage,next_review) VALUES (?,?,1,?,0,?,0,?)
     ON CONFLICT(user_id,question_id) DO UPDATE SET wrong_count=wrong_count+1, last_answer=excluded.last_answer, resolved=0, review_stage=0, next_review=excluded.next_review, updated_at=excluded.updated_at`);
   const getQ = db.prepare('SELECT * FROM questions WHERE id=?');
   const misStage = new Map();   // question_id -> 当前复习轮次（review / redo 用）
   const detail = [];
+  const ungradedDetail = [];
+  const saveSubjective = db.prepare('INSERT INTO subjective_responses (user_id,question_id,kind,paper_id,my_answer,created_at) VALUES (?,?,?,?,?,?)');
+  const addUngraded = (qid, response, drawing) => {
+    const id = saveSubjective.run(uid, qid, kind, paperId || null, response, now()).lastInsertRowid;
+    if (drawing) db.prepare('UPDATE subjective_responses SET drawing_data=? WHERE id=?').run(drawing, id);
+    ungradedDetail.push({ question_id: qid, response_id: id, my_answer: response, ungraded: true, ...(drawing ? { drawing: true } : {}) });
+  };
+  const bindAttempt = (tryId) => ungradedDetail.forEach((d) => db.prepare('UPDATE subjective_responses SET try_id=?, max_score=? WHERE id=?').run(tryId, d.max_score, d.response_id));
+  const seenAnswers = new Set();
   let paperScore = null, paperTotal = null;   // 试卷类交卷：得分 / 满分（回传给学生端显示）
   const tx = db.transaction(() => {
     for (const a of answers) {
       const q = getQ.get(Number(a.question_id));
       if (!q) continue;
+      if (seenAnswers.has(q.id)) continue;
+      seenAnswers.add(q.id);
       // 越权校验：练习题必须绑在指定知识点上；试卷题必须在卷面的题单里；错题重做 / 复习只能做错题本里有的题；自组卷（章节测评 / 学段冲刺）题目存在即可
       if (kind === 'practice') { if (Number(q.video_id) !== videoId) continue; }
       else if (kind === 'paper' || kind === 'mfpaper' || kind === 'section') { if (!allowedIds.has(q.id)) continue; }
@@ -1305,18 +1435,23 @@ stu.post('/submit', (req, res) => {
         if (!m) continue;
         misStage.set(q.id, Number(m.review_stage) || 0);
       }
-      if (q.type === 'answer') {
+      if (isUngradedQ(q)) {
         // 问答题没法自动判分：不记对错、不进错题本、不进正确率，只回传参考答案让学生自己对照
+        const drawing = q.question_subtype === 'drawing' ? String(a.my_answer || '') : '';
+        if (drawing) { try { decodeDrawing(drawing); } catch (e) { e.drawingError = true; throw e; } }
+        const response = drawing ? '' : String(a.my_answer || '');
         results.push({
           question_id: q.id, type: q.type, stem: q.stem, material: q.material || '',
-          options: [], my_answer: String(a.my_answer || ''), answer: q.answer,
+          options: [], my_answer: response, answer: q.answer,
           analysis: q.analysis || '', difficulty: q.difficulty, is_correct: false, ungraded: true,
         });
+        addUngraded(q.id, response, drawing);
         continue;
       }
+      const match = matchScore(q, a.my_answer);
       const isOk = judgeQ(q, a.my_answer);
       if (isOk) correct++;
-      insRec.run(uid, q.id, q.chapter_id || 0, String(a.my_answer || ''), isOk ? 1 : 0, now());
+      insRec.run(uid, q.id, q.chapter_id || 0, String(a.my_answer || ''), isOk ? 1 : 0, match ? match.match_correct : null, match ? match.match_total : null, now());
       if (isOk) {
         if (kind === 'review') {
           // 复习：答对推进轮次，连续 3 次答对 = 已掌握（移出错题本）；答对间隔 2 / 4 天
@@ -1341,30 +1476,45 @@ stu.post('/submit', (req, res) => {
       results.push({
         question_id: q.id, type: q.type, stem: q.stem, material: q.material || '',
         options: o.options, my_answer: String(a.my_answer || ''), answer: q.answer,
-        analysis: q.analysis || '', difficulty: q.difficulty, is_correct: isOk, point: String(q.point || '').trim(),
+        analysis: q.analysis || '', difficulty: q.difficulty, is_correct: isOk, point: String(q.point || '').trim(), ...(match || {}),
       });
-      detail.push({ question_id: q.id, my_answer: String(a.my_answer || ''), is_correct: isOk ? 1 : 0 });
+      detail.push({ question_id: q.id, my_answer: String(a.my_answer || ''), is_correct: isOk ? 1 : 0, ...(match || {}) });
     }
     if (kind === 'paper') {
       const total = detail.length;
-      const score = paper.total_score && total ? Math.round(correct / total * paper.total_score) : 0;
-      paperScore = score; paperTotal = Number(paper.total_score) || null;
-      db.prepare('INSERT INTO paper_tries (user_id,paper_id,total,correct,score,detail,created_at) VALUES (?,?,?,?,?,?,?)')
-        .run(uid, paperId, total, correct, score, JSON.stringify(detail), now());
+      const scores = paperScores(paper.question_scores, parseIds(paper.q_ids));
+      const ids = parseIds(paper.q_ids);
+      ids.forEach((id) => { if (!seenAnswers.has(id)) { const q = getQ.get(id); if (isUngradedQ(q)) addUngraded(id, ''); } });
+      // 旧卷未配置单题分值时，将总分按分均分，余下的分依题序分配，保证全对仍等于满分。
+      const totalCents = Math.round(Number(paper.total_score || 0) * 100);
+      const maxOf = (id) => scores ? (scores[id] || 0) : (ids.length ? (Math.floor(totalCents / ids.length) + (ids.indexOf(id) < totalCents % ids.length ? 1 : 0)) / 100 : 0);
+      detail.forEach((d) => { d.max_score = maxOf(d.question_id); d.earned_score = roundScore(d.match_total ? d.max_score * d.match_correct / d.match_total : d.is_correct ? d.max_score : 0); });
+      ungradedDetail.forEach((d) => { d.max_score = maxOf(d.question_id); });
+      const score = roundScore(detail.reduce((sum, d) => sum + d.earned_score, 0));
+      paperScore = ungradedDetail.length ? null : score; paperTotal = Number(paper.total_score) || null;
+      const attemptId = db.prepare('INSERT INTO paper_tries (user_id,paper_id,total,correct,score,detail,created_at) VALUES (?,?,?,?,?,?,?)')
+        .run(uid, paperId, total, correct, paperScore, JSON.stringify(detail.concat(ungradedDetail)), now()).lastInsertRowid;
+      bindAttempt(attemptId);
     } else if (kind === 'mfpaper') {
       const scoreMap = {};
       db.prepare("SELECT question_id, score FROM mf_paper_questions WHERE paper_id=? AND kind='question'").all(paperId)
-        .forEach((r) => { scoreMap[r.question_id] = num(r.score, 0); });
-      const score = Math.round(detail.reduce((s, d) => s + (d.is_correct ? (scoreMap[d.question_id] || 0) : 0), 0));
-      paperScore = score; paperTotal = Math.round(Object.values(scoreMap).reduce((s, v) => s + v, 0)) || null;
-      db.prepare('INSERT INTO mf_paper_tries (user_id,paper_id,total,correct,score,detail,created_at) VALUES (?,?,?,?,?,?,?)')
-        .run(uid, paperId, detail.length, correct, score, JSON.stringify(detail), now());
+        .forEach((r) => { scoreMap[r.question_id] = roundScore(num(r.score, 0)); });
+      [...allowedIds].forEach((id) => { if (!seenAnswers.has(id)) { const q = getQ.get(id); if (isUngradedQ(q)) addUngraded(id, ''); } });
+      detail.forEach((d) => { d.max_score = scoreMap[d.question_id] || 0; d.earned_score = roundScore(d.match_total ? d.max_score * d.match_correct / d.match_total : d.is_correct ? d.max_score : 0); });
+      ungradedDetail.forEach((d) => { d.max_score = scoreMap[d.question_id] || 0; });
+      const score = roundScore(detail.reduce((s, d) => s + d.earned_score, 0));
+      paperScore = ungradedDetail.length ? null : score; paperTotal = roundScore(Object.values(scoreMap).reduce((s, v) => s + v, 0)) || null;
+      const attemptId = db.prepare('INSERT INTO mf_paper_tries (user_id,paper_id,total,correct,score,detail,created_at) VALUES (?,?,?,?,?,?,?)')
+        .run(uid, paperId, detail.length, correct, paperScore, JSON.stringify(detail.concat(ungradedDetail)), now()).lastInsertRowid;
+      bindAttempt(attemptId);
     } else {
       db.prepare('INSERT INTO practices (user_id,chapter_id,total,correct,duration,created_at) VALUES (?,?,?,?,?,?)')
         .run(uid, (video && video.chapter_id) || (section && section.chapter_id) || 0, detail.length, correct, Number(b.duration) || 0, now());
     }
   });
-  tx();
+  try { tx(); } catch (e) { if (e.drawingError) return fail(res, e.message); throw e; }
+  const detailsByQuestion = new Map(detail.map((d) => [d.question_id, d]));
+  results.forEach((r) => { const d = detailsByQuestion.get(r.question_id); if (d && d.max_score != null) { r.max_score = d.max_score; r.earned_score = d.earned_score; } });
   const wrong = detail.length - correct;
   // 本次各知识点的对错（学习报告用）：按题目的"知识点"文字归组，没标注的归"未标注知识点"
   const byPoint = new Map();
@@ -1394,13 +1544,14 @@ stu.post('/submit', (req, res) => {
         .concat([accuracy.ofVideo(accuracy.sectionOwnStats(db, uid, [sec.id]), sec.id)])) } : null,   // R8：含小分组自己的题
     };
   }
-  ok(res, { total: detail.length, correct, wrong, list: results, by_point: [...byPoint.values()], mastery, score: paperScore, score_total: paperTotal },
+  const attempt = presentAttempt({ score: paperScore, detail: JSON.stringify(detail.concat(ungradedDetail)) });
+  ok(res, { total: detail.length, correct, wrong, list: results, by_point: [...byPoint.values()], mastery, score: paperScore, score_total: paperTotal, ungraded_count: ungradedDetail.length, objective_score: attempt.objective_score, objective_score_total: attempt.objective_score_total },
     kind === 'paper' ? `交卷成功：答对 ${correct} / ${detail.length}` : `本次共 ${detail.length} 题，答对 ${correct} 题`);
 });
 
 // ---------- 试卷库：试卷管理里「发布」的 mf 试卷 ----------
 // 搜索（T10）：q = 名称关键字（同时匹配年份）；subject / grade / year 精确筛选；都不传 = 全部。
-const MFP_OPEN = "p.published=1 AND p.status NOT IN ('basket','trashed')";
+const MFP_OPEN = "p.published=1 AND p.status NOT IN ('basket','trashed','archived')";
 stu.get('/mfpapers', (req, res) => {
   const uid = req.user.id;
   const qy = req.query || {};
@@ -1410,27 +1561,29 @@ stu.get('/mfpapers', (req, res) => {
   if (qy.subject) { where += ' AND p.subject=?'; args.push(String(qy.subject)); }
   if (qy.grade) { where += ' AND p.grade=?'; args.push(String(qy.grade)); }
   if (qy.year) { where += " AND IFNULL(p.year,'')=?"; args.push(String(qy.year)); }
+  if (qy.exam_category) { where += " AND IFNULL(p.exam_category,'')=?"; args.push(String(qy.exam_category)); }
   const size = Math.min(200, Math.max(1, Number(qy.size) || 200));
-  const rows = db.prepare(`SELECT p.id, p.title, p.subject, p.stage, p.grade, p.year, p.created_at,
-    (SELECT COUNT(*) FROM mf_paper_questions r WHERE r.paper_id=p.id AND r.kind='question') AS q_count
+  const rows = db.prepare(`SELECT p.id, p.title, p.subject, p.stage, p.grade, p.year, p.exam_category, p.edition, p.term, p.created_at,
+    (SELECT COUNT(*) FROM mf_paper_questions r WHERE r.paper_id=p.id AND r.kind='question') AS q_count,
+    (SELECT COALESCE(SUM(score),0) FROM mf_paper_questions r WHERE r.paper_id=p.id AND r.kind='question') AS total_score
     FROM mf_papers p${where} ORDER BY IFNULL(p.year,'') DESC, p.id DESC LIMIT ${size}`).all(...args);
-  const qT = db.prepare('SELECT total, correct, score, created_at FROM mf_paper_tries WHERE user_id=? AND paper_id=? ORDER BY id DESC LIMIT 1');
-  ok(res, rows.map((p) => { const t = qT.get(uid, p.id); return { ...p, tried: !!t, last: t || null }; }));
+  const qT = db.prepare('SELECT total, correct, score, detail, created_at FROM mf_paper_tries WHERE user_id=? AND paper_id=? ORDER BY id DESC LIMIT 1');
+  ok(res, rows.map((p) => { const t = qT.get(uid, p.id); return { ...p, tried: !!t, last: presentAttempt(t) }; }));
 });
 
 // 搜索下拉选项：试卷库里实际有的学科 / 年级 / 年份
 stu.get('/mfpapers/filters', (req, res) => {
   const col = (c) => db.prepare(`SELECT DISTINCT p.${c} AS v FROM mf_papers p WHERE ${MFP_OPEN} AND IFNULL(p.${c},'')<>'' ORDER BY p.${c} DESC`).all().map((r) => r.v);
-  ok(res, { subjects: col('subject'), grades: col('grade'), years: col('year') });
+  ok(res, { subjects: col('subject'), grades: col('grade'), years: col('year'), exam_categories: col('exam_category') });
 });
 
 stu.get('/mfpapers/:id', (req, res) => {
   const p = db.prepare('SELECT * FROM mf_papers WHERE id=?').get(Number(req.params.id));
-  if (!p || !Number(p.published)) return fail(res, '试卷不存在或未发布');
+  if (!p || !Number(p.published) || ['basket', 'trashed', 'archived'].includes(p.status)) return fail(res, '试卷不存在或未发布');
   const qs = db.prepare(`SELECT q.* FROM mf_paper_questions r JOIN questions q ON q.id=r.question_id
     WHERE r.paper_id=? AND r.kind='question' ORDER BY r.position, r.id`).all(p.id);
   const total = db.prepare("SELECT COALESCE(SUM(score),0) AS s FROM mf_paper_questions WHERE paper_id=? AND kind='question'").get(p.id).s;
-  ok(res, { id: p.id, title: p.title, subject: p.subject, stage: p.stage, grade: p.grade, year: p.year || '', total_score: Math.round(Number(total) || 0), questions: qs.map(serveQ) });
+  ok(res, { id: p.id, title: p.title, subject: p.subject, stage: p.stage, grade: p.grade, year: p.year || '', exam_category: p.exam_category || '', edition: p.edition || '', term: p.term || '', total_score: roundScore(Number(total) || 0), questions: qs.map((q) => serveQ(q, req.user.id)) });
 });
 
 // ---------- 章节组卷 / 知识点组卷（学生自己组卷，不能下发）：取同学段的章节树 / 知识点树 ----------
@@ -1448,33 +1601,82 @@ stu.get('/scan-tree', (req, res) => {
   ok(res, { nodes, tree_id: tree.id, tree_name: tree.name, edition: tree.edition || '' });
 });
 
-// 雷达扫描组卷：选中单元 / 知识点 → 每个最小「小知识点」1 题 + 可用题数
-stu.post('/scan-compose', (req, res) => {
+// 题量查询与组卷共用范围校验，避免将其他学科或学段的节点混入。
+function scanScope(req, res) {
   const me = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
   const stage = stageOfGrade(me.stage, String(me.grade || ''));
   const b = req.body || {};
   const kind = b.kind === 'knowledge' ? 'knowledge' : 'textbook';
   const subject = String(b.subject || '').trim();
   const ids = [...new Set((Array.isArray(b.node_ids) ? b.node_ids : []).map(Number).filter(Boolean))];
-  if (!subject) return fail(res, '请选择学科');
-  if (!ids.length) return fail(res, '请先选择单元或知识点');
+  if (!subject) { fail(res, '请选择学科'); return null; }
+  if (!ids.length || ids.length > 1000) { fail(res, '请选择有效的单元或知识点'); return null; }
   // R2：节点属于哪棵树就在哪棵树里找（学生选的就是 scan-tree 给的那棵），再校验这棵树是同学科、同种类、本学段（或不分学段）的
   const ph0 = ids.map(() => '?').join(',');
   const treeIds = db.prepare(`SELECT DISTINCT n.tree_id AS id FROM bank_tree_nodes n JOIN bank_trees t ON t.id=n.tree_id
     WHERE n.id IN (${ph0}) AND t.kind=? AND t.subject=? AND (t.stage=? OR IFNULL(t.stage,'')='')`).all(...ids, kind, subject, stage).map((r) => r.id);
-  if (!treeIds.length) {
+  const validCount = db.prepare(`SELECT COUNT(*) AS n FROM bank_tree_nodes n JOIN bank_trees t ON t.id=n.tree_id
+    WHERE n.id IN (${ph0}) AND t.kind=? AND t.subject=? AND (t.stage=? OR IFNULL(t.stage,'')='')`).get(...ids, kind, subject, stage).n;
+  if (!treeIds.length || Number(validCount) !== ids.length) {
     const any = pickTree(db, { kind, subject, stage }) || pickTree(db, { kind, subject, stage: '' });
-    return fail(res, any ? '选中的节点不属于该学科的树，请重新选择' : (kind === 'knowledge' ? '该学科还没有知识点分类树' : '该学科还没有章节树'));
+    fail(res, any ? '选中的节点不属于该学科的树，请重新选择' : (kind === 'knowledge' ? '该学科还没有知识点分类树' : '该学科还没有章节树'));
+    return null;
+  }
+  return { ids, treeIds, subject };
+}
+
+stu.post('/scan-count', (req, res) => {
+  const scope = scanScope(req, res); if (!scope) return;
+  const { where, args } = compose.scopeSql(db, { subject: scope.subject, nodeIds: scope.ids });
+  const total = Number(db.prepare(`SELECT COUNT(*) AS n FROM questions q${where}`).get(...args).n);
+  ok(res, { total });
+});
+
+// 无 count 的旧客户端仍保留每个最小有题节点抽一题的行为。
+stu.post('/scan-compose', (req, res) => {
+  const scope = scanScope(req, res); if (!scope) return;
+  const { ids, treeIds, subject } = scope;
+  const requested = req.body && req.body.count;
+  if (requested !== undefined) {
+    const count = Number(requested);
+    if (![5, 10, 20].includes(count)) return fail(res, '请选择 5、10 或 20 题');
+    const expanded = [...compose.expandNodeIds(db, ids)];
+    const { where, args } = compose.scopeSql(db, { subject, nodeIds: ids });
+    const total = Number(db.prepare(`SELECT COUNT(*) AS n FROM questions q${where}`).get(...args).n);
+    if (total < count) return fail(res, `该范围只有 ${total} 道题，请减少题量或扩大范围`);
+    const rows = db.prepare(`SELECT q.* FROM questions q${where} ORDER BY RANDOM() LIMIT ?`).all(...args, count);
+    const nodeFor = db.prepare(`SELECT n.id, n.name FROM question_nodes qn JOIN bank_tree_nodes n ON n.id=qn.node_id
+      WHERE qn.question_id=? AND n.id IN (${expanded.map(() => '?').join(',')}) ORDER BY n.id LIMIT 1`);
+    const items = rows.map((row) => {
+      const node = nodeFor.get(row.id, ...expanded) || { id: 0, name: row.point || '' };
+      return { node_id: node.id, node_name: node.name, question: { ...serveQ(row, req.user.id), point: node.name } };
+    });
+    return ok(res, { items, total: items.length, available: total });
   }
   const ph = treeIds.map(() => '?').join(',');
   const allNodes = db.prepare(`SELECT id, tree_id, parent_id, name FROM bank_tree_nodes WHERE tree_id IN (${ph})`).all(...treeIds);
   // 每个"最小的有题节点"抽 1 题（共用 compose.js）
-  const items = compose.pickPerNode(db, allNodes, ids).map((it) => ({ node_id: it.node_id, node_name: it.node_name, count: it.count, question: { ...serveQ(it.row), point: it.node_name } }));
+  const items = compose.pickPerNode(db, allNodes, ids).map((it) => ({ node_id: it.node_id, node_name: it.node_name, count: it.count, question: { ...serveQ(it.row, req.user.id), point: it.node_name } }));
   if (!items.length) return fail(res, '选中的范围里还没有题目，先去题库管理补题或换个范围');
   ok(res, { items, total: items.length });
 });
 
 // ---------- 错题本（学生端，按学科） ----------
+// 仅返回本人的主观题单次作答及老师反馈，不将其混入自动判分记录。
+stu.get('/subjective-responses', (req, res) => {
+  const rows = db.prepare(`SELECT r.id, r.question_id, r.kind, r.paper_id, r.my_answer, r.score, r.max_score, r.review_comment, r.reviewed_at, r.created_at,
+    CASE WHEN r.drawing_data IS NOT NULL AND r.drawing_data<>'' THEN 1 ELSE 0 END AS has_drawing,
+    q.stem, q.subject, q.question_subtype FROM subjective_responses r LEFT JOIN questions q ON q.id=r.question_id
+    WHERE r.user_id=? ORDER BY r.id DESC LIMIT 100`).all(req.user.id);
+  ok(res, { list: rows });
+});
+stu.get('/subjective-responses/:id/drawing', (req, res) => {
+  const row = db.prepare('SELECT drawing_data FROM subjective_responses WHERE id=? AND user_id=?').get(Number(req.params.id), req.user.id);
+  if (!row || !row.drawing_data) return res.status(404).send('作图不存在');
+  try { const image = decodeDrawing(row.drawing_data); res.setHeader('Cache-Control', 'private, no-store'); res.type('image/png'); return res.send(image); }
+  catch (_) { return res.status(404).send('作图不可读取'); }
+});
+
 stu.get('/mistakes', (req, res) => {
   const uid = req.user.id;
   const { subject = '', resolved = '' } = req.query;
@@ -1483,10 +1685,10 @@ stu.get('/mistakes', (req, res) => {
   if (resolved === '0') where += ' AND m.resolved=0';
   if (resolved === '1') where += ' AND m.resolved=1';
   const rows = db.prepare(`SELECT m.id, m.question_id, m.wrong_count, m.last_answer, m.resolved, m.review_stage, m.next_review, m.updated_at, m.ai_point,
-      q.type, q.stem, q.options, q.answer, q.analysis, q.material, q.subject, q.point, q.difficulty, q.images, q.audio_key
+      q.type, q.stem, q.options, q.answer, q.analysis, q.material, q.subject, q.point, q.difficulty, q.images, q.audio_key, q.audio_play_limit, q.question_subtype, q.match_prompts, q.source
     FROM mistakes m JOIN questions q ON q.id=m.question_id${where}
     ORDER BY m.resolved, m.updated_at DESC LIMIT 300`).all(...args).map(parseQ)
-    .map((r) => Object.assign(r, { audio_url: r.audio_key ? store.getUrlSync(r.audio_key) : '' }));
+    .map((r) => Object.assign(r, { quiz_ticket: signQuestionTicket(uid, r.question_id), audio_url: r.audio_key ? store.getUrlSync(r.audio_key) : '', question_subtype: r.type === 'sort' ? (r.question_subtype || '') : '', match_prompts: r.type === 'sort' && QSubtype.isMatch(r.question_subtype) ? require('./match-question').list(r.match_prompts) : [] }));
   const counts = {};
   db.prepare(`SELECT q.subject AS s, COUNT(*) n FROM mistakes m JOIN questions q ON q.id=m.question_id
     WHERE m.user_id=? GROUP BY q.subject`).all(uid).forEach((r) => { counts[r.s || '其他'] = r.n; });
@@ -1497,6 +1699,44 @@ stu.get('/mistakes', (req, res) => {
     mastered: one('SELECT COUNT(*) n FROM mistakes WHERE user_id=? AND resolved=1', uid),
   };
   ok(res, { list: rows, counts, review });
+});
+
+// 举一反三：只以本人的错题为起点，在同学科、同学段且知识点一致的题中寻找未做过的新题。
+stu.get('/mistakes/:id/similar', (req, res) => {
+  const uid = req.user.id;
+  const original = db.prepare(`SELECT q.*, m.ai_point FROM mistakes m JOIN questions q ON q.id=m.question_id
+    WHERE m.user_id=? AND m.question_id=?`).get(uid, Number(req.params.id) || 0);
+  if (!original) return fail(res, '错题不存在');
+  const me = db.prepare('SELECT grade, stage FROM users WHERE id=?').get(uid) || {};
+  const stage = stageOfGrade(me.stage, me.grade);
+  if (!stage) return fail(res, '请先联系老师完善你的年级信息');
+  const sourceNodes = db.prepare(`SELECT DISTINCT n.id, n.name FROM bank_tree_nodes n JOIN bank_trees t ON t.id=n.tree_id
+    WHERE t.kind='knowledge' AND t.subject=? AND (t.stage=? OR IFNULL(t.stage,'')='')
+      AND (n.id IN (SELECT node_id FROM question_nodes WHERE question_id=?)
+        OR n.id IN (SELECT node_id FROM video_nodes WHERE video_id=?))`).all(original.subject, stage, original.id, Number(original.video_id) || 0);
+  const nodeIds = sourceNodes.map((n) => n.id);
+  const points = [...new Set(String(original.point || original.ai_point || '').split(/&&|,|，/).map((x) => x.trim()).filter(Boolean))];
+  if (!nodeIds.length && !points.length) return fail(res, '这道错题还没有知识点分类，请联系老师补充');
+  const tests = [], params = [];
+  let nodeExpr = '0';
+  if (nodeIds.length) {
+    const ph = nodeIds.map(() => '?').join(',');
+    nodeExpr = `(EXISTS (SELECT 1 FROM question_nodes sn WHERE sn.question_id=q.id AND sn.node_id IN (${ph}))
+      OR EXISTS (SELECT 1 FROM video_nodes vn WHERE vn.video_id=q.video_id AND vn.node_id IN (${ph})))`;
+  }
+  // 节点条件出现在 SELECT 中，因此其参数先于 WHERE 的参数。
+  const selectParams = nodeIds.concat(nodeIds);
+  tests.push('same_node=1');
+  points.forEach((point) => { tests.push("IFNULL(point,'') LIKE ?"); params.push('%' + point + '%'); });
+  const rows = db.prepare(`SELECT * FROM (SELECT q.*, ${nodeExpr} AS same_node FROM questions q
+    WHERE q.subject=? AND q.stage=? AND q.id<>?
+      AND NOT EXISTS (SELECT 1 FROM records r WHERE r.user_id=? AND r.question_id=q.id)
+      AND NOT EXISTS (SELECT 1 FROM mistakes m WHERE m.user_id=? AND m.question_id=q.id)) candidates
+    WHERE (${tests.join(' OR ')}) ORDER BY RANDOM() LIMIT 500`)
+    .all(...selectParams, original.subject, stage, original.id, uid, uid, ...params);
+  const items = rows.filter((q) => Number(q.same_node) || String(q.point || '').split(/&&|,|，/).some((p) => points.includes(p.trim()))).slice(0, 3).map((q) => serveQ(q, req.user.id));
+  if (!items.length) return fail(res, '该知识点暂时没有你没做过的新题，请稍后再试');
+  ok(res, { list: items, point: sourceNodes[0] ? sourceNodes[0].name : points[0], requested: 3 });
 });
 
 // 顶栏角标：未掌握错题数（轻量）
@@ -1565,19 +1805,25 @@ stu.get('/review-queue', (req, res) => {
     FROM mistakes m JOIN questions q ON q.id=m.question_id
     WHERE m.user_id=? AND m.resolved=0 AND (IFNULL(m.next_review,'')='' OR m.next_review<=?)
     ORDER BY m.next_review, m.updated_at DESC LIMIT 50`).all(uid, todayStr());
-  ok(res, { list: rows.map((r) => Object.assign(serveQ(r), { review_stage: Number(r.review_stage) || 0 })) });
+  ok(res, { list: rows.map((r) => Object.assign(serveQ(r, req.user.id), { review_stage: Number(r.review_stage) || 0 })) });
 });
 
 // ---------- 逐题核对（做练习模式：做一题核对一题，不落库；最后统一 submit 入库/错题本） ----------
 stu.post('/check', (req, res) => {
   const items = Array.isArray((req.body || {}).items) ? req.body.items.slice(0, 50) : [];
   if (!items.length) return fail(res, '没有要核对的内容');
+  if (items.some((a) => !a || !verifyQuestionTicket(req.user.id, Number(a.question_id), a.quiz_ticket))) return res.status(403).json({ code: 403, msg: '题目授权已失效或客户端版本过旧，请重新打开练习' });
+  for (const a of items) {
+    const q = db.prepare('SELECT question_subtype FROM questions WHERE id=?').get(Number(a.question_id) || 0);
+    if (q && q.question_subtype === 'drawing') { try { decodeDrawing(String(a.my_answer || '')); } catch (e) { return fail(res, e.message); } }
+  }
   const out = items.map((a) => {
     const q = db.prepare('SELECT * FROM questions WHERE id=?').get(Number(a.question_id) || 0);
     if (!q) return { question_id: a.question_id, is_correct: false, answer: '', analysis: '', missing: true };
-    if (q.type === 'answer') return { question_id: q.id, is_correct: false, ungraded: true, answer: q.answer, analysis: q.analysis || '' };
+    if (isUngradedQ(q)) return { question_id: q.id, is_correct: false, ungraded: true, answer: q.answer, analysis: q.analysis || '' };
     const isOk = judgeQ(q, a.my_answer);
     const out1 = { question_id: q.id, is_correct: isOk, answer: q.answer, analysis: q.analysis || '' };
+    const match = matchScore(q, a.my_answer); if (match) Object.assign(out1, match);
     if (q.type === 'fill') {
       // R8：填空逐空对错（学生端逐空打 ✓ / ✗）：把每一空单独当成一道单空题判
       const PH = '\u0001';
@@ -1610,6 +1856,7 @@ stu.post('/ai-explain', async (req, res) => {
   const uid = req.user.id;
   const b = req.body || {};
   const qid = Number(b.question_id) || 0;
+  if (!verifyQuestionTicket(uid, qid, b.quiz_ticket)) return res.status(403).json({ code: 403, msg: '题目授权已失效或客户端版本过旧，请重新打开练习' });
   const q = db.prepare('SELECT * FROM questions WHERE id=?').get(qid);
   if (!q) return fail(res, '题目不存在');
   const o = parseQ(q);
@@ -1687,6 +1934,7 @@ function aiMockReply(q, mode, ask, turn, myAns) {
 }
 stu.post('/ai-explain/stream', async (req, res) => {
   const b = req.body || {};
+  if (!verifyQuestionTicket(req.user.id, Number(b.question_id), b.quiz_ticket)) return res.status(403).json({ code: 403, msg: '题目授权已失效或客户端版本过旧，请重新打开练习' });
   const q = db.prepare('SELECT * FROM questions WHERE id=?').get(Number(b.question_id) || 0);
   if (!q) return fail(res, '题目不存在');
   const mode = b.mode === 'guide' ? 'guide' : 'explain';
@@ -1750,15 +1998,27 @@ const UP_DIR = path.join(__dirname, '..', 'public', 'pu');
 if (!fs.existsSync(UP_DIR)) fs.mkdirSync(UP_DIR, { recursive: true });
 let UP_SECRET_CACHE = '';
 const upSecret = () => {
-  if (!UP_SECRET_CACHE) UP_SECRET_CACHE = fs.readFileSync(path.join(DATA_DIR, '.secret'), 'utf8').trim();
+  if (!UP_SECRET_CACHE) {
+    const secretPath = path.join(DATA_DIR, '.secret');
+    UP_SECRET_CACHE = fs.existsSync(secretPath) ? fs.readFileSync(secretPath, 'utf8').trim() : String(process.env.JWT_SECRET || '').trim();
+    if (!UP_SECRET_CACHE) throw new Error('上传通道签名密钥未配置');
+  }
   return UP_SECRET_CACHE;
 };
 const upSign = (payload, expires) => jwt.sign({ role: 'up', ...payload }, upSecret(), { expiresIn: expires || '4h' });
+// 教师扫码票据仅允许上传到待审核，短时有效，不能作为后台登录凭证。
+admin.post('/teacher-upload-token', (req, res) => {
+  const token = jwt.sign({ role: 'upteacher', uid: req.user.id }, upSecret(), { expiresIn: '30m' });
+  return ok(res, { token, url: '/upload.html', expires_in: 1800 });
+});
 const upAuth = (req, res, next) => {
   try {
     const p = jwt.verify(String(req.query.token || req.query.t || ''), upSecret());
-    if (p.role !== 'up' || !p.uid) throw new Error('bad token');
+    if (!['up', 'upteacher'].includes(p.role) || !p.uid) throw new Error('bad token');
+    const user = db.prepare('SELECT role, status FROM users WHERE id=?').get(Number(p.uid));
+    if (!user || Number(user.status) !== 1 || (p.role === 'upteacher' ? !['admin', 'branch'].includes(user.role) : user.role !== 'student')) throw new Error('bad user');
     req.upUid = Number(p.uid);
+    req.upRole = p.role;
     next();
   } catch (e) { res.status(401).json({ code: 401, msg: '二维码已过期，请回到错题本重新获取' }); }
 };
@@ -1766,13 +2026,16 @@ const okUp = (res, data = null, msg = 'ok') => res.json({ code: 0, msg, data });
 
 up.get('/info', upAuth, (req, res) => {
   const u = db.prepare('SELECT name, grade, stage FROM users WHERE id=?').get(req.upUid);
-  if (!u) return res.status(404).json({ code: 404, msg: '学生不存在' });
-  okUp(res, { name: u.name || u.username || '同学', grade: u.grade || '' });
+  if (!u) return res.status(404).json({ code: 404, msg: '用户不存在' });
+  okUp(res, { name: u.name || '用户', grade: u.grade || '', teacher: req.upRole === 'upteacher' });
 });
 
 up.post('/submit', upAuth, upUpload.array('images', 4), (req, res) => {
   const files = (req.files || []).filter((f) => /^image\/(jpeg|png|webp|gif|heic|heif)$/.test(f.mimetype));
   if (!files.length) return fail(res, '请先拍照或选择图片（JPG/PNG，单张不超过 10MB）');
+  const b = req.body || {};
+  const subject = ['数学', '英语', '物理', '化学'].includes(String(b.subject || '')) ? b.subject : '';
+  if (req.upRole === 'upteacher' && (!subject || !stageOfGrade('', String(b.grade || '').trim()))) return fail(res, '请选择学科和年级');
   const EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/heic': '.heic', 'image/heif': '.heif' };
   const saved = [];
   for (const f of files) {
@@ -1780,10 +2043,23 @@ up.post('/submit', upAuth, upUpload.array('images', 4), (req, res) => {
     fs.writeFileSync(path.join(UP_DIR, name), f.buffer);
     saved.push('/pu/' + name);
   }
-  const b = req.body || {};
   const ERR_TYPES = ['题型生疏', '审题错误', '看错抄错', '未按要求', '概念不清', '步骤不全', '计算失误', '其他'];
   const errorType = ERR_TYPES.includes(b.error_type) ? b.error_type : '';
-  const subject = ['数学', '英语', '物理', '化学'].includes(String(b.subject || '')) ? b.subject : '';
+  if (req.upRole === 'upteacher') {
+    const grade = String(b.grade || '').trim().slice(0, 20);
+    const stage = stageOfGrade('', grade);
+    if (!subject || !stage) return fail(res, '请选择学科和年级');
+    const stem = String(b.stem_text || '').trim().slice(0, 500) || '（请对照图片录入题干）';
+    const card = { stem, questionType: '解答', subject, stage, grade, answer: String(b.answer || '').trim().slice(0, 500), analysis: '', point: String(b.point || '').trim().slice(0, 100), upload_note: String(b.note || '').trim().slice(0, 200), options: [], figures: saved.map((url) => ({ url })) };
+    const run = db.prepare(`INSERT INTO mf_recog_runs (title,subject,stage,grade,source_kind,source_name,status,pages,drafts,ocr_texts,error,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run('老师手机扫码录题', subject, stage, grade, 'teacher_scan', '老师手机扫码', 'recognized', '[]', JSON.stringify([card]), '[]', '', now());
+    recognizeTeacherPhoto(run.lastInsertRowid, files).catch((e) => {
+      console.error('[teacher-upload-ai] 识别失败:', e.message || e);
+      db.prepare("UPDATE mf_recog_runs SET status='error', error=? WHERE id=? AND status<>'done'")
+        .run('识别失败，请在待审核中对照图片核对或补录', run.lastInsertRowid);
+    });
+    return okUp(res, { run_id: run.lastInsertRowid, count: saved.length }, '上传成功，题目已进入待审核');
+  }
   const stu = db.prepare('SELECT grade, stage FROM users WHERE id=?').get(req.upUid) || {};
   // 1) 上传记录入池（待老师审核）
   const ins = db.prepare(`INSERT INTO paper_uploads (user_id, subject, grade, stem_text, answer, chapter, point, error_type, note, images, status, created_at)
@@ -1798,20 +2074,16 @@ up.post('/submit', upAuth, upUpload.array('images', 4), (req, res) => {
       String(b.note || '').trim().slice(0, 200),
       JSON.stringify(saved), now());
   const upId = ins.lastInsertRowid;
-  // 2) 免审核：自动建题（来源=学生上传）并立即进该学生错题本
-  let qid = 0;
-  if (subject) {
-    const row = parseUp(db.prepare(`SELECT p.*, u.grade AS student_grade, u.stage AS student_stage
-      FROM paper_uploads p JOIN users u ON u.id=p.user_id WHERE p.id=?`).get(upId));
-    qid = autoImportUpload(row);
-    db.prepare('UPDATE paper_uploads SET question_id=? WHERE id=?').run(qid, upId);
-  }
-  // 3) AI 视觉识别（后台异步，不阻塞上传响应）：识别学科/年级/知识点并转录题干，识别完自动补齐归类
+  // 提交后只创建审核记录，审核通过后才写入题库及学生错题本。
+  const stage = stageOfGrade(stu.stage, String(b.grade || '').trim() || stu.grade || '');
+  db.prepare('UPDATE paper_uploads SET stage=? WHERE id=?').run(stage || '', upId);
+  // AI 视觉识别不阻塞上传；只补充审核草稿，不直接入库。
   aiRecognizeUpload(upId).catch((e) => { console.error('[upload-ai] 识别失败:', e.message || e); });
-  okUp(res, { count: saved.length, question_id: qid }, '上传成功！题目已进入你的错题本，老师会尽快审核');
+  okUp(res, { count: saved.length, question_id: 0 }, '上传成功！题目已送到老师审核，审核后进入错题本');
 });
 
 up.get('/mine', upAuth, (req, res) => {
+  if (req.upRole === 'upteacher') return okUp(res, { list: [] });
   const rows = db.prepare('SELECT id, subject, stem_text, answer, grade, chapter, point, error_type, status, images, created_at FROM paper_uploads WHERE user_id=? ORDER BY created_at DESC LIMIT 30')
     .all(req.upUid).map(parseUp);
   okUp(res, { list: rows });
