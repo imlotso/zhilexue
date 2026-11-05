@@ -4,7 +4,7 @@
  * 以 bank_trees / bank_tree_nodes 为唯一编辑源。旧「教材知识点树」（kb_units / kb_points，按 学科+学段+年级 → 单元 → 知识点）
  * 保留表和旧接口，只做"复制"：并入该 学科+学段 已有的知识点树（kind=knowledge），作为一个独立的一级分支：
  *
- *   知识点树（学科+学段 唯一一棵，题库管理页按这个假设取树）
+ *   知识点树（学科+学段 下的"通用"知识点树，经 treepick.pickTree 取）
  *   └─ 教材单元知识点          ← BRANCH，本模块维护
  *      └─ 七年级              ← 年级节点（kb_units.grade；空则"不分年级"）
  *         └─ 第1单元 有理数    ← 单元节点（kb_units.name）
@@ -12,6 +12,7 @@
  *
  * 所有函数都是幂等的"找或建"（同父同名不重复建），只增不删。迁移只复制，不改 kb_* 表。
  */
+const { pickTree } = require('./treepick');
 const STAGE_NAME = { primary: '小学', junior: '初中' };
 const GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const BRANCH = '教材单元知识点';
@@ -24,17 +25,17 @@ const now = () => {
 };
 const gradeSort = (g) => { const i = GRADES.indexOf(g); return i < 0 ? GRADES.length : i; };
 
-/** 学科+学段下的知识点树（取第一棵，与题库管理页 trees.find 的取法一致） */
-function findTree(db, subject, stage, kind = 'knowledge') {
-  return db.prepare('SELECT * FROM bank_trees WHERE kind=? AND subject=? AND stage=? ORDER BY sort, id').get(kind, subject, stage) || null;
+/** 学科+学段下的知识点树（R2：统一走 treepick.pickTree——优先"通用"（版本为空）的那棵，再按默认版本，最后取第一棵） */
+function findTree(db, subject, stage, kind = 'knowledge', edition = '') {
+  return pickTree(db, { kind, subject, stage, edition });
 }
 
 function ensureKnowledgeTree(db, subject, stage) {
   const t = findTree(db, subject, stage);
   if (t) return t;
   const name = `${subject}·${STAGE_NAME[stage] || stage}知识点树`;
-  const info = db.prepare('INSERT INTO bank_trees (kind, subject, stage, name, source, sort, created_at) VALUES (?,?,?,?,?,?,?)')
-    .run('knowledge', subject, stage, name, `kbtree:${subject}:${stage}`, 0, now());
+  const info = db.prepare('INSERT INTO bank_trees (kind, subject, stage, name, source, edition, sort, created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .run('knowledge', subject, stage, name, `kbtree:${subject}:${stage}`, '', 0, now());
   return { id: info.lastInsertRowid, kind: 'knowledge', subject, stage, name };
 }
 

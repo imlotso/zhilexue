@@ -737,10 +737,17 @@ try { db.exec("ALTER TABLE word_group_done MODIFY fp MEDIUMTEXT"); } catch (e) {
 try { db.exec("ALTER TABLE phonics_items MODIFY samples MEDIUMTEXT"); } catch (e) { /* 忽略 */ }
 try { db.exec("ALTER TABLE phonics_items MODIFY files MEDIUMTEXT"); } catch (e) { /* 忽略 */ }
 
+// 目录树的教材版本（R2）：同一 学段+学科+种类 下每个版本一棵树；知识点树可为空 = 通用。节点的 code（外部编号）/ note（备注）供树导入导出带上
+try { db.exec("ALTER TABLE bank_trees ADD COLUMN edition VARCHAR(40) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE bank_tree_nodes ADD COLUMN code VARCHAR(100) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE bank_tree_nodes ADD COLUMN note MEDIUMTEXT"); } catch (e) { /* 列已存在 */ }
+
 // 依赖上面 ALTER 才存在的列的索引：必须在加列之后建（空库初始化时 questions 表刚建出来，还没有 video_id / stage 列）
 runSchema(`
 CREATE INDEX IF NOT EXISTS idx_q_video ON questions(video_id);
 CREATE INDEX IF NOT EXISTS idx_q_bank ON questions(subject, stage, grade);
+-- (subject, stage, kind) 三列已经占满 MySQL 3072 字节的键长，加上 edition 放不下，所以版本索引不含 kind
+CREATE INDEX IF NOT EXISTS idx_btree_ed ON bank_trees(subject, stage, edition);
 `);
 
 // 老库升级：记录学生账号由哪个校长/分校开通（已存在则跳过）

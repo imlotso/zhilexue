@@ -15,7 +15,7 @@ const mfState = (k) => (ADM.page[k] = ADM.page[k] || {});
 
 async function mfCommitForm(batchId) {
   const d = await api(`${MF_API}/capture/batches/${batchId}`);
-  const trees = (await api(MF_API + '/trees', { silent: true }).catch(() => ({ list: [] }))).list || [];
+  const trees = await tpTrees();
   const papers = (await api(MF_API + '/papers?status=basket', { silent: true }).catch(() => ({ list: [] }))).list || [];
   let nodes = [];
   modal({
@@ -24,7 +24,7 @@ async function mfCommitForm(batchId) {
       <div class="field"><label>学科</label><select id="mcSub">${MF_SUBJECTS.map((s) => `<option>${s}</option>`).join('')}</select></div>
       <div class="field"><label>学段</label><select id="mcStage">${MF_STAGES.slice(1).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
       <div class="field"><label>年级</label><select id="mcGrade"><option value="">不限</option>${MF_GRADES.map((g) => `<option>${g}</option>`).join('')}</select></div>
-      <div class="field"><label>目录树</label><select id="mcTree"><option value="">不挂树</option>${trees.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>目录树</label><select id="mcTree"><option value="">不挂树</option>${trees.map((t) => `<option value="${t.id}">${esc(treeLabel(t))}</option>`).join('')}</select></div>
       <div class="field"><label>节点</label><select id="mcNode"><option value="">（先选树）</option></select></div>
       <div class="field"><label>加入试卷</label><select id="mcPaper"><option value="">不加入</option>${papers.map((p) => `<option value="${p.id}">${esc(p.title)}</option>`).join('')}</select></div>
       <div class="field"><label>统一分值</label><input id="mcScore" class="inp" type="number" value="0"></div>
@@ -915,7 +915,7 @@ async function mfIntakeWork(runId) {
       const cards = mfCollectCards(cardsBox);
       const sel = cards.map((c, i) => (c.checked === false ? -1 : i)).filter((i) => i >= 0);
       if (!sel.length) return toast('先勾选要入库的题卡', 'err');
-      const trees = (await api(MF_API + '/trees', { silent: true }).catch(() => ({ list: [] }))).list || [];
+      const trees = await tpTrees();
       const papers = (await api(MF_API + '/papers?status=basket', { silent: true }).catch(() => ({ list: [] }))).list || [];
       let nodes = [];
       modal({
@@ -924,7 +924,7 @@ async function mfIntakeWork(runId) {
           <div class="field"><label>学科</label><select id="ikSub">${MF_SUBJECTS.map((s) => `<option ${view.querySelector('#wkSub').value === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
           <div class="field"><label>学段</label><select id="ikStage">${MF_STAGES.slice(1).map(([k, t]) => `<option value="${k}" ${view.querySelector('#wkStage').value === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
           <div class="field"><label>年级</label><select id="ikGrade"><option value="">不限</option>${MF_GRADES.map((g) => `<option>${g}</option>`).join('')}</select></div>
-          <div class="field"><label>目录树</label><select id="ikTree"><option value="">不挂树</option>${trees.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></div>
+          <div class="field"><label>目录树</label><select id="ikTree"><option value="">不挂树</option>${trees.map((t) => `<option value="${t.id}">${esc(treeLabel(t))}</option>`).join('')}</select></div>
           <div class="field"><label>节点</label><select id="ikNode"><option value="">（先选树）</option></select></div>
           <div class="field"><label>加入试卷</label><select id="ikPaper"><option value="">不加入</option>${papers.map((p) => `<option value="${p.id}">${esc(p.title)}</option>`).join('')}</select></div>
           <div class="field"><label>统一分值</label><input id="ikScore" class="inp" type="number" value="0"></div>
