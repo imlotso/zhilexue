@@ -4057,8 +4057,13 @@ body.wt-stage.wt-fs-small .t13-card{--t13-fixed:195px}
 .r8-qz .quiz-prog{white-space:nowrap}
 .r8-qz .quiz-bar{flex:none;margin:0;border-radius:0;height:3px}
 .r8-qz-main{flex:1;min-height:0;display:flex}
-.r8-qz-left{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative}
+.r8-qz-left{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative;container-type:inline-size}
 .r8-qz .quiz-body{flex:1;min-height:0;overflow:auto;padding:18px 24px 84px;overscroll-behavior:contain}
+.r8-qz .qz-opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.r8-qz .qz-opt{min-width:0;height:auto}
+.r8-qz .qz-ot{min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+@container (max-width:390px){.r8-qz .qz-opts{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:420px){.r8-qz .qz-opts{grid-template-columns:minmax(0,1fr)}}
 .r8-qz .qz-kpad{flex:none}
 .r8-qz .quiz-f{flex:none;justify-content:flex-end;gap:12px;padding:12px 20px;background:#fbfcfe}
 .r8-qz .quiz-f .btn.primary{flex:none;min-width:168px;max-width:none;margin-left:0;border-radius:999px}
@@ -4187,9 +4192,11 @@ body.wt-stage.wt-fs-small .t13-card{--t13-fixed:195px}
   background:linear-gradient(120deg,#6d5dfc,#2f6bff);color:#fff;font-size:14px;font-weight:700;box-shadow:0 10px 26px -8px rgba(47,107,255,.7)}
 .r8-ai-pill[hidden]{display:none}
 .r8-ai-pill em{font-style:normal;font-weight:400;opacity:.85;font-size:12px}
-/* 窄屏：AI 浮层改为底部抽屉（70vh） */
+/* 窄屏：题卡和 AI 抽屉上下分区，各自滚动，避免遮住选项。 */
 @media (max-width:999px){
-  .r8-ai{left:0;right:0;bottom:0;width:auto;height:70vh;min-height:0;max-height:none;border-radius:18px 18px 0 0;box-shadow:0 -12px 40px -10px rgba(15,23,42,.45)}
+  .quiz-mask.r8-ai-on{align-items:flex-start;padding:8px 8px 0}
+  .quiz-mask.r8-ai-on .quiz-box.r8-qz{height:calc(52vh - 16px);height:calc(52dvh - 16px);margin:0}
+  .r8-ai{left:0;right:0;bottom:0;width:auto;height:48vh;height:48dvh;min-height:0;max-height:none;border-radius:18px 18px 0 0;box-shadow:0 -12px 40px -10px rgba(15,23,42,.45)}
   .r8-ai.show{animation:r8up .22s ease-out}
   .r8-ai-f{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
   .r8-ai-pill{bottom:calc(84px + env(safe-area-inset-bottom))}

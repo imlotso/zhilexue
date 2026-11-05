@@ -52,6 +52,7 @@ const PD_WORD_RULES = `
 
 async function viewPending() {
   const st = ADM.page.pd = ADM.page.pd || { source: 'all', kw: '', sel: {} };
+  st.mergePins = Array.isArray(st.mergePins) ? st.mergePins : [];
   if (window.__pdReviewKey) { document.removeEventListener('keydown', window.__pdReviewKey); window.__pdReviewKey = null; }
   if (st.mode === 'batches' && !st.batch_id) return viewPendingBatches(st);
   const page = Math.max(1, Number(ADM.page.pdPage) || 1);
@@ -119,6 +120,7 @@ async function viewPending() {
         ${sourcePages.map((page) => `<button type="button" class="btn sm ghost" data-act="original" data-page="${page}">查看原页 · 第 ${page} 页</button>`).join('')}
         ${it.original_page ? `<button type="button" class="btn sm ghost" data-act="crop-figure">从原页补图</button>` : ''}
         ${it.figure_review_required && it.figure_review_issue ? `<button type="button" class="btn sm ghost" data-act="confirm-figure">确认图文归属</button>` : ''}
+        ${it.kind === 'run' ? `<button type="button" class="btn sm ghost" data-act="merge-pin">${st.mergePins.some(p => p.id === it.id) ? '取消暂存片段' : '暂存为合并片段'}</button>` : ''}
         <button type="button" class="btn sm primary" data-act="commit">入库</button>
         <button type="button" class="btn sm ghost" data-act="edit">编辑</button>
         <button type="button" class="btn sm ghost danger" data-act="del">删除</button>
@@ -143,6 +145,7 @@ async function viewPending() {
       <span class="pd-selcnt" id="pd-selcnt">已选 0 题</span>
       <button type="button" class="btn sm primary" id="pd-bcommit">批量入库</button>
       <button type="button" class="btn sm ghost" id="pd-bmerge">合并两段跨页题</button>
+      ${st.mergePins.length ? `<span class="pd-selcnt">已暂存 ${st.mergePins.length}/2 段（可翻页）</span><button type="button" class="btn sm ghost" id="pd-merge-clear">清空片段</button>` : ''}
       <button type="button" class="btn sm ghost" id="pd-bclassify">AI 分类建议</button>
       <button type="button" class="btn sm ghost" id="pd-bai" title="为缺失的答案或解析生成待老师确认的建议">AI 生成答案/解析建议</button>
       <button type="button" class="btn sm ghost danger" id="pd-bdel">批量删除</button>
@@ -225,6 +228,16 @@ async function viewPending() {
         if (!b) return;
         const it = byId[b.closest('.pd-item').dataset.id];
         if (!it) return;
+        if (b.dataset.act === 'merge-pin') {
+          const pos = st.mergePins.findIndex(p => p.id === it.id);
+          if (pos >= 0) st.mergePins.splice(pos, 1);
+          else {
+            if (st.mergePins.length >= 2) return toast('已暂存两段，请先合并或清空', 'err');
+            if (st.mergePins.length && st.mergePins[0].batch_id !== it.batch_id) return toast('只能暂存同一批次的片段', 'err');
+            st.mergePins.push({id:it.id, kind:it.kind, batch_id:it.batch_id, index:it.index, stem:it.stem, content_review_signature:it.content_review_signature});
+          }
+          render(); return;
+        }
         if (b.dataset.act === 'edit') return pdEdit(it);
         if (b.dataset.act === 'discard-ai') {
           if (!it.ai_answer_suggestion) return toast('建议已变化，请刷新后重试', 'err');
@@ -276,15 +289,16 @@ async function viewPending() {
 
       // 批量操作
       $('pd-bcommit').onclick = () => { const ids = selIds(); if (!ids.length) return toast('请先勾选要入库的题目', 'err'); pdBatchCommit(ids, byId); };
+      if ($('pd-merge-clear')) $('pd-merge-clear').onclick = () => { st.mergePins = []; render(); };
       $('pd-bmerge').onclick = async () => {
         const ids = selIds();
-        if (ids.length !== 2) return toast('请勾选同一批次中需要合并的两段题目', 'err');
-        const pair = ids.map((id) => byId[id]);
+        const pair = st.mergePins.length ? st.mergePins.slice() : ids.map((id) => byId[id]);
+        if (pair.length !== 2) return toast('请暂存两段片段，或勾选本页两题', 'err');
         if (pair.some((it) => !it || it.kind !== 'run') || pair[0].batch_id !== pair[1].batch_id) return toast('只能合并同一录题批次的两段题目', 'err');
         pair.sort((a, b) => a.index - b.index);
         const earlier = (pair[0].stem || '').replace(/\s+/g, ' ').slice(0, 60), later = (pair[1].stem || '').replace(/\s+/g, ' ').slice(0, 60);
         if (!(await elConfirm({ title: '合并两段跨页题', message: `将按原顺序合并：\n第一段：${earlier}\n第二段：${later}\n合并会保留两页原文与图号，合并后必须重新核对题型、内容和图片。已有答案、解析或互相冲突的字段会被拒绝。`, okText: '确认合并' }))) return;
-        try { await api(`${PD_API}/ext/pending/merge`, { method: 'POST', body: { target_id: pair[0].id, fragment_id: pair[1].id, target_expected: pair[0].content_review_signature, fragment_expected: pair[1].content_review_signature } }); st.sel = {}; st.active = ''; toast('片段已合并，请重新核对', 'ok'); render(); } catch (err) { /* api 已提示 */ }
+        try { await api(`${PD_API}/ext/pending/merge`, { method: 'POST', body: { target_id: pair[0].id, fragment_id: pair[1].id, target_expected: pair[0].content_review_signature, fragment_expected: pair[1].content_review_signature } }); st.sel = {}; st.mergePins = []; st.active = ''; toast('片段已合并，请重新核对', 'ok'); render(); } catch (err) { /* api 已提示 */ }
       };
       $('pd-bdel').onclick = async () => {
         const ids = selIds(); if (!ids.length) return toast('请先勾选要删除的题目', 'err');

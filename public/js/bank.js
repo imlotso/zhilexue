@@ -378,6 +378,7 @@ const BankQuiz = {
         const rightV = ck ? (/^(正确|对|√|T|TRUE|A|Y|YES|是)$/i.test(String(ck.raw || '').trim()) ? '正确' : '错误') : '';
         const cls = (v) => {
           if (!ck) return cur === v ? `on ${v === '正确' ? 'ok' : 'no'}` : '';
+          if (ck.ungraded) return cur === v ? 'on' : '';
           if (v === rightV) return 'r8-right';
           return cur === v ? 'r8-wrong' : '';
         };
@@ -820,7 +821,7 @@ const BankQuiz = {
       <div class="qz-judge-box r8-fb ${ck.ungraded ? 'ung' : ck.ok ? 'ok' : 'no'}">
         <div class="r8-fb-tag">${ck.ungraded ? `${r8Ic('steps')}已提交，本题不自动判分` : ck.match_total ? `${ck.ok ? r8Ic('ok') : r8Ic('no')}连对 ${Number(ck.match_correct)} / ${Number(ck.match_total)} 项` : ck.ok ? `${r8Ic('ok')}答对了` : `${r8Ic('no')}答错了`}</div>
         <div class="qz-jb-r"><span>你的答案</span><em class="${ck.ungraded ? '' : ck.ok ? 'ok' : 'no'}">${esc(ck.my || '未作答')}</em></div>
-        ${ck.ok && !ck.ungraded ? '' : `<div class="qz-jb-r"><span>${ck.ungraded ? '参考答案' : '正确答案'}</span><em class="ok">${quizSolutionContent(q, ck.answer, ck.solution_images)}</em></div>`}
+        ${(ck.ok && !ck.ungraded) || (ck.ungraded && !String(ck.raw || '').trim() && !(ck.solution_images || []).length) ? '' : `<div class="qz-jb-r"><span>${ck.ungraded ? '参考答案' : '正确答案'}</span><em class="ok">${quizSolutionContent(q, ck.answer, ck.solution_images)}</em></div>`}
         ${ck.analysis ? `<div class="qz-jb-ana"><span>解析</span><div class="r8-ana-t">${quizSolutionContent(q, ck.analysis, ck.solution_images)}</div></div>` : ''}
         <div class="r8-fb-acts"><button type="button" class="r8-link" data-fb="1">对题目有反馈？</button></div>
       </div>`;
