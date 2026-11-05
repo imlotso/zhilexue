@@ -45,6 +45,8 @@ const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8');
   const groups = [...groupsSrc.matchAll(/\{ k: '([^']+)', t: '([^']+)'[^}]*?(?:items: \[([^\]]*)\]|leaf: '([^']+)')/g)].map((m) => ({ k: m[1], t: m[2], items: (m[3] || m[4] || '').replace(/'/g, '').split(',').map((s) => s.trim()).filter(Boolean) }));
   log(groups.map((g) => g.t).join('/') === '首页/学生与账号/教学资源/智能题库/学情与报告/系统设置', '左侧菜单：首页 + 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置', groups.map((g) => g.t).join('/'));
   const of = (t) => (groups.find((g) => g.t === t) || { items: [] }).items;
+  log(of('学生与账号').join(',') === 'branches,students,xreport', '「学生与账号」：分校管理 / 学生管理 / 学习报告（R1）', of('学生与账号').join(','));
+  log(of('学情与报告').join(',') === 'grades,talks,care,aireport', '「学情与报告」：成绩管理 / 谈心谈话 / 家校沟通 / AI 学情诊断（R1，「知识点正确率」已并入习题学习报告）', of('学情与报告').join(','));
   log(of('系统设置').includes('mfset'), '「AI 配置中心」在「系统设置」下');
   log(of('智能题库').includes('pending') && of('智能题库').includes('mfq'), '「待审核题目」在「智能题库」下');
   log(/id="t11BadgePending"/.test(admin) && /ext\/badge-counts/.test(admin), '「待审核题目」菜单带角标（取 ext/badge-counts）');
@@ -69,7 +71,7 @@ const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8');
         await p.goto(BASE + '/admin/'); await p.fill('input[type=text],input:not([type])', '15152099970'); await p.fill('input[type=password]', '123456'); await p.keyboard.press('Enter'); await p.waitForTimeout(1500);
         return p;
       };
-      const pages = ['dash', 'students', 'xreport', 'mfq', 'pending', 'videos', 'mfset', 'acc', 'chapters', 'words'];
+      const pages = ['dash', 'students', 'xreport', 'mfq', 'pending', 'videos', 'mfset', 'acc', 'chapters', 'words']; // acc：旧路由，会跳转到 #/xreport
       for (const [w, h, label] of [[1300, 900, '桌面'], [390, 800, '手机']]) {
         const p = await open(w, h);
         const bad = [];
