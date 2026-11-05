@@ -78,7 +78,7 @@
 
 错题 Word 导出（T9，`src/mistake-docx.js`，使用 npm 包 `docx@8.5.0`）：
 - 学生端 `GET /api/stu/mistakes/export-docx`：导出自己的错题为可编辑的 `.docx`（附件下载，响应头 `X-Mistake-Count` = 导出题数）。查询参数：`subject`（学科）、`bucket`（`unresolved` 默认 / `resolved` / `all`）、`days`（最近 N 天）、`from` / `to`（`YYYY-MM-DD`，按错题更新时间）、`ids`（逗号分隔的题目 id）。没有符合条件的错题时返回 `{code:1,msg:'没有符合条件的错题可以导出'}`（JSON，不是空文件）。仅学生账号。
-- 后台 `GET /api/admin/bank/mistakes/export-docx?user_id=`：同样的参数 + `user_id`；分校只能导出自己校区的学生（否则 403 / `无权导出该学生的错题`）。后台入口：学情管理 → 知识点正确率 → 选学生 → 「导出错题 Word」。
+- 后台 `GET /api/admin/bank/mistakes/export-docx?user_id=`：同样的参数 + `user_id`；分校只能导出自己校区的学生（否则 403 / `无权导出该学生的错题`）。后台入口（R1 起）：学习报告 → 习题学习报告 → 每行「导出错题 Word」或「详情」顶部的导出区（可选学科 / 范围 / 近 7·30·90 天）。
 - 版式（沿用客户《错题集》样本）：封面（错题集 / 共 N 道错题 / 日期范围 / 姓名·科目·日期）→「错题练习」（日期、多次答错标记、题号、题干、图片、选项、知识点）→「错题解析」（答案、解析、答题记录）；页脚「第 X 页 / 共 Y 页」。公式按 LaTeX 文本原样写入；图片只支持 JPEG / PNG。
 
 上传真题试卷（T10）：
@@ -130,7 +130,7 @@
 
 ## 学情与报告
 
-- `/api/admin/xreport`（`reports.js`）：`GET /videos`、`/videos/:id/detail`、`/exercises`、`/exercises/:id/detail`
+- `/api/admin/xreport`（`reports.js`）：`GET /videos`、`/videos/:id/detail`、`/exercises`、`/exercises/:id/detail`（R1：两个 `/detail` 对分校账号加了校区校验，别校学生返回 `无权查看该学生`；`/exercises/:id/detail` 的 `papers` 多带 `total_score` 满分）
 - `/api/admin/report`（`report.js`）：`GET/PUT /config`；`POST /papers`；`POST /`（生成）；`POST /export-pdf`；`GET /`；`GET/DELETE /:id`；`POST /:id/retry`；`POST /scan-token`；`POST /api/report-scan`（扫码上传）
 
 ## 单词训练（`word.js`）
