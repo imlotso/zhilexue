@@ -69,7 +69,17 @@ function buildDocx(paras) {
   const stuLogin = await req('/api/login', { method: 'POST', body: { username: '13800000001', password: '123456', role: 'student' } });
   const ST = stuLogin.data && stuLogin.data.token;
   const made = { questions: [], runs: [], batches: [], ups: [] };
-  const pend = async (q = '') => (await req(`${MF}/ext/pending?size=100${q}`, { token: AT })).data;
+  // 测试库可能保留真实试卷草稿；收集全部分页后再按本次夹具定位，不能依赖它刚好处于第一页。
+  const pend = async (q = '') => {
+    const data = (await req(`${MF}/ext/pending?size=100${q}&page=1`, { token: AT })).data;
+    const list = [...data.list];
+    for (let page = 2; list.length < data.total; page++) {
+      const part = (await req(`${MF}/ext/pending?size=100${q}&page=${page}`, { token: AT })).data;
+      if (!part.list.length) break;
+      list.push(...part.list);
+    }
+    return { ...data, list };
+  };
   const findRun = (data, runId) => data.list.filter((x) => x.kind === 'run' && x.batch_id === runId);
   const baseCounts = (await pend()).counts;
 
@@ -116,10 +126,29 @@ function buildDocx(paras) {
   made.runs.push(w2.data && w2.data.run_id);
   const badDoc = buildDocx(['单选题', '1.好题T3' + uniq, 'A. 甲', 'B. 乙', '答案：A', '2.选项写法不对', '（A）甲', '（B）乙', '答案：A', '3.缺答案的题', 'A. 甲', 'B. 乙']);
   const w3 = await req(`${MF}/ext/import-word`, { method: 'POST', token: AT, form: fileForm('坏格式.docx', badDoc) });
-  log(w3.code === 0 && w3.data.total === 1 && w3.data.error_count === 2, '不合规格式：合规的那 1 题进入待审核，另外 2 题给出错误', w3.msg);
+  log(w3.code === 0 && w3.data.total === 2 && w3.data.error_count === 1, '缺答案的题保留并进入待审核，选项写法错误仍报错', w3.msg);
   made.runs.push(w3.data && w3.data.run_id);
   const e0 = (w3.data.errors || []);
-  log(e0.length === 2 && e0[0].para === 6 && /选项格式不对/.test(e0[0].msg) && e0[1].para === 10 && /缺少「答案：」/.test(e0[1].msg), '错误带明确的段号和原因（第 6 段选项格式；第 10 段缺答案）', e0.map((e) => `第${e.para}段 ${e.msg.slice(0, 12)}`).join(' / '));
+  log(e0.length === 1 && e0[0].para === 6 && /选项格式不对/.test(e0[0].msg) && (w3.data.warnings || []).some(w => /未提供答案/.test(w.msg)), '格式错误保留段号，缺答案转为待核对提示', e0.map((e) => `第${e.para}段 ${e.msg.slice(0, 12)}`).join(' / '));
+  const missingWord = await pend(`&source=word&batch_id=${w3.data.run_id}`);
+  log(missingWord.list.length === 2 && missingWord.list.some(x => x.stem === '缺答案的题' && x.answer === '' && x.type === 'single'), 'Word 无答案题真实进入待审核且正式答案为空');
+  const unknownDoc = buildDocx(['选择题', '1.未注明单双选' + uniq, 'A.甲', 'B.乙']);
+  const unknownWord = await req(`${MF}/ext/import-word`, { method: 'POST', token: AT, form: fileForm('未注明题型.docx', unknownDoc, { subject: '数学', stage: 'junior' }) });
+  made.runs.push(unknownWord.data && unknownWord.data.run_id);
+  const unknownItem = findRun(await pend(), unknownWord.data.run_id)[0];
+  log(unknownWord.code === 0 && unknownItem && unknownItem.answer === '' && unknownItem.type_unconfirmed === true, 'Word 无答案未注明单双选：题型待老师确认');
+  if (unknownItem) {
+    const blockedWord = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [unknownItem.id] } });
+    log(!blockedWord.data || !blockedWord.data.question_ids || !blockedWord.data.question_ids.length, 'Word 未确认题型不能入库');
+    const confirmedWord = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: unknownItem.id, patch: { type: 'single', type_confirmed: true } } });
+    log(confirmedWord.code === 0 && confirmedWord.data.type_unconfirmed === false, 'Word 老师确认题型后解除待确认');
+    const confirmedItem = findRun(await pend(), unknownWord.data.run_id)[0];
+    const committedWord = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [confirmedItem.id] } });
+    const committedId = committedWord.data && committedWord.data.question_ids && committedWord.data.question_ids[0];
+    if (committedId) made.questions.push(committedId);
+    const committedQuestion = committedId && (await req(`${MF}/questions/${committedId}`, { token: AT })).data.question;
+    log(!!committedId && committedQuestion.answer === '', 'Word 题型确认后可入库，缺失答案仍为空');
+  }
   const w4 = await req(`${MF}/ext/import-word`, { method: 'POST', token: AT, form: fileForm('空.docx', buildDocx(['这是一段没有题号的文字']), {}) });
   log(w4.code !== 0 && /没认出题目/.test(w4.msg), '没有题目的文档：提示"没认出题目"和格式要求', w4.msg.slice(0, 30));
   log((await req(`${MF}/ext/import-word`, { method: 'POST', token: AT, form: fileForm('a.doc', Buffer.from('x')) })).code !== 0, '老 .doc 格式被拒绝，提示另存为 .docx');
@@ -159,7 +188,7 @@ function buildDocx(paras) {
         { site: 'zujuan', questionId: 'temp-1', stem: 'T3采集临时' + uniq, options: [], answer: '', analysis: '', type: 'answer' }]), 'pending', '2026-11-02 10:00:00').lastInsertRowid;
   made.batches.push(batchCap);
   const qScan = db.prepare(`INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,sort,stage,point,material,source,year,video_id,images,created_at)
-    VALUES (NULL,'数学','七年级','single',?,'[]','','',3,0,'junior','','', '学生上传','',NULL,'[]','2026-11-02 10:00:00')`).run('T3扫码题' + uniq).lastInsertRowid;
+    VALUES (NULL,'数学','七年级','single',?,'["甲","乙"]','','',3,0,'junior','','', '学生上传','',NULL,'[]','2026-11-02 10:00:00')`).run('T3扫码题' + uniq).lastInsertRowid;
   made.questions.push(qScan);
   const upId = db.prepare(`INSERT INTO paper_uploads (user_id, subject, stage, grade, point, note, images, status, question_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
     .run(stuId, '数学', 'junior', '七年级', '', '', '["/pu/t3.jpg"]', 'pending', qScan, '2026-11-02 10:00:00').lastInsertRowid;
@@ -175,8 +204,8 @@ function buildDocx(paras) {
   log(photoItem.original_page === 1 && original.code === 0 && original.data.page === 1 && /t3-source/.test(original.data.url) && noOriginal.code !== 0, '仅记录了页码及页图的题目可查对应原页');
   const batches = await req(`${MF}/ext/pending/batches?source=photo&kw=${encodeURIComponent('T3拍照' + uniq)}`, { token: AT });
   log(batches.code === 0 && batches.data.list.some((b) => b.id === runPhoto && b.total === 3 && b.pending === 3 && b.status === '待核对'), '批次视图返回来源、题数和真实待核对状态');
-  log(cnt.excel - baseCounts.excel === 5 && cnt.word - baseCounts.word === 7 + 10 + 1 && cnt.skill - baseCounts.skill === 2 && cnt.photo - baseCounts.photo === 3 && cnt.capture - baseCounts.capture === 3 && cnt.scan - baseCounts.scan === 1,
-    '各来源计数：Excel 5 / Word 18 / 技能包 2 / 拍照识别 3 / 采集 3 / 手机扫码 1', JSON.stringify(cnt));
+  log(cnt.excel - baseCounts.excel === 5 && cnt.word - baseCounts.word === 7 + 10 + 2 && cnt.skill - baseCounts.skill === 2 && cnt.photo - baseCounts.photo === 3 && cnt.capture - baseCounts.capture === 3 && cnt.scan - baseCounts.scan === 1,
+    '各来源计数：Excel 5 / Word 19 / 技能包 2 / 拍照识别 3 / 采集 3 / 手机扫码 1', JSON.stringify(cnt));
   log(cnt.all === ['photo', 'word', 'excel', 'skill', 'capture', 'scan', 'teacher_scan', 'manual', 'paper', 'lesson'].reduce((sum, key) => sum + (cnt[key] || 0), 0), '「全部」= 各来源之和');
   const labels = new Set(d.list.map((x) => x.source_label));
   log(['拍照识别', 'Word导入', 'Excel导入', '技能包', '网络采集', '手机扫码（错题）'].every((l) => labels.has(l)), '同一个列表里同时出现 6 种来源标签', [...labels].join('/'));
@@ -196,8 +225,14 @@ function buildDocx(paras) {
   const ed = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: photo1, patch: { stem: 'T3拍照一改' + uniq, answer: 'A', analysis: '改后的解析', point: 'T3点', difficulty: 4, type: 'multi', options: [{ label: 'A', text: '甲甲' }, { label: 'B', text: '乙乙' }, { label: 'C', text: '丙' }] } } });
   log(ed.code === 0 && ed.data.stem === 'T3拍照一改' + uniq && ed.data.type === 'multi' && ed.data.options.length === 3 && ed.data.difficulty === 4 && ed.data.analysis === '改后的解析', '编辑拍照识别的题卡：题干/答案/解析/题型/选项/难度', ed.msg);
   // 夹具模拟的是未记录识别来源的历史题，修改后需先由老师核对当前答案和解析。
-  const reviewed = ed.data && await req(`${MF}/intake/runs/${runPhoto}/aifill/confirm`, { method: 'POST', token: AT, body: { index: 0, legacy: true, expected: ed.data.ai_legacy_signature } });
-  log(!!(ed.data && ed.data.ai_legacy_pending && reviewed && reviewed.code === 0), '历史拍照识别答案来源不确定，老师核对后才能入库', reviewed && reviewed.msg);
+  const reviewedAnswer = ed.data && await req(`${MF}/intake/runs/${runPhoto}/aifill/confirm`, { method: 'POST', token: AT, body: { index: 0, legacy: true, expected: ed.data.ai_legacy_signature, fields: ['answer'] } });
+  const reviewed = reviewedAnswer && reviewedAnswer.code === 0 && await req(`${MF}/intake/runs/${runPhoto}/aifill/confirm`, { method: 'POST', token: AT, body: { index: 0, legacy: true, expected: ed.data.ai_legacy_signature, fields: ['analysis'] } });
+  log(!!(ed.data && ed.data.ai_legacy_pending && reviewedAnswer && reviewedAnswer.code === 0 && reviewed && reviewed.code === 0), '历史拍照识别答案和解析由老师逐项核对后才能入库', reviewed && reviewed.msg);
+  const photoReviewed = findRun(await pend(`&source=photo&batch_id=${runPhoto}`), runPhoto).find((x) => x.index === 0);
+  if (photoReviewed && photoReviewed.figure_review_issue) {
+    const f = await req(`${MF}/ext/pending/figure/confirm`, { method: 'POST', token: AT, body: { id: photoReviewed.id, expected: photoReviewed.figure_review_signature } });
+    log(f.code === 0, '模拟老师对照原页确认图文归属', f.msg);
+  }
   const capEd = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: `cap:${batchCap}:1`, patch: { stem: 'T3采集二改' + uniq, point: '甲、乙' } } });
   log(capEd.code === 0 && capEd.data.stem === 'T3采集二改' + uniq && capEd.data.point === '甲、乙', '编辑采集的题', capEd.msg);
   const scEd = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: `up:${upId}`, patch: { stem: 'T3扫码题改' + uniq, answer: 'C', point: '扫码点' } } });
@@ -338,7 +373,7 @@ function buildDocx(paras) {
     made.questions.push(...((r5.data && r5.data.question_ids) || []));
     log(r5.code === 0 && r5.data.committed === 1, '网络采集的题补上学科学段后入库', r5.msg);
     const qS2 = db.prepare(`INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,sort,stage,point,material,source,year,video_id,images,created_at)
-      VALUES (NULL,'数学','','single',?,'[]','','',3,0,'','','', '学生上传','',NULL,'[]','2026-11-03 10:00:00')`).run('R0扫码缺学段' + uniq).lastInsertRowid;
+      VALUES (NULL,'数学','','single',?,'["甲","乙"]','','',3,0,'','','', '学生上传','',NULL,'[]','2026-11-03 10:00:00')`).run('R0扫码缺学段' + uniq).lastInsertRowid;
     made.questions.push(qS2);
     const upId2 = db.prepare(`INSERT INTO paper_uploads (user_id, subject, stage, grade, point, note, images, status, question_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
       .run(stuId, '数学', '', '', '', '', '["/pu/r0.jpg"]', 'pending', qS2, '2026-11-03 10:00:00').lastInsertRowid;

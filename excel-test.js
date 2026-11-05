@@ -89,5 +89,38 @@ XLSX.utils.book_append_sheet(alternateWb, XLSX.utils.aoa_to_sheet([['题目','�
 const alternate = parseBankWorkbook(XLSX.write(alternateWb, { type:'buffer', bookType:'xlsx' }));
 ok(alternate.items.length === 1 && alternate.items[0].difficulty === 1 && alternate.items[0].difficulty_score_10 === 1, '带范围的十级表头不会误判为旧五星列');
 
+// 无答案的真实试卷允许进入待审核，任何题型都不能把原顺序或别题答案当成本题标准答案。
+const missingWb = XLSX.utils.book_new();
+const addMissing = (name, rows) => XLSX.utils.book_append_sheet(missingWb, XLSX.utils.aoa_to_sheet(rows), name);
+addMissing('单选题', [['题目','选项A','选项B','答案'], ['无答案单选','甲','乙','']]);
+addMissing('多选题', [['题目','选项A','选项B','答案'], ['无答案多选','甲','乙','']]);
+addMissing('判断题', [['题目','答案'], ['无答案判断','']]);
+addMissing('填空题', [['题目','第1空答案','第2空答案'], ['无答案填空 __ __','','']]);
+addMissing('排序题', [['题目','选项A','选项B','选项C','答案'], ['无答案排序','甲','乙','丙','']]);
+addMissing('组合题', [['题目'], ['乱序词；其他词']]);
+addMissing('完形填空题', [['原文','小题序号','选项A','选项B','正确选项'], ['完形共享材料',1,'甲','乙','']]);
+addMissing('阅读理解题', [['原文','小题序号','小题题型','小题题目','选项A','选项B','正确选项','第1空答案'], ['阅读共享材料',1,'选择题','阅读选择','甲','乙','',''], ['',2,'填空题','阅读填空 __','','','','']]);
+addMissing('选择填空题', [['题干','小题序号','小题题目','小题答案','干扰项1','干扰项2','选项A','选项B'], ['选择填空共享材料',1,'完整选项无答案','','','','甲','乙']]);
+const missingResult = parseBankWorkbook(XLSX.write(missingWb, { type:'buffer', bookType:'xlsx' }));
+ok(missingResult.errors.length === 0 && missingResult.items.length === 10 && missingResult.items.every(q => q.answer === ''), '单选、多选、判断、填空、排序、完形、阅读及词块题缺答案时保留为空', missingResult.errors.join('；'));
+const missingCloze = missingResult.items.find(q => q.material === '完形共享材料');
+const missingReading = missingResult.items.filter(q => q.material === '阅读共享材料');
+const missingWords = missingResult.items.find(q => q.stem === '将所给的词块排列成一句通顺的话');
+const missingSelection = missingResult.items.find(q => q.stem === '完整选项无答案');
+ok(!!missingCloze && missingReading.length === 2 && missingReading.every(q => q.group_ref) && missingWords.options.join('|') === '乱序词|其他词' && missingWords.answer === '' && missingSelection.options.join('|') === '甲|乙', '缺答案仍保留共用材料、组标识、原词块和显式选项顺序');
+
+const invalidWb = XLSX.utils.book_new();
+const addInvalid = (name, rows) => XLSX.utils.book_append_sheet(invalidWb, XLSX.utils.aoa_to_sheet(rows), name);
+addInvalid('单选题', [['题目','选项A','选项B','答案'], ['越界','甲','乙','C'], ['答案重复','甲','乙','A,A'], ['合法单选','甲','乙','B']]);
+addInvalid('多选题', [['题目','选项A','选项B','答案'], ['多选少于两个','甲','乙','A'], ['合法多选','甲','乙','A,B']]);
+addInvalid('判断题', [['题目','答案'], ['无效判断','不确定']]);
+addInvalid('填空题', [['题目','第1空答案','第2空答案'], ['缺少前空','', '后空']]);
+addInvalid('排序题', [['题目','选项A','选项B','选项C','答案'], ['排序重复','甲','乙','丙','AAB'], ['排序缺项','甲','乙','丙','AB'], ['排序混入无效字符','甲','乙','丙','A?BC'], ['合法排序','甲','乙','丙','CAB']]);
+addInvalid('选择填空题', [['题干','小题序号','小题题目','小题答案','干扰项1','干扰项2','选项A','选项B'], ['不完整选项组',1,'缺少正确选项','','错误一','错误二','',''], ['','2','显式完整选项','乙','','','甲','乙']]);
+const invalidResult = parseBankWorkbook(XLSX.write(invalidWb, { type:'buffer', bookType:'xlsx' }));
+ok(invalidResult.errors.length === 9 && invalidResult.items.length === 4 && invalidResult.errors.some(e => /第 1 空答案缺失/.test(e)) && invalidResult.errors.some(e => /提供完整的选项/.test(e)), '非空无效答案严格报错，答案缺失时干扰项不能冒充完整选项', invalidResult.errors.join('；'));
+const explicitChoice = invalidResult.items.find(q => q.stem === '显式完整选项');
+ok(explicitChoice && explicitChoice.options.join('|') === '甲|乙' && explicitChoice.answer === 'B' && invalidResult.items.find(q => q.stem === '合法排序').answer === '3,1,2', '显式答案严格对应原选项，合法排序保持标准化');
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);

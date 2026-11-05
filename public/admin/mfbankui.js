@@ -224,11 +224,11 @@ async function mfPaperDetail(id) {
   const render = () => {
     const rows = d.rows.map((r, i) => r.kind === 'text'
       ? `<tr><td>${i + 1}</td><td colspan="4"><b>【文本块】</b>${esc(r.text_body)}</td>
-          <td><button class="btn ghost xs" data-up="${r.id}">↑</button><button class="btn ghost xs" data-down="${r.id}">↓</button>
+          <td><button class="btn ghost xs" data-edit-text="${r.id}">编辑</button><button class="btn ghost xs" data-up="${r.id}">↑</button><button class="btn ghost xs" data-down="${r.id}">↓</button>
           <button class="btn ghost xs" data-rm="${r.id}">删</button></td></tr>`
       : `<tr><td>${i + 1}</td><td>${esc((r.question && r.question.stem || '（题目已删除）').slice(0, 90))}</td>
           <td>${MF_TYPE_NAME[r.question && r.question.type] || ''}</td>
-          <td><input class="inp xs" style="width:70px" type="number" value="${r.score || 0}" data-score="${r.id}"></td>
+          <td><input aria-label="题目满分" class="inp xs" style="width:70px" type="number" min="0" step="0.01" value="${r.score || 0}" data-score="${r.id}">${r.question && r.question.type === 'multi' ? `<label style="display:block;font-size:12px">少选分 <input aria-label="少选且所选均正确时的分值" class="inp xs" style="width:70px" type="number" min="0" step="0.01" placeholder="未设置" value="${r.partial_score == null ? '' : Number(r.partial_score)}" data-partial-score="${r.id}"></label>` : ''}</td>
           <td>${r.question ? (r.question.subject || '-') : ''}</td>
           <td><button class="btn ghost xs" data-up="${r.id}">↑</button><button class="btn ghost xs" data-down="${r.id}">↓</button>
           <button class="btn ghost xs" data-rm="${r.id}">删</button></td></tr>`).join('');
@@ -242,7 +242,8 @@ async function mfPaperDetail(id) {
         <button class="btn ghost sm" id="peLayout">排版设置</button>
         <button class="btn sm" id="pePrev">预览 / 打印</button></span>
     </div>
-    <table class="tb"><thead><tr><th style="width:40px">序</th><th>题干</th><th style="width:70px">题型</th><th style="width:90px">分值</th><th style="width:80px">学科</th><th style="width:140px">操作</th></tr></thead>
+    <p class="hint">多选题少选分留空时只对全选正确给分；设置后只选对部分且没有错选时给填写的分值。</p>
+    <table class="tb"><thead><tr><th style="width:40px">序</th><th>题干</th><th style="width:70px">题型</th><th style="width:110px">分值</th><th style="width:80px">学科</th><th style="width:140px">操作</th></tr></thead>
       <tbody id="peRows">${render()}</tbody></table>
     <div class="row"><button class="btn ghost sm" id="peExport">导出 HTML（教师版）</button>
       <button class="btn ghost sm" id="peDoc">导出 Word(.doc)</button>
@@ -253,8 +254,24 @@ async function mfPaperDetail(id) {
     onMount: (w) => {
       const refresh = async () => { d = await load(); w.querySelector('#peRows').innerHTML = render(); bind(); };
       const bind = () => {
+        w.querySelectorAll('[data-edit-text]').forEach((b) => {
+          b.onclick = () => {
+            const row = d.rows.find((r) => Number(r.id) === Number(b.dataset.editText) && r.kind === 'text');
+            if (!row) return;
+            modal({ title: '编辑文本块', body: `<div class="field"><label>内容</label><textarea id="ptEditBody" class="inp" rows="4">${esc(row.text_body || '')}</textarea></div>`,
+              onOk: async (ww, showErr) => {
+                const value = ww.querySelector('#ptEditBody').value;
+                if (!value.trim()) return showErr('文本块内容不能为空');
+                await api(`${MF_API}/papers/${id}/rows/${row.id}`, { method: 'PUT', body: { text_body: value } });
+                await refresh();
+              } });
+          };
+        });
         w.querySelectorAll('[data-score]').forEach((inp) => {
-          inp.onchange = async () => { await api(`${MF_API}/papers/${id}/rows/${inp.dataset.score}`, { method: 'PUT', body: { score: Number(inp.value) || 0 } }); };
+          inp.onchange = async () => { try { await api(`${MF_API}/papers/${id}/rows/${inp.dataset.score}`, { method: 'PUT', body: { score: inp.value === '' ? '' : Number(inp.value) } }); await refresh(); } catch (_) { await refresh(); } };
+        });
+        w.querySelectorAll('[data-partial-score]').forEach((inp) => {
+          inp.onchange = async () => { try { await api(`${MF_API}/papers/${id}/rows/${inp.dataset.partialScore}`, { method: 'PUT', body: { partial_score: inp.value === '' ? null : Number(inp.value) } }); await refresh(); } catch (_) { await refresh(); } };
         });
         w.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = async () => { await api(`${MF_API}/papers/${id}/rows/${b.dataset.rm}`, { method: 'DELETE' }); refresh(); }; });
         w.querySelectorAll('[data-up],[data-down]').forEach((b) => {
@@ -446,6 +463,11 @@ async function viewMfIntake() {
 
 /** 题卡 HTML（右栏一卡）；cats = { chapters:[{id,name,grade,term}], points:[名] } 题库分类清单 */
 function mfCardHtml(c, i, cats) {
+  if (c._merged_into) {
+    const target = mfCardSnap.findIndex(x => x && x._ai_card_id && x._ai_card_id === c._merged_into.card_id);
+    return `<div class="mf-card2 mf-wk-card" data-ci="${i}"><div class="mf-wk-chead"><b>第 ${i + 1} 张：${target >= 0 ? `已合并到第 ${target + 1} 张` : '已合并'}</b><span class="mf-wk-cmeta">原片段已保留，只读归档</span></div></div>`;
+  }
+  if (c.committed) return `<div class="mf-card2 mf-wk-card" data-ci="${i}"><div class="mf-wk-chead"><b>第 ${i + 1} 张：已入库</b><span class="mf-wk-cmeta">原片段已保留，只读归档</span></div></div>`;
   const types = MF_CARD_TYPES.includes(c.questionType) ? MF_CARD_TYPES : [c.questionType || '解答'].concat(MF_CARD_TYPES);
   const figs = (c.figures || []).filter(Boolean).map((f) => (typeof f === 'string' ? { url: f } : f)).filter((f) => f.url);
   cats = cats || { chapters: [], points: [] };
@@ -473,7 +495,7 @@ function mfCardHtml(c, i, cats) {
       <div class="field wide"><label>答案</label><textarea class="inp" rows="1" data-f="answer" data-i="${i}">${esc(c.answer || '')}</textarea></div>
       <div class="field wide"><label>解析</label><textarea class="inp" rows="2" data-f="analysis" data-i="${i}">${esc(c.analysis || '')}</textarea></div>
     </div>${legacyPending ? '<div class="mf-tip">历史题目答案或解析的来源无法确认，请到待审核对照原文并确认后再入库。</div>' : ''}
-    ${suggestion ? `<div class="mf-tip"><b>${suggestion.source === 'recognition' ? 'AI 转写内容（请对照原文核对，未经确认不会入库）' : 'AI 建议（未经确认，不会入库）'}</b>${suggestion.answer ? `<div><b>答案建议：</b>${esc(suggestion.answer)} ${!String(c.answer || '').trim() ? `<button type="button" class="btn ghost xs" data-ai-accept="answer" data-ai-index="${i}">采纳答案</button>` : ''}</div>` : ''}${suggestion.analysis ? `<div><b>解析建议：</b>${esc(suggestion.analysis)} ${!String(c.analysis || '').trim() ? `<button type="button" class="btn ghost xs" data-ai-accept="analysis" data-ai-index="${i}">采纳解析</button>` : ''}</div>` : ''}</div>` : ''}</div>`;
+    ${suggestion ? `<div class="mf-tip"><b>${suggestion.source === 'recognition' ? 'AI 转写内容（请对照原文核对，未经确认不会入库）' : 'AI 建议（未经确认，不会入库）'}</b>${suggestion.source !== 'recognition' ? '<p>建议仅依据题目文字生成，未读取题图；答案和解析可能不一致，请分别核对。</p>' : ''}${suggestion.answer ? `<div><b>答案建议：</b>${esc(suggestion.answer)} ${!String(c.answer || '').trim() ? `<button type="button" class="btn ghost xs" data-ai-accept="answer" data-ai-index="${i}">采纳答案</button>` : ''}</div>` : ''}${suggestion.analysis ? `<div><b>解析建议：</b>${esc(suggestion.analysis)} ${!String(c.analysis || '').trim() ? `<button type="button" class="btn ghost xs" data-ai-accept="analysis" data-ai-index="${i}">采纳解析</button>` : ''}</div>` : ''}</div>` : ''}</div>`;
 }
 
 /** 从右栏 DOM 收集题卡（编辑内容 + 勾选）；非输入型字段（页码/来源/插图）从快照回填 */
@@ -483,6 +505,7 @@ function mfCollectCards(root) {
   root.querySelectorAll('.mf-wk-card').forEach((el) => {
     const i = Number(el.dataset.ci);
     const snap = mfCardSnap[i] || {};
+    if (snap._merged_into || snap.committed) { out.push(snap); return; }
     const c = { ...snap, options: [], suggestedTags: snap.suggestedTags || [], figures: snap.figures || [], page: snap.page || 0, qno: snap.qno || '', via: snap.via || '' };
     el.querySelectorAll('[data-f]').forEach((f) => {
       const v = f.value;
@@ -729,9 +752,10 @@ async function mfIntakeWork(runId) {
     view.querySelector('#wkCommit').onclick = () => mfIntakeCommit();
     view.querySelector('#wkAsPaper').onclick = async () => {
       const cards = mfCollectCards(view.querySelector('#wkCards'));
-      if (!cards.length || cards.some(c => !String(c.stem || '').trim())) return toast('请先识别并检查每道题的题干', 'err');
+      const active = cards.filter(c => !c._merged_into);
+      if (!active.length || active.some(c => !String(c.stem || '').trim())) return toast('请先识别并检查每道题的题干', 'err');
       await api(`${MF_API}/intake/runs/${runId}/drafts`, { method: 'PUT', body: { drafts: cards } });
-      modal({ title: '生成试卷草稿', okText: '保存并审核', body: `<div class="field"><label>试卷名称</label><input class="inp" id="wkPaperTitle" value="${esc(run.title)}"></div><div class="field"><label>年份（选填）</label><input class="inp" id="wkPaperYear" inputmode="numeric" maxlength="4"></div><div class="field"><label>试卷类型</label><select id="wkPaperCategory">${mfExamOptions()}</select></div><div class="field"><label>教材版本</label><select id="wkPaperEdition"><option value="">未指定</option></select></div><div class="field"><label>册别</label><select id="wkPaperTerm">${mfTermOptions()}</select></div><p class="hint">${cards.length} 道题会进入待审核，审核通过后自动加入试卷；章节和知识点需在审核时核对。</p>`,
+      modal({ title: '生成试卷草稿', okText: '保存并审核', body: `<div class="field"><label>试卷名称</label><input class="inp" id="wkPaperTitle" value="${esc(run.title)}"></div><div class="field"><label>年份（选填）</label><input class="inp" id="wkPaperYear" inputmode="numeric" maxlength="4"></div><div class="field"><label>试卷类型</label><select id="wkPaperCategory">${mfExamOptions()}</select></div><div class="field"><label>教材版本</label><select id="wkPaperEdition"><option value="">未指定</option></select></div><div class="field"><label>册别</label><select id="wkPaperTerm">${mfTermOptions()}</select></div><p class="hint">${active.length} 道题会进入待审核，审核通过后自动加入试卷；章节和知识点需在审核时核对。</p>`,
         onMount: async (w) => { const trees=await tpTrees('textbook'); const editions=tpEditions(trees,{kind:'textbook',subject:view.querySelector('#wkSub').value,stage:view.querySelector('#wkStage').value}).filter(Boolean); w.querySelector('#wkPaperEdition').innerHTML='<option value="">未指定</option>'+editions.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join(''); },
         onOk: async (w, showErr) => {
           const title = w.querySelector('#wkPaperTitle').value.trim();

@@ -24,23 +24,26 @@
     { code: 'writing', label: '书面表达', type: 'answer', aliases: ['作文', '英语作文'] },
     { code: 'calculation', label: '计算', type: 'answer', subject: '数学' },
     { code: 'math_match', label: '连线', type: 'sort', subject: '数学' },
-    { code: 'drawing', label: '作图', type: 'answer', subject: '数学' },
+    { code: 'drawing', label: '作图', type: 'answer', subject: '数学', subjects: ['数学', '物理', '化学'] },
   ];
   function find(value) {
     const v = String(value || '').trim().replace(/题$/, '');
     return list.find((x) => x.code === v || x.label === v || (x.aliases || []).includes(v)) || null;
   }
+  function matchesSubject(item, subject) {
+    return !!item && (Array.isArray(item.subjects) ? item.subjects.includes(subject) : subject === (item.subject || '英语'));
+  }
   function compatible(value, subject, type) {
     const found = find(value);
-    return found && subject === (found.subject || '英语') && found.type === type ? found.code : '';
+    return found && matchesSubject(found, subject) && found.type === type ? found.code : '';
   }
   function fillSelect(select, subject, type, current) {
     if (!select) return;
     const previous = current === undefined ? select.value : current;
     select.replaceChildren(new Option('不细分', ''));
-    list.filter((x) => (x.subject || '英语') === subject && x.type === type).forEach((x) => select.add(new Option(x.label, x.code)));
+    list.filter((x) => matchesSubject(x, subject) && x.type === type).forEach((x) => select.add(new Option(x.label, x.code)));
     select.value = compatible(previous, subject, type);
   }
   function isMatch(value) { return value === 'listen_match' || value === 'math_match'; }
-  return { list, find, compatible, fillSelect, isMatch };
+  return { list, find, compatible, matchesSubject, fillSelect, isMatch };
 });

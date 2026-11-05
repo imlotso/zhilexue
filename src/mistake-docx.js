@@ -27,7 +27,6 @@ const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const BODY_FONT = { ascii: 'Times New Roman', hAnsi: 'Times New Roman', eastAsia: '宋体', cs: 'Times New Roman' };
 const SANS_FONT = { ascii: 'Arial', hAnsi: 'Arial', eastAsia: '微软雅黑', cs: 'Arial' };
 const MAX_IMG_W = 480;        // 内嵌图片最大宽度（像素，约 12.7cm）
-const MAX_IMGS_PER_Q = 4;
 
 const optText = (t) => (typeof t === 'string' ? t : (t && typeof t === 'object' ? String(t.text || t.content || '') : String(t == null ? '' : t)));
 const dateOf = (s) => String(s || '').slice(0, 10);
@@ -242,6 +241,25 @@ async function imageParagraph(src) {
   return new Paragraph({ children: [run], spacing: { before: 60, after: 100 }, keepNext: true });
 }
 
+/** 带 [图N] 的文字按原位置放入题图，避免选项图跑到题干末尾。 */
+async function imageTextBlocks(text, images, prefix = [], opts = {}) {
+  const out = []; let current = prefix.slice();
+  for (const part of String(text || '').split(/(\[图\d+\])/g)) {
+    const m = /^\[图(\d+)\]$/.exec(part), src = m && images[Number(m[1]) - 1];
+    if (src) { if (current.length) out.push(P(current, opts)); current = []; out.push(await imageParagraph(src)); }
+    else current.push(...lines(part));
+  }
+  if (current.length) out.push(P(current, opts));
+  return out;
+}
+
+/** 明确引用的答案、解析图片不得作为未定位的旧题图片提前附到题面。 */
+function imageRefs(...texts) {
+  const refs = new Set();
+  for (const text of texts) for (const m of String(text || '').matchAll(/\[图(\d+)\]/g)) refs.add(Number(m[1]) - 1);
+  return refs;
+}
+
 /** 选项：都很短 → 两列表格（和样本一致）；否则一行一个 */
 async function optionBlocks(q) {
   const match = await matchQuestionBlocks(q);
@@ -249,6 +267,11 @@ async function optionBlocks(q) {
   const opts = (q.options || []).map(optText);
   if (!opts.length || q.type === 'fill' || q.type === 'sort' || q.type === 'judge') return [];
   const items = opts.map((t, i) => `${LETTERS[i]}. ${t}`);
+  if (items.some(s => /\[图\d+\]/.test(s))) {
+    const blocks = [];
+    for (const item of items) blocks.push(...await imageTextBlocks(item, q.images || [], [], { indent: { left: 360 }, keepLines: true }));
+    return blocks;
+  }
   const short = items.every((s) => s.length <= 22 && !/\n/.test(s));
   if (!short) return items.map((s) => P(lines(s), { indent: { left: 360 }, keepLines: true }));
   const rows = [];
@@ -289,12 +312,14 @@ async function buildMistakeDocx({ student, subject, items, generatedAt, from, to
     const m = list[i];
     children.push(P([T(dateOf(m.updated_at), { bold: true, size: 26, font: SANS_FONT })], { keepNext: true, spacing: { before: 200, after: 60 } }));
     if (Number(m.wrong_count) >= 2) children.push(P([T('⚑ 多次答错', { bold: true, size: 18, color: 'D93025', font: SANS_FONT })], { keepNext: true, spacing: { after: 40 } }));
-    if (m.material) children.push(P(lines(m.material, { color: '444444', size: 20 }), { keepNext: true, indent: { left: 240 }, border: { left: { style: BorderStyle.SINGLE, size: 12, color: 'BBBBBB', space: 6 } } }));
-    children.push(P([T(`${i + 1}. `, { bold: true }), ...lines(m.stem)], { keepNext: true, keepLines: true }));
-    const matchText = QSubtype.isMatch(m.question_subtype) ? [...MatchQ.list(m.match_prompts), ...(m.options || []).map(optText)].join(' ') : '';
-    const used = new Set([...matchText.matchAll(/\[图(\d+)\]/g)].map((x) => Number(x[1]) - 1));
-    for (const [j, src] of (m.images || []).slice(0, MAX_IMGS_PER_Q).entries()) if (!used.has(j)) children.push(await imageParagraph(src));
+    const images = Array.isArray(m.images) ? m.images : [];
+    if (m.material) children.push(...await imageTextBlocks(m.material, images, [], { keepNext: true, indent: { left: 240 } }));
+    children.push(...await imageTextBlocks(m.stem, images, [T(`${i + 1}. `, { bold: true })], { keepNext: true, keepLines: true }));
+    const referenced = [m.material, m.stem, ...MatchQ.list(m.match_prompts), ...(m.options || []).map(optText)].join(' ');
+    const used = imageRefs(referenced);
+    const answerRefs = imageRefs(m.answer, m.analysis);
     (await optionBlocks(m)).forEach((b) => children.push(b));
+    for (const [j, src] of images.entries()) if (src && !used.has(j) && !answerRefs.has(j)) children.push(await imageParagraph(src));
     if (m.point) children.push(P([T('知识点： ', { bold: true, font: SANS_FONT, size: 20 }), T(m.point, { size: 20 })], { spacing: { before: 80, after: 160 } }));
     else children.push(P([T('')], { spacing: { after: 120 } }));
   }
@@ -310,8 +335,9 @@ async function buildMistakeDocx({ student, subject, items, generatedAt, from, to
     children.push(P([T(dateOf(m.updated_at), { bold: true, size: 26, font: SANS_FONT })], { keepNext: true, spacing: { before: 200, after: 60 } }));
     if (Number(m.wrong_count) >= 2) children.push(P([T('⚑ 多次答错', { bold: true, size: 18, color: 'D93025', font: SANS_FONT })], { keepNext: true, spacing: { after: 40 } }));
     children.push(P([T(`${i + 1}.`, { bold: true })], { keepNext: true }));
-    children.push(P([T('答案：', { bold: true, font: SANS_FONT, size: 20 }), ...lines(answerText(m, m.answer) || '（暂无）')], { keepNext: true }));
-    children.push(P([T('解析：', { bold: true, font: SANS_FONT, size: 20 }), ...lines(m.analysis || '（暂无解析）')], { keepLines: false }));
+    const images = Array.isArray(m.images) ? m.images : [];
+    children.push(...await imageTextBlocks(answerText(m, m.answer) || '（暂无）', images, [T('答案：', { bold: true, font: SANS_FONT, size: 20 })], { keepNext: true }));
+    children.push(...await imageTextBlocks(m.analysis || '（暂无解析）', images, [T('解析：', { bold: true, font: SANS_FONT, size: 20 })], { keepLines: false }));
     const recs = m.records || [];
     if (recs.length) {
       children.push(P([T('答题记录：', { bold: true, font: SANS_FONT, size: 20 })], { keepNext: true, spacing: { before: 60, after: 20 } }));
@@ -376,4 +402,4 @@ async function sendMistakeDocx(db, res, student, query = {}) {
   res.end(buf);
 }
 
-module.exports = { buildMistakeDocx, collectMistakes, answerText, readImageBytes, sendMistakeDocx, lines, imageParagraph, matchQuestionBlocks };
+module.exports = { buildMistakeDocx, collectMistakes, answerText, readImageBytes, sendMistakeDocx, lines, imageParagraph, imageTextBlocks, imageRefs, matchQuestionBlocks };

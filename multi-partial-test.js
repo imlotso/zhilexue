@@ -1,0 +1,14 @@
+'use strict';
+const assert = require('assert');
+const { multiPartialEligible, judgeQ } = require('./src/bank-judge');
+const QSubtype = require('./public/js/question-subtypes');
+const q = { type: 'multi', answer: 'A,B' };
+for (const answer of ['A', 'b', 'A,A']) assert.strictEqual(multiPartialEligible(q, answer), true, answer);
+for (const answer of ['', 'AB', 'AC', 'C', 'A?', 'K', 'A1']) assert.strictEqual(multiPartialEligible(q, answer), false, answer);
+assert.strictEqual(judgeQ(q, 'AB'), true);
+assert.strictEqual(multiPartialEligible({ type: 'single', answer: 'A,B' }, 'A'), false);
+assert.strictEqual(multiPartialEligible({ type: 'multi', answer: 'A' }, 'A'), false);
+assert.strictEqual(QSubtype.compatible('drawing', '物理', 'answer'), 'drawing');
+assert.strictEqual(QSubtype.compatible('drawing', '化学', 'answer'), 'drawing');
+assert.strictEqual(QSubtype.compatible('drawing', '英语', 'answer'), '');
+console.log('多选真子集、错选与空答边界及物理作图题型通过');

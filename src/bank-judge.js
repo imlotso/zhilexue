@@ -10,6 +10,19 @@
 const LETTERS = 'ABCDEFGHIJ';
 const MatchQ = require('./match-question');
 
+// 多选少选规则只判断资格，具体分值由试卷或老师明确配置。
+function multiPartialEligible(q, myAnswer) {
+  if (!q || q.type !== 'multi') return false;
+  const choices = (value) => {
+    const text = String(value == null ? '' : value).trim().toUpperCase();
+    if (!text || !/^[A-J\s,，、;；]+$/.test(text)) return null;
+    return new Set(text.match(/[A-J]/g) || []);
+  };
+  const expected = choices(q.answer), selected = choices(myAnswer);
+  return !!(expected && expected.size >= 2 && selected && selected.size > 0 &&
+    selected.size < expected.size && [...selected].every((letter) => expected.has(letter)));
+}
+
 // 连线每个左项等权，空项记 0；标准答案仍须满足对应题型的完整约束。
 function matchScore(q, myAnswer) {
   if (!q || q.type !== 'sort' || !['math_match', 'listen_match'].includes(q.question_subtype)) return null;
@@ -79,4 +92,4 @@ function judgeQ(q, myAnswer) {
   return mine === ans;
 }
 
-module.exports = { judgeQ, matchScore };
+module.exports = { judgeQ, matchScore, multiPartialEligible };

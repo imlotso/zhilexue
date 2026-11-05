@@ -36,11 +36,21 @@ async function textOf(buf) {
   for (const mode of ['student', 'answers', 'teacher']) {
     const zip = await JSZip.loadAsync(await buildPaperDocx(paper, [pictorial], mode));
     const xml = await zip.file('word/document.xml').async('string');
-    assert(xml.includes('算式四') && (xml.match(/<w:drawing>/g) || []).length === 2, `${mode} 中两个图形选项应嵌入对应位置`);
+    assert(xml.includes('算式四') && (xml.match(/<w:drawing>/g) || []).length === (mode === 'student' ? 2 : 6), `${mode} 的选项及答案中引用的图片应各按位置显示`);
   }
   const pictorialMistake = { ...pictorial, match_prompts: JSON.parse(pictorial.match_prompts), options: JSON.parse(pictorial.options), images: JSON.parse(pictorial.images), records: [] };
   const mistakeZip = await JSZip.loadAsync(await buildMistakeDocx({ student: {}, items: [pictorialMistake] }));
   const mistakeXml = await mistakeZip.file('word/document.xml').async('string');
-  assert((mistakeXml.match(/<w:drawing>/g) || []).length === 2, '错题集应将图形放到匹配选项');
+  assert((mistakeXml.match(/<w:drawing>/g) || []).length === 6, '错题集应将图形放到匹配选项及相应答案');
+  const choiceImage = { ...question, type:'single', question_subtype:'', stem:'请选择', material:'材料图 [图1]', options:JSON.stringify([{text:'甲 [图2]'}, {text:'乙'}]), images:JSON.stringify([pixel,pixel]), answer:'A' };
+  const choiceZip = await JSZip.loadAsync(await buildPaperDocx(paper, [choiceImage], 'student'));
+  const choiceXml = await choiceZip.file('word/document.xml').async('string');
+  assert.strictEqual((choiceXml.match(/<w:drawing>/g) || []).length, 2, '普通选择题的材料图和选项图应导出');
+  assert(!choiceXml.includes('[图1]') && !choiceXml.includes('[图2]'), '实际图像应替换相应占位符');
+  const choiceMistake = { ...choiceImage, options: JSON.parse(choiceImage.options), images: JSON.parse(choiceImage.images), records: [] };
+  const choiceMistakeZip = await JSZip.loadAsync(await buildMistakeDocx({ student:{}, items:[choiceMistake], includeAnswers:false }));
+  const choiceMistakeXml = await choiceMistakeZip.file('word/document.xml').async('string');
+  assert.strictEqual((choiceMistakeXml.match(/<w:drawing>/g) || []).length, 2, '错题集材料与普通选项的图片应按位置输出');
+  assert(!choiceMistakeXml.includes('[图1]') && !choiceMistakeXml.includes('[图2]'), '错题集不应遗留已补充图片占位符');
   console.log('连线和听力匹配的学生版、教师版、附答案版及错题 Word 导出通过');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

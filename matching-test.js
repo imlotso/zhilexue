@@ -13,6 +13,11 @@ assert.strictEqual(subtype.compatible('连线题', '英语', 'sort'), '');
 assert(match.normalize(['甲', '乙'], opts, '1,2').error);
 assert(match.normalize(['甲', '乙', '丙'], opts, '1,1,3').error);
 assert(match.normalize(['甲', '乙', '丙'], opts, '').error);
+assert.deepStrictEqual(match.normalize(['甲', '乙', '丙'], opts, '', true), { prompts: ['甲', '乙', '丙'], answer: '' });
+assert(match.normalize(['甲', '', '乙'], opts, '', true).error, '缺答案也要拒绝空左项');
+assert(match.normalize(['甲', '乙'], ['甲', ''], '', true, 'math_match').error, '缺答案也要拒绝空右项');
+assert(match.normalize(['甲', '乙'], ['甲', '乙'], '1,3', true, 'math_match').error, '有答案时仍要拒绝越界');
+assert(match.normalize(['甲', '乙'], ['甲', '乙'], '1,1', true, 'listen_match').error, '听力匹配仍禁止重复连接');
 assert(judgeQ({ type: 'sort', answer: input.answer }, '2,1,3'));
 assert(!judgeQ({ type: 'sort', answer: input.answer }, '1,2,3'));
 assert(judgeQ({ type: 'sort', answer: '3,1,2' }, '3,1,2')); // 普通排序题保持现有语义

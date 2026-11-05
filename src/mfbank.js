@@ -23,6 +23,7 @@ const treePick = require('./treepick');   // R2：默认版本表 + 统一取树
 const treeIo = require('./treeio');       // R2：树导入 / 导出
 const qmeta = require('./qmeta');         // R3：组卷次数 / 章节路径 / 子孙节点
 const AiAnswerReview = require('./ai-answer-review');
+const { choiceOptionsError } = require('./choice-options');
 
 const admin = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -487,6 +488,7 @@ function normalizeQ(b, current) {
   if (!stem && !stemHtml) return { err: '请填写题干' };
   const type = TYPES.includes(b.type) ? b.type : 'single';
   let options = Array.isArray(b.options) ? b.options : parseArr(b.options);
+  const optionsCountBeforeFiltering = options.length;
   options = options.map((o) => (typeof o === 'string' ? { label: '', text: o } : { label: String(o.label || ''), text: String(o.text || o.html || o.content || '') }))
     .filter((o) => String(o.text).trim());
   if ((type === 'single' || type === 'multi') && options.length < 2) return { err: '选择题至少要有两个选项' };
@@ -500,11 +502,12 @@ function normalizeQ(b, current) {
   }
   const subtype = QSubtype.compatible(b.question_subtype, String(b.subject || '').trim(), type);
   if (QSubtype.isMatch(b.question_subtype) && !subtype) return { err: '匹配题的学科或基础题型不正确' };
+  if (QSubtype.isMatch(subtype) && options.length !== optionsCountBeforeFiltering) return { err: '匹配题的右侧选项不能为空' };
   if (String(b.question_subtype || '') === 'writing' && subtype !== 'writing') return { err: '书面表达须选择英语学科和问答基础题型' };
-  if (String(b.question_subtype || '') === 'drawing' && subtype !== 'drawing') return { err: '作图题须选择数学学科和问答基础题型' };
+  if (String(b.question_subtype || '') === 'drawing' && subtype !== 'drawing') return { err: '作图题须选择数学、物理或化学学科及问答基础题型' };
   let matchPrompts = [];
   if (QSubtype.isMatch(subtype)) {
-    const parsed = MatchQ.normalize(b.match_prompts, options, answer, false, subtype);
+    const parsed = MatchQ.normalize(b.match_prompts, options, answer, true, subtype);
     if (parsed.error) return { err: parsed.error };
     matchPrompts = parsed.prompts; answer = parsed.answer;
   }
@@ -956,7 +959,7 @@ cap.post('/push', async (req, res) => {
   let stored;
   try { stored = await require('./capture-images').storeImages(qs, store, bankFolder()); }
   catch (e) { return fail(res, '图片处理失败：' + e.message); }
-  qs = stored.questions.map((q) => { if (!q || typeof q !== 'object') return q; const item = { ...q }; delete item.ai_answer_suggestion; delete item.ai_answer_review; return item; });
+  qs = stored.questions.map((q) => { if (!q || typeof q !== 'object') return q; const item = { ...q }; delete item.ai_answer_suggestion; delete item.ai_answer_review; delete item.ai_answer_discard_history; return item; });
   const site = String(b.site || 'generic');
   const title = String(b.title || `${SITES[site] || site}采集 ${qs.length} 题`).slice(0, 100);
   // 若最新有一个「空试题篮」（新建试题篮建出的待填篮），题目直接填进去，不再另开新批次
@@ -982,7 +985,7 @@ admin.post('/capture/batches', async (req, res) => {
   let stored;
   try { stored = await require('./capture-images').storeImages(qs, store, bankFolder()); }
   catch (e) { return fail(res, '图片处理失败：' + e.message); }
-  qs = stored.questions.map((q) => { if (!q || typeof q !== 'object') return q; const item = { ...q }; delete item.ai_answer_suggestion; delete item.ai_answer_review; return item; });
+  qs = stored.questions.map((q) => { if (!q || typeof q !== 'object') return q; const item = { ...q }; delete item.ai_answer_suggestion; delete item.ai_answer_review; delete item.ai_answer_discard_history; return item; });
   const site = String(b.site || 'generic');
   const title = String(b.title || (basket ? '试题篮' : `${SITES[site] || site}采集 ${qs.length} 题`)).slice(0, 100);
   const info = db.prepare('INSERT INTO mf_capture_batches (title, site, url, subject, stage, grade, payload, status, paper_mode, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
@@ -1048,7 +1051,8 @@ function commitCaptureItems(batch, picked, b) {
     if (!stem) { skipped++; return; }
     const options = (q.options || []).map((o, i) => ({ label: String(o && typeof o === 'object' ? o.label || String.fromCharCode(65 + i) : String.fromCharCode(65 + i)), text: String(o && typeof o === 'object' ? (o.text || o.content || '') : (o || '')).trim() })).filter((o) => o.text);
     let type = TYPES.includes(q.type) ? q.type : (options.length >= 2 ? (/^[A-J]{2,}$/.test(String(q.answer || '').toUpperCase()) ? 'multi' : 'single') : 'answer');
-    if (['single', 'multi'].includes(type) && options.length > 10) throw new Error('选择题最多支持 10 个选项，请先核对');
+    const choiceError = choiceOptionsError(type, options);
+    if (choiceError) throw new Error(choiceError);
     if (hit) {
       let need = false;
       const old = db.prepare('SELECT answer, analysis, point, ai_review_metadata FROM questions WHERE id=?').get(hit.id);
@@ -1069,6 +1073,10 @@ function commitCaptureItems(batch, picked, b) {
         }
         updated++;
       } else { skipped++; }
+      if (Array.isArray(q.ai_answer_discard_history) && q.ai_answer_discard_history.length) {
+        const current = db.prepare('SELECT ai_review_metadata FROM questions WHERE id=?').get(hit.id);
+        db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(AiAnswerReview.withDiscardHistory(parseObj(current.ai_review_metadata), q.ai_answer_discard_history)), hit.id);
+      }
       ids.push(hit.id);
     } else {
       const diff = resolveDifficulty({ ...(q.difficulty ? { difficulty:q.difficulty } : {}), ...(q.difficulty_score_10 != null ? { difficulty_score_10:q.difficulty_score_10 } : {}) });
@@ -1089,7 +1097,7 @@ function commitCaptureItems(batch, picked, b) {
         diff.difficulty, diff.difficulty_score_10, (q.meta && q.meta.knowledgePoints || []).join('、'),
         String(q.material || '').trim(), [SITES[q.site || batch.site] || (q.site || batch.site), String(q.source_text || '').trim()].filter(Boolean).join(' · ').slice(0, 255), /^(19|20)\d{2}$/.test(String(q.year || '')) ? String(q.year) : '', jstr(Array.isArray(q.images) ? q.images.filter((url) => typeof url === 'string') : []), audioKeyOf(q.audio_key), detail, now());
       const newId = info.lastInsertRowid;
-      if (q.ai_answer_review) db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(q.ai_answer_review), newId);
+      if (q.ai_answer_review || (Array.isArray(q.ai_answer_discard_history) && q.ai_answer_discard_history.length)) db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(AiAnswerReview.withDiscardHistory(q.ai_answer_review, q.ai_answer_discard_history)), newId);
       if (q.audio_play_limit) db.prepare('UPDATE questions SET audio_play_limit=? WHERE id=?').run(Math.min(5, Math.max(0, int(q.audio_play_limit, 0))), newId);
       const subtype = QSubtype.compatible(q.question_subtype, String(b.subject || batch.subject || '').trim(), type);
       if (subtype) db.prepare('UPDATE questions SET question_subtype=? WHERE id=?').run(subtype, newId);
@@ -1399,12 +1407,21 @@ admin.delete('/papers/:id', (req, res) => {
 /** 加题（可一次多题，追加到末尾） */
 admin.post('/papers/:id/questions', (req, res) => {
   const pid = int(req.params.id);
-  const ids = ((req.body || {}).question_ids || []).map(int).filter(Boolean);
+  const ids = [...new Set(((req.body || {}).question_ids || []).map(int).filter(Boolean))];
   if (!ids.length) return fail(res, '请先勾选题目');
-  const pos = db.prepare('SELECT COALESCE(MAX(position),0) AS m FROM mf_paper_questions WHERE paper_id=?').get(pid).m;
-  const ins = db.prepare("INSERT INTO mf_paper_questions (paper_id, question_id, position, score, kind, created_at) VALUES (?,?,?,?, 'question',?)");
-  ids.forEach((qid, i) => ins.run(pid, qid, pos + i + 1, num((req.body || {}).score, 0), now()));
-  return ok(res, null, `已加入 ${ids.length} 题`);
+  const added = db.transaction(() => {
+    // 锁试卷行以串行处理相同试卷的并发加题；旧卷中已有重复行不自动删除。
+    const paper = db.prepare('SELECT id FROM mf_papers WHERE id=? FOR UPDATE').get(pid);
+    if (!paper) throw new Error('试卷不存在');
+    const have = new Set(db.prepare("SELECT question_id FROM mf_paper_questions WHERE paper_id=? AND kind='question'").all(pid).map((r) => Number(r.question_id)));
+    const fresh = ids.filter((qid) => !have.has(qid));
+    const pos = db.prepare('SELECT COALESCE(MAX(position),0) AS m FROM mf_paper_questions WHERE paper_id=?').get(pid).m;
+    const ins = db.prepare("INSERT INTO mf_paper_questions (paper_id, question_id, position, score, kind, created_at) VALUES (?,?,?,?, 'question',?)");
+    fresh.forEach((qid, i) => ins.run(pid, qid, pos + i + 1, num((req.body || {}).score, 0), now()));
+    return fresh.length;
+  });
+  try { const count = added(); return ok(res, { added: count, skipped: ids.length - count }, count ? `已加入 ${count} 题` : '所选题目已在试卷中'); }
+  catch (e) { return fail(res, e.message || '加入题目失败'); }
 });
 
 /** 插入文本块（大题标题，不占题号） */
@@ -1432,8 +1449,17 @@ admin.put('/papers/:id/reorder', (req, res) => {
 
 admin.put('/papers/:id/rows/:rowId', (req, res) => {
   const b = req.body || {};
+  const row = db.prepare('SELECT r.*, q.type AS question_type FROM mf_paper_questions r LEFT JOIN questions q ON q.id=r.question_id WHERE r.id=? AND r.paper_id=?').get(int(req.params.rowId), int(req.params.id));
+  if (!row) return fail(res, '试卷题目不存在');
+  if (b.text_body !== undefined && row.kind === 'text' && !String(b.text_body == null ? '' : b.text_body).trim()) return fail(res, '文本块内容不能为空');
+  const full = b.score === undefined ? Number(row.score) : Number(b.score);
+  if (b.score !== undefined && (b.score === '' || b.score === null || !Number.isFinite(full) || full < 0 || full > 1000 || Math.abs(full * 100 - Math.round(full * 100)) > 1e-7)) return fail(res, '题目分值应为 0–1000 的数，最多两位小数');
+  if (b.partial_score != null && !['number', 'string'].includes(typeof b.partial_score)) return fail(res, '少选分格式不正确');
+  const partial = b.partial_score === undefined ? row.partial_score : (b.partial_score === null || (typeof b.partial_score === 'string' && !b.partial_score.trim()) ? null : Number(b.partial_score));
+  if (partial != null && (row.kind !== 'question' || row.question_type !== 'multi' || !Number.isFinite(Number(partial)) || Number(partial) < 0 || Number(partial) >= full || Math.abs(Number(partial) * 100 - Math.round(Number(partial) * 100)) > 1e-7)) return fail(res, '仅多选题可设置少选分，须为小于该题满分的非负数，最多两位小数');
   const sets = []; const args = [];
   if (b.score !== undefined) { sets.push('score=?'); args.push(num(b.score)); }
+  if (b.partial_score !== undefined) { sets.push('partial_score=?'); args.push(partial); }
   if (b.text_body !== undefined) { sets.push('text_body=?'); args.push(String(b.text_body)); }
   if (b.style !== undefined) { sets.push('style=?'); args.push(String(b.style)); }
   if (b.text_align !== undefined) { sets.push('text_align=?'); args.push(String(b.text_align)); }
@@ -1603,19 +1629,19 @@ admin.post('/intake/runs/:id/pages', upload.array('pages', 30), async (req, res)
 });
 
 // —— 识别提示词（移植魔方助手 onestep_extract / transcribe_only / twostage_structure 三个提示词资产）——
-const RECOG_SYS = `你是教辅题库的试题结构化引擎。输入是一张试题截图或整页试卷图片。请把图中全部试题一次性转成结构化 JSON。
+const RECOG_SYS = `你是教辅题库的试题结构化引擎。输入是当前页和可能存在的上一页试卷图。请忠实转写并结构化当前页的内容，上一页仅供判断跨页材料、续题和题型。
 
 【输出格式】只输出一个 JSON 对象，禁止输出任何解释文字或 Markdown 代码围栏。结构如下：
-{"questions":[{"qno":"17 或 2-17 或 null","questionType":"单选|多选|填空|解答|判断 之一","stemMarkdown":"题干","options":[{"label":"A","content":"选项内容"}],"answerMarkdown":"图中给出的答案","analysisMarkdown":"图中给出的解析","suggestedTags":["知识点标签"]}]}
+{"materials":[{"ref":"本卷唯一的材料组标识","materialMarkdown":"原文","sourcePages":[1],"continuesPrevious":false}],"questions":[{"qno":"17 或 2-17 或 null","questionType":"单选|多选|填空|解答|判断|排序 之一","questionSubtype":"drawing|math_match|空","matchPrompts":["连线左侧项目"],"stemMarkdown":"题干","options":[{"label":"A","content":"选项内容"}],"materialRef":"关联的材料标识或空","materialMarkdown":"仅当有共同材料且材料原文可见时填写","groupRef":"同组稳定标识或空","groupPosition":1,"continuationOf":"仅当本题是上一页同一题的续文时填写上一页题号，否则为空","sourcePages":[1],"uncertainties":["需要老师对照原文核对的内容"],"answerMarkdown":"图中给出的答案","analysisMarkdown":"图中给出的解析"}]}
 
 【字段规则】
 1. qno：卷内题号原文的数字形态，如 "17"、"2-17"（章-题号）；图内确无题号则 null。
-2. questionType 只能取：单选 / 多选 / 填空 / 解答 / 判断。
-3. stemMarkdown：题干用 Markdown；行内公式写 $...$，独立公式行写 $$...$$；题干里的插图、表格在原位置写占位符 [图N]（N=1,2,… 按本题内出现顺序编号）。小题 (1)(2)① 属于同一大题时并入该题 stemMarkdown，不拆成多题。
+2. questionType 只能取：单选 / 多选 / 填空 / 解答 / 判断 / 排序。以原卷大题标题为准，注意跨页延续的多选标题；无法确定时在 uncertainties 明确说明。物理或数学作图题使用解答和 drawing，数学连线可用排序和 math_match；无法确定时不得臆测。
+3. 逐字逐符转写，不修正原题语病或知识错误，不补写印刷内容没有的化学反应条件、数值或选项。仔细区分 +/−/×/÷、上下标和反应条件；模糊处保留可见内容并在 uncertainties 标记，绝不猜测。题干用 Markdown，行内公式写 $...$，独立公式写 \\[...\\]；插图和表格原位置写 [图N]。有共同材料的独立小题应逐个输出，附相同 groupRef 和原顺序 groupPosition，并通过 materialRef 关联 materials；材料不是独立题目，不得按段落造题。明确属于一道大题的小问也可逐个输出并保留材料和原顺序。
 4. options：有选项的题必须给 [{"label":"A","content":"…"},…]（label 不带冒号点号），content 内公式同样走 LaTeX；无选项为 null。选择/判断题的选项文字一律进 options 数组，题干里不得保留 "A．… B．…" 这类选项行（不要用换行把它们和题干连在一起）。
 5. answerMarkdown / analysisMarkdown：只抄录图中实际印出的答案/解析文字；图中没有就是 null，绝不自行作答或补写。
 6. suggestedTags：3~8 个知识点标签（自由词、中文、简短，如 "抛体运动" "电磁感应"），按题面实际涉及的知识点给。
-7. 整页多题时 questions 按卷面顺序输出全部题目，一条不漏。`;
+7. questions 只输出当前页新题或续题，按卷面顺序。只有明确同一题跨页时才填 continuationOf，保留当前页原文和选项，不得误将上题选项当下题答案。只有确认为前面同一材料的续文时，材料的 continuesPrevious 才为 true，ref 使用上下文已有标识；同名但不同文章不得合并。不确定是否为续题就留空、标记 uncertainties。sourcePages 写实际可见材料的页码。当前页仅是共同文章时仅输出 materials，不要虚构题卡；没有题目和材料时可返回空数组。`;
 
 /** 半自动腿1：OCR 转写（只转写不结构化，魔方 transcribe_only 口径） */
 const TRANSCRIBE_PROMPT = '请把图片中的全部内容逐字转写为 Markdown：文字照抄、公式用 LaTeX、保留原有换行与分段。\n\n要求：只做转写，不做任何结构化、不判断题目边界、不总结、不解释、不要 JSON、不要标题层级之外的任何加工。';
@@ -1624,12 +1650,12 @@ const TRANSCRIBE_PROMPT = '请把图片中的全部内容逐字转写为 Markdow
 const STRUCTURE_SYS = `你是教辅题库的试题结构化引擎。输入是一道或一道大题的文字记录（来自 OCR 或文档，可能有识别噪声、公式可能不完整）。请把它整理成结构化 JSON。
 
 【输出格式】只输出一个 JSON 对象，禁止输出任何解释文字或 Markdown 代码围栏。结构如下：
-{"questions":[{"qno":"17 或 2-17 或 null","questionType":"单选|多选|填空|解答|判断 之一","stemMarkdown":"题干","options":[{"label":"A","content":"选项内容"}],"answerMarkdown":"文字中给出的答案","analysisMarkdown":"文字中给出的解析","suggestedTags":["知识点标签"]}]}
+{"materials":[{"ref":"本卷唯一的材料组标识","materialMarkdown":"原文"}],"questions":[{"qno":"17 或 2-17 或 null","questionType":"单选|多选|填空|解答|判断|排序 之一","questionSubtype":"drawing|math_match|空","matchPrompts":["连线左侧项目"],"stemMarkdown":"题干","options":[{"label":"A","content":"选项内容"}],"materialRef":"共用材料标识或空","groupRef":"同组标识或空","groupPosition":1,"uncertainties":["需要老师核对的内容"],"answerMarkdown":"文字中给出的答案","analysisMarkdown":"文字中给出的解析"}]}
 
 【字段规则】
 1. qno：题号数字形态（含 "2-17" 章-题号形态）；文字中确无题号则 null。
-2. questionType 只能取：单选 / 多选 / 填空 / 解答 / 判断。
-3. stemMarkdown：整理为通顺 Markdown；行内公式 $...$，独立公式 $$...$$。OCR 噪声在不改变题意的前提下修复，公式残缺处按学科惯例补全；原文中的插图描述（如"如图所示"）保留文字；原文的 [图N] 占位符原样保留。多道小题同属一道大题时并入同一题，不拆。
+2. questionType 只能取：单选 / 多选 / 填空 / 解答 / 判断 / 排序；依据原题明确标注的题型，作图题使用解答并填 drawing，不确定时标注 uncertainties。
+3. stemMarkdown：逐字逐符整理为 Markdown；行内公式 $...$，独立公式 \\[...\\]。不修正原题语病或知识错误，不按惯例补充残缺公式、运算符或化学反应条件；模糊处保留可见内容并提示老师核对，不能猜测。原文插图描述及 [图N] 占位符原样保留。共同材料下有独立小题时逐题输出、通过 materialRef 关联 materials，并标记 groupRef 和原顺序 groupPosition；不得凭空补写。
 4. options：有选项的题必须给 [{"label":"A","content":"…"},…]，选项文字一律进该数组，题干里不保留 "A．… B．…" 选项行；无选项为 null。
 5. answerMarkdown / analysisMarkdown：只整理文字中实际存在的答案/解析；没有就是 null，绝不自行作答。
 6. suggestedTags：3~8 个知识点标签（自由词、中文、简短）。
@@ -1645,13 +1671,18 @@ function parseModelQuestions(text) {
   if (a < 0 || b <= a) return null;
   try {
     const j = JSON.parse(body.slice(a, b + 1));
-    return Array.isArray(j.questions) ? j : null;
+    if (Array.isArray(j.questions)) return j;
+    if (Array.isArray(j.items)) return { ...j, questions: j.items };
+    if (j.data && Array.isArray(j.data.questions)) return { ...j.data, questions: j.data.questions };
+    return null;
   } catch (e) { return null; }
 }
 
 /** 模型 questions → 录题题卡（字段与魔方 OnestepDraft 对齐） */
-function normCards(j, pageNo) {
-  return (j.questions || []).map((q) => ({
+function normCards(j, pageNo, materials, subject) {
+  const RecognitionPages = require('./recognition-pages');
+  const normalized = (j.questions || []).map(RecognitionPages.normalizeQuestion);
+  return normalized.map((q) => ({
     page: pageNo,
     qno: q.qno == null ? '' : String(q.qno),
     questionType: String(q.questionType || '解答'),
@@ -1664,7 +1695,7 @@ function normCards(j, pageNo) {
     suggestedTags: [],
     figures: Array.isArray(q.figures) ? q.figures : [],
     checked: true,
-  }));
+  })).map((card, i) => RecognitionPages.enrichCard(card, normalized[i], pageNo, materials || [], subject || ''));
 }
 
 // 模型转写内容也可能包含补造：作为独立建议保留，请老师对照原文逐项确认。
@@ -1684,17 +1715,19 @@ function reviewRecognizedCards(cards, run) {
 }
 
 /** 单页视觉调用：优先五角色档案（R2 OCR），未配置回落内置视觉模型 */
-async function visionCall(pg, system, user) {
+async function visionCall(pg, system, user, previous) {
   const buf = await store.readBuffer(pg.key);
+  const prevBuf = previous ? await store.readBuffer(previous.key) : null;
+  const imageBuffers = prevBuf ? [prevBuf, buf] : [buf];
   try {
     const { text } = await require('./mfcollect').mfAiInvoke({
-      role: 'vision', system, user, images: [buf.toString('base64')], maxTokens: 6000, temperature: 0,
+      role: 'vision', system, user, images: imageBuffers.map(b => b.toString('base64')), maxTokens: 12000, temperature: 0,
     });
     return String(text || '');
   } catch (e) {
     const r = await aiLib.visionChat({
       system, userText: user,
-      images: [{ buf, mime: /\.png$/i.test(pg.key) ? 'image/png' : 'image/jpeg' }],
+      images: imageBuffers.map((image, i) => ({ buf: image, mime: /\.png$/i.test((prevBuf && i === 0 ? previous : pg).key) ? 'image/png' : 'image/jpeg' })),
       timeoutMs: 180000,
     });
     return String(r.text || '');
@@ -1710,26 +1743,60 @@ admin.post('/intake/runs/:id/recognize', async (req, res) => {
   if (!pages.length) return fail(res, '还没有上传页图');
   const one = int((req.body || {}).page, 0);
   const before = parseArr(run.drafts);
-  const drafts = one > 0 ? before.slice() : [];
+  if (one <= 0 && before.length) return fail(res, '批次已有题卡，请逐页识别以避免覆盖已有工作');
+  if (one > 0 && pages[one - 1] && pages[one - 1].recognition_complete) return ok(res, { drafts: before, added: 0, merged: 0, already_recognized: true }, `第 ${one} 页已识别，未重复处理`);
+  let drafts = one > 0 ? before.slice() : [];
+  let added = 0, merged = 0, materialCount = 0;
+  let expectedDrafts = String(run.drafts || ''), expectedPages = String(run.pages || '');
+  const RecognitionPages = require('./recognition-pages');
   const jobs = one > 0 ? [one] : pages.map((_, i) => i + 1).slice(0, 8);
   try {
     for (const no of jobs) {
-      if (!pages[no - 1]) continue;
-      const text = await visionCall(pages[no - 1], RECOG_SYS, `这是第 ${no} 页整页试卷图。请把图中全部试题一次性转成结构化 JSON，按卷面顺序一条不漏。`);
+      if (!pages[no - 1]) throw new Error(`第 ${no} 页不存在`);
+      const previous = no > 1 ? pages[no - 2] : null;
+      const priorMaterials = RecognitionPages.materialContext(pages, no - 1);
+      const prevCards = drafts.filter(c => Number(c.page) === no - 1).map(c => ({ qno: c.qno, questionType: c.questionType, stem: String(c.stem || '').slice(0, 2000), groupRef: c.group_ref || '' })).slice(-30);
+      const context = JSON.stringify({ materials: priorMaterials, previousQuestions: prevCards }).slice(0, 30000);
+      const text = await visionCall(pages[no - 1], RECOG_SYS, `${previous ? `第一张是第 ${no - 1} 页（仅供跨页参考），第二张是第 ${no} 页（当前页）。` : `这是第 ${no} 页（当前页）。`} 只输出当前页新题、续题和材料，保留卷面原文；上下文：${context}`, previous);
       const j = parseModelQuestions(text);
-      if (j) drafts.push(...reviewRecognizedCards(normCards(j, no), run));
+      if (!j) throw new Error(`第 ${no} 页返回的 JSON 无效，未保存识别结果，请重试`);
+      if (process.env.RECOGNITION_DIAGNOSTICS === '1') pages[no - 1].recognition_diagnostics = { questions: RecognitionPages.modelDiagnostics(j.questions) };
+      const prior = RecognitionPages.availableMaterials(pages, no - 1);
+      const proposed = RecognitionPages.materialsFrom(j, no);
+      const { current: newMaterials, renames } = RecognitionPages.resolveCurrentMaterials(prior, proposed, no);
+      j.questions = j.questions.map(q => {
+        const ref = String(q && (q.materialRef || q.material_ref) || '');
+        if (!renames.has(ref)) return q;
+        return { ...q, materialRef: renames.get(ref), uncertainties: [...(Array.isArray(q.uncertainties) ? q.uncertainties : []), '材料标识与前页相同但未明确续接，已隔离分组，请对照原页核对。'] };
+      });
+      const materials = RecognitionPages.combineMaterials(prior, newMaterials);
+      const resolved = newMaterials.map(m => materials.find(x => x.ref === m.ref));
+      const cards = reviewRecognizedCards(normCards(j, no, materials, run.subject), run);
+      if (!cards.length && !newMaterials.length) throw new Error(`第 ${no} 页没有识别出题目或共同材料，请检查原页并重试`);
+      RecognitionPages.extendMaterials(drafts, prior, resolved, no);
+      const result = RecognitionPages.finish(drafts, cards, no);
+      drafts = result.drafts;
+      added += result.added; merged += result.merged; materialCount += newMaterials.length;
+      pages[no - 1].recognition_materials = resolved;
+      pages[no - 1].recognition_complete = true;
+      // Commit each successful page before proceeding: a later page failure must
+      // not discard earlier work or force duplicate recognition on retry.
+      const nextPages = jstr(pages), nextDrafts = jstr(drafts);
+      const updated = db.prepare("UPDATE mf_recog_runs SET pages=?, drafts=?, status=?, error=? WHERE id=? AND COALESCE(drafts,'')=? AND COALESCE(pages,'')=? AND status<>'done'")
+        .run(nextPages, nextDrafts, 'recognized', '', id, expectedDrafts, expectedPages);
+      if (!updated.changes) throw new Error('批次在识别期间已被修改，请刷新后核对原有题卡并重试');
+      expectedPages = nextPages; expectedDrafts = nextDrafts;
     }
   } catch (e) {
-    db.prepare('UPDATE mf_recog_runs SET status=?, error=? WHERE id=?').run('error', String(e.message).slice(0, 300), id);
+    db.prepare("UPDATE mf_recog_runs SET status=?, error=? WHERE id=? AND COALESCE(drafts,'')=? AND COALESCE(pages,'')=? AND status<>'done'")
+      .run('error', String(e.message).slice(0, 300), id, expectedDrafts, expectedPages);
     return fail(res, 'AI 识别失败：' + e.message);
   }
-  if (!drafts.length) {
+  if (!drafts.length && !materialCount) {
     db.prepare('UPDATE mf_recog_runs SET status=?, error=? WHERE id=?').run('error', 'AI 没有识别出题目', id);
     return fail(res, 'AI 没有识别出题目，可以检查图片是否清晰，或改用半自动 OCR 转写');
   }
-  db.prepare('UPDATE mf_recog_runs SET drafts=?, status=?, error=? WHERE id=?').run(jstr(drafts), 'recognized', '', id);
-  const added = one > 0 ? drafts.length - before.length : drafts.length;
-  return ok(res, { drafts, added }, one > 0 ? `第 ${one} 页识别出 ${added} 题` : `识别出 ${drafts.length} 题`);
+  return ok(res, { drafts, added, merged, material_count: materialCount }, one > 0 ? `第 ${one} 页新增 ${added} 张题卡、关联 ${merged} 处续题${materialCount ? `，提取 ${materialCount} 条共同材料` : ''}；请对照原页核对` : `识别出 ${drafts.length} 张题卡，请对照原页核对`);
 });
 
 /** 半自动腿1：单页 OCR 转写全文（存 ocr_texts，按页下标） */
@@ -1770,7 +1837,9 @@ admin.post('/intake/runs/:id/structure', async (req, res) => {
     const j = parseModelQuestions(out);
     if (!j || !j.questions.length) return fail(res, 'AI 没有从这段文字里整理出题目，可手动点「+ 空白题卡」录入');
     const drafts = parseArr(run.drafts);
-    const cards = reviewRecognizedCards(normCards(j, no).map((c) => ({ ...c, via: 'semi' })), run);
+    const RecognitionPages = require('./recognition-pages');
+    const materials = RecognitionPages.resolveCurrentMaterials([], RecognitionPages.materialsFrom(j, no), no).current;
+    const cards = reviewRecognizedCards(normCards(j, no, materials, run.subject).map((c) => ({ ...c, via: 'semi' })), run);
     drafts.push(...cards);
     db.prepare('UPDATE mf_recog_runs SET drafts=?, status=?, error=? WHERE id=?').run(jstr(drafts), 'recognized', '', id);
     return ok(res, { drafts, added: cards.length }, `整理出 ${cards.length} 张题卡`);
@@ -1852,11 +1921,14 @@ admin.post('/intake/runs/:id/word', upWord.single('file'), async (req, res) => {
     const ocrSaved = parseArr(run.ocr_texts);
     if (!ocrSaved.includes(full)) ocrSaved.push(full);
     const drafts = parseArr(run.drafts);
-    const cards = reviewRecognizedCards(normCards(j, 0).map((c) => ({
-      ...c,
-      via: 'word',
-      figures: figUrls.filter((fu) => new RegExp('\\[图' + fu.n + '\\]').test(c.stem) || new RegExp('\\[图' + fu.n + '\\]').test(c._ai_recognized_analysis || '')),
-    })), run);
+    const RecognitionPages = require('./recognition-pages');
+    const materials = RecognitionPages.resolveCurrentMaterials([], RecognitionPages.materialsFrom(j, 0), 0).current;
+    const cards = reviewRecognizedCards(normCards(j, 0, materials, run.subject).map((c) => {
+      // Keep document-wide picture indices sparse until the reviewer confirms;
+      // compacting early would make [图3] incorrectly refer to picture 1.
+      const figures = RecognitionPages.wordFigures(figUrls, c);
+      return { ...c, via: 'word', figures };
+    }), run);
     drafts.push(...cards);
     db.prepare('UPDATE mf_recog_runs SET drafts=?, ocr_texts=?, status=?, error=?, source_kind=?, source_name=? WHERE id=?')
       .run(jstr(drafts), jstr(ocrSaved), 'recognized', '', 'word', fname || 'Word 导入', id);
@@ -1872,10 +1944,23 @@ admin.put('/intake/runs/:id/drafts', (req, res) => {
   if (!Array.isArray(drafts)) return fail(res, '数据格式不对');
   const id = int(req.params.id);
   const run = db.prepare('SELECT drafts,status FROM mf_recog_runs WHERE id=?').get(id);
-  if (!run || run.status === 'done') return fail(res, '批次不存在或已处理');
+  if (!run) return fail(res, '批次不存在或已处理');
   const previous = parseArr(run.drafts);
-  const protectedKeys = ['_ai_card_id', '_ai_review_schema', 'ai_filled', 'ai_legacy_reviewed', 'ai_answer_suggestion', 'ai_answer_review'];
-  const marked = (c) => c && (c._ai_card_id || c._ai_review_schema || AiAnswerReview.legacyPending(c) || c.ai_answer_suggestion || c.ai_answer_review);
+  if (run.status === 'done' && !previous.some(c => c && !c.committed && !c._merged_into)) return fail(res, '批次不存在或已处理');
+  // 已入库/合并归档题卡位置与内容必须保持，不能通过重新打开历史批次篡改。
+  if (previous.some(c => c && (c.committed || c._merged_into)) && (drafts.length !== previous.length || previous.some((c, i) => c && (c.committed || c._merged_into) && JSON.stringify(c) !== JSON.stringify(drafts[i])))) return fail(res, '已处理题卡不能修改或移位，请刷新后重试');
+  // 老版题卡没有稳定 ID。来源页与原题号按原位置绑定；增删及交换请走待审核单题操作，防止串页。
+  const oldPageCards = previous.some(c => c && !c._ai_card_id && (int(c.page) > 0 || (Array.isArray(c._image_errors) && c._image_errors.length)));
+  if (oldPageCards && drafts.length !== previous.length) return fail(res, '历史识别题卡请在待审核中逐题增删，避免来源页错位');
+  if (oldPageCards && previous.some((c, i) => {
+    if (!c || c._ai_card_id || !drafts[i]) return false;
+    const nextStem = AiAnswerReview.values(drafts[i]).stem;
+    return nextStem && nextStem !== AiAnswerReview.values(c).stem && previous.some((other, j) => j !== i && other && !other._ai_card_id && nextStem === AiAnswerReview.values(other).stem);
+  })) return fail(res, '历史识别题卡不能交换位置，请在待审核中逐题编辑');
+  const protectedKeys = ['_ai_card_id', '_ai_review_schema', '_recognition_snapshot', 'ai_filled', 'ai_legacy_reviewed', 'ai_legacy_reviewed_fields', 'ai_answer_suggestion', 'ai_answer_review', 'ai_answer_discard_history',
+    'page', 'qno', 'committed', '_image_errors', 'figure_review_required', 'figure_review_signature', 'figure_review_by', 'figure_review_at', 'source_pages',
+    'content_review_required', 'recognition_notes', 'cross_page_review_required', 'content_review_signature', 'content_review_by', 'content_review_at', 'type_unconfirmed', '_material_ref', '_raw_group_ref', '_merged_into', 'merged_fragments'];
+  const marked = (c) => c && (c._ai_card_id || c._ai_review_schema || c._merged_into || (Array.isArray(c._image_errors) && c._image_errors.length) || AiAnswerReview.legacyPending(c) || c.ai_answer_suggestion || c.ai_answer_review);
   const byKey = new Map(previous.filter((c) => marked(c) && c._ai_card_id).map((c) => [c._ai_card_id, c]));
   const seen = new Set();
   const next = drafts.map((value, i) => {
@@ -1883,14 +1968,14 @@ admin.put('/intake/runs/:id/drafts', (req, res) => {
     const key = String(card._ai_card_id || '');
     let old = key && byKey.get(key);
     // 旧版 AI 题卡没有内部 ID；仅允许同位置、同题干的人工修改，避免交换题卡绕过核对。
-    if (!old && marked(previous[i]) && !previous[i]._ai_card_id && drafts.length === previous.length &&
-        AiAnswerReview.values(previous[i]).stem === AiAnswerReview.values(card).stem) old = previous[i];
+    if (!old && previous[i] && !previous[i]._ai_card_id && drafts.length === previous.length) old = previous[i];
+    if (old && (old._merged_into || old.committed)) { seen.add(old); return old; }
     protectedKeys.forEach((k) => { delete card[k]; if (old && Object.prototype.hasOwnProperty.call(old, k)) card[k] = old[k]; });
     if (old) seen.add(old);
     return card;
   });
   if (previous.some((c) => marked(c) && !seen.has(c))) return fail(res, '含 AI 建议或旧版 AI 内容的题卡已变化；请先到待审核核对或删除该题');
-  const changed = db.prepare("UPDATE mf_recog_runs SET drafts=? WHERE id=? AND drafts=? AND status<>'done'").run(jstr(next), id, run.drafts);
+  const changed = db.prepare("UPDATE mf_recog_runs SET drafts=?,status=CASE WHEN status='done' THEN 'recognized' ELSE status END WHERE id=? AND drafts=?").run(jstr(next), id, run.drafts);
   if (!changed.changes && jstr(next) !== run.drafts) return fail(res, '批次已更新，请刷新后重试');
   return ok(res, null, '校对结果已保存');
 });
@@ -1908,11 +1993,13 @@ admin.post('/intake/runs/:id/aifill', async (req, res) => {
   const drafts = parseArr(run.drafts);
   const selected = Array.isArray((req.body || {}).indexes) ? new Set(req.body.indexes.map(Number)) : null;
   const targets = drafts.map((card, index) => ({ card, index, values: AiAnswerReview.values(card), signature: AiAnswerReview.signature(card) }))
-    .filter((x) => x.card && !x.card.committed && (!selected || selected.has(x.index)) && x.values.stem.trim());
+    .filter((x) => x.card && !x.card.committed && !x.card._merged_into && (!selected || selected.has(x.index)) && x.values.stem.trim());
   if (!targets.length) return fail(res, '没有可处理的题卡（题干为空或已经入库）');
   if (targets.length > 100) return fail(res, '一次最多生成 100 道题的建议');
-  const needed = targets.filter((x) => !x.values.answer.trim() || !x.values.analysis.trim());
-  if (!needed.length) return ok(res, { drafts, suggested: 0 }, '所选题目已有答案和解析，无需生成建议');
+  // 不覆盖尚未处理的建议；老师可以先采纳或明确舍弃，历史记录随题保留。
+  const existingSuggestions = targets.filter((x) => x.card.ai_answer_suggestion).length;
+  const needed = targets.filter((x) => !x.card.ai_answer_suggestion && (!x.values.answer.trim() || !x.values.analysis.trim()));
+  if (!needed.length) return ok(res, { drafts, suggested: 0, pending_suggestions: existingSuggestions }, existingSuggestions ? '已有未处理的 AI 建议，请先逐项采纳或明确舍弃' : '所选题目已有答案和解析，无需生成建议');
   const system = '你是中小学解题助手。只对需要建议的字段提出供老师审核的参考答案或解析；不确定时留空，不要改写已有内容。选择题用选项字母，多选用逗号分隔；填空多个空用 | 分隔，同一空的可接受答案用 ||| 分隔。只输出 JSON：{"items":[{"i":0,"answer":"","analysis":""}]}。i 与题目编号一致。';
   const scope = JSON.stringify([run.subject || '', run.stage || '', run.grade || '']);
   const user = needed.map(({ values: v, index: i }) => `[i=${i}] 学科:${v.subject || run.subject || '未指定'} 学段:${v.stage || run.stage || '未指定'} 年级:${v.grade || run.grade || '未指定'} 题型:${v.type}\n题干:${v.stem.slice(0, 800)}\n材料:${v.material.slice(0, 800)}\n选项:${v.options.map((o) => `${o.label}.${o.text}`).join(' ')}\n已有答案:${v.answer || '（空）'} 已有解析:${v.analysis || '（空）'}\n需要答案建议:${!v.answer.trim()} 需要解析建议:${!v.analysis.trim()}`).join('\n---\n');
@@ -1931,7 +2018,7 @@ admin.post('/intake/runs/:id/aifill', async (req, res) => {
   const cards = parseArr(latest.drafts); let suggested = 0, stale = 0;
   for (const target of needed) {
     const card = cards[target.index], item = byIndex.get(target.index);
-    if (!card || card.committed || AiAnswerReview.signature(card) !== target.signature) { stale++; continue; }
+    if (!card || card.committed || card._merged_into || card.ai_answer_suggestion || AiAnswerReview.signature(card) !== target.signature) { stale++; continue; }
     if (!item) continue;
     const answer = !target.values.answer.trim() ? String(item.answer || '').trim().slice(0, 4000) : '';
     const analysis = !target.values.analysis.trim() ? String(item.analysis || '').trim().slice(0, 12000) : '';
@@ -1944,7 +2031,23 @@ admin.post('/intake/runs/:id/aifill', async (req, res) => {
     const updated = db.prepare("UPDATE mf_recog_runs SET drafts=? WHERE id=? AND drafts=? AND status<>'done' AND COALESCE(subject,'')=? AND COALESCE(stage,'')=? AND COALESCE(grade,'')=?").run(jstr(cards), id, latest.drafts, latest.subject || '', latest.stage || '', latest.grade || '');
     if (!updated.changes) return fail(res, '批次已更新，请刷新后重新生成建议');
   }
-  return ok(res, { drafts: cards, suggested, stale }, suggested ? `已生成 ${suggested} 题的 AI 建议，需老师逐项确认${stale ? `；${stale} 题已变化，请重新生成` : ''}` : (stale ? '题目已变化，请刷新后重新生成' : 'AI 没有给出可用建议，请手动核对'));
+  return ok(res, { drafts: cards, suggested, stale, pending_suggestions: existingSuggestions }, suggested ? `已生成 ${suggested} 题的 AI 建议，需老师逐项确认${stale ? `；${stale} 题已变化，请重新生成` : ''}${existingSuggestions ? `；${existingSuggestions} 题已有建议，请先处理` : ''}` : (stale ? '题目已变化，请刷新后重新生成' : 'AI 没有给出可用建议，请手动核对'));
+});
+
+// 老师明确舍弃未采纳建议；保留原值和审计记录，不能改写正式答案或解析。
+admin.post('/intake/runs/:id/aifill/discard', (req, res) => {
+  const id = int(req.params.id), b = req.body || {}, index = Number(b.index);
+  if (!Number.isInteger(index) || index < 0) return fail(res, '题目标识无效');
+  const run = db.prepare('SELECT drafts,status,subject,stage,grade FROM mf_recog_runs WHERE id=?').get(id);
+  if (!run || run.status === 'done') return fail(res, '批次不存在或已处理');
+  const cards = parseArr(run.drafts), card = cards[index];
+  if (!card || card.committed || card._merged_into) return fail(res, '题目已处理，请刷新后重试');
+  const scope = JSON.stringify([run.subject || '', run.stage || '', run.grade || '']);
+  if (!card.ai_answer_suggestion || !card.ai_answer_suggestion.token || String(b.token || '') !== card.ai_answer_suggestion.token || String(b.expected || '') !== AiAnswerReview.discardSignature(card, scope)) return fail(res, '题目或建议已变化，请刷新后重新核对');
+  try { AiAnswerReview.discardSuggestion(card, req.user.id, now()); } catch (e) { return fail(res, e.message); }
+  const updated = db.prepare("UPDATE mf_recog_runs SET drafts=? WHERE id=? AND drafts=? AND status<>'done' AND COALESCE(subject,'')=? AND COALESCE(stage,'')=? AND COALESCE(grade,'')=?").run(jstr(cards), id, run.drafts, run.subject || '', run.stage || '', run.grade || '');
+  if (!updated.changes) return fail(res, '题目已更新，请刷新后重新核对');
+  return ok(res, { card }, '已舍弃未采纳建议；原内容、操作者和时间已保留');
 });
 
 /** 明确确认选中的建议；旧版 AI 补全记录则要求老师核对当前值后确认。 */
@@ -1954,18 +2057,30 @@ admin.post('/intake/runs/:id/aifill/confirm', (req, res) => {
   const run = db.prepare('SELECT drafts,status,subject,stage,grade FROM mf_recog_runs WHERE id=?').get(id);
   if (!run || run.status === 'done') return fail(res, '批次不存在或已处理');
   const cards = parseArr(run.drafts), card = cards[index];
-  if (!card || card.committed) return fail(res, '题目已处理，请刷新后重试');
+  if (!card || card.committed || card._merged_into) return fail(res, '题目已处理，请刷新后重试');
   const signature = AiAnswerReview.signature(card);
-  if (b.legacy === true) {
-    if (!AiAnswerReview.legacyPending(card) || String(b.expected || '') !== signature) return fail(res, '题目已变化，请重新核对');
+  const scope = JSON.stringify([run.subject || '', run.stage || '', run.grade || '']);
+  if (b.recheck === true) {
+    const fields = [...new Set(Array.isArray(b.fields) ? b.fields : [])];
+    if (fields.length !== 1 || !AiAnswerReview.reviewedPendingFields(card, scope).includes(fields[0])) return fail(res, '请逐项选择需重新核对的答案或解析');
+    if (String(b.expected || '') !== signature) return fail(res, '题目已变化，请重新核对');
+    const field = fields[0], q = card._q || card;
+    card.ai_answer_review.fields[field] = { confirmed_by: req.user.id, confirmed_at: now(), basis: AiAnswerReview.contextSignature(card, scope), value: String(q[field] || '') };
+  } else if (b.legacy === true) {
+    const fields = [...new Set(Array.isArray(b.fields) ? b.fields : [])];
+    if (fields.length !== 1 || !AiAnswerReview.legacyPendingFields(card).includes(fields[0])) return fail(res, '请逐项选择待核对的答案、解析或分类');
+    if (String(b.expected || '') !== AiAnswerReview.legacySignature(card)) return fail(res, '题目或分类已变化，请重新核对');
     card._ai_card_id = card._ai_card_id || AiAnswerReview.token();
-    card.ai_legacy_reviewed = true;
-    card.ai_answer_review = { ...(card.ai_answer_review || {}), legacy_confirmed: true, confirmed_by: req.user.id, confirmed_at: now() };
+    card.ai_legacy_reviewed_fields = { ...(card.ai_legacy_reviewed_fields || {}), [fields[0]]: AiAnswerReview.legacySignature(card) };
+    card.ai_legacy_reviewed = !AiAnswerReview.legacyPending(card);
+    const stamp = { confirmed_by: req.user.id, confirmed_at: now() };
+    const review = card.ai_answer_review || {};
+    card.ai_answer_review = { ...review, legacy_confirmed: card.ai_legacy_reviewed, legacy_fields: { ...(review.legacy_fields || {}), [fields[0]]: stamp } };
   } else {
     const suggestion = card.ai_answer_suggestion;
     if (!suggestion || !suggestion.token || String(b.token || '') !== suggestion.token || suggestion.basis !== signature || suggestion.scope !== JSON.stringify([run.subject || '', run.stage || '', run.grade || ''])) return fail(res, 'AI 建议已过期，请重新生成并核对');
     const fields = [...new Set(Array.isArray(b.fields) ? b.fields : [])];
-    if (!fields.length || fields.some((field) => !['answer', 'analysis'].includes(field))) return fail(res, '请明确选择要采纳的建议');
+    if (fields.length !== 1 || fields.some((field) => !['answer', 'analysis'].includes(field))) return fail(res, '请逐项选择要采纳的答案或解析建议');
     const q = card._q || card;
     for (const field of fields) {
       if (!String(suggestion[field] || '').trim()) return fail(res, '所选建议为空');
@@ -1973,8 +2088,8 @@ admin.post('/intake/runs/:id/aifill/confirm', (req, res) => {
     }
     fields.forEach((field) => { q[field] = String(suggestion[field]).trim(); card[field] = q[field]; delete suggestion[field]; });
     const previous = card.ai_answer_review && card.ai_answer_review.fields || {};
-    const stamp = { confirmed_by: req.user.id, confirmed_at: now() };
-    card.ai_answer_review = { ...(card.ai_answer_review || {}), fields: { ...previous, ...Object.fromEntries(fields.map((field) => [field, stamp])) } };
+    const stamp = (field) => ({ confirmed_by: req.user.id, confirmed_at: now(), basis: AiAnswerReview.contextSignature(card, scope), value: String(q[field] || '') });
+    card.ai_answer_review = { ...(card.ai_answer_review || {}), fields: { ...previous, ...Object.fromEntries(fields.map((field) => [field, stamp(field)])) } };
     if (!suggestion.answer && !suggestion.analysis) delete card.ai_answer_suggestion;
     else suggestion.basis = AiAnswerReview.signature(card);
   }
@@ -2003,7 +2118,8 @@ function commitRunCards(run, cards, b) {
     let qid;
     if (d._q) {   // 技能包转写：字段已在导入时算好
       const q = d._q;
-      if (['single', 'multi'].includes(q.type) && Array.isArray(q.options) && q.options.length > 10) throw new Error('选择题最多支持 10 个选项，请先核对');
+      const choiceError = choiceOptionsError(q.type, q.options);
+      if (choiceError) throw new Error(choiceError);
       const diff = resolveDifficulty({ ...(q.difficulty ? { difficulty:q.difficulty } : {}), ...(q.difficulty_score_10 != null ? { difficulty_score_10:q.difficulty_score_10 } : {}) });
       if (diff.error) throw new Error(diff.error);
       const dupRow = q.detail ? db.prepare('SELECT id FROM questions WHERE source_detail = ? LIMIT 1').get(jstr(q.detail)) : null;
@@ -2016,8 +2132,9 @@ function commitRunCards(run, cards, b) {
     } else {
       const type = TYPE_MAP[String(d.questionType || '')] || (d.options && d.options.length >= 2 ? 'single' : 'answer');
       const stem = String(d.stem || '').trim();
-      const options = (d.options || []).map((o) => ({ label: String(o.label || ''), text: String(o.content || '') })).filter((o) => o.text);
-      if (['single', 'multi'].includes(type) && options.length > 10) throw new Error('选择题最多支持 10 个选项，请先核对');
+      const options = (d.options || []).map((o) => ({ label: String(o.label || ''), text: String(o.content != null ? o.content : o.text || '').trim() })).filter((o) => o.text);
+      const choiceError = choiceOptionsError(type, options);
+      if (choiceError) throw new Error(choiceError);
       const diff = resolveDifficulty({ ...((d.difficulty || b.difficulty) ? { difficulty:d.difficulty || b.difficulty } : {}), ...(d.difficulty_score_10 != null ? { difficulty_score_10:d.difficulty_score_10 } : {}) });
       if (diff.error) throw new Error(diff.error);
       const info = ins.run(
@@ -2031,7 +2148,7 @@ function commitRunCards(run, cards, b) {
         jstr({ runId: run.id, kind: run.source_kind, page: d.page, qno: d.qno, collectedAt: now() }), now());
       qid = info.lastInsertRowid;
     }
-    if (d.ai_answer_review) db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(d.ai_answer_review), qid);
+    if (d.ai_answer_review || (Array.isArray(d.ai_answer_discard_history) && d.ai_answer_discard_history.length)) db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(AiAnswerReview.withDiscardHistory(d.ai_answer_review, d.ai_answer_discard_history)), qid);
     if (d.audio_play_limit) db.prepare('UPDATE questions SET audio_play_limit=? WHERE id=?').run(Math.min(5, Math.max(0, int(d.audio_play_limit, 0))), qid);
     const storedQ = db.prepare('SELECT subject,type FROM questions WHERE id=?').get(qid);
     const subtype = QSubtype.compatible(d.question_subtype || (d._q && d._q.question_subtype), storedQ.subject, storedQ.type);
@@ -2040,6 +2157,14 @@ function commitRunCards(run, cards, b) {
     if (d.group_ref && !d._q) {
       const detail = parseObj(db.prepare('SELECT source_detail FROM questions WHERE id=?').get(qid).source_detail);
       detail.question_group = { run_id: run.id, ref: String(d.group_ref).slice(0, 100), position: Math.max(1, int(d.group_position, 1)) };
+      db.prepare('UPDATE questions SET source_detail=? WHERE id=?').run(jstr(detail), qid);
+    }
+    if (d.figure_review_required && d.figure_review_signature) {
+      // 老师已对照原页确认题图。没有正文/解析占位的附加图按其确认归为题面；明确只被答案或解析引用的图不能提前公开。
+      const q = db.prepare('SELECT * FROM questions WHERE id=?').get(qid);
+      const detail = parseObj(q.source_detail);
+      detail.question_image_public = require('./question-images').confirmedQuestionImages(q);
+      detail.question_image_public_basis = require('./question-images').publicBasis(q);
       db.prepare('UPDATE questions SET source_detail=? WHERE id=?').run(jstr(detail), qid);
     }
     ids.push(qid);

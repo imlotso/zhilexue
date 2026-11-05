@@ -27,18 +27,20 @@ function pdStemImages(it) {
     used.add(index); return `<span class="pd-inline-img">${img}</span>`;
   });
   const html = render(it.stem);
+  const material = render(it.material);
+  const analysis = render(it.analysis);
   const prompts = (it.match_prompts || []).map(render);
   const options = (it.options || []).map((o) => render(optText(o)));
-  const rest = images.slice(0, 6).map((url, i) => used.has(i) ? '' : pdImage(url, '题图')).join('');
-  return { html, prompts, options, rest };
+  const rest = images.slice(0, 30).map((url, i) => used.has(i) ? '' : pdImage(url, '题图')).join('');
+  return { html, material, analysis, prompts, options, rest };
 }
 
 /** Word 导入的格式要求（客户《word (1).docx》原意） */
 const PD_WORD_RULES = `
   <div class="pd-rules">
-    <p><b>通用</b>：每道题要有序号（<code>1.</code> <code>2.</code> <code>3、</code>）；选项用 <code>A.</code> 或 <code>A、</code>（不能用（A）、【A】、A)，可在 Word 里用 Ctrl+F 批量替换）；四个选项可放一行，但之间要隔开一段距离；<b>答案、解析都要另起一行</b>，无解析可不写。</p>
+    <p><b>通用</b>：每道题要有序号（<code>1.</code> <code>2.</code> <code>3、</code>）；选项用 <code>A.</code> 或 <code>A、</code>（不能用（A）、【A】、A)，可在 Word 里用 Ctrl+F 批量替换）；四个选项可放一行，但之间要隔开一段距离；原文有答案、解析时请各另起一行。<b>原文没有答案或解析可以不写</b>，待审核会提示缺答案；未注明单选或多选且没有答案时，须老师确认题型。</p>
     <p><b>单选 / 多选</b>：答案写选项字母，多选 2 个及以上（如 <code>答案：CD</code>）。<b>判断</b>：答案 对/错、正确/错误、正/误。</p>
-    <p><b>填空</b>：空用 <code>_______</code> 或括号（），<b>一个空一个答案，答案另起一行、用「；」隔开</b>（<code>答案：Does；often；fishing</code>）。</p>
+    <p><b>填空</b>：空用 <code>_______</code> 或括号（），提供答案时一个空一个答案，答案另起一行、用「；」隔开（<code>答案：Does；often；fishing</code>）。</p>
     <p><b>十级难度（选填）</b>：每题单独写一行 <code>难度（1–10）：7</code> 或 <code>十级难度：7</code>，必须是 1 至 10 的整数；不填时保留未知。多小问可先写大题难度，并在小问内单独覆盖。</p>
     <p><b>问答</b>：计算题、简答题、论述题一概写成问答题。有多个小问时，小问号用（1）（2），整题放在 <code>[问答题]</code> 和 <code>[问答题结束]</code> 之间。</p>
     <p>题型可以用小节标题（<code>单选题</code>、<code>多选题</code>…）或题号后的括号（<code>1.（单选题）…</code>）标明，每个小节题号可以从 1 重新开始。导入后每道题都会先进待审核，不会直接入库。</p>
@@ -68,43 +70,55 @@ async function viewPending() {
 
   const itemHTML = (it) => {
     const preview = pdStemImages(it);
+    const sourcePages = [...new Set((Array.isArray(it.source_pages) && it.source_pages.length ? it.source_pages : [it.original_page]).map(Number).filter((n) => Number.isInteger(n) && n > 0 && n <= Number(it.original_pages || n)))];
     const miss = [];
+    if (!String(it.stem || '').trim()) miss.push('题干缺失，待补录');
     if (!it.subject) miss.push('未识别学科');
     if (!it.answer) miss.push('缺答案');
     if (!it.analysis) miss.push('缺解析');
     if (!it.stage || !it.point) miss.push('缺分类');
     if (it.type_unconfirmed) miss.push('题型待老师确认');
-    if ((it.image_errors || []).length || /\[图\d+\]/.test(it.stem || '') && !(it.images || []).length) miss.push('待补图');
+    if ((it.image_errors || []).length || (it.figure_missing || []).length) miss.push('待补图');
+    if (it.figure_review_required && it.figure_review_issue && !(it.figure_missing || []).length) miss.push('图文归属待核对');
     return `<div class="pd-item" data-id="${esc(it.id)}">
       <label class="pd-chk"><input type="checkbox" data-sel="${esc(it.id)}" ${st.sel[it.id] ? 'checked' : ''}></label>
       <div class="pd-main">
         <div class="pd-meta">
           <span class="pd-tag pd-src-${esc(it.source)}">${esc(it.source_label)}</span>
           <span class="pd-type">${it.type_unconfirmed ? `暂按${esc(it.type_name)}` : esc(it.type_name)}</span>
+          ${it.qno ? `<span class="pd-cls">原题号 ${esc(it.qno)}</span>` : ''}
           ${it.group_ref ? `<span class="pd-cls">组合题 · 小题 ${Number(it.group_position) || ''}</span>` : ''}
           ${it.subject ? `<span class="pd-cls">${esc(it.subject)}${it.stage ? ' · ' + esc(pdStageName(it.stage)) : ''}${it.grade ? ' · ' + esc(it.grade) : ''}</span>` : ''}
           ${it.difficulty_score_10 != null ? `<span class="pd-cls">难度 ${Number(it.difficulty_score_10)} / 10</span>` : it.difficulty ? `<span class="pd-cls">难度 ${it.difficulty} / 5 星</span>` : ''}
           ${it.point ? `<span class="pd-cls" title="知识点">${esc(it.point)}</span>` : ''}
           ${it.ai_recognized ? '<span class="pd-cls">AI 已识别，请核对</span>' : ''}
+          ${it.content_review_required ? `<span class="${it.content_review_pending ? 'pd-warn' : 'pd-cls'}">${it.content_review_pending ? '识别内容待核对' : '识别内容已核对'}</span>` : ''}
           ${it.ai_answer_review && it.ai_answer_review.fields && Object.keys(it.ai_answer_review.fields).length ? '<span class="pd-cls">AI 建议已由老师确认</span>' : ''}
           ${it.ai_point_suggestion ? `<span class="pd-warn">AI 建议知识点：${esc(it.ai_point_suggestion)}（未确认）</span>` : ''}
           ${(it.tags || []).slice(0, 4).map((t) => `<span class="pd-cls">#${esc(t)}</span>`).join('')}
           ${miss.map((m) => `<span class="pd-warn">${esc(m)}</span>`).join('')}
           <span class="pd-batch" title="来自哪个批次">${esc(it.batch_title || '')}</span>
         </div>
-        ${it.material ? `<div class="pd-mat">${pdBr(it.material)}</div>` : ''}
+        ${it.material ? `<div class="pd-mat">${preview.material}</div>` : ''}
         ${it.upload_note ? `<div class="pd-upload-note"><b>上传备注：</b>${pdBr(it.upload_note)}</div>` : ''}
+        ${it.content_review_required ? `<div class="pd-upload-note"><b>${it.content_review_pending ? '请对照原页核对题型、题干、选项、公式、共同材料和小问' : '老师已核对当前题目内容'}</b>${it.content_review_pending ? '<p>AI 识别内容可能包含推断、漏字或串题，请以原页为准。</p>' : ''}${it.cross_page_review_required ? '<p>此题涉及跨页内容，请逐页核对并补全关联。</p>' : ''}${(it.recognition_notes || []).map((note) => `<p>AI 提示（可能包含推断，请对照原页核对）：${esc(note)}</p>`).join('')}${it.content_review_pending ? ' <button type="button" class="btn ghost sm" data-act="content-review">确认已对照原页</button>' : ''}</div>` : ''}
         ${(it.image_errors || []).map((e) => `<div class="pd-upload-note"><b>图${Number(e.index) + 1} 转存失败：</b>${esc(e.message)}。请从原网页保存图片后补传。 <label class="btn ghost sm">选择图片<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-replace-image="${Number(e.index)}" style="display:none"></label></div>`).join('')}
-        <div class="pd-stem">${preview.html}</div>
+        ${(it.figure_missing || []).filter((n) => n > 0 && n <= 30).map((n) => `<div class="pd-upload-note"><b>图${Number(n)} 尚未补充。</b> 可从原页框选，或上传对应图像。 <label class="btn ghost sm">上传图${Number(n)}<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-supply-figure="${Number(n) - 1}" style="display:none"></label></div>`).join('')}
+        ${(it.figure_missing || []).includes('未编号') ? '<div class="pd-upload-note"><b>题目含图片或表格占位标记。</b>请点击编辑，将 [图]、[图N]、[表1] 等改为对应的 [图1]、[图2] 等唯一图号，再从原页裁取并补充实际图片或表格。</div>' : ''}
+        <div class="pd-stem">${preview.html || '<span class="pd-warn">题干缺失，请对照原页补录后再入库。</span>'}</div>
         ${preview.prompts.length ? `<div><b>匹配项目</b><ol>${preview.prompts.map((v) => `<li>${v}</li>`).join('')}</ol></div>` : ''}
         ${(it.options || []).length ? `<ol class="pd-opts">${it.options.map((o, i) => `<li><b>${esc(optLabel(o, i))}.</b> ${preview.options[i]}</li>`).join('')}</ol>` : ''}
         ${preview.rest ? `<div class="pd-imgs">${preview.rest}</div>` : ''}
-        <div class="pd-ans"><b>答案：</b>${it.answer ? pdBr(it.answer) : '<span class="pd-warn">未填</span>'}${it.analysis ? `<div class="pd-ana"><b>解析：</b>${pdBr(it.analysis)}</div>` : ''}</div>
-        ${it.ai_legacy_pending ? '<div class="pd-upload-note"><b>历史答案或解析待核对：</b>无法确定是否由旧版 AI 识别或补充，请检查上面的答案、解析后明确确认，才能入库。 <button type="button" class="btn ghost sm" data-act="legacy-ai">确认已核对</button></div>' : ''}
-        ${it.ai_answer_suggestion ? `<div class="pd-upload-note"><b>${it.ai_answer_suggestion.source === 'recognition' ? 'AI 转写内容（请对照原文核对，未经确认不会入库）' : 'AI 建议（未经确认，不会入库）'}</b>${it.ai_answer_suggestion.stale ? '<p class="pd-warn">题目已修改，请重新生成建议。</p>' : ''}${it.ai_answer_suggestion.answer ? `<div><b>答案建议：</b>${pdBr(it.ai_answer_suggestion.answer)} ${!it.ai_answer_suggestion.stale && !it.answer ? '<button type="button" class="btn ghost sm" data-act="ai-answer">采纳答案</button>' : ''}</div>` : ''}${it.ai_answer_suggestion.analysis ? `<div><b>解析建议：</b>${pdBr(it.ai_answer_suggestion.analysis)} ${!it.ai_answer_suggestion.stale && !it.analysis ? '<button type="button" class="btn ghost sm" data-act="ai-analysis">采纳解析</button>' : ''}</div>` : ''}</div>` : ''}
+        <div class="pd-ans"><b>答案：</b>${it.answer ? pdBr(it.answer) : '<span class="pd-warn">未填</span>'}${it.analysis ? `<div class="pd-ana"><b>解析：</b>${preview.analysis}</div>` : ''}</div>
+        ${it.ai_legacy_pending ? `<div class="pd-upload-note"><b>历史 AI 补全内容待核对：</b>来源无法确定，请对照原文逐项确认。 ${(it.ai_legacy_pending_fields || []).includes('answer') ? '<button type="button" class="btn ghost sm" data-act="legacy-answer">确认答案</button>' : ''} ${(it.ai_legacy_pending_fields || []).includes('analysis') ? '<button type="button" class="btn ghost sm" data-act="legacy-analysis">确认解析</button>' : ''} ${(it.ai_legacy_pending_fields || []).includes('classification') ? '<button type="button" class="btn ghost sm" data-act="legacy-classification">确认分类</button>' : ''}</div>` : ''}
+        ${(it.ai_review_pending_fields || []).length ? `<div class="pd-upload-note"><b>题目内容已变化：</b>已采纳的 AI 内容须对照当前题目逐项重新核对。 ${(it.ai_review_pending_fields || []).includes('answer') ? '<button type="button" class="btn ghost sm" data-act="recheck-answer">重新确认答案</button>' : ''} ${(it.ai_review_pending_fields || []).includes('analysis') ? '<button type="button" class="btn ghost sm" data-act="recheck-analysis">重新确认解析</button>' : ''}</div>` : ''}
+        ${it.ai_answer_suggestion ? `<div class="pd-upload-note"><b>${it.ai_answer_suggestion.source === 'recognition' ? 'AI 转写内容（请对照原文核对，未经确认不会入库）' : 'AI 建议（未经确认，不会入库）'}</b>${it.ai_answer_suggestion.source !== 'recognition' ? '<p class="pd-warn">建议仅依据题目文字生成，未读取题图；答案和解析可能不一致，请分别核对。</p>' : ''}${it.ai_answer_suggestion.stale ? '<p class="pd-warn">题目已修改，请重新生成建议。</p>' : ''}${it.ai_answer_suggestion.answer ? `<div><b>答案建议：</b>${pdBr(it.ai_answer_suggestion.answer)} ${!it.ai_answer_suggestion.stale && !it.answer ? '<button type="button" class="btn ghost sm" data-act="ai-answer">采纳答案</button>' : ''}</div>` : ''}${it.ai_answer_suggestion.analysis ? `<div><b>解析建议：</b>${pdBr(it.ai_answer_suggestion.analysis)} ${!it.ai_answer_suggestion.stale && !it.analysis ? '<button type="button" class="btn ghost sm" data-act="ai-analysis">采纳解析</button>' : ''}</div>` : ''}<button type="button" class="btn ghost sm" data-act="discard-ai">舍弃未采纳建议</button></div>` : ''}
+        ${(it.ai_answer_discard_history || []).length ? `<details class="pd-upload-note"><summary>查看已舍弃 AI 内容（${it.ai_answer_discard_history.length}）</summary>${it.ai_answer_discard_history.map((h) => `<div><b>操作人：</b>${esc(String(h.discarded_by || ''))} <b>时间：</b>${esc(h.discarded_at || '')}${h.answer ? `<p><b>答案：</b>${pdBr(h.answer)}</p>` : ''}${h.analysis ? `<p><b>解析：</b>${pdBr(h.analysis)}</p>` : ''}</div>`).join('')}</details>` : ''}
       </div>
       <div class="pd-acts">
-        ${it.original_page ? `<button type="button" class="btn sm ghost" data-act="original">查看原页 · 第 ${Number(it.original_page)} 页</button>` : ''}
+        ${sourcePages.map((page) => `<button type="button" class="btn sm ghost" data-act="original" data-page="${page}">查看原页 · 第 ${page} 页</button>`).join('')}
+        ${it.original_page ? `<button type="button" class="btn sm ghost" data-act="crop-figure">从原页补图</button>` : ''}
+        ${it.figure_review_required && it.figure_review_issue ? `<button type="button" class="btn sm ghost" data-act="confirm-figure">确认图文归属</button>` : ''}
         <button type="button" class="btn sm primary" data-act="commit">入库</button>
         <button type="button" class="btn sm ghost" data-act="edit">编辑</button>
         <button type="button" class="btn sm ghost danger" data-act="del">删除</button>
@@ -128,13 +142,14 @@ async function viewPending() {
       <label><input type="checkbox" id="pd-all"> 全选本页</label>
       <span class="pd-selcnt" id="pd-selcnt">已选 0 题</span>
       <button type="button" class="btn sm primary" id="pd-bcommit">批量入库</button>
+      <button type="button" class="btn sm ghost" id="pd-bmerge">合并两段跨页题</button>
       <button type="button" class="btn sm ghost" id="pd-bclassify">AI 分类建议</button>
       <button type="button" class="btn sm ghost" id="pd-bai" title="为缺失的答案或解析生成待老师确认的建议">AI 生成答案/解析建议</button>
       <button type="button" class="btn sm ghost danger" id="pd-bdel">批量删除</button>
     </div>
     ${st.batch_id ? `<p class="pd-tip">正在查看所选批次 <button type="button" class="btn ghost xs" id="pd-clear-batch">查看全部批次</button></p>` : ''}
     ${list.length ? `<div class="r4-review-nav"><span>使用 ↑ / ↓ 切换本页题目，输入时不会切换</span><div><button type="button" class="btn ghost xs" id="pd-prev">上一题</button> <span id="pd-position" aria-live="polite"></span> <button type="button" class="btn ghost xs" id="pd-next">下一题</button></div></div>` : ''}
-    <div class="pd-list r4-review-layout" id="pd-list">${list.length ? `<div class="r4-review-list" aria-label="待审核题目列表">${list.map((it, i) => `<div class="r4-review-row ${it.id === st.active ? 'on' : ''}" data-review-row="${esc(it.id)}"><label><input type="checkbox" data-sel="${esc(it.id)}" ${st.sel[it.id] ? 'checked' : ''} aria-label="选择第 ${i + 1} 题"></label><button type="button" data-select-item="${esc(it.id)}"><span>第 ${i + 1} 题 · ${esc(it.type_name)}</span><strong>${esc((it.stem || '').slice(0, 70))}</strong><small>${!it.answer ? '缺答案 ' : ''}${!it.analysis ? '缺解析 ' : ''}${!it.subject || !it.stage ? '缺分类' : ''}</small></button></div>`).join('')}</div><div class="r4-review-preview" id="pd-preview">${itemHTML(byId[st.active])}</div>` : `<div class="empty">${st.kw ? '没有符合搜索条件的题目' : '没有待审核的题目'}<div style="margin-top:8px;color:#97a3b8">可从录题中心导入或录入题目</div></div>`}</div>
+    <div class="pd-list r4-review-layout" id="pd-list">${list.length ? `<div class="r4-review-list" aria-label="待审核题目列表">${list.map((it, i) => `<div class="r4-review-row ${it.id === st.active ? 'on' : ''}" data-review-row="${esc(it.id)}"><label><input type="checkbox" data-sel="${esc(it.id)}" ${st.sel[it.id] ? 'checked' : ''} aria-label="选择第 ${i + 1} 题"></label><button type="button" data-select-item="${esc(it.id)}"><span>第 ${i + 1} 题 · ${esc(it.type_name)}</span><strong>${esc((it.stem || '').slice(0, 70) || `题干缺失${it.qno ? ' · 原题号 ' + it.qno : ''}`)}</strong><small>${!it.answer ? '缺答案 ' : ''}${!it.analysis ? '缺解析 ' : ''}${!it.subject || !it.stage ? '缺分类' : ''}</small></button></div>`).join('')}</div><div class="r4-review-preview" id="pd-preview">${itemHTML(byId[st.active])}</div>` : `<div class="empty">${st.kw ? '没有符合搜索条件的题目' : '没有待审核的题目'}<div style="margin-top:8px;color:#97a3b8">可从录题中心导入或录入题目</div></div>`}</div>
     ${pagerHTML(data.page, data.size, data.total, 'pdPage')}
   </div>`;
 
@@ -185,14 +200,15 @@ async function viewPending() {
       $('pd-all').onchange = (e) => { list.forEach((it) => { st.sel[it.id] = e.target.checked; }); document.querySelectorAll('[data-sel]').forEach((c) => { c.checked = e.target.checked; }); paintSel(); };
       $('pd-list').onchange = async (e) => {
         const c = e.target.closest('[data-sel]'); if (c) { st.sel[c.dataset.sel] = c.checked; paintSel(); return; }
-        const input = e.target.closest('[data-replace-image]');
+        const input = e.target.closest('[data-replace-image], [data-supply-figure]');
         if (!input || !input.files[0]) return;
         if (input.files[0].size > 5 * 1024 * 1024) { toast('图片不能超过 5 MB', 'err'); input.value = ''; return; }
         const item = byId[input.closest('.pd-item').dataset.id]; if (!item) return;
         input.disabled = true;
         try {
-          const fd = new FormData(); fd.append('id', item.id); fd.append('index', input.dataset.replaceImage); fd.append('file', input.files[0]);
-          const r = await fetch(`${PD_API}/ext/pending/image`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
+          const supplied = input.hasAttribute('data-supply-figure');
+          const fd = new FormData(); fd.append('id', item.id); fd.append('index', supplied ? input.dataset.supplyFigure : input.dataset.replaceImage); fd.append('file', input.files[0]);
+          const r = await fetch(`${PD_API}/ext/pending/${supplied ? 'figure' : 'image'}`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
           const j = await r.json(); if (j.code !== 0) throw new Error(j.msg || '上传失败');
           toast('图片已补充', 'ok'); render();
         } catch (err) { toast(err.message || '上传失败', 'err'); input.disabled = false; input.value = ''; }
@@ -210,11 +226,34 @@ async function viewPending() {
         const it = byId[b.closest('.pd-item').dataset.id];
         if (!it) return;
         if (b.dataset.act === 'edit') return pdEdit(it);
-        if (b.dataset.act === 'legacy-ai' || b.dataset.act === 'ai-answer' || b.dataset.act === 'ai-analysis') {
-          const legacy = b.dataset.act === 'legacy-ai';
-          if (legacy && !(await elConfirm({ title: '确认历史答案与解析', message: '历史内容来源不确定，请对照原文核对这道题当前的答案和解析。确认后才能入库；如需修改，请先点编辑。', okText: '已核对并确认' }))) return;
-          const fields = [b.dataset.act === 'ai-answer' ? 'answer' : 'analysis'];
-          const body = legacy ? { index: it.index, legacy: true, expected: it.ai_legacy_signature } : it.kind === 'run' ? { index: it.index, token: it.ai_answer_suggestion.token, fields } : { id: it.id, token: it.ai_answer_suggestion.token, fields };
+        if (b.dataset.act === 'discard-ai') {
+          if (!it.ai_answer_suggestion) return toast('建议已变化，请刷新后重试', 'err');
+          if (!(await elConfirm({ title: '舍弃未采纳的 AI 内容', message: '舍弃只移除当前未采纳的建议，不会修改已填写的正式答案或解析；建议原文、操作者和时间会保留以供追溯。', okText: '确认舍弃' }))) return;
+          const common = { token: it.ai_answer_suggestion.token, expected: it.ai_discard_signature };
+          const body = it.kind === 'run' ? { ...common, index: it.index } : { ...common, id: it.id };
+          const url = it.kind === 'run' ? `${PD_API}/intake/runs/${it.batch_id}/aifill/discard` : `${PD_API}/ext/pending/ai-answer/discard`;
+          try { await api(url, { method: 'POST', body }); toast('建议已舍弃，记录已保留', 'ok'); render(); } catch (err) { /* api 已提示 */ }
+          return;
+        }
+        if (b.dataset.act === 'content-review') {
+          if (!(await elConfirm({ title: '确认识别内容', message: '请先对照所有相关原页，核对并修正题型、题干、选项、公式、材料及小问。确认仅适用于当前题目内容；AI 答案和解析仍须分别确认。', okText: '已对照原页并核对' }))) return;
+          try { await api(`${PD_API}/ext/pending/content/confirm`, { method: 'POST', body: { id: it.id, expected: it.content_review_signature } }); toast('题目内容已核对', 'ok'); render(); } catch (err) { /* api 已提示 */ }
+          return;
+        }
+        if (b.dataset.act === 'crop-figure') return pdCropFigure(it);
+        if (b.dataset.act === 'confirm-figure') {
+          if ((it.figure_missing || []).length || (it.image_errors || []).length) return toast('请先补齐占位符对应的题图', 'err');
+          if (!(await elConfirm({ title: '确认图文归属', message: '请对照原页检查题干、选项和各小问的图片是否完整、位置是否正确；没有图时也请确认原题确实无图。', okText: '已核对并确认' }))) return;
+          try { await api(`${PD_API}/ext/pending/figure/confirm`, { method: 'POST', body: { id: it.id, expected: it.figure_review_signature } }); toast('图文归属已确认', 'ok'); render(); } catch (err) { /* api 已提示 */ }
+          return;
+        }
+        if (['legacy-answer', 'legacy-analysis', 'legacy-classification', 'ai-answer', 'ai-analysis', 'recheck-answer', 'recheck-analysis'].includes(b.dataset.act)) {
+          const legacy = b.dataset.act.startsWith('legacy-');
+          const recheck = b.dataset.act.startsWith('recheck-');
+          const fields = [b.dataset.act.endsWith('-answer') ? 'answer' : b.dataset.act.endsWith('-classification') ? 'classification' : 'analysis'];
+          if (legacy && !(await elConfirm({ title: `确认历史${fields[0] === 'answer' ? '答案' : fields[0] === 'classification' ? '分类' : '解析'}`, message: '历史内容来源不确定，请对照原文核对当前内容。如需修改，请先点编辑。', okText: '已核对并确认' }))) return;
+          if (recheck && !(await elConfirm({ title: `重新确认${fields[0] === 'answer' ? '答案' : '解析'}`, message: '题目或图片已变化，请核对当前内容仍与这道题匹配。', okText: '已核对并确认' }))) return;
+          const body = legacy ? { index: it.index, legacy: true, expected: it.ai_legacy_signature, fields } : recheck ? { ...(it.kind === 'run' ? { index: it.index } : { id: it.id }), recheck: true, expected: it.ai_review_signature, fields } : it.kind === 'run' ? { index: it.index, token: it.ai_answer_suggestion.token, fields } : { id: it.id, token: it.ai_answer_suggestion.token, fields };
           const url = it.kind === 'run' ? `${PD_API}/intake/runs/${it.batch_id}/aifill/confirm` : `${PD_API}/ext/pending/ai-answer/confirm`;
           try { await api(url, { method: 'POST', body }); toast('已确认，题目仍在待审核', 'ok'); render(); } catch (err) { /* api 已提示 */ }
           return;
@@ -222,7 +261,7 @@ async function viewPending() {
         if (b.dataset.act === 'commit') return pdBatchCommit([it.id], byId);   // R0-B8：单题入库也弹分类框（和批量入库同一个弹窗）
         if (b.dataset.act === 'original') {
           try {
-            const original = await api(`${PD_API}/ext/pending/original?id=${encodeURIComponent(it.id)}`, { silent: true });
+            const original = await api(`${PD_API}/ext/pending/original?id=${encodeURIComponent(it.id)}&page=${encodeURIComponent(b.dataset.page || it.original_page)}`, { silent: true });
             const img = pdImage(withTicket(original.url), `原始第 ${original.page} 页`);
             if (!img) return toast('原页地址无效，请检查批次', 'err');
             modal({ title: `原页对照 · 第 ${original.page} / ${original.total} 页`, wide: true, body: `<div class="r4-original-page">${img}<p class="hint">点击图片可在新窗口放大。</p></div>`, onMount: (w) => { const image = w.querySelector('.r4-original-page img'); if (image) image.onerror = () => { image.alt = '原页加载失败，请返回批次检查图片'; }; } });
@@ -237,6 +276,16 @@ async function viewPending() {
 
       // 批量操作
       $('pd-bcommit').onclick = () => { const ids = selIds(); if (!ids.length) return toast('请先勾选要入库的题目', 'err'); pdBatchCommit(ids, byId); };
+      $('pd-bmerge').onclick = async () => {
+        const ids = selIds();
+        if (ids.length !== 2) return toast('请勾选同一批次中需要合并的两段题目', 'err');
+        const pair = ids.map((id) => byId[id]);
+        if (pair.some((it) => !it || it.kind !== 'run') || pair[0].batch_id !== pair[1].batch_id) return toast('只能合并同一录题批次的两段题目', 'err');
+        pair.sort((a, b) => a.index - b.index);
+        const earlier = (pair[0].stem || '').replace(/\s+/g, ' ').slice(0, 60), later = (pair[1].stem || '').replace(/\s+/g, ' ').slice(0, 60);
+        if (!(await elConfirm({ title: '合并两段跨页题', message: `将按原顺序合并：\n第一段：${earlier}\n第二段：${later}\n合并会保留两页原文与图号，合并后必须重新核对题型、内容和图片。已有答案、解析或互相冲突的字段会被拒绝。`, okText: '确认合并' }))) return;
+        try { await api(`${PD_API}/ext/pending/merge`, { method: 'POST', body: { target_id: pair[0].id, fragment_id: pair[1].id, target_expected: pair[0].content_review_signature, fragment_expected: pair[1].content_review_signature } }); st.sel = {}; st.active = ''; toast('片段已合并，请重新核对', 'ok'); render(); } catch (err) { /* api 已提示 */ }
+      };
       $('pd-bdel').onclick = async () => {
         const ids = selIds(); if (!ids.length) return toast('请先勾选要删除的题目', 'err');
         const hasScan = ids.some((id) => (byId[id] || {}).source === 'scan');
@@ -558,7 +607,7 @@ function pdImportDialog(kind) {
   const w = modal({
     title: isExcel ? '导入 Excel（习题导入模板）' : '导入 Word（.docx）', okText: '选择文件并导入',
     body: `${isExcel
-      ? `<p class="pd-tip" style="margin-top:0">请使用「习题导入模板」（9 个 sheet：单选 / 多选 / 判断 / 组合 / 填空 / 排序 / 完形填空 / 选择填空 / 阅读理解），<b>不要改动现有表头和列顺序</b>；模板里的【例题】示例行会被自动忽略。<a href="javascript:;" id="pdI-tpl">下载原模板</a> · <a href="javascript:;" id="pdI-engtpl">英语细分题型模板</a> · <a href="javascript:;" id="pdI-mathtpl">数学作图与连线模板</a></p><p class="pd-tip">数学连线请在排序题工作表的细分题型列填写「连线」，左侧项目每行一项；作图请使用「作图题」工作表。英语扩展模板请填写相应基础题型下的细分名称。</p>`
+      ? `<p class="pd-tip" style="margin-top:0">请使用「习题导入模板」（9 个 sheet：单选 / 多选 / 判断 / 组合 / 填空 / 排序 / 完形填空 / 选择填空 / 阅读理解），<b>不要改动现有表头和列顺序</b>；模板里的【例题】示例行会被自动忽略。<a href="javascript:;" id="pdI-tpl">下载原模板</a> · <a href="javascript:;" id="pdI-engtpl">英语细分题型模板</a> · <a href="javascript:;" id="pdI-mathtpl">数学作图与连线模板</a> · <a href="javascript:;" id="pdI-optstpl">十选项模板</a></p><p class="pd-tip">原卷没有答案时可留空，导入后由老师核对；选择填空缺答案时，请使用十选项模板填写完整选项，不能只填干扰项。词块题原顺序不会自动作为标准答案。数学连线请在排序题工作表的细分题型列填写「连线」，作图请使用「作图题」工作表。</p>`
       : `<p class="pd-tip" style="margin-top:0">按下面的格式要求排好版，不用 AI，格式不对的题会告诉你在第几段、哪里不对。<a href="javascript:;" id="pdI-rule">${'查看格式要求'}</a></p><div id="pdI-rulebox" style="display:none">${PD_WORD_RULES}</div>`}
       <div class="pd-grid">
         <div class="field"><label>学科</label><select id="pdI-sub" class="input">${pdOpts(PD_SUBJECTS, '数学', '不指定')}</select></div>
@@ -571,6 +620,7 @@ function pdImportDialog(kind) {
       const tpl = el.querySelector('#pdI-tpl'); if (tpl) tpl.onclick = () => pdDownloadTemplate(false);
       const engtpl = el.querySelector('#pdI-engtpl'); if (engtpl) engtpl.onclick = () => pdDownloadTemplate(true);
       const mathtpl = el.querySelector('#pdI-mathtpl'); if (mathtpl) mathtpl.onclick = () => pdDownloadTemplate('math');
+      const optstpl = el.querySelector('#pdI-optstpl'); if (optstpl) optstpl.onclick = () => pdDownloadTemplate('options10');
       const rl = el.querySelector('#pdI-rule'); if (rl) rl.onclick = () => { const b = el.querySelector('#pdI-rulebox'); b.style.display = b.style.display === 'none' ? '' : 'none'; };
       el.querySelector('#pdI-file').onchange = async (e) => {
         const f = e.target.files[0]; if (!f) return;

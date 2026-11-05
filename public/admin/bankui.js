@@ -126,7 +126,7 @@ function bkFormMount(w, cur) {
     if (t === 'single' || t === 'multi') {
       const ans = String(cur.answer || '');
       typeBody.innerHTML = `
-        <div class="field"><label>${t === 'multi' ? '选项（勾选 = 正确答案，可多选）' : '选项（点选正确答案）'}</label>
+        <div class="field"><label>${t === 'multi' ? '选项（正确答案可选填，可多选）' : '选项（正确答案可选填）'}</label>
           <div class="bk-opts-edit">${options.map((o, i) => `
             <div class="bk-opt-row">
               <input type="${t === 'multi' ? 'checkbox' : 'radio'}" name="qfAns" value="${BK_LETTERS[i]}" ${ans.split(',').includes(BK_LETTERS[i]) ? 'checked' : ''} title="设为正确答案">
@@ -135,16 +135,21 @@ function bkFormMount(w, cur) {
               <button type="button" class="link-btn danger" data-rm="${i}" ${options.length <= 2 ? 'disabled' : ''}>×</button>
             </div>`).join('')}
             ${options.length < 10 ? '<button type="button" class="btn ghost sm" id="qfAddOpt">+ 加一个选项</button>' : ''}
+            <button type="button" class="btn ghost sm" id="qfClearAnswer">清除答案（待老师审核）</button>
           </div></div>`;
       const add = w.querySelector('#qfAddOpt');
       if (add) add.onclick = () => { options.push(''); renderType(); };
+      w.querySelector('#qfClearAnswer').onclick = () => { typeBody.querySelectorAll('input[name="qfAns"]').forEach((input) => { input.checked = false; }); cur.answer = ''; };
       typeBody.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => { options.splice(Number(b.dataset.rm), 1); renderType(); });
     } else if (t === 'judge') {
+      const raw = String(cur.answer || '').trim(), normalized = raw.toUpperCase();
+      const yes = ['正确', '对', '√', 'T', 'TRUE', 'A', 'Y', 'YES', '是'].includes(normalized);
+      const no = ['错误', '错', '×', 'F', 'FALSE', 'B', 'N', 'NO', '否'].includes(normalized);
       typeBody.innerHTML = `<div class="field"><label>答案</label>
-        <select id="qf-ans"><option value="正确" ${cur.answer === '错误' ? '' : 'selected'}>正确</option><option value="错误" ${cur.answer === '错误' ? 'selected' : ''}>错误</option></select></div>`;
+        <select id="qf-ans"><option value="" ${raw ? '' : 'selected'}>未填写（待老师审核）</option><option value="正确" ${yes ? 'selected' : ''}>正确</option><option value="错误" ${no ? 'selected' : ''}>错误</option>${raw && !yes && !no ? `<option value="${esc(raw)}" selected>原答案：${esc(raw)}（请核对）</option>` : ''}</select></div>`;
     } else if (t === 'fill') {
       typeBody.innerHTML = `
-        <div class="field"><label>答案（多个空用 | 分隔；一个空多个可接受答案用 ||| 分隔，如 is|||s）</label>
+        <div class="field"><label>答案（可留空；多个空用 | 分隔，一个空多个可接受答案用 ||| 分隔）</label>
           <input id="qf-ans" value="${esc(cur.answer || '')}" placeholder="第1空|第2空|第3空"></div>
         <div class="w-tip">学生端会按 | 的数量生成对应的输入框；填空题不需要填选项。</div>`;
     } else if (t === 'sort') {
@@ -155,7 +160,7 @@ function bkFormMount(w, cur) {
               <input class="input bk-opt-in" data-i="${i}" value="${esc(o)}" placeholder="第 ${i + 1} 项">
               <button type="button" class="link-btn danger" data-rm="${i}" ${options.length <= 2 ? 'disabled' : ''}>×</button></div>`).join('')}
             ${options.length < 7 ? '<button type="button" class="btn ghost sm" id="qfAddOpt">+ 加一项</button>' : ''}</div></div>
-        <div class="field"><label>正确顺序（填位置序号，如 3,1,2,4；留空 = 按上面填写顺序）</label>
+        <div class="field"><label>正确顺序（填位置序号，如 3,1,2,4；无答案可留空）</label>
           <input id="qf-ans" value="${esc(cur.answer || '')}" placeholder="如 3,1,2,4"></div>`;
       const add = w.querySelector('#qfAddOpt');
       if (add) add.onclick = () => { options.push(''); renderType(); };
@@ -206,7 +211,6 @@ function bkFormRead(w, err) {
     const checked = [...w.querySelectorAll('input[name="qfAns"]:checked')].map((c) => c.value);
     if (!stem) return err('请填写题干'), null;
     if (optClean.length < 2) return err('请至少填写 2 个选项'), null;
-    if (!checked.length) return err('请勾选正确答案'), null;
     if (t === 'single' && checked.length > 1) return err('单选题只能有一个正确答案'), null;
     answer = checked.join(',');
   } else if (t === 'judge') {
@@ -214,7 +218,6 @@ function bkFormRead(w, err) {
   } else if (t === 'fill') {
     answer = w.querySelector('#qf-ans').value.trim();
     if (!stem) return err('请填写题干'), null;
-    if (!answer) return err('请填写每空的答案（多空用 | 分隔）'), null;
   } else if (t === 'sort') {
     if (!stem) return err('请填写题干'), null;
     if (optClean.length < 2) return err('请至少填写 2 个待排序项'), null;
@@ -876,6 +879,8 @@ function bkPaperPreview(p) {
 /** 编辑试卷（改标题 / 定位 / 增删题目） */
 function bkPaperEdit(p) {
   const picked = p.questions.slice();
+  let partial = {};
+  try { partial = typeof p.question_partial_scores === 'string' ? JSON.parse(p.question_partial_scores || '{}') : (p.question_partial_scores || {}); } catch (_) { partial = {}; }
   modal({
     title: '编辑试卷',
     wide: true,
@@ -892,12 +897,14 @@ function bkPaperEdit(p) {
         <div class="field" style="width:110px"><label>建议时长</label><input id="pe-duration" type="number" value="${p.duration}" min="10"></div>
         <div class="field" style="width:110px"><label>满分</label><input id="pe-score" type="number" value="${p.total_score}" min="10"></div>
       </div>
+      <p class="hint">多选少选分留空时只对全选正确给分；填写后只选对部分且没有错选时给填写的分值。</p>
       <div class="field"><label>卷面题目（${picked.length} 题，点 × 移除）</label><div id="peList" class="pe-list"></div></div>`,
     onMount: (w) => {
       const paint = () => {
         w.querySelector('#peList').innerHTML = picked.map((q, i) => `
-          <div class="pp-q"><div class="pp-q-main"><b>${i + 1}.</b> [${BK_QTNAME[q.type]}] ${esc(bkTrunc(q.stem, 60))}</div>
+          <div class="pp-q"><div class="pp-q-main"><b>${i + 1}.</b> [${BK_QTNAME[q.type]}] ${esc(bkTrunc(q.stem, 60))}${q.type === 'multi' ? ` <label>少选分 <input type="number" min="0" step="0.01" placeholder="未设置" style="width:80px" data-partial="${q.id}" value="${partial[q.id] == null ? '' : Number(partial[q.id])}"></label>` : ''}</div>
           <button class="link-btn danger" data-rm="${q.id}">×</button></div>`).join('') || '<div class="empty">卷面已空</div>';
+        w.querySelectorAll('[data-partial]').forEach((inp) => { inp.onchange = () => { if (inp.value === '') delete partial[inp.dataset.partial]; else partial[inp.dataset.partial] = Number(inp.value); }; });
         w.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => {
           const at = picked.findIndex((q) => String(q.id) === b.dataset.rm);
           if (at >= 0) picked.splice(at, 1);
@@ -919,6 +926,7 @@ function bkPaperEdit(p) {
           duration: Number(w.querySelector('#pe-duration').value) || 90,
           total_score: Number(w.querySelector('#pe-score').value) || 100,
           q_ids: picked.map((q) => q.id),
+          question_partial_scores: Object.fromEntries(picked.filter((q) => q.type === 'multi' && partial[q.id] != null).map((q) => [q.id, partial[q.id]])),
         },
       });
       toast('试卷已保存', 'ok');

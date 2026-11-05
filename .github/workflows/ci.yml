@@ -21,11 +21,22 @@ jobs:
       - run: node excel-test.js    # Excel 模板解析（T3，同上）
       - run: node choices-ten-test.js
       - run: node matching-test.js
+      - run: node multi-partial-test.js
+      - run: node recognition-pages-test.js
+      - run: node pending-merge-test.js
+      - run: node image-review-test.js
+      - run: node question-images-test.js
+      - run: node image-review-ui-test.js
+      - run: node pending-empty-stem-ui-test.js
+      - run: node choice-bank-ui-test.js   # 旧题库表单无答案可留空
+      - run: node content-review-test.js
+      - run: node math-render-test.js
       - run: node drawing-answer-test.js
       - run: node question-ticket-test.js    # 学生题目票据的身份绑定、到期与篡改
       - run: node mfpack-adapter-test.js
       - run: node writing-translation-test.js
       - run: node match-export-test.js
+      - run: node docx-solution-images-test.js
       - run: node group-basket-test.js   # 组合题篮顺序、已有分值与去重
 
   api:
@@ -69,8 +80,28 @@ jobs:
         if: ${{ !cancelled() }}   # 待审核题目（T3）：需要服务和种子树
       - run: node choices-ten-flow-test.js
         if: ${{ !cancelled() }}   # 十选项模板、导入、审核和学生判分
+      - run: node excel-no-answer-flow-test.js
+        if: ${{ !cancelled() }}   # 原模板不变、扩展选项及无答案 Excel 待审核
       - run: node match-partial-flow-test.js
         if: ${{ !cancelled() }}   # 连线部分分、漏答、试卷及人工评分
+      - run: node match-no-answer-flow-test.js
+        if: ${{ !cancelled() }}   # 无答案连线和听力匹配：录题、审核、作答、人工评分
+      - run: node multi-partial-flow-test.js
+        if: ${{ !cancelled() }}   # 多选少选分、无答案待评分及人工重算
+      - run: node recognition-pages-flow-test.js
+        if: ${{ !cancelled() }}   # 跨页材料、续题和失败保留
+      - run: node pending-merge-flow-test.js
+        if: ${{ !cancelled() }}   # 老师确认合并片段并保留来源
+      - run: node image-review-flow-test.js
+        if: ${{ !cancelled() }}   # 缺图阻断、原页归属和审核
+      - run: node pending-empty-stem-flow-test.js
+        if: ${{ !cancelled() }}   # 空题干保留、计数与入库阻断
+      - run: node choice-intake-flow-test.js
+        if: ${{ !cancelled() }}   # 选择题缺选项阻断、缺答案保留为空
+      - run: node question-images-flow-test.js
+        if: ${{ !cancelled() }}   # 学生答题前不泄露解析专用图
+      - run: node content-review-flow-test.js
+        if: ${{ !cancelled() }}   # 识别内容确认及修改失效
       - run: node ai-answer-review-test.js
         if: ${{ !cancelled() }}   # AI 答案、解析建议的人工确认
         env:
@@ -91,6 +122,8 @@ jobs:
         if: ${{ !cancelled() }}   # 错题本 Word 导出 + 手机扫码错题 AI 识别（T9）
       - run: node paper-test.js
         if: ${{ !cancelled() }}   # 试卷管理（T10）：上传真题试卷 → 题库 → 学生搜索并做完
+      - run: node word-paper-order-flow-test.js
+        if: ${{ !cancelled() }}   # Word 原题序、待确认题型的中性标题和编辑
       - run: node listening-test.js
         if: ${{ !cancelled() }}   # 听力题（T7）：音频上传 / TTS → 题目带音频 → 待审核补音频 → 学生端播放并作答
       - run: node formula-test.js

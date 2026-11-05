@@ -51,6 +51,9 @@ zhilexue/
 | `kbtree.js` | 知识树统一（T4）：旧 `kb_*` 复制进 `bank_trees` 知识点树、旧 `/kbtree*` 接口的读写、知识点名清单（供 AI 补全/下拉用）；被 `bank.js`、`mfbank.js` 调用 |
 | `treepick.js` / `treeio.js` | 目录树的教材版本（R2）：`treepick.js` = 默认版本表（`settings.default_editions`）+ 统一取树 `pickTree`（所有"按 学段+学科 取一棵树"的地方都走它：`kbtree.js`、`bank.js` 学生端 `scan-tree`、`mfcollect.js`）；`treeio.js` = 树导入 / 导出（格式见 `docs/tree-import-format.md`，被 `mfbank.js` 的 `/trees/import`、`/trees/:id/export` 和 `scripts/import-trees.js` 共用） |
 | `mfpending.js` | 待审核题目（T3）：把拍照识别 / Word / Excel / 技能包（都是 `mf_recog_runs` 批次）、网络采集批次、手机扫码上传统一成一个列表，逐题编辑/入库/删除，以及 Excel、Word 导入入口；由 `mfbank.js` 末尾挂载，复用它抽出的 `commitRunCards` / `commitCaptureItems`；真题和课文习题题卡先进入审核，审核后回挂试卷或视频 |
+| `recognition-pages.js` / `pending-merge.js` | 跨页识别材料及题卡的保守关联、来源与并发快照；老师显式合并片段时保留原片段、重映射图片并要求重新审核 |
+| `content-review.js` / `image-review.js` / `ai-answer-review.js` | 分别绑定题面、图文和 AI 答案/解析的审核快照；图表缺失、内容变化或未经确认时不能绕过待审核入库 |
+| `question-images.js` / `choice-options.js` | 学生取题时区分题面图与明确标识的答案解析图；共享选择题选项完整性校验 |
 | `wordq.js` | Word 题目规则解析（T3）：按客户《word (1).docx》的格式规则解析，不调 AI，不合规的题给出段号和原因 |
 | `db.js` / `mysql-sync.js` / `mysql-worker.js` / `import-sqlite.js` | 建表、数据库连接与 SQLite→MySQL 转换 |
 | `auth.js` / `delpwd.js` | JWT 鉴权；删除确认密码 |

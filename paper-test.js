@@ -3,7 +3,7 @@
  * 试卷管理（T10）自测： node paper-test.js
  * 需先启动服务（默认 http://localhost:3000）并 npm run seed；直连同一个 MySQL 造学生，结束后清理。
  * 覆盖：
- *   1) 后台上传真题试卷（Word）：先识别预览（不写库）→ 确认生成试卷；题目同时入题库；按题型分大题、默认分值合计 100
+ *   1) 后台上传真题试卷（Word）：先识别预览（不写库）→ 确认生成试卷；先进入待审核，按文档原顺序分段、默认分值合计 100
  *   2) 学生端试卷库搜索：名称 / 年份 / 学科 / 年级，未发布的搜不到；下拉选项
  *   3) 学生搜到后完整做完：打开试卷（不泄露答案）、交卷判分、成绩落库、试卷库显示"上次 N 分"
  *   4) 后台列表筛选、年份校验、权限、错误文件
@@ -65,7 +65,8 @@ function cleanup() {
   const dry = await req(MF + '/papers/import-word', { method: 'POST', token: AT, form: importForm({ fields: { ...meta, dry_run: 1 } }) });
   log(dry.code === 0 && dry.data.total === 10 && dry.data.error_count === 0, '识别预览（dry_run）：客户洋葱样例 10 题、0 个不合规', dry.msg);
   log(dry.data.sample.length === 3 && dry.data.sample.every(q => q.stem), '导入预览展示实际题干样例');
-  log(JSON.stringify(dry.data.sections) === JSON.stringify([{ name: '一、单选题', count: 6 }, { name: '二、填空题', count: 2 }, { name: '三、判断题', count: 2 }]), '预览里按题型列出大题：单选 6 / 填空 2 / 判断 2', JSON.stringify(dry.data.sections));
+  const expectedSections = [{ name: '一、单选题', count: 3 }, { name: '二、填空题', count: 1 }, { name: '三、单选题', count: 1 }, { name: '四、判断题', count: 1 }, { name: '五、填空题', count: 1 }, { name: '六、判断题', count: 1 }, { name: '七、单选题', count: 2 }];
+  log(JSON.stringify(dry.data.sections) === JSON.stringify(expectedSections), '预览按文档题目原顺序分段，不将交错题型重新排序', JSON.stringify(dry.data.sections));
   log(Number(db.prepare("SELECT COUNT(*) n FROM mf_papers WHERE title LIKE 'T10测试%'").get().n) === Number(nP0) && Number(db.prepare("SELECT COUNT(*) n FROM questions WHERE source='真题试卷'").get().n) === Number(nQ0), '预览不写库：没有新试卷、没有新题目');
 
   const imp = await req(MF + '/papers/import-word', { method: 'POST', token: AT, form: importForm({ fields: meta }) });
@@ -89,8 +90,9 @@ function cleanup() {
   log(paper.edition === '苏科版' && paper.term === '上册', '试卷保留导入时选择的教材版本和册别');
   const rows = db.prepare('SELECT * FROM mf_paper_questions WHERE paper_id=? ORDER BY position, id').all(pid);
   const texts = rows.filter((r) => r.kind === 'text').map((r) => r.text_body);
-  log(rows.length === 13 && texts.join() === '一、单选题,二、填空题,三、判断题', '试卷行：3 个大题标题（文本块）+ 10 道题', texts.join());
-  log(rows[0].kind === 'text' && rows[1].kind === 'question' && rows[7].kind === 'text' && rows[8].kind === 'question', '标题在各自题目前面（题序正确）');
+  log(rows.length === 17 && texts.join() === expectedSections.map((s) => s.name).join(), '试卷行：连续题型各自有标题，共 7 个标题和 10 道题', texts.join());
+  const originalNos = rows.filter((r) => r.kind === 'question').map((r) => JSON.parse(db.prepare('SELECT source_detail FROM questions WHERE id=?').get(r.question_id).source_detail).qno);
+  log(rows[0].kind === 'text' && rows[4].kind === 'text' && rows[5].kind === 'question' && originalNos.join() === '1,2,3,4,5,6,7,8,9,10', '标题在各自题目前且题目保持 Word 原序', originalNos.join());
   const scoreSum = rows.filter((r) => r.kind === 'question').reduce((s, r) => s + Number(r.score), 0);
   log(Math.abs(scoreSum - 100) < 0.01, '每题默认分值 = 100 ÷ 题数，合计 100 分', String(scoreSum));
   const bankQ = db.prepare("SELECT * FROM questions WHERE source='真题试卷' AND year='2024'").all().filter((q) => made.qids.includes(q.id));

@@ -4,7 +4,7 @@
  *
  * 规则（客户原文）：
  *  · 试题必须有序号（1.  2.  3、）；选项用 A. 或 A、（不能用 (A) 【A】 A)）；四个选项可以放一行，但之间要隔开一段距离
- *  · 答案必须另起一行；解析另起一行，无解析可不填
+ *  · 原卷提供答案或解析时须各另起一行；没有时留空并提示老师核对
  *  · 多选题答案 2 个及以上选项字母；判断题答案 对/错、正确/错误、正/误
  *  · 填空题用 _______ 或括号（），一个答案一个括号，答案另起一行、答案之间用「；」隔开
  *  · 计算题/简答题/论述题一概按问答题；多小问的问答题，小题号用（1）（2），内容放在 [问答题] 和 [问答题结束] 之间
@@ -96,6 +96,7 @@ function parseWordQuestions(paras) {
   let bigCount = 0;
   let section = '';        // 当前小节题型
   let sectionSubtype = '';
+  let sectionChoiceExplicit = false;
   let sectionFresh = true; // 刚遇到小节标题：允许题号从 1 重新开始
   let lastNo = 0;
   let cur = null;          // 正在读的大题
@@ -104,6 +105,12 @@ function parseWordQuestions(paras) {
   // 题号候选是不是真的新题：后面（到下一个题号 / 小节标题之前）出现选项行或「答案：」，或者自己带 [问答题] 标记
   const looksLikeQuestion = (i, head) => {
     if (RE_BLOCK_START.test(head)) return true;
+    if (hintFromHead(head)) return true;
+    // Clear blank placeholders or an explicit question mark support separating
+    // a new unanswered question from a numbered explanation. Ambiguous prose
+    // without those cues stays in the preceding answer/analysis with a warning.
+    if (section === 'fill' && /_{2,}|＿{2,}|[（(]\s*[)）]|□{2,}/.test(head)) return true;
+    if (section === 'answer' && /[？?]\s*$/.test(head)) return true;
     for (let j = i + 1; j < paras.length; j++) {
       const t = String(paras[j] || '').trim();
       if (!t) continue;
@@ -123,7 +130,10 @@ function parseWordQuestions(paras) {
     const emit = (item) => {
       const subtype = QSubtype.find(c.subtype);
       const difficulty = item.difficulty_score_10 != null ? item.difficulty_score_10 : c.difficulty_score_10;
-      list.push({ ...item, ...(difficulty != null ? { difficulty_score_10: difficulty } : {}), question_subtype: subtype && subtype.type === item.type ? subtype.code : '' });
+      const missingAnswer = !String(item.answer || '').trim();
+      if (missingAnswer) warnings.push({ para: item.para, no: item.no, sub: item.sub || 0, msg: `第 ${item.no} 题${item.sub ? `小问（${item.sub}）` : ''}未提供答案，已留空，请老师核对` });
+      const uncertainType = missingAnswer && ['single','multi'].includes(item.type) && !c.choiceExplicit;
+      list.push({ ...item, ...(difficulty != null ? { difficulty_score_10: difficulty } : {}), ...(uncertainType ? { type_unconfirmed: true } : {}), question_subtype: subtype && subtype.type === item.type ? subtype.code : '' });
     };
     bigCount++;
     if (c.difficultyError) return fail(c, c.difficultyError);
@@ -134,7 +144,6 @@ function parseWordQuestions(paras) {
       if (!b.subs.length) {
         const stem = intro;
         if (!stem) return fail(c, '[问答题] 里没有内容');
-        if (!String(c.answer || '').trim()) return fail(c, '问答题缺少「答案：」行');
         emit({ no: c.no, sub: 0, type: 'answer', stem, material: '', options: [], answer: String(c.answer).trim(), analysis: cleanAna(c.analysis), imgRefs: figRefs(stem), para: c.para });
         return;
       }
@@ -142,7 +151,6 @@ function parseWordQuestions(paras) {
         const stem = s.stem.trim();
         if (!stem) return fail(c, `小问（${s.no}）题干为空`);
         if (s.difficultyError) return fail(c, `小问（${s.no}）${s.difficultyError}`);
-        if (!s.answer.trim()) return fail(c, `小问（${s.no}）缺少「答案：」行`);
         emit({ no: c.no, sub: Number(s.no), group_ref: `word:${c.para}`, type: 'answer', stem, material: intro, options: [], answer: s.answer.trim(), analysis: cleanAna(s.analysis), imgRefs: [...new Set([...figRefs(intro), ...figRefs(stem), ...figRefs(s.analysis)])], para: c.para, difficulty_score_10: s.difficulty_score_10 });
       });
       return;
@@ -167,28 +175,27 @@ function parseWordQuestions(paras) {
       emit({ no: c.no, sub: 0, type: 'sort', stem, material: '', options: opts, match_prompts: match.prompts, answer: match.answer, analysis: cleanAna(c.analysis), imgRefs: [...new Set([...figRefs(stem), ...match.prompts.map(figRefs).flat(), ...opts.map((o) => figRefs(o.content)).flat(), ...figRefs(c.analysis)])], para: c.para });
       return;
     }
-    if (!ans && !['writing', 'calculation', 'drawing'].includes(c.subtype)) return fail(c, '缺少「答案：」行（答案必须另起一行）');
     // 两个选项都是 对/错 符号（洋葱题库的判断题写成 A. ✓ / B. ×）：按判断题处理，答案可以是符号也可以是选项字母
     if ((!c.type || c.type === 'single') && opts.length === 2 && opts.every((o) => JUDGE_OPT.test(o.content.trim()))) {
       const byLetter = opts.find((o) => o.label === ans.toUpperCase());
       const j = normJudge(byLetter ? byLetter.content : ans);
-      if (!j) return fail(c, `判断题答案应为 对/错、正确/错误、正/误，现在是「${ans.slice(0, 20)}」`);
+      if (ans && !j) return fail(c, `判断题答案应为 对/错、正确/错误、正/误，现在是「${ans.slice(0, 20)}」`);
       emit({ no: c.no, sub: 0, type: 'judge', stem, material: '', options: [], answer: j, analysis: cleanAna(c.analysis), imgRefs: [...new Set([...figRefs(stem), ...figRefs(c.analysis)])], para: c.para });
       return;
     }
     if (type === 'single' || type === 'multi') {
       if (opts.length < 2) return fail(c, '选择题至少需要 2 个选项（A. xx / B. xx）');
       if (opts.length > 10 || !opts.every((o, i) => o.label === LETTERS[i])) return fail(c, '选择题选项须从 A 开始按顺序排列，最多 10 项');
-      if (!/^[A-J\s,，、;；]+$/i.test(ans)) return fail(c, '选择题答案应为 A–J 选项字母');
+      if (ans && !/^[A-J\s,，、;；]+$/i.test(ans)) return fail(c, '选择题答案应为 A–J 选项字母');
       const letters = [...new Set((ans.toUpperCase().match(/[A-J]/g) || []))].sort();
-      if (!letters.length) return fail(c, `选择题答案应为选项字母，现在是「${ans.slice(0, 20)}」`);
+      if (ans && !letters.length) return fail(c, `选择题答案应为选项字母，现在是「${ans.slice(0, 20)}」`);
       const bad = letters.find((L) => !opts.some((o) => o.label === L));
       if (bad) return fail(c, `答案「${bad}」不在选项里（现有选项 ${opts.map((o) => o.label).join('')}）`);
       if (type === 'single' && letters.length > 1) {
         if (c.type === 'single') return fail(c, `单选题答案只能有 1 个字母，现在是「${letters.join('')}」`);
         type = 'multi';
       }
-      if (type === 'multi' && letters.length < 2) {
+      if (ans && type === 'multi' && letters.length < 2) {
         if (c.type === 'multi') return fail(c, `多选题答案必须有 2 个及以上的选项，现在是「${letters.join('')}」`);
         type = 'single';
       }
@@ -197,15 +204,15 @@ function parseWordQuestions(paras) {
     }
     if (type === 'judge') {
       const j = normJudge(ans);
-      if (!j) return fail(c, `判断题答案应为 对/错、正确/错误、正/误，现在是「${ans.slice(0, 20)}」`);
+      if (ans && !j) return fail(c, `判断题答案应为 对/错、正确/错误、正/误，现在是「${ans.slice(0, 20)}」`);
       emit({ no: c.no, sub: 0, type, stem, material: '', options: [], answer: j, analysis: cleanAna(c.analysis), imgRefs: [...new Set([...figRefs(stem), ...figRefs(c.analysis)])], para: c.para });
       return;
     }
     if (type === 'fill') {
       const blanks = ans.split(/[；;]/).map((s) => s.trim()).filter(Boolean);
-      if (!blanks.length) return fail(c, '填空题答案为空');
+      if (ans && !blanks.length) return fail(c, '填空题答案为空');
       const nBlank = (stem.match(/_{2,}|＿{2,}|[（(]\s*[)）]|□{2,}/g) || []).length;
-      if (nBlank && nBlank !== blanks.length) return fail(c, `填空题有 ${nBlank} 个空，但「答案：」里有 ${blanks.length} 个答案（答案之间用「；」隔开，一个空一个答案）`);
+      if (ans && nBlank && nBlank !== blanks.length) return fail(c, `填空题有 ${nBlank} 个空，但「答案：」里有 ${blanks.length} 个答案（答案之间用「；」隔开，一个空一个答案）`);
       emit({ no: c.no, sub: 0, type, stem, material: '', options: [], answer: blanks.join('|'), analysis: cleanAna(c.analysis), imgRefs: [...new Set([...figRefs(stem), ...figRefs(c.analysis)])], para: c.para });
       return;
     }
@@ -236,6 +243,7 @@ function parseWordQuestions(paras) {
     if (sec) {
       finish(); cur = null;
       section = SECTION_NAMES[sec[1]] || '';
+      sectionChoiceExplicit = /单选|多选|单项选择|多项选择/.test(sec[1]);
       // 「单项选择题」是各学科通用标题，不能据此推断为英语细分题型。
       sectionSubtype = sec[1] === '单项选择题' ? '' : (QSubtype.find(sec[1]) || {}).code || '';
       sectionFresh = true;
@@ -259,19 +267,20 @@ function parseWordQuestions(paras) {
       // 上一题已经有答案、正在写解析时遇到「上一题号+1」：可能是解析里的列表项（"2. 第二步……"），要向后看才能确定
       if (sequential && !sectionFresh && cur && !cur.block && cur.answer.trim() && (mode === 'ana' || mode === 'ans') && !looksLikeQuestion(i, mq[2].trim())) {
         sequential = false;
-        warnings.push({ para, msg: `「${line.slice(0, 24)}」后面没有选项也没有「答案：」，当作第 ${lastNo} 题${mode === 'ana' ? '解析' : '答案'}的一部分；如果它是新题，请补上答案行` });
+        warnings.push({ para, msg: `「${line.slice(0, 24)}」可能是新题，也可能是第 ${lastNo} 题${mode === 'ana' ? '解析' : '答案'}的一部分，当前按后者保留；若是新题，请在题号后注明题型（如（问答题））` });
       }
       if (sequential || sectionFresh) {
         finish();
         let head = mq[2].trim();
         let type = section;
         let subtype = sectionSubtype;
+        let choiceExplicit = sectionChoiceExplicit;
         const hint = hintFromHead(head);
-        if (hint) { type = hint.type; subtype = hint.subtype || ''; head = hint.rest.trim(); }
+        if (hint) { type = hint.type; subtype = hint.subtype || ''; choiceExplicit = /^[（(]\s*(?:单选|多选|单项选择|多项选择)/.test(head); head = hint.rest.trim(); }
         else head = head.replace(/^[（(]\s*[^）)]{1,8}题\s*[)）]\s*/, '');   // （综合题）之类认不出题型的标签，只去掉不使用
         let isBlock = false;
         if (RE_BLOCK_START.test(head)) { isBlock = true; head = head.replace(RE_BLOCK_START, '').trim(); type = 'answer'; }
-        cur = { no, para, type, subtype, rawHead: head || mq[2], stem: isBlock ? '' : head, options: [], match_prompts: [], answer: '', analysis: '', badOpt: '', badMatch: false, block: isBlock ? { intro: head ? [head] : [], subs: [], curSub: null } : null };
+        cur = { no, para, type, subtype, choiceExplicit, rawHead: head || mq[2], stem: isBlock ? '' : head, options: [], match_prompts: [], answer: '', analysis: '', badOpt: '', badMatch: false, block: isBlock ? { intro: head ? [head] : [], subs: [], curSub: null } : null };
         mode = 'stem'; lastNo = no; sectionFresh = false;
         return;
       }

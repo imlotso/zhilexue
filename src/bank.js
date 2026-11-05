@@ -20,11 +20,12 @@ const { db, DATA_DIR } = require('./db');
 const { signQuestionTicket, verifyQuestionTicket } = require('./auth');
 const { resolveDifficulty } = require('./difficulty');
 const { parseBankWorkbook, makeBankTemplate } = require('./bank-excel');
-const { judgeQ, matchScore } = require('./bank-judge');
+const { judgeQ, matchScore, multiPartialEligible } = require('./bank-judge');
 const { presentAttempt } = require('./paper-attempt');
 const { decodeDrawing } = require('./drawing-answer');
 const QSubtype = require('../public/js/question-subtypes');
-const isUngradedQ = (q) => !!q && (q.type === 'answer' || ['writing', 'drawing'].includes(q.question_subtype) || (q.question_subtype === 'translation' && !String(q.answer || '').trim()));
+// 无正式答案的题不能自动判错；AI 建议不会被用作标准答案。
+const isUngradedQ = (q) => !!q && (q.type === 'answer' || ['writing', 'drawing'].includes(q.question_subtype) || !String(q.answer || '').trim());
 const kbtree = require('./kbtree');
 const compose = require('./compose');
 const { pickTree } = require('./treepick');   // R2：按 学段+学科+默认版本 取树
@@ -83,6 +84,24 @@ function paperScores(value, ids) {
   }
   return out;
 }
+// 卷内多选的少选部分分必须由老师明确填写；空映射代表未配置，0 是显式配置。
+function paperPartialScores(value, ids, scores, totalScore) {
+  if (value == null || value === '') return {};
+  let obj = value;
+  if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch (_) { return null; } }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const out = {};
+  const cents = Math.round(Number(totalScore || 0) * 100);
+  for (const [key, raw] of Object.entries(obj)) {
+    const id = Number(key), idx = ids.indexOf(id);
+    if (!/^[1-9]\d*$/.test(key) || idx < 0 || !['number', 'string'].includes(typeof raw) || (typeof raw === 'string' && !raw.trim())) return null;
+    const n = Number(raw), full = scores ? scores[id] : (Math.floor(cents / ids.length) + (idx < cents % ids.length ? 1 : 0)) / 100;
+    const q = db.prepare('SELECT type FROM questions WHERE id=?').get(id);
+    if (!q || q.type !== 'multi' || !Number.isFinite(n) || n < 0 || n >= full || Math.abs(n * 100 - Math.round(n * 100)) > 1e-7) return null;
+    out[id] = n;
+  }
+  return out;
+}
 function paperDeadline(value) {
   if (!value) return '';
   const date = new Date(value);
@@ -104,32 +123,35 @@ function normalizeBankQ(b, current) {
   if (type === 'single' || type === 'multi') {
     if (options.length < 2) return { err: '选择题至少需要 2 个选项' };
     if (options.length > 10) return { err: '选择题最多支持 10 个选项' };
-    if (!/^[A-J\s,，、;；]+$/i.test(answer)) return { err: '答案应为选项字母，如 B 或 A,J' };
-    const letters = [...new Set((answer.toUpperCase().match(/[A-J]/g) || []))].sort();
-    if (!letters.length) return { err: '答案应为选项字母，如 B 或 A,B' };
-    const bad = letters.find((L) => LETTERS.indexOf(L) >= options.length);
-    if (bad) return { err: `答案包含不存在的选项 ${bad}` };
-    if (type === 'single' && letters.length > 1) return { err: '单选题答案只能有一个字母' };
-    answer = letters.join(',');
+    if (answer) {
+      if (!/^[A-J\s,，、;；]+$/i.test(answer)) return { err: '答案应为选项字母，如 B 或 A,J' };
+      const letters = [...new Set((answer.toUpperCase().match(/[A-J]/g) || []))].sort();
+      if (!letters.length) return { err: '答案应为选项字母，如 B 或 A,B' };
+      const bad = letters.find((L) => LETTERS.indexOf(L) >= options.length);
+      if (bad) return { err: `答案包含不存在的选项 ${bad}` };
+      if (type === 'single' && letters.length > 1) return { err: '单选题答案只能有一个字母' };
+      answer = letters.join(',');
+    }
   } else if (type === 'judge') {
     const a = answer.toUpperCase();
     if (['正确', '对', '√', 'T', 'TRUE', 'A', 'Y', 'YES', '是'].includes(a)) answer = '正确';
     else if (['错误', '错', '×', 'X', 'F', 'FALSE', 'B', 'N', 'NO', '否'].includes(a)) answer = '错误';
-    else return { err: '判断题答案应为 正确 / 错误' };
+    else if (answer) return { err: '判断题答案应为 正确 / 错误' };
     options = ['正确', '错误'];
   } else if (type === 'fill') {
-    if (!answer) return { err: '请填写每空的答案（多空用 | 分隔）' };
     options = [];
   } else if (type === 'sort') {
     if (options.length < 2) return { err: '排序题至少需要 2 个选项' };
     // 答案支持字母序列（CABDE）或序号序列（3,1,2,4,5）
-    const up = answer.toUpperCase().replace(/[^A-G1-9]/g, '');
-    let seq;
-    if (/[A-G]/.test(up) && !/[1-9]/.test(up)) seq = up.split('').map((L) => LETTERS.indexOf(L) + 1);
-    else seq = (up.match(/\d/g) || []).map(Number);
-    if (seq.length !== options.length) return { err: `排序答案需要包含全部 ${options.length} 个选项` };
-    if (new Set(seq).size !== options.length || seq.some((n) => n < 1 || n > options.length)) return { err: '排序答案格式不正确' };
-    answer = seq.join(',');
+    if (answer) {
+      const up = answer.toUpperCase().replace(/[^A-G1-9]/g, '');
+      let seq;
+      if (/[A-G]/.test(up) && !/[1-9]/.test(up)) seq = up.split('').map((L) => LETTERS.indexOf(L) + 1);
+      else seq = (up.match(/\d/g) || []).map(Number);
+      if (seq.length !== options.length) return { err: `排序答案需要包含全部 ${options.length} 个选项` };
+      if (new Set(seq).size !== options.length || seq.some((n) => n < 1 || n > options.length)) return { err: '排序答案格式不正确' };
+      answer = seq.join(',');
+    }
   } else if (type === 'answer') {
     options = [];
   }
@@ -163,7 +185,7 @@ function normalizeBankQ(b, current) {
 
 /** 给学生返回的题目（不含答案与解析） */
 function serveQ(q, uid) {
-  const imgs = (() => { try { const a = JSON.parse(q.images || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } })();
+  const imgs = require('./question-images').studentImages(q);
   const writing = ['writing', 'drawing'].includes(q.question_subtype);
   return {
     id: q.id, quiz_ticket: signQuestionTicket(uid, q.id), type: writing ? 'answer' : q.type, subject: q.subject || '', stem: q.stem, material: q.material || '',
@@ -447,12 +469,14 @@ admin.post('/papers', (req, res) => {
   const due = paperDeadline(b.due_at);
   if (due === null) return fail(res, '截止时间格式不正确');
   const totalScore = scores ? Object.values(scores).reduce((a, v) => a + v, 0) : (Number(b.total_score) || 100);
-  const info = db.prepare(`INSERT INTO papers (title,subject,stage,grade,term,duration,total_score,q_ids,status,created_by,created_at,published_at,question_scores,due_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+  const partial = paperPartialScores(b.question_partial_scores, ids, scores, totalScore);
+  if (!partial) return fail(res, '多选少选分须由老师设置为小于该题满分的非负数，最多两位小数');
+  const info = db.prepare(`INSERT INTO papers (title,subject,stage,grade,term,duration,total_score,q_ids,status,created_by,created_at,published_at,question_scores,due_at,question_partial_scores)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(title, String(b.subject || ''), String(b.stage || ''), String(b.grade || ''), String(b.term || ''),
       Number(b.duration) || 90, totalScore, JSON.stringify(ids),
       b.status === 'published' ? 'published' : 'draft', req.user.id, now(), b.status === 'published' ? now() : null,
-      scores ? JSON.stringify(scores) : '', due);
+      scores ? JSON.stringify(scores) : '', due, JSON.stringify(partial));
   ok(res, { id: info.lastInsertRowid }, b.status === 'published' ? '试卷已保存并下发' : '试卷已保存');
 });
 
@@ -476,15 +500,22 @@ admin.put('/papers/:id', (req, res) => {
   if (b.question_scores != null && !scores) return fail(res, '请为每道题设置有效的正整数分值');
   const due = b.due_at === undefined ? (p.due_at || '') : paperDeadline(b.due_at);
   if (due === null) return fail(res, '截止时间格式不正确');
-  db.prepare('UPDATE papers SET title=?,subject=?,stage=?,grade=?,term=?,duration=?,total_score=?,q_ids=?,question_scores=?,due_at=? WHERE id=?')
+  const totalScore = scores ? Object.values(scores).reduce((a, v) => a + v, 0) : (b.total_score === undefined ? p.total_score : (Number(b.total_score) || 100));
+  let previousPartial = p.question_partial_scores || '{}';
+  if (b.question_partial_scores === undefined && b.q_ids !== undefined) {
+    try { const old = JSON.parse(previousPartial); previousPartial = Object.fromEntries(Object.entries(old).filter(([key]) => idList.includes(Number(key)))); } catch (_) { previousPartial = {}; }
+  }
+  const partial = paperPartialScores(b.question_partial_scores === undefined ? previousPartial : b.question_partial_scores, idList, scores, totalScore);
+  if (!partial) return fail(res, '多选少选分须由老师设置为小于该题满分的非负数，最多两位小数');
+  db.prepare('UPDATE papers SET title=?,subject=?,stage=?,grade=?,term=?,duration=?,total_score=?,q_ids=?,question_scores=?,due_at=?,question_partial_scores=? WHERE id=?')
     .run(title,
       b.subject === undefined ? p.subject : String(b.subject || ''),
       b.stage === undefined ? p.stage : String(b.stage || ''),
       b.grade === undefined ? p.grade : String(b.grade || ''),
       b.term === undefined ? p.term : String(b.term || ''),
       b.duration === undefined ? p.duration : (Number(b.duration) || 90),
-      scores ? Object.values(scores).reduce((a, v) => a + v, 0) : (b.total_score === undefined ? p.total_score : (Number(b.total_score) || 100)),
-      ids, scores ? JSON.stringify(scores) : '', due, p.id);
+      totalScore,
+      ids, scores ? JSON.stringify(scores) : '', due, JSON.stringify(partial), p.id);
   ok(res, null, '已保存');
 });
 
@@ -1443,7 +1474,7 @@ stu.post('/submit', (req, res) => {
         results.push({
           question_id: q.id, type: q.type, stem: q.stem, material: q.material || '',
           options: [], my_answer: response, answer: q.answer,
-          analysis: q.analysis || '', difficulty: q.difficulty, is_correct: false, ungraded: true,
+          analysis: q.analysis || '', solution_images: require('./question-images').solutionImages(q), difficulty: q.difficulty, is_correct: false, ungraded: true,
         });
         addUngraded(q.id, response, drawing);
         continue;
@@ -1476,9 +1507,9 @@ stu.post('/submit', (req, res) => {
       results.push({
         question_id: q.id, type: q.type, stem: q.stem, material: q.material || '',
         options: o.options, my_answer: String(a.my_answer || ''), answer: q.answer,
-        analysis: q.analysis || '', difficulty: q.difficulty, is_correct: isOk, point: String(q.point || '').trim(), ...(match || {}),
+        analysis: q.analysis || '', solution_images: require('./question-images').solutionImages(q), difficulty: q.difficulty, is_correct: isOk, point: String(q.point || '').trim(), ...(match || {}),
       });
-      detail.push({ question_id: q.id, my_answer: String(a.my_answer || ''), is_correct: isOk ? 1 : 0, ...(match || {}) });
+      detail.push({ question_id: q.id, my_answer: String(a.my_answer || ''), is_correct: isOk ? 1 : 0, ...(match || {}), ...(q.type === 'multi' ? { multi_partial_eligible: multiPartialEligible(q, a.my_answer) } : {}) });
     }
     if (kind === 'paper') {
       const total = detail.length;
@@ -1488,7 +1519,9 @@ stu.post('/submit', (req, res) => {
       // 旧卷未配置单题分值时，将总分按分均分，余下的分依题序分配，保证全对仍等于满分。
       const totalCents = Math.round(Number(paper.total_score || 0) * 100);
       const maxOf = (id) => scores ? (scores[id] || 0) : (ids.length ? (Math.floor(totalCents / ids.length) + (ids.indexOf(id) < totalCents % ids.length ? 1 : 0)) / 100 : 0);
-      detail.forEach((d) => { d.max_score = maxOf(d.question_id); d.earned_score = roundScore(d.match_total ? d.max_score * d.match_correct / d.match_total : d.is_correct ? d.max_score : 0); });
+      let partial = {};
+      try { partial = JSON.parse(paper.question_partial_scores || '{}'); if (!partial || typeof partial !== 'object' || Array.isArray(partial)) partial = {}; } catch (_) { partial = {}; }
+      detail.forEach((d) => { d.max_score = maxOf(d.question_id); const configured = Object.hasOwn(partial, d.question_id) ? Number(partial[d.question_id]) : NaN; d.earned_score = roundScore(d.match_total ? d.max_score * d.match_correct / d.match_total : d.is_correct ? d.max_score : d.multi_partial_eligible && Number.isFinite(configured) && configured >= 0 && configured < d.max_score ? configured : 0); });
       ungradedDetail.forEach((d) => { d.max_score = maxOf(d.question_id); });
       const score = roundScore(detail.reduce((sum, d) => sum + d.earned_score, 0));
       paperScore = ungradedDetail.length ? null : score; paperTotal = Number(paper.total_score) || null;
@@ -1497,10 +1530,19 @@ stu.post('/submit', (req, res) => {
       bindAttempt(attemptId);
     } else if (kind === 'mfpaper') {
       const scoreMap = {};
-      db.prepare("SELECT question_id, score FROM mf_paper_questions WHERE paper_id=? AND kind='question'").all(paperId)
-        .forEach((r) => { scoreMap[r.question_id] = roundScore(num(r.score, 0)); });
+      const partialMap = {};
+      db.prepare("SELECT question_id, score, partial_score FROM mf_paper_questions WHERE paper_id=? AND kind='question'").all(paperId)
+        .forEach((r) => {
+          // 历史真题卷可能同一题出现多行；只作答一次，但不能丢掉其他行分值。
+          const full = roundScore(num(r.score, 0));
+          scoreMap[r.question_id] = roundScore((scoreMap[r.question_id] || 0) + full);
+          if (r.partial_score != null) {
+            const part = Number(r.partial_score);
+            if (Number.isFinite(part) && part >= 0 && part < full) partialMap[r.question_id] = roundScore((partialMap[r.question_id] || 0) + part);
+          }
+        });
       [...allowedIds].forEach((id) => { if (!seenAnswers.has(id)) { const q = getQ.get(id); if (isUngradedQ(q)) addUngraded(id, ''); } });
-      detail.forEach((d) => { d.max_score = scoreMap[d.question_id] || 0; d.earned_score = roundScore(d.match_total ? d.max_score * d.match_correct / d.match_total : d.is_correct ? d.max_score : 0); });
+      detail.forEach((d) => { d.max_score = scoreMap[d.question_id] || 0; const configured = Object.hasOwn(partialMap, d.question_id) ? partialMap[d.question_id] : NaN; d.earned_score = roundScore(d.match_total ? d.max_score * d.match_correct / d.match_total : d.is_correct ? d.max_score : d.multi_partial_eligible && Number.isFinite(configured) && configured >= 0 && configured < d.max_score ? configured : 0); });
       ungradedDetail.forEach((d) => { d.max_score = scoreMap[d.question_id] || 0; });
       const score = roundScore(detail.reduce((s, d) => s + d.earned_score, 0));
       paperScore = ungradedDetail.length ? null : score; paperTotal = roundScore(Object.values(scoreMap).reduce((s, v) => s + v, 0)) || null;
@@ -1820,9 +1862,9 @@ stu.post('/check', (req, res) => {
   const out = items.map((a) => {
     const q = db.prepare('SELECT * FROM questions WHERE id=?').get(Number(a.question_id) || 0);
     if (!q) return { question_id: a.question_id, is_correct: false, answer: '', analysis: '', missing: true };
-    if (isUngradedQ(q)) return { question_id: q.id, is_correct: false, ungraded: true, answer: q.answer, analysis: q.analysis || '' };
+    if (isUngradedQ(q)) return { question_id: q.id, is_correct: false, ungraded: true, answer: q.answer, analysis: q.analysis || '', solution_images: require('./question-images').solutionImages(q) };
     const isOk = judgeQ(q, a.my_answer);
-    const out1 = { question_id: q.id, is_correct: isOk, answer: q.answer, analysis: q.analysis || '' };
+    const out1 = { question_id: q.id, is_correct: isOk, answer: q.answer, analysis: q.analysis || '', solution_images: require('./question-images').solutionImages(q) };
     const match = matchScore(q, a.my_answer); if (match) Object.assign(out1, match);
     if (q.type === 'fill') {
       // R8：填空逐空对错（学生端逐空打 ✓ / ✗）：把每一空单独当成一道单空题判

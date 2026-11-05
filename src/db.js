@@ -464,6 +464,7 @@ CREATE TABLE IF NOT EXISTS papers (
   total_score INTEGER DEFAULT 100,
   q_ids TEXT DEFAULT '[]',
   question_scores TEXT DEFAULT '',
+  question_partial_scores TEXT DEFAULT '',
   due_at TEXT DEFAULT '',
   status TEXT DEFAULT 'draft',
   created_by INTEGER DEFAULT NULL,
@@ -632,6 +633,7 @@ CREATE TABLE IF NOT EXISTS mf_paper_questions (
   question_id INTEGER DEFAULT NULL,
   position INTEGER DEFAULT 0,
   score REAL DEFAULT 0,
+  partial_score REAL DEFAULT NULL,        -- 多选少选且全对时的固定分；NULL 表示未配置
   frozen INTEGER DEFAULT 0,
   layout_json TEXT,                    -- 题级排版覆盖（不写 DEFAULT ''，否则适配层会降成 varchar 截断）
   kind TEXT DEFAULT 'question',
@@ -731,6 +733,8 @@ CREATE INDEX IF NOT EXISTS idx_w_rec_book ON word_records(student_id, book_id);
 // 注意：这批加列必须放在建表（runSchema）之后；空库初始化时表是刚建出来的，靠它补齐列，并且依赖这些列的索引要在它之后再建
 try { db.exec("ALTER TABLE questions ADD COLUMN stage TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 try { db.exec("ALTER TABLE papers ADD COLUMN question_scores MEDIUMTEXT"); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE papers ADD COLUMN question_partial_scores MEDIUMTEXT"); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE mf_paper_questions ADD COLUMN partial_score REAL DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
 try { db.exec('ALTER TABLE records ADD COLUMN match_correct INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
 try { db.exec('ALTER TABLE records ADD COLUMN match_total INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
 for (const table of ['paper_tries', 'mf_paper_tries']) {

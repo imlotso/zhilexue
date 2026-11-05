@@ -87,7 +87,7 @@ async function viewMfBank() {
       function query(ctx) {
         const p = {
           page: st.pg, size, stage: ctx.stage, subject: ctx.subject,
-          nodes: ctx.sel.join(','), type: st.f.type.join(','), question_subtype: st.f.subtype.filter((code) => { const t = QSubtype.find(code); return t && (t.subject || '英语') === ctx.subject; }).join(','), difficulty: st.f.diff.join(','), source_type: st.f.src.join(','),
+          nodes: ctx.sel.join(','), type: st.f.type.join(','), question_subtype: st.f.subtype.filter((code) => QSubtype.matchesSubject(QSubtype.find(code), ctx.subject)).join(','), difficulty: st.f.diff.join(','), source_type: st.f.src.join(','),
           year: st.f.year.join(','), complete: st.f.comp.join(','), kw: st.kw, sort: st.sort === 'used' ? 'used' : '',
         };
         return Object.entries(p).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
@@ -129,7 +129,7 @@ async function viewMfBank() {
         main.innerHTML = `
           <div class="r3-filter">
             ${chipRow('type', '题型', (typeof MF_TYPES !== 'undefined' ? MF_TYPES : Object.entries(QC_TYPE_FALLBACK)))}
-            ${['英语', '数学'].includes(ctx.subject) ? chipRow('subtype', '细分题型', QSubtype.list.filter((x) => (x.subject || '英语') === ctx.subject).map((x) => [x.code, x.label])) : ''}
+            ${QSubtype.list.some((x) => QSubtype.matchesSubject(x, ctx.subject)) ? chipRow('subtype', '细分题型', QSubtype.list.filter((x) => QSubtype.matchesSubject(x, ctx.subject)).map((x) => [x.code, x.label])) : ''}
             ${chipRow('diff', '难度', Object.entries(QC_DIFF))}
             ${chipRow('src', '来源', R3_SRC)}
             ${years.length ? chipRow('year', '年份', years.map((y) => [y, y])) : ''}

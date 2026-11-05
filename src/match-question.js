@@ -8,9 +8,13 @@ function list(value) {
   return Array.isArray(v) ? v.map((s) => String(s || '').trim()).filter(Boolean) : [];
 }
 function normalize(prompts, options, answer, allowMissing = false, subtype = 'listen_match') {
+  const unpack = (value) => { if (typeof value === 'string') { try { return JSON.parse(value); } catch (_) { return []; } } return value; };
+  const rawLeft = unpack(prompts), rawRight = unpack(options);
   const left = list(prompts);
   const opts = Array.isArray(options) ? options : list(options);
   const math = subtype === 'math_match';
+  const optionText = (o) => o && typeof o === 'object' ? (o.text != null ? o.text : o.content != null ? o.content : o.html) : o;
+  if (!Array.isArray(rawLeft) || rawLeft.length !== left.length || !Array.isArray(rawRight) || rawRight.some((o) => !String(optionText(o) == null ? '' : optionText(o)).trim())) return { error: '匹配项目和右侧选项都不能为空，请逐项核对' };
   if (left.length < 2 || left.length > 7 || opts.length < 2 || opts.length > 7 || (!math && opts.length !== left.length)) return { error: math ? '数学连线需要各 2–7 个左侧项目和右侧选项，数量可以不同' : '听力匹配需要 2–7 个左侧项目，并有数量相同的右侧选项' };
   const value = String(answer || '').trim();
   if (!value) return allowMissing ? { prompts: left, answer: '' } : { error: '请填写匹配答案后再入库' };

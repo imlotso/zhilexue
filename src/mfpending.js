@@ -22,6 +22,9 @@ const QSubtype = require('../public/js/question-subtypes');
 const MatchQ = require('./match-question');
 const { resolveDifficulty } = require('./difficulty');
 const AiAnswerReview = require('./ai-answer-review');
+const { choiceOptionsError } = require('./choice-options');
+const ImageReview = require('./image-review');
+const ContentReview = require('./content-review');
 
 module.exports = function mountPending(d) {
   const { admin, db, ok, fail, now, int, parseArr, parseObj, jstr, TYPE_MAP, TYPES, commitRunCards, commitCaptureItems, store, bankFolder } = d;
@@ -33,6 +36,8 @@ module.exports = function mountPending(d) {
   const audioLimitOf = (v) => Math.min(5, Math.max(0, int(v, 0)));
   const audioFields = (key, limit) => ({ audio_key: str(key), audio_url: key ? store.getUrlSync(key) : '', audio_play_limit: audioLimitOf(limit) });
   const safeImages = (images, errors) => (Array.isArray(images) ? images : []).map((url, i) => (Array.isArray(errors) && errors.some((e) => Number(e.index) === i)) ? '' : url);
+  // 旧版拍照/PDF 卡没有核对标记，也可能完全漏掉原页中的图；统一要求老师对照原页。
+  const needsFigureReview = (run, c) => !!c.figure_review_required || (['image', 'pdf'].includes(str(run.source_kind)) && int(c.page) > 0);
   // id 里带题干指纹：待审核项按"批次+序号"定位，别人删过/改过之后序号会变，旧页面上的 id 可能指向另一道题。
   // 操作前核对指纹，对不上就拒绝，避免把别的题入库/删掉。
   const fpOf = (stem) => crypto.createHash('md5').update(str(stem).trim()).digest('hex').slice(0, 8);
@@ -45,16 +50,20 @@ module.exports = function mountPending(d) {
     const options = q
       ? (q.options || []).map((o) => ({ label: str(o.label), text: str(o.text) }))
       : (c.options || []).map((o) => ({ label: str(o.label), text: str(o.content != null ? o.content : o.text) }));
-    const images = q ? (q.images || []) : (c.figures || []).map((x) => (x && x.url) || x).filter(Boolean);
+    const images = q ? (q.images || []) : (c.figures || []).map((x) => (x && x.url) || (typeof x === 'string' ? x : ''));
     return {
       id: `run:${run.id}:${i}:${fpOf(q ? q.stem : c.stem)}`, kind: 'run', source: src, source_label: SRC_LABEL[src],
-      group_ref: str(c.group_ref), group_position: int(c.group_position, 0),
+      qno: str(c.qno), group_ref: str(c.group_ref), group_position: int(c.group_position, 0),
       batch_id: run.id, batch_title: run.title, index: i,
       original_page: int(c.page) > 0 && (pages || [])[int(c.page) - 1] && ((pages || [])[int(c.page) - 1].key || (pages || [])[int(c.page) - 1].url) ? int(c.page) : 0,
+      original_pages: (pages || []).length, source_pages: Array.isArray(c.source_pages) ? c.source_pages : [],
+      figure_review_required: needsFigureReview(run, c), figure_review_signature: ImageReview.signature(c), figure_review_issue: ImageReview.issue({ ...c, figure_review_required: needsFigureReview(run, c) }), figure_missing: ImageReview.missing(c),
+      content_review_required: !!(c.content_review_required || c.type_unconfirmed), content_review_pending: ContentReview.pending(c, run), content_review_signature: ContentReview.signature(c, run), type_unconfirmed: !!c.type_unconfirmed,
+      recognition_notes: Array.isArray(c.recognition_notes) ? c.recognition_notes.map(str) : [], cross_page_review_required: !!c.cross_page_review_required,
       paper_id: paper ? Number(paper.id) : 0, paper_subject: paper ? str(paper.subject) : '', paper_stage: paper ? str(paper.stage) : '',
       edition: paper ? str(paper.edition) : str(run.edition), term: paper ? str(paper.term) : str(run.term),
       subject: str(c.subject || (q && q.subject) || run.subject), stage: str(c.stage || (q && q.stage) || run.stage), grade: str(c.grade || (q && q.grade) || run.grade),
-      type, type_name: TYPE_NAME[type] || type,
+      type, type_name: TYPE_NAME[type] || type, type_unconfirmed: c.type_unconfirmed === true,
       question_subtype: str(c.question_subtype || (q && q.question_subtype)),
       match_prompts: MatchQ.list(c.match_prompts || (q && q.match_prompts)),
       stem: str(q ? q.stem : c.stem), material: str(c.material), options,
@@ -62,18 +71,21 @@ module.exports = function mountPending(d) {
       point: str(c.point || (q && q.point)), difficulty: int(c.difficulty || (q && q.difficulty), 0), difficulty_score_10: score10(c.difficulty_score_10 != null ? c.difficulty_score_10 : q && q.difficulty_score_10), chapter_id: int(c.chapter_id, 0),
       ai_recognized: !!c.ai_recognized, ai_point_suggestion: str(c.ai_point_suggestion), upload_note: str(c.upload_note),
       ai_answer_suggestion: c.ai_answer_suggestion ? { ...c.ai_answer_suggestion, stale: c.ai_answer_suggestion.basis !== AiAnswerReview.signature(c) || c.ai_answer_suggestion.scope !== JSON.stringify([run.subject || '', run.stage || '', run.grade || '']) } : null,
-      ai_legacy_pending: AiAnswerReview.legacyPending(c), ai_legacy_signature: AiAnswerReview.legacyPending(c) ? AiAnswerReview.signature(c) : '',
+      ai_answer_discard_history: Array.isArray(c.ai_answer_discard_history) ? c.ai_answer_discard_history : [], ai_discard_signature: AiAnswerReview.discardSignature(c, JSON.stringify([run.subject || '', run.stage || '', run.grade || ''])),
+      ai_legacy_pending: AiAnswerReview.legacyPending(c), ai_legacy_pending_fields: AiAnswerReview.legacyPendingFields(c), ai_legacy_signature: AiAnswerReview.legacyPending(c) ? AiAnswerReview.legacySignature(c) : '',
       ai_answer_review: c.ai_answer_review || null,
+      ai_review_pending_fields: AiAnswerReview.reviewedPendingFields(c, JSON.stringify([run.subject || '', run.stage || '', run.grade || ''])), ai_review_signature: AiAnswerReview.signature(c),
       tags: Array.isArray(c.suggestedTags) ? c.suggestedTags : [], images: safeImages(images, c._image_errors), image_errors: Array.isArray(c._image_errors) ? c._image_errors : [], created_at: str(run.created_at),
       ...audioFields(c.audio_key, c.audio_play_limit),
     };
   }
   function runItems() {
     const out = [], papers = new Map();
-    db.prepare("SELECT * FROM mf_recog_runs WHERE status<>'done' ORDER BY id DESC").all().forEach((run) => {
+    // 旧版可能因忽略空题干而把尚有未处理题卡的批次标成 done，仍须恢复到待审核。
+    db.prepare('SELECT * FROM mf_recog_runs ORDER BY id DESC').all().forEach((run) => {
       const pages = parseArr(run.pages);
       parseArr(run.drafts).forEach((c, i) => {
-        if (!c || c.committed || !str(c._q ? c._q.stem : c.stem).trim()) return;
+        if (!c || c.committed || c._merged_into) return;
         const paperId = int(c._paper_id);
         if (paperId && !papers.has(paperId)) papers.set(paperId, db.prepare('SELECT id,subject,stage,edition,term FROM mf_papers WHERE id=?').get(paperId) || null);
         out.push(cardToItem(run, c, i, paperId ? papers.get(paperId) : null, pages));
@@ -83,9 +95,10 @@ module.exports = function mountPending(d) {
   }
   function capItems() {
     const out = [];
-    db.prepare("SELECT * FROM mf_capture_batches WHERE status='pending' ORDER BY id DESC").all().forEach((b) => {
+    // 同样兼容历史批次：旧版会忽略空题干并将批次错误标为已处理。
+    db.prepare('SELECT * FROM mf_capture_batches ORDER BY id DESC').all().forEach((b) => {
       parseArr(b.payload).forEach((q, i) => {
-        if (!q || q._done || !str(q.stem || q.stemHtml).trim()) return;
+        if (!q || q._done) return;
         const options = (q.options || []).map((t, k) => ({ label: str(t && t.label || LETTERS[k] || ''), text: str(t && typeof t === 'object' ? (t.text != null ? t.text : t.content) : t) }));
         const type = TYPES.includes(q.type) ? q.type : (options.length >= 2 ? 'single' : 'answer');
         const item = {
@@ -96,13 +109,18 @@ module.exports = function mountPending(d) {
           question_subtype: str(q.question_subtype),
           match_prompts: MatchQ.list(q.match_prompts),
           stem: str(q.stem || q.stemHtml), material: str(q.material), options, answer: str(q.answer), analysis: str(q.analysis),
-          group_ref: str(q.group_ref), group_position: int(q.group_position, 0), year: str(q.year), source_text: str(q.source_text),
+          qno: str(q.qno || q.questionId), group_ref: str(q.group_ref), group_position: int(q.group_position, 0), year: str(q.year), source_text: str(q.source_text),
+          figure_missing: ImageReview.missing(q),
           point: str(q.point || ((q.meta && q.meta.knowledgePoints) || []).join('、')), difficulty: int(q.difficulty, 0), difficulty_score_10: score10(q.difficulty_score_10), chapter_id: 0,
           tags: [], images: safeImages(q.images, q._image_errors), image_errors: Array.isArray(q._image_errors) ? q._image_errors : [], created_at: str(b.created_at),
           ...audioFields(q.audio_key, q.audio_play_limit),
         };
         item.ai_answer_suggestion = suggestionFor(item, q.ai_answer_suggestion);
         item.ai_answer_review = q.ai_answer_review || null;
+        item.ai_answer_discard_history = Array.isArray(q.ai_answer_discard_history) ? q.ai_answer_discard_history : [];
+        item.ai_discard_signature = AiAnswerReview.discardSignature(item);
+        item.ai_review_pending_fields = AiAnswerReview.reviewedPendingFields(item);
+        item.ai_review_signature = AiAnswerReview.signature(item);
         out.push(item);
       });
     });
@@ -132,6 +150,10 @@ module.exports = function mountPending(d) {
       };
       item.ai_answer_suggestion = suggestionFor(item, draft.ai_answer_suggestion);
       item.ai_answer_review = draft.ai_answer_review || null;
+      item.ai_answer_discard_history = Array.isArray(draft.ai_answer_discard_history) ? draft.ai_answer_discard_history : [];
+      item.ai_discard_signature = AiAnswerReview.discardSignature(item);
+      item.ai_review_pending_fields = AiAnswerReview.reviewedPendingFields(item);
+      item.ai_review_signature = AiAnswerReview.signature(item);
       return item;
     });
   }
@@ -176,6 +198,7 @@ module.exports = function mountPending(d) {
     const failed = [];
     const needed = list.map((item, i) => ({ item, i, basis: AiAnswerReview.signature(item) })).filter(({ item }) => {
       if (!str(item.stem).trim() || item.stem === '（纸质错题，看图作答）') { failed.push({ id: item.id, msg: '请先补充可供解题的题干文字' }); return false; }
+      if (item.ai_answer_suggestion) { failed.push({ id: item.id, msg: '已有未处理的 AI 建议，请先逐项采纳或明确舍弃' }); return false; }
       return !str(item.answer).trim() || !str(item.analysis).trim();
     });
     if (!needed.length) return ok(res, { suggested: 0, failed }, failed.length ? failed[0].msg : '所选题目已有答案和解析');
@@ -195,7 +218,7 @@ module.exports = function mountPending(d) {
       if (!answer) continue;
       try {
         const saved = mutateExternalAi(entry.item.id, ({ target, item }) => {
-          if (AiAnswerReview.signature(item) !== entry.basis) throw new Error('题目已变化，请重新生成');
+          if (target.ai_answer_suggestion || AiAnswerReview.signature(item) !== entry.basis) throw new Error('题目或建议已变化，请刷新后核对');
           const a = !str(item.answer).trim() ? str(answer.answer).trim().slice(0, 4000) : '';
           const explanation = !str(item.analysis).trim() ? str(answer.analysis).trim().slice(0, 12000) : '';
           if (!a && !explanation) return false;
@@ -207,27 +230,49 @@ module.exports = function mountPending(d) {
     }
     return ok(res, { suggested, failed }, `已生成 ${suggested} 题的 AI 建议，须老师逐项确认`);
   });
+  admin.post('/ext/pending/ai-answer/discard', (req, res) => {
+    const b = req.body || {}, id = str(b.id);
+    try {
+      mutateExternalAi(id, ({ target, item }) => {
+        if (!target.ai_answer_suggestion || !target.ai_answer_suggestion.token || str(b.token) !== target.ai_answer_suggestion.token || str(b.expected) !== AiAnswerReview.discardSignature(item)) throw new Error('题目或建议已变化，请刷新后重新核对');
+        AiAnswerReview.discardSuggestion(target, req.user.id, now());
+      });
+      return ok(res, null, '已舍弃未采纳建议；原内容、操作者和时间已保留');
+    } catch (e) { return fail(res, e.message || '题目已更新，请刷新后重新核对'); }
+  });
   admin.post('/ext/pending/ai-answer/confirm', (req, res) => {
     const b = req.body || {}, id = str(b.id);
     const fields = [...new Set(Array.isArray(b.fields) ? b.fields : [])];
-    if (!fields.length || fields.some((x) => !['answer', 'analysis'].includes(x))) return fail(res, '请明确选择要采纳的建议');
+    if (fields.length !== 1 || fields.some((x) => !['answer', 'analysis'].includes(x))) return fail(res, '请逐项选择要采纳的答案或解析建议');
     try {
       mutateExternalAi(id, ({ p, row, target, item }) => {
+        if (b.recheck === true) {
+          const field = fields[0];
+          if (str(b.expected) !== AiAnswerReview.signature(item) || !AiAnswerReview.reviewedPendingFields(item).includes(field)) throw new Error('题目已变化，请重新核对');
+          const stamp = { confirmed_by: req.user.id, confirmed_at: now(), basis: AiAnswerReview.contextSignature(item), value: str(item[field]) };
+          target.ai_answer_review.fields[field] = stamp;
+          if (p.kind === 'up' && row.question_id) {
+            const metadata = parseObj(db.prepare('SELECT ai_review_metadata FROM questions WHERE id=?').get(row.question_id).ai_review_metadata);
+            metadata.fields = { ...(metadata.fields || {}), [field]: stamp };
+            db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(metadata), row.question_id);
+          }
+          return;
+        }
         const suggestion = target.ai_answer_suggestion;
         if (!suggestion || !suggestion.token || str(b.token) !== suggestion.token || suggestion.basis !== AiAnswerReview.signature(item)) throw new Error('AI 建议已过期，请重新生成并核对');
         for (const field of fields) {
           if (!str(suggestion[field]).trim()) throw new Error('所选建议为空');
           if (str(item[field]).trim()) throw new Error('已有内容，请先人工编辑，不会自动覆盖');
         }
-        const stamp = { confirmed_by: req.user.id, confirmed_at: now() };
         const review = target.ai_answer_review || {};
-        review.fields = { ...(review.fields || {}), ...Object.fromEntries(fields.map((x) => [x, stamp])) };
-        target.ai_answer_review = review;
         fields.forEach((field) => { item[field] = str(suggestion[field]).trim(); if (p.kind !== 'up' || !row.question_id) target[field] = item[field]; delete suggestion[field]; });
+        const stamp = (field) => ({ confirmed_by: req.user.id, confirmed_at: now(), basis: AiAnswerReview.contextSignature(item), value: str(item[field]) });
+        review.fields = { ...(review.fields || {}), ...Object.fromEntries(fields.map((field) => [field, stamp(field)])) };
+        target.ai_answer_review = review;
         if (p.kind === 'up' && row.question_id) {
           const existing = db.prepare('SELECT ai_review_metadata FROM questions WHERE id=?').get(row.question_id);
           const metadata = parseObj(existing.ai_review_metadata);
-          metadata.fields = { ...(metadata.fields || {}), ...Object.fromEntries(fields.map((x) => [x, stamp])) };
+          metadata.fields = { ...(metadata.fields || {}), ...Object.fromEntries(fields.map((field) => [field, stamp(field)])) };
           fields.forEach((field) => db.prepare(`UPDATE questions SET ${field}=? WHERE id=?`).run(item[field], row.question_id));
           db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(metadata), row.question_id);
         }
@@ -326,13 +371,13 @@ module.exports = function mountPending(d) {
     const rows = [];
     db.prepare('SELECT id,title,subject,stage,source_kind,status,error,drafts,created_at FROM mf_recog_runs ORDER BY id DESC LIMIT 300').all().forEach((run) => {
       const src = KIND_SRC[run.source_kind] || 'photo';
-      const cards = parseArr(run.drafts).filter((c) => c && str(c._q ? c._q.stem : c.stem).trim());
-      const pending = cards.filter((c) => !c.committed).length;
+      const cards = parseArr(run.drafts).filter((c) => c && !c._merged_into);
+      const pending = cards.filter((c) => c && !c.committed && !c._merged_into).length;
       const status = run.status === 'error' ? '识别失败' : pending ? '待核对' : run.status === 'draft' && !cards.length ? '待识别' : '已处理';
       rows.push({ kind: 'run', id: run.id, source: src, source_label: SRC_LABEL[src], title: run.title, subject: run.subject, stage: run.stage, total: cards.length, pending, status, error: run.status === 'error' ? run.error : '', created_at: run.created_at });
     });
     db.prepare('SELECT id,title,subject,stage,status,payload,created_at FROM mf_capture_batches ORDER BY id DESC LIMIT 300').all().forEach((batch) => {
-      const cards = parseArr(batch.payload).filter((q) => q && str(q.stem || q.stemHtml).trim());
+      const cards = parseArr(batch.payload).filter(Boolean);
       const pending = cards.filter((q) => !q._done).length;
       rows.push({ kind: 'cap', id: batch.id, source: 'capture', source_label: SRC_LABEL.capture, title: batch.title, subject: batch.subject, stage: batch.stage, total: cards.length, pending, status: pending ? '待核对' : '已处理', error: '', created_at: batch.created_at });
     });
@@ -357,11 +402,11 @@ module.exports = function mountPending(d) {
     let list = items.filter((it) => source === 'all' || it.source === source);
     const batchId = int(req.query.batch_id, 0);
     if (batchId > 0 && source !== 'all') list = list.filter((it) => it.batch_id === batchId);
-    if (kw) list = list.filter((it) => [it.stem, it.batch_title, it.point, it.answer, it.material].some((t) => str(t).toLowerCase().includes(kw)));
+    if (kw) list = list.filter((it) => [it.stem, it.qno, it.batch_title, it.point, it.answer, it.material].some((t) => str(t).toLowerCase().includes(kw)));
     const missing = {
       no_answer: (it) => !str(it.answer).trim(),
       no_analysis: (it) => !str(it.analysis).trim(),
-      no_image: (it) => (it.image_errors || []).length > 0 || /\[图\d+\]/.test(str(it.stem)) && !(it.images || []).length,
+      no_image: (it) => (it.image_errors || []).length > 0 || (it.figure_missing || []).length > 0 || !!it.figure_review_issue,
       no_class: (it) => !it.subject || !it.stage || !it.point,
     };
     const statusCounts = { all: list.length };
@@ -401,18 +446,121 @@ module.exports = function mountPending(d) {
   const stemOfCard = (c) => (c._q ? c._q.stem : c.stem);
   const stemOfCap = (q) => q.stem || q.stemHtml;
 
-  // 只有识别题卡记录了有效页号且批次保留该页图时才提供原页。
+  // 两张题卡由老师明确选择，源片段保留原字段与合并标记，不物理删除。
+  admin.post('/ext/pending/merge', (req, res) => {
+    const a = parseId(req.body && req.body.target_id), b = parseId(req.body && req.body.fragment_id);
+    if (!a || !b || a.kind !== 'run' || b.kind !== 'run' || a.batch !== b.batch || a.index >= b.index || !a.fp || !b.fp) return fail(res, '请选择同一批次、按原顺序排列的两张待审核题卡');
+    const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(a.batch);
+    if (!run) return fail(res, '批次不存在或已处理');
+    const cards = parseArr(run.drafts), first = cards[a.index], second = cards[b.index];
+    if (!first || !second || first.committed || second.committed || first._merged_into || second._merged_into || a.fp !== fpOf(stemOfCard(first)) || b.fp !== fpOf(stemOfCard(second))) return fail(res, STALE);
+    if (str(req.body.target_expected) !== ContentReview.signature(first, run) || str(req.body.fragment_expected) !== ContentReview.signature(second, run)) return fail(res, '题卡内容已变化，请刷新后重新选择');
+    if (int(first.page) > 0 && int(second.page) > 0 && int(first.page) > int(second.page)) return fail(res, '请按原页顺序选择先后片段');
+    try {
+      const merged = require('./pending-merge').merge(first, second);
+      merged._ai_card_id = merged._ai_card_id || AiAnswerReview.token();
+      cards[a.index] = merged;
+      cards[b.index] = { ...second, _merged_into: { index: a.index, card_id: merged._ai_card_id, by: req.user.id, at: now() } };
+      const changed = db.prepare("UPDATE mf_recog_runs SET drafts=?,status=CASE WHEN status='done' THEN 'recognized' ELSE status END WHERE id=? AND drafts=?").run(jstr(cards), a.batch, run.drafts);
+      if (!changed.changes) return fail(res, STALE);
+      return ok(res, { id: `run:${a.batch}:${a.index}:${fpOf(stemOfCard(merged))}` }, '已合并；请重新对照原页核对内容、题型和图片');
+    } catch (e) { return fail(res, e.message || '无法安全合并，请手动整理'); }
+  });
+
+  // 原页只从当前题目所属批次读取；指定跨页号须在同一批次范围内。
   admin.get('/ext/pending/original', (req, res) => {
     const p = parseId(req.query.id);
     if (!p || p.kind !== 'run') return fail(res, '这道题没有可对照的原页');
     const run = db.prepare('SELECT pages,drafts FROM mf_recog_runs WHERE id=?').get(p.batch);
     if (!run) return fail(res, '批次不存在');
     const card = parseArr(run.drafts)[p.index];
-    if (!card || card.committed || p.fp && p.fp !== fpOf(stemOfCard(card))) return fail(res, STALE);
-    const pageNo = int(card.page), pages = parseArr(run.pages), page = pageNo > 0 ? pages[pageNo - 1] : null;
+    if (!card || card.committed || card._merged_into || p.fp && p.fp !== fpOf(stemOfCard(card))) return fail(res, STALE);
+    const pageNo = req.query.page == null ? int(card.page) : int(req.query.page), pages = parseArr(run.pages), page = pageNo > 0 ? pages[pageNo - 1] : null;
     if (!page || !(page.key || page.url)) return fail(res, '这道题没有可对照的原页');
     const url = page.key ? store.getUrlSync(page.key) : str(page.url);
     return ok(res, { page: pageNo, total: pages.length, url });
+  });
+
+  // 同源读取批次原页，避免云存储跨域导致画布无法裁剪；不接受外部 URL。
+  admin.get('/ext/pending/original-image', async (req, res) => {
+    const p = parseId(req.query.id);
+    if (!p || p.kind !== 'run') return fail(res, '这道题没有可对照的原页');
+    const run = db.prepare('SELECT pages,drafts FROM mf_recog_runs WHERE id=?').get(p.batch);
+    if (!run) return fail(res, '批次不存在');
+    const card = parseArr(run.drafts)[p.index];
+    if (!card || card.committed || card._merged_into || p.fp && p.fp !== fpOf(stemOfCard(card))) return fail(res, STALE);
+    const pageNo = req.query.page == null ? int(card.page) : int(req.query.page);
+    const page = parseArr(run.pages)[pageNo - 1];
+    const key = page && String(page.key || '');
+    if (!key || !store.isBankKey(key, bankFolder())) return fail(res, '无法读取此批次原页');
+    try {
+      const bytes = await store.readBuffer(key);
+      const ext = bytes && bytes.length <= 25 * 1024 * 1024 && require('./remote-image').imageType(bytes);
+      if (!ext) return fail(res, '原页不存在或图片格式不受支持');
+      res.setHeader('Cache-Control', 'private, no-store');
+      return res.type(ext === 'jpg' ? 'image/jpeg' : 'image/' + ext).send(bytes);
+    } catch (e) { return fail(res, '读取原页失败'); }
+  });
+
+  // 老师从原页裁剪或上传题图。index 对应 [图N]，与当前批次题目绑定。
+  admin.post('/ext/pending/figure', upFile.single('file'), async (req, res) => {
+    const p = parseId(req.body && req.body.id), index = Number(req.body && req.body.index);
+    if (!p || !['run', 'cap'].includes(p.kind) || !Number.isInteger(index) || index < 0 || index >= 30) return fail(res, '题目或图片编号无效');
+    const file = req.file, image = require('./remote-image');
+    if (!file || file.size > image.MAX_BYTES) return fail(res, '请选择不超过 5 MB 的图片');
+    const ext = image.imageType(file.buffer);
+    if (!ext) return fail(res, '只支持 PNG、JPEG、GIF 或 WebP 图片');
+    const run = p.kind === 'run' ? db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(p.batch) : db.prepare('SELECT * FROM mf_capture_batches WHERE id=?').get(p.batch);
+    if (!run) return fail(res, '批次不存在');
+    const raw = p.kind === 'run' ? run.drafts : run.payload, cards = parseArr(raw), c = cards[p.index];
+    if (!c || c.committed || c._merged_into || c._done || p.fp && p.fp !== fpOf(p.kind === 'run' ? stemOfCard(c) : stemOfCap(c))) return fail(res, STALE);
+    try {
+      const saved = await store.saveFile(file.buffer, `figure.${ext}`, `${bankFolder()}/img`);
+      const url = '/api/file?key=' + encodeURIComponent(saved.key);
+      if (p.kind === 'cap') { c.images = Array.isArray(c.images) ? c.images : []; while (c.images.length <= index) c.images.push(''); c.images[index] = url; }
+      else if (c._q) { c._q.images = Array.isArray(c._q.images) ? c._q.images : []; while (c._q.images.length <= index) c._q.images.push(''); c._q.images[index] = url; }
+      else { c.figures = Array.isArray(c.figures) ? c.figures : []; while (c.figures.length <= index) c.figures.push(null); c.figures[index] = { url }; }
+      delete c.figure_review_signature;
+      if (Array.isArray(c._image_errors)) c._image_errors = c._image_errors.filter(e => Number(e.index) !== index);
+      const changed = p.kind === 'run'
+        ? db.prepare("UPDATE mf_recog_runs SET drafts=?,status=CASE WHEN status='done' THEN 'recognized' ELSE status END WHERE id=? AND drafts=?").run(jstr(cards), p.batch, raw)
+        : db.prepare("UPDATE mf_capture_batches SET payload=?,status=CASE WHEN status='done' THEN 'pending' ELSE status END WHERE id=? AND payload=?").run(jstr(cards), p.batch, raw);
+      if (!changed.changes) return fail(res, STALE);
+      return ok(res, { url, index }, '题图已保存，请核对归属');
+    } catch (e) { return fail(res, '图片保存失败：' + e.message); }
+  });
+
+  admin.post('/ext/pending/figure/confirm', (req, res) => {
+    const p = parseId(req.body && req.body.id);
+    if (!p || p.kind !== 'run') return fail(res, '题目标识无效');
+    const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(p.batch);
+    if (!run) return fail(res, '批次不存在');
+    const cards = parseArr(run.drafts), c = cards[p.index];
+    if (!c || c.committed || c._merged_into || p.fp && p.fp !== fpOf(stemOfCard(c)) || String(req.body.expected || '') !== ImageReview.signature(c)) return fail(res, STALE);
+    if (ImageReview.missing(c).length || (Array.isArray(c._image_errors) && c._image_errors.length)) return fail(res, '还有题图未补充，请先完成补图');
+    c.figure_review_required = needsFigureReview(run, c);
+    c.figure_review_signature = ImageReview.signature(c);
+    c.figure_review_by = req.user.id; c.figure_review_at = now();
+    const changed = db.prepare("UPDATE mf_recog_runs SET drafts=?,status=CASE WHEN status='done' THEN 'recognized' ELSE status END WHERE id=? AND drafts=?").run(jstr(cards), p.batch, run.drafts);
+    if (!changed.changes) return fail(res, STALE);
+    return ok(res, null, '已确认题图与原题一致');
+  });
+
+  // 内容审核不自动采纳任何 AI 答案或解析；确认仅作用于这次原页对照的题目快照。
+  admin.post('/ext/pending/content/confirm', (req, res) => {
+    const p = parseId(req.body && req.body.id);
+    if (!p || p.kind !== 'run') return fail(res, '题目标识无效');
+    const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(p.batch);
+    if (!run) return fail(res, '批次不存在或已处理');
+    const cards = parseArr(run.drafts), c = cards[p.index];
+    if (!c || c.committed || c._merged_into || p.fp && p.fp !== fpOf(stemOfCard(c))) return fail(res, STALE);
+    if (!(c.content_review_required || c.type_unconfirmed) || str(req.body.expected) !== ContentReview.signature(c, run)) return fail(res, '题目已变化，请刷新并重新对照原页');
+    if (c.type_unconfirmed) { c.type_unconfirmed = false; c.content_review_required = true; }
+    c.content_review_signature = ContentReview.signature(c, run);
+    c.content_review_by = req.user.id; c.content_review_at = now();
+    const changed = db.prepare("UPDATE mf_recog_runs SET drafts=?,status=CASE WHEN status='done' THEN 'recognized' ELSE status END WHERE id=? AND drafts=?").run(jstr(cards), p.batch, run.drafts);
+    if (!changed.changes) return fail(res, STALE);
+    return ok(res, null, '已确认题目内容；AI 答案或解析仍须分别确认');
   });
 
   // 外链转存失败的题图，由老师从本地选图替换后才可入库。
@@ -430,7 +578,7 @@ module.exports = function mountPending(d) {
       if (!row) return null;
       const list = parseArr(p.kind === 'run' ? row.drafts : row.payload);
       const item = list[p.index];
-      if (!item || item.committed || item._done || p.fp && p.fp !== fpOf(p.kind === 'run' ? stemOfCard(item) : stemOfCap(item))) return null;
+      if (!item || item.committed || item._merged_into || item._done || p.fp && p.fp !== fpOf(p.kind === 'run' ? stemOfCard(item) : stemOfCap(item))) return null;
       if (!(Array.isArray(item._image_errors) && item._image_errors.some((x) => Number(x.index) === index))) return null;
       return { row, list, item };
     };
@@ -445,8 +593,10 @@ module.exports = function mountPending(d) {
         if (Array.isArray(data.item.figures)) data.item.figures[index] = { url };
       } else data.item.images[index] = url;
       data.item._image_errors = data.item._image_errors.filter((x) => Number(x.index) !== index);
-      if (p.kind === 'run') db.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=?').run(jstr(data.list), p.batch);
-      else db.prepare('UPDATE mf_capture_batches SET payload=? WHERE id=?').run(jstr(data.list), p.batch);
+      const changed = p.kind === 'run'
+        ? db.prepare("UPDATE mf_recog_runs SET drafts=?,status=CASE WHEN status='done' THEN 'recognized' ELSE status END WHERE id=? AND drafts=?").run(jstr(data.list), p.batch, data.row.drafts)
+        : db.prepare("UPDATE mf_capture_batches SET payload=?,status=CASE WHEN status='done' THEN 'pending' ELSE status END WHERE id=? AND payload=?").run(jstr(data.list), p.batch, data.row.payload);
+      if (!changed.changes) return fail(res, STALE);
       return ok(res, null, '图片已替换');
     } catch (e) { return fail(res, '图片保存失败：' + e.message); }
   });
@@ -458,9 +608,16 @@ module.exports = function mountPending(d) {
     if (!p) return fail(res, '题目标识不对');
     const patch = b.patch && typeof b.patch === 'object' ? b.patch : {};
     const has = (k) => Object.prototype.hasOwnProperty.call(patch, k);
-    const opts = has('options') ? (Array.isArray(patch.options) ? patch.options : []).map((o, k) => ({ label: str(o.label) || LETTERS[k] || '', text: str(o.text != null ? o.text : o.content) })).filter((o) => o.text.trim()) : null;
+    const rawOpts = has('options') ? (Array.isArray(patch.options) ? patch.options : []).map((o, k) => ({ label: str(o && o.label) || LETTERS[k] || '', text: str(o && (o.text != null ? o.text : o.content)) })) : null;
+    const opts = rawOpts ? rawOpts.filter((o) => o.text.trim()) : null;
     if (opts && opts.length > 10) return fail(res, '最多支持 10 个选项');
     const type = has('type') && TYPES.includes(patch.type) ? patch.type : null;
+    if ((rawOpts && rawOpts.length !== opts.length) || has('match_prompts')) {
+      const old = allItems().find((x) => x.id === str(b.id));
+      const subtype = has('question_subtype') ? patch.question_subtype : old && old.question_subtype;
+      if (QSubtype.isMatch(subtype) && rawOpts && rawOpts.length !== opts.length) return fail(res, '匹配题的右侧选项不能为空');
+      if (QSubtype.isMatch(subtype) && has('match_prompts') && (!Array.isArray(patch.match_prompts) || patch.match_prompts.some((v) => !str(v).trim()))) return fail(res, '匹配题的左侧项目不能为空');
+    }
     // AI 建议确认时携带页面所见快照，避免覆盖别人刚修改的题型、难度或归属。
     if (b.expected && typeof b.expected === 'object') {
       const item = allItems().find((x) => x.id === str(b.id));
@@ -474,7 +631,7 @@ module.exports = function mountPending(d) {
       if (!run) return fail(res, '批次不存在');
       const cards = parseArr(run.drafts);
       const c = cards[p.index];
-      if (!c || c.committed) return fail(res, '这道题已经不在待审核里了');
+      if (!c || c.committed || c._merged_into) return fail(res, '这道题已经不在待审核里了');
       if (p.fp && p.fp !== fpOf(stemOfCard(c))) return fail(res, STALE);
       const q = c._q;
       const nextDifficulty = has('difficulty') || has('difficulty_score_10') ? resolveDifficulty(patch, { difficulty: c.difficulty || (q && q.difficulty), difficulty_score_10: c.difficulty_score_10 != null ? c.difficulty_score_10 : q && q.difficulty_score_10 }) : null;
@@ -484,6 +641,7 @@ module.exports = function mountPending(d) {
       if (has('analysis')) { if (q) q.analysis = str(patch.analysis); else c.analysis = str(patch.analysis); }
       if (opts) { if (q) q.options = opts; else c.options = opts.map((o) => ({ label: o.label, content: o.text })); }
       if (type) { if (q) q.type = type; else c.questionType = TYPE_CN[type]; }
+      if (patch.type_confirmed === true && type) c.type_unconfirmed = false;
       if (has('question_subtype')) c.question_subtype = (QSubtype.find(patch.question_subtype) || {}).code || '';
       if (has('match_prompts')) c.match_prompts = MatchQ.list(patch.match_prompts);
       if (nextDifficulty) { if (q) { q.difficulty = nextDifficulty.difficulty; q.difficulty_score_10 = nextDifficulty.difficulty_score_10; } c.difficulty = nextDifficulty.difficulty; c.difficulty_score_10 = nextDifficulty.difficulty_score_10; }
@@ -492,7 +650,9 @@ module.exports = function mountPending(d) {
       if (has('audio_key')) c.audio_key = audioKeyOf(patch.audio_key);
       if (has('audio_play_limit')) c.audio_play_limit = audioLimitOf(patch.audio_play_limit);
       if (has('tags')) c.suggestedTags = (Array.isArray(patch.tags) ? patch.tags : []).map((t) => str(t).trim()).filter(Boolean);
-      db.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=?').run(jstr(cards), run.id);
+      const saved = jstr(cards);
+      const changed = db.prepare("UPDATE mf_recog_runs SET drafts=?, status=CASE WHEN status='done' THEN 'recognized' ELSE status END WHERE id=? AND drafts=?").run(saved, run.id, run.drafts);
+      if (!changed.changes && (db.prepare('SELECT drafts FROM mf_recog_runs WHERE id=?').get(run.id) || {}).drafts !== saved) return fail(res, STALE);
       return ok(res, cardToItem(run, c, p.index), '已保存');
     }
     if (p.kind === 'cap') {
@@ -518,7 +678,9 @@ module.exports = function mountPending(d) {
       ['subject', 'stage', 'grade'].forEach((k) => { if (has(k)) q[k] = str(patch[k]).trim(); });
       if (has('audio_key')) q.audio_key = audioKeyOf(patch.audio_key);
       if (has('audio_play_limit')) q.audio_play_limit = audioLimitOf(patch.audio_play_limit);
-      db.prepare('UPDATE mf_capture_batches SET payload=? WHERE id=?').run(jstr(items), bt.id);
+      const saved = jstr(items);
+      const changed = db.prepare("UPDATE mf_capture_batches SET payload=?, status=CASE WHEN status='done' THEN 'pending' ELSE status END WHERE id=? AND payload=?").run(saved, bt.id, bt.payload);
+      if (!changed.changes && (db.prepare('SELECT payload FROM mf_capture_batches WHERE id=?').get(bt.id) || {}).payload !== saved) return fail(res, STALE);
       return ok(res, capItems().find((x) => x.batch_id === p.batch && x.index === p.index) || null, '已保存');
     }
     // 手机扫码：新记录编辑审核草稿；兼容历史上已提前入库的记录。
@@ -542,13 +704,22 @@ module.exports = function mountPending(d) {
       return ok(res, scanItems().find((x) => x.id === p.id) || null, '已保存');
     }
     const existing = db.prepare('SELECT * FROM questions WHERE id=?').get(up.question_id);
+    // 历史扫码题已经在正式题库：不能先改题面而继续对外暴露不再匹配的已确认 AI 答案。
+    const currentItem = scanItems().find((item) => item.id === `up:${up.id}`);
+    if (currentItem) {
+      const projected = { ...currentItem };
+      ['stem', 'answer', 'analysis', 'material', 'subject', 'stage', 'grade', 'question_subtype', 'match_prompts', 'audio_key'].forEach((key) => { if (has(key)) projected[key] = patch[key]; });
+      if (opts) projected.options = opts;
+      if (type) projected.type = type;
+      if (AiAnswerReview.reviewedPendingFields(projected).length) return fail(res, '题目变化会使已确认的 AI 内容失效；请先清空相关答案或解析，再修改题目并重新核对');
+    }
     const nextDifficulty = has('difficulty') || has('difficulty_score_10') ? resolveDifficulty(patch, existing) : null;
     if (nextDifficulty && nextDifficulty.error) return fail(res, nextDifficulty.error);
     const targetType = type || existing.type;
     const targetSubject = has('subject') ? str(patch.subject).trim() : existing.subject;
     const targetSubtype = QSubtype.compatible(has('question_subtype') ? patch.question_subtype : existing.question_subtype, targetSubject, targetType);
     if (QSubtype.isMatch(targetSubtype)) {
-      const validated = MatchQ.normalize(has('match_prompts') ? patch.match_prompts : existing.match_prompts, opts || parseArr(existing.options), has('answer') ? patch.answer : existing.answer, false, targetSubtype);
+      const validated = MatchQ.normalize(has('match_prompts') ? patch.match_prompts : existing.match_prompts, opts || parseArr(existing.options), has('answer') ? patch.answer : existing.answer, true, targetSubtype);
       if (validated.error) return fail(res, validated.error);
     }
     const sets = []; const args = [];
@@ -610,20 +781,28 @@ module.exports = function mountPending(d) {
       const cards = parseArr(run.drafts);
       uniqBy(idxs).sort((a, c) => a.index - c.index).forEach(({ index: i, fp }) => {
         const c = cards[i];
-        if (!c || c.committed) return failed.push({ id: `run:${runId}:${i}`, msg: '这道题已经不在待审核里了' });
+        if (!c || c.committed || c._merged_into) return failed.push({ id: `run:${runId}:${i}`, msg: '这道题已经不在待审核里了' });
         if (fp && fp !== fpOf(stemOfCard(c))) return failed.push({ id: `run:${runId}:${i}`, msg: STALE });
-        if (AiAnswerReview.legacyPending(c)) return failed.push({ id: `run:${runId}:${i}`, msg: '历史答案或解析的来源不确定，请先对照原文核对并确认' });
+        if (!str(stemOfCard(c)).trim()) return failed.push({ id: `run:${runId}:${i}`, msg: '题干为空，请先对照原页补录' });
+        if (AiAnswerReview.legacyPending(c)) return failed.push({ id: `run:${runId}:${i}`, msg: '历史答案、解析或分类的来源不确定，请先对照原文逐项核对' });
+        const aiScope = JSON.stringify([run.subject || '', run.stage || '', run.grade || '']);
+        const trackedAi = Object.values(c.ai_answer_review && c.ai_answer_review.fields || {}).some((s) => s && s.basis);
+        const scopeChanged = ['subject', 'stage', 'grade'].some((key) => opt[key] && opt[key] !== str(c[key] || (c._q && c._q[key]) || run[key]));
+        if (AiAnswerReview.reviewedPendingFields(c, aiScope).length || (trackedAi && scopeChanged)) return failed.push({ id: `run:${runId}:${i}`, msg: '题目内容或分类已变化，请先在编辑中调整分类，并逐项重新核对已采纳的 AI 答案和解析' });
+        if (c.type_unconfirmed === true) return failed.push({ id: `run:${runId}:${i}`, msg: '题型待老师对照原题确认' });
         if (Array.isArray(c._image_errors) && c._image_errors.length) return failed.push({ id: `run:${runId}:${i}`, msg: '题图转存失败，请先补图' });
-        if (!str(stemOfCard(c)).trim()) return failed.push({ id: `run:${runId}:${i}`, msg: '题干为空' });
+        const imageIssue = ImageReview.issue({ ...c, figure_review_required: needsFigureReview(run, c) });
+        if (imageIssue) return failed.push({ id: `run:${runId}:${i}`, msg: imageIssue });
+        if (ContentReview.pending(c, run)) return failed.push({ id: `run:${runId}:${i}`, msg: '识别内容尚未核对，请对照全部原页确认题型、题干、选项、公式和小问' });
         const subject = str(opt.subject || (c._q ? c._q.subject : c.subject) || run.subject).trim();
         const stage = str(opt.stage || (c._q ? c._q.stage : c.stage) || run.stage).trim();
         const miss = lacks(subject, stage) || nodeError(subject, stage);
         if (miss) return failed.push({ id: `run:${runId}:${i}`, msg: miss });
         if (c.question_subtype === 'writing' && (subject !== '英语' || (c._q ? c._q.type : TYPE_MAP[c.questionType]) !== 'answer')) return failed.push({ id: `run:${runId}:${i}`, msg: '书面表达须选择英语学科和问答基础题型' });
-        if (c.question_subtype === 'drawing' && (subject !== '数学' || (c._q ? c._q.type : TYPE_MAP[c.questionType]) !== 'answer')) return failed.push({ id: `run:${runId}:${i}`, msg: '作图题须选择数学学科和问答基础题型' });
+        if (c.question_subtype === 'drawing' && !QSubtype.compatible('drawing', subject, c._q ? c._q.type : TYPE_MAP[c.questionType])) return failed.push({ id: `run:${runId}:${i}`, msg: '作图题须选择数学、物理或化学学科及问答基础题型' });
         if (QSubtype.isMatch(c.question_subtype)) {
           if (!QSubtype.compatible(c.question_subtype, subject, c._q ? c._q.type : TYPE_MAP[c.questionType])) return failed.push({ id: `run:${runId}:${i}`, msg: '匹配题的学科或基础题型不正确' });
-          const validated = MatchQ.normalize(c.match_prompts, c._q ? c._q.options : c.options, c._q ? c._q.answer : c.answer, false, c.question_subtype);
+          const validated = MatchQ.normalize(c.match_prompts, c._q ? c._q.options : c.options, c._q ? c._q.answer : c.answer, true, c.question_subtype);
           if (validated.error) return failed.push({ id: `run:${runId}:${i}`, msg: validated.error });
           if (c._q) c._q.answer = validated.answer; else c.answer = validated.answer;
         }
@@ -635,7 +814,8 @@ module.exports = function mountPending(d) {
           const section = c._lesson_section_id ? db.prepare('SELECT id, chapter_id FROM sections WHERE id=?').get(int(c._lesson_section_id)) : null;
           if (c._lesson_section_id && !section) throw new Error('关联小分组已删除，请重新选择小分组');
           const ids = db.transaction(() => {
-            const result = commitRunCards(run, [c], opt);
+            // 允许原卷只出现图 3 等稀疏编号；入库时连同占位符一起压紧，保持图号与图片位置一致。
+            const result = commitRunCards(run, [ImageReview.compact(JSON.parse(JSON.stringify(c)))], opt);
             attachNodes(result[0]);
             if (video) db.prepare('UPDATE questions SET video_id=?, chapter_id=? WHERE id=?').run(video.id, video.chapter_id || null, result[0]);
             if (section) db.prepare('UPDATE questions SET section_id=?, chapter_id=?, video_id=NULL WHERE id=?').run(section.id, section.chapter_id || null, result[0]);
@@ -650,8 +830,8 @@ module.exports = function mountPending(d) {
           questionIds.push(ids[0]);
         } catch (e) { failed.push({ id: `run:${runId}:${i}`, msg: '入库失败：' + e.message }); }
       });
-      const left = cards.filter((c) => c && !c.committed && str(c._q ? c._q.stem : c.stem).trim()).length;
-      db.prepare('UPDATE mf_recog_runs SET drafts=?, status=? WHERE id=?').run(jstr(cards), left ? run.status : 'done', run.id);
+      const left = cards.filter((c) => c && !c.committed && !c._merged_into).length;
+      db.prepare('UPDATE mf_recog_runs SET drafts=?, status=? WHERE id=?').run(jstr(cards), left ? (run.status === 'done' ? 'recognized' : run.status) : 'done', run.id);
     });
 
     g.cap.forEach((idxs, batchId) => {
@@ -662,15 +842,19 @@ module.exports = function mountPending(d) {
         const q = items[i];
         if (!q || q._done) return failed.push({ id: `cap:${batchId}:${i}`, msg: '这道题已经不在待审核里了' });
         if (fp && fp !== fpOf(stemOfCap(q))) return failed.push({ id: `cap:${batchId}:${i}`, msg: STALE });
+        if (!str(stemOfCap(q)).trim()) return failed.push({ id: `cap:${batchId}:${i}`, msg: '题干为空，请先对照原题补录' });
+        const reviewItem = capItems().find((item) => item.batch_id === batchId && item.index === i);
+        if (reviewItem && AiAnswerReview.reviewedPendingFields({ ...reviewItem, subject: opt.subject || reviewItem.subject, stage: opt.stage || reviewItem.stage, grade: opt.grade || reviewItem.grade }).length) return failed.push({ id: `cap:${batchId}:${i}`, msg: '题目内容或分类已变化，请逐项重新核对已采纳的 AI 答案和解析' });
         if (Array.isArray(q._image_errors) && q._image_errors.length) return failed.push({ id: `cap:${batchId}:${i}`, msg: '题图转存失败，请先补图' });
+        if (ImageReview.missing(q).length) return failed.push({ id: `cap:${batchId}:${i}`, msg: '题图占位符缺少对应图片，请先补图' });
         const subject = str(opt.subject || q.subject || bt.subject).trim(), stage = str(opt.stage || q.stage || bt.stage).trim();
         const missC = lacks(subject, stage) || nodeError(subject, stage);
         if (missC) return failed.push({ id: `cap:${batchId}:${i}`, msg: missC });
         if (q.question_subtype === 'writing' && (subject !== '英语' || q.type !== 'answer')) return failed.push({ id: `cap:${batchId}:${i}`, msg: '书面表达须选择英语学科和问答基础题型' });
-        if (q.question_subtype === 'drawing' && (subject !== '数学' || q.type !== 'answer')) return failed.push({ id: `cap:${batchId}:${i}`, msg: '作图题须选择数学学科和问答基础题型' });
+        if (q.question_subtype === 'drawing' && !QSubtype.compatible('drawing', subject, q.type)) return failed.push({ id: `cap:${batchId}:${i}`, msg: '作图题须选择数学、物理或化学学科及问答基础题型' });
         if (QSubtype.isMatch(q.question_subtype)) {
           if (!QSubtype.compatible(q.question_subtype, subject, q.type)) return failed.push({ id: `cap:${batchId}:${i}`, msg: '匹配题的学科或基础题型不正确' });
-          const validated = MatchQ.normalize(q.match_prompts, q.options, q.answer, false, q.question_subtype);
+          const validated = MatchQ.normalize(q.match_prompts, q.options, q.answer, true, q.question_subtype);
           if (validated.error) return failed.push({ id: `cap:${batchId}:${i}`, msg: validated.error });
           q.answer = validated.answer;
         }
@@ -678,7 +862,7 @@ module.exports = function mountPending(d) {
           // 无来源题号的题使用稳定的批次内编号，避免漏题和重复入库。
           if (!q.questionId || /^temp-/.test(str(q.questionId))) q.questionId = `review-${batchId}-${i}-${fpOf(stemOfCap(q))}`;
           const r = db.transaction(() => {
-            const result = commitCaptureItems(bt, [q], { subject, stage, grade: opt.grade || q.grade, node_ids: opt.node_ids, tags: opt.tags });
+            const result = commitCaptureItems(bt, [ImageReview.compact(JSON.parse(JSON.stringify(q)))], { subject, stage, grade: opt.grade || q.grade, node_ids: opt.node_ids, tags: opt.tags });
             if (result.ids.length) attachNodes(result.ids[0]);
             return result;
           })();
@@ -687,13 +871,15 @@ module.exports = function mountPending(d) {
           questionIds.push(r.ids[0]);
         } catch (e) { failed.push({ id: `cap:${batchId}:${i}`, msg: '入库失败：' + e.message }); }
       });
-      const left = items.filter((q) => q && !q._done && str(q.stem || q.stemHtml).trim()).length;
+      const left = items.filter((q) => q && !q._done).length;
       db.prepare('UPDATE mf_capture_batches SET payload=?, status=? WHERE id=?').run(jstr(items), left ? bt.status : 'done', bt.id);
     });
 
     [...new Set(g.up)].forEach((upId) => {
       const up = db.prepare('SELECT * FROM paper_uploads WHERE id=?').get(upId);
       if (!up || !['pending', 'reviewed'].includes(up.status)) return failed.push({ id: `up:${upId}`, msg: '这道题已经不在待审核里了' });
+      const reviewItem = scanItems().find((item) => item.id === `up:${upId}`);
+      if (reviewItem && AiAnswerReview.reviewedPendingFields({ ...reviewItem, subject: opt.subject || reviewItem.subject, stage: opt.stage || reviewItem.stage, grade: opt.grade || reviewItem.grade }).length) return failed.push({ id: `up:${upId}`, msg: '题目内容或分类已变化，请逐项重新核对已采纳的 AI 答案和解析' });
       const subj = ['数学', '英语', '物理', '化学'].includes(opt.subject) ? opt.subject : up.subject;
       if (!['数学', '英语', '物理', '化学'].includes(str(subj))) return failed.push({ id: `up:${upId}`, msg: '学科没识别出来，请先编辑选好学科再入库' });
       const stg = opt.stage || str(up.stage).trim();
@@ -702,11 +888,15 @@ module.exports = function mountPending(d) {
       if (invalidNode) return failed.push({ id: `up:${upId}`, msg: invalidNode });
       const grd = opt.grade || str(up.grade).trim();
       const scanDraft = up.question_id ? db.prepare('SELECT * FROM questions WHERE id=?').get(up.question_id) : parseObj(up.draft_json);
+      if (!scanDraft) return failed.push({ id: `up:${upId}`, msg: '关联题目不存在，请先核对' });
+      const scanOptions = up.question_id ? parseArr(scanDraft.options) : scanDraft.options;
+      const choiceError = choiceOptionsError(scanDraft.type, scanOptions);
+      if (choiceError) return failed.push({ id: `up:${upId}`, msg: choiceError });
       if (scanDraft.question_subtype === 'writing' && (subj !== '英语' || scanDraft.type !== 'answer')) return failed.push({ id: `up:${upId}`, msg: '书面表达须选择英语学科和问答基础题型' });
-      if (scanDraft.question_subtype === 'drawing' && (subj !== '数学' || scanDraft.type !== 'answer')) return failed.push({ id: `up:${upId}`, msg: '作图题须选择数学学科和问答基础题型' });
+      if (scanDraft.question_subtype === 'drawing' && !QSubtype.compatible('drawing', subj, scanDraft.type)) return failed.push({ id: `up:${upId}`, msg: '作图题须选择数学、物理或化学学科及问答基础题型' });
       if (QSubtype.isMatch(scanDraft.question_subtype)) {
         if (!QSubtype.compatible(scanDraft.question_subtype, subj, scanDraft.type)) return failed.push({ id: `up:${upId}`, msg: '匹配题的学科或基础题型不正确' });
-        const validated = MatchQ.normalize(scanDraft.match_prompts, up.question_id ? parseArr(scanDraft.options) : scanDraft.options, scanDraft.answer, false, scanDraft.question_subtype);
+        const validated = MatchQ.normalize(scanDraft.match_prompts, up.question_id ? parseArr(scanDraft.options) : scanDraft.options, scanDraft.answer, true, scanDraft.question_subtype);
         if (validated.error) return failed.push({ id: `up:${upId}`, msg: validated.error });
       }
       try {
@@ -719,14 +909,21 @@ module.exports = function mountPending(d) {
             id = db.prepare(`INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,sort,stage,point,material,source,year,video_id,images,audio_key,created_at)
               VALUES (NULL,?,?,?,?,?,?,?,?,0,?,?,?,'学生上传','',NULL,?,?,?)`)
               .run(subj, grd, TYPES.includes(draft.type) ? draft.type : 'answer', str(draft.stem || up.stem_text || '（纸质错题，看图作答）'), jstr(draft.options || []), str(Object.prototype.hasOwnProperty.call(draft, 'answer') ? draft.answer : up.answer), str(draft.analysis), difficulty.difficulty, stg, str(up.point), str(draft.material), up.images || '[]', audioKeyOf(draft.audio_key), now()).lastInsertRowid;
-            if (draft.ai_answer_review) db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(draft.ai_answer_review), id);
+            if (draft.ai_answer_review || (Array.isArray(draft.ai_answer_discard_history) && draft.ai_answer_discard_history.length)) db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(AiAnswerReview.withDiscardHistory(draft.ai_answer_review, draft.ai_answer_discard_history)), id);
             if (difficulty.difficulty_score_10 != null) db.prepare('UPDATE questions SET difficulty_score_10=? WHERE id=?').run(difficulty.difficulty_score_10, id);
             if (draft.audio_play_limit) db.prepare('UPDATE questions SET audio_play_limit=? WHERE id=?').run(audioLimitOf(draft.audio_play_limit), id);
             const subtype = QSubtype.compatible(draft.question_subtype, subj, draft.type);
             if (subtype) db.prepare('UPDATE questions SET question_subtype=? WHERE id=?').run(subtype, id);
             if (QSubtype.isMatch(subtype)) db.prepare('UPDATE questions SET match_prompts=? WHERE id=?').run(jstr(MatchQ.list(draft.match_prompts)), id);
             db.prepare("INSERT INTO mistakes (user_id,question_id,wrong_count,last_answer,resolved,updated_at,review_stage,next_review) VALUES (?,?,1,'',0,?,0,'')").run(up.user_id, id, now());
-          } else db.prepare('UPDATE questions SET subject=?, stage=?, grade=? WHERE id=?').run(subj, stg, grd, id);
+          } else {
+            db.prepare('UPDATE questions SET subject=?, stage=?, grade=? WHERE id=?').run(subj, stg, grd, id);
+            const history = parseObj(up.draft_json).ai_answer_discard_history;
+            if (Array.isArray(history) && history.length) {
+              const existing = db.prepare('SELECT ai_review_metadata FROM questions WHERE id=?').get(id);
+              db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(AiAnswerReview.withDiscardHistory(parseObj(existing.ai_review_metadata), history)), id);
+            }
+          }
           const insNode = db.prepare('INSERT OR IGNORE INTO question_nodes (question_id, node_id) VALUES (?,?)');
           opt.node_ids.map((n) => int(n)).filter(Boolean).forEach((n) => insNode.run(id, n));
           const insTag = db.prepare('INSERT OR IGNORE INTO question_tags (question_id, tag) VALUES (?,?)');
@@ -752,7 +949,8 @@ module.exports = function mountPending(d) {
       if (!run) return;
       const cards = parseArr(run.drafts);
       uniqBy(idxs).sort((a, c) => c.index - a.index).forEach(({ index: i, fp }) => {   // 从后往前删，序号不错位
-        if (cards[i] && !cards[i].committed && (!fp || fp === fpOf(stemOfCard(cards[i])))) { cards.splice(i, 1); n++; } else stale++;
+        const linked = cards[i] && cards.some(c => c && c._merged_into && c._merged_into.card_id === cards[i]._ai_card_id);
+        if (cards[i] && !cards[i].committed && !cards[i]._merged_into && !linked && (!fp || fp === fpOf(stemOfCard(cards[i])))) { cards.splice(i, 1); n++; } else stale++;
       });
       db.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=?').run(jstr(cards), run.id);
     });
@@ -805,7 +1003,8 @@ module.exports = function mountPending(d) {
     const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(int(b.run_id));
     if (!run) return fail(res, '录题批次不存在');
     const cards = parseArr(run.drafts);
-    if (!cards.length || cards.some(c => !c || c.committed || c._paper_id || !str(stemOfCard(c)).trim())) return fail(res, '请先完成题卡识别；已入库或已关联试卷的批次不能重复生成');
+    const active = cards.filter(c => c && !c._merged_into);
+    if (cards.some(c => !c) || !active.length || active.some(c => c.committed || c._paper_id || !str(stemOfCard(c)).trim())) return fail(res, '请先完成题卡识别；已入库或已关联试卷的批次不能重复生成');
     const title = str(b.title || run.title).trim();
     const subject = str(b.subject || run.subject).trim(), stage = str(b.stage || run.stage).trim(), grade = str(b.grade || run.grade).trim();
     const year = /^\d{4}$/.test(str(b.year)) ? str(b.year) : '';
@@ -819,10 +1018,10 @@ module.exports = function mountPending(d) {
         VALUES (?,?,?,?,?,'basket','uniform',?,NULL,'',0,?)`).run(title,subject,stage,grade,year,jstr(require('./mfbank').defaultLayout()),now()).lastInsertRowid;
       if (examCategory) db.prepare('UPDATE mf_papers SET exam_category=? WHERE id=?').run(examCategory, pid);
       if (edition || term) db.prepare('UPDATE mf_papers SET edition=?,term=? WHERE id=?').run(edition,term,pid);
-      const score = Math.round(100 / cards.length * 10) / 10;
-      cards.forEach((c, i) => { c._paper_id=pid; c._paper_position=i+1; c._paper_score=score; });
+      const score = Math.round(100 / active.length * 10) / 10;
+      active.forEach((c, i) => { c._paper_id=pid; c._paper_position=i+1; c._paper_score=score; });
       db.prepare('UPDATE mf_recog_runs SET title=?, subject=?, stage=?, grade=?, source_kind=?, drafts=? WHERE id=?').run(title,subject,stage,grade,'paper',jstr(cards),run.id);
-      return { paper_id:pid, count:cards.length };
+      return { paper_id:pid, count:active.length };
     })();
     return ok(res, result, '试卷草稿已创建，题目审核后自动加入试卷');
   });
@@ -836,11 +1035,18 @@ module.exports = function mountPending(d) {
     const type = TYPES.includes(str(b.type)) ? str(b.type) : 'answer';
     if (QSubtype.isMatch(b.question_subtype) && !QSubtype.compatible(b.question_subtype, str(b.subject), type)) return fail(res, '匹配题的学科或基础题型不正确');
     if (str(b.question_subtype) === 'writing' && (str(b.subject) !== '英语' || type !== 'answer')) return fail(res, '书面表达须选择英语学科和问答基础题型');
-    if (str(b.question_subtype) === 'drawing' && (str(b.subject) !== '数学' || type !== 'answer')) return fail(res, '作图题须选择数学学科和问答基础题型');
+    if (str(b.question_subtype) === 'drawing' && !QSubtype.compatible('drawing', str(b.subject), type)) return fail(res, '作图题须选择数学、物理或化学学科及问答基础题型');
     if (Array.isArray(b.options) && b.options.length > 10) return fail(res, '最多支持 10 个选项');
-    const options = (Array.isArray(b.options) ? b.options : []).map((o, i) => ({ label: LETTERS[i], content: str(o).trim() })).filter((o) => o.content);
+    const rawOptions = (Array.isArray(b.options) ? b.options : []).map((o, i) => ({ label: LETTERS[i], content: str(o).trim() }));
+    const options = rawOptions.filter((o) => o.content);
+    let match = null;
+    if (QSubtype.isMatch(b.question_subtype)) {
+      if (rawOptions.length !== options.length) return fail(res, '匹配题的右侧选项不能为空');
+      match = MatchQ.normalize(b.match_prompts, options, b.answer, true, b.question_subtype);
+      if (match.error) return fail(res, match.error);
+    }
     const figures = manualFigures(b.images); if (!figures) return fail(res, '题图无效或超过 30 张，请重新上传');
-    const card = { stem, questionType: TYPE_FROM_CODE(type), question_subtype: QSubtype.compatible(b.question_subtype, str(b.subject), type), match_prompts: MatchQ.list(b.match_prompts), options, figures, material: str(b.material).trim(), audio_key: audioKeyOf(b.audio_key), audio_play_limit: audioLimitOf(b.audio_play_limit), answer: str(b.answer).trim(), analysis: str(b.analysis).trim(), subject: str(b.subject), stage: str(b.stage), grade: str(b.grade).trim(), point: str(b.point).trim() };
+    const card = { stem, questionType: TYPE_FROM_CODE(type), question_subtype: QSubtype.compatible(b.question_subtype, str(b.subject), type), match_prompts: match ? match.prompts : MatchQ.list(b.match_prompts), options, figures, material: str(b.material).trim(), audio_key: audioKeyOf(b.audio_key), audio_play_limit: audioLimitOf(b.audio_play_limit), answer: match ? match.answer : str(b.answer).trim(), analysis: str(b.analysis).trim(), subject: str(b.subject), stage: str(b.stage), grade: str(b.grade).trim(), point: str(b.point).trim() };
     const id = createRun({ title: '手动录题', kind: 'manual', name: '手动录题', subject: card.subject, stage: card.stage, grade: card.grade, cards: [card] });
     return ok(res, { id }, '已保存到待审核');
   });
@@ -859,9 +1065,11 @@ module.exports = function mountPending(d) {
       const type = TYPES.includes(str(q.type)) ? str(q.type) : '';
       if (QSubtype.isMatch(q.question_subtype) && !QSubtype.compatible(q.question_subtype, subject, type)) return fail(res, `第 ${i + 1} 小题：匹配题的学科或基础题型不正确`);
       if (str(q.question_subtype) === 'writing' && (subject !== '英语' || type !== 'answer')) return fail(res, `第 ${i + 1} 小题：书面表达须选择英语学科和问答基础题型`);
-      if (str(q.question_subtype) === 'drawing' && (subject !== '数学' || type !== 'answer')) return fail(res, `第 ${i + 1} 小题：作图题须选择数学学科和问答基础题型`);
+      if (str(q.question_subtype) === 'drawing' && !QSubtype.compatible('drawing', subject, type)) return fail(res, `第 ${i + 1} 小题：作图题须选择数学、物理或化学学科及问答基础题型`);
       if (!stem || !type) return fail(res, `第 ${i + 1} 小题请填写题干并选择题型`);
-      const optionText = (Array.isArray(q.options) ? q.options : []).map((o) => str(o).trim()).filter(Boolean);
+      const rawOptionText = (Array.isArray(q.options) ? q.options : []).map((o) => str(o).trim());
+      const optionText = rawOptionText.filter(Boolean);
+      if (QSubtype.isMatch(q.question_subtype) && rawOptionText.length !== optionText.length) return fail(res, `第 ${i + 1} 小题：匹配题的右侧选项不能为空`);
       const optionMax = ['single', 'multi'].includes(type) ? 10 : 7;
       if (optionText.length > optionMax) return fail(res, `第 ${i + 1} 小题最多支持 ${optionMax} 个选项`);
       const options = optionText.map((content, k) => ({ label: LETTERS[k], content }));
@@ -910,7 +1118,7 @@ module.exports = function mountPending(d) {
       const ws = wb.Sheets[name];
       const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
       const headers = english ? ['英语细分题型（选填）', '匹配左侧项目（每行一项）', '十级难度（1–10，选填）'] : math ? ['数学细分题型（选填）', '匹配左侧项目（每行一项）', '十级难度（1–10，选填）'] : difficulty10 ? ['十级难度（1–10，选填）'] : [];
-      if (['单选题', '多选题', '完形填空题', '阅读理解题'].includes(name.replace(/\s+/g, ''))) {
+      if (['单选题', '多选题', '完形填空题', '选择填空题', '阅读理解题'].includes(name.replace(/\s+/g, ''))) {
         const present = new Set(XLSX.utils.sheet_to_json(ws, { header: 1, range: 0, defval: '' })[0].map((v) => String(v).replace(/\s+/g, '').replace(/[（(][^）)]*[)）]/g, '')));
         for (const letter of LETTERS) if (!present.has('选项' + letter)) headers.push('选项' + letter + '（选填）');
       }
@@ -993,7 +1201,7 @@ module.exports = function mountPending(d) {
     const cards = r.list.map((q) => ({
       ...(() => {
         const remap = (value) => str(value).replace(/\[图(\d+)\]/g, (m, n) => { const i = q.imgRefs.indexOf(Number(n)); return i < 0 ? m : `[图${i + 1}]`; });
-        return { qno: q.sub ? `${q.no}(${q.sub})` : String(q.no), questionType: TYPE_FROM_CODE(q.type), question_subtype: q.question_subtype || '', match_prompts: MatchQ.list(q.match_prompts).map(remap), group_ref: q.group_ref || '', stem: remap(q.stem), material: remap(q.material), options: q.options.map((o) => ({ label: o.label, content: remap(o.content) })), answer: q.answer, analysis: remap(q.analysis) };
+        return { qno: q.sub ? `${q.no}(${q.sub})` : String(q.no), questionType: TYPE_FROM_CODE(q.type), question_subtype: q.question_subtype || '', type_unconfirmed: !!q.type_unconfirmed, match_prompts: MatchQ.list(q.match_prompts).map(remap), group_ref: q.group_ref || '', stem: remap(q.stem), material: remap(q.material), options: q.options.map((o) => ({ label: o.label, content: remap(o.content) })), answer: q.answer, analysis: remap(q.analysis) };
       })(),
       ...(q.difficulty_score_10 != null ? { difficulty_score_10: q.difficulty_score_10 } : {}),
       suggestedTags: [], figures: q.imgRefs.map((n) => figs[n - 1]).filter((f) => f && f.url).map((f) => ({ url: f.url })), checked: true,
@@ -1042,16 +1250,17 @@ module.exports = function mountPending(d) {
     if (!['', 'unit', 'midterm', 'final', 'entrance'].includes(examCategory)) return fail(res, '请选择有效的试卷类型');
     const edition = str(b.edition).trim().slice(0, 80), term = str(b.term).trim();
     if (!['', '上册', '下册', '全一册'].includes(term)) return fail(res, '请选择有效的册别');
-    // 按题型归成大题：大题的先后 = 各题型第一次出现的先后，同一大题里保持文档里的原顺序
-    // （规范的试卷本来就是按题型分段的；题型交错的文档（如从题库导出的一批题）也能得到整齐的"一、单选题 二、填空题 …"）
+    // 只合并相邻的同类题，保留文档题序；题型未确认的选择题不得预写成单选或多选。
     const sections = [];
     cards.forEach((c, i) => {
-      let sec = sections.find((x) => x.type === c._type);
-      if (!sec) { sec = { type: c._type, idx: [] }; sections.push(sec); }
+      const key = c.type_unconfirmed && ['single', 'multi'].includes(c._type) ? 'choice_unconfirmed' : c._type;
+      let sec = sections[sections.length - 1];
+      if (!sec || sec.type !== key) { sec = { type: key, idx: [] }; sections.push(sec); }
       sec.idx.push(i);
     });
+    const sectionName = (sec, i) => `${CN_NUM[i] || i + 1}、${sec.type === 'choice_unconfirmed' ? '待核对选择题' : (SEC_TITLE[sec.type] || '题目')}`;
     const summary = { total: cards.length, big_count: r.bigCount, error_count: r.errors.length, errors: r.errors.slice(0, 50), warnings: r.warnings.slice(0, 20),
-      sections: sections.map((sec, i) => ({ name: `${CN_NUM[i] || i + 1}、${SEC_TITLE[sec.type] || '题目'}`, count: sec.idx.length })),
+      sections: sections.map((sec, i) => ({ name: sectionName(sec, i), count: sec.idx.length })),
       sample: cards.slice(0, 3).map((c) => ({ type: c.questionType, stem: str(c.stem).slice(0, 500), options: (c.options || []).slice(0, 8) })), title, year };
     if (String(b.dry_run) === '1') return ok(res, summary, `识别出 ${cards.length} 题${r.errors.length ? `，${r.errors.length} 题格式不对（不会导入）` : ''}`);
 
@@ -1067,7 +1276,7 @@ module.exports = function mountPending(d) {
       const insT = db.prepare("INSERT INTO mf_paper_questions (paper_id, question_id, position, kind, text_body, style, text_align, created_at) VALUES (?,NULL,?, 'text',?, 'title','left',?)");
       let pos = 0;
       sections.forEach((sec, i) => {
-        insT.run(pid, ++pos, `${CN_NUM[i] || i + 1}、${SEC_TITLE[sec.type] || '题目'}`, now());
+        insT.run(pid, ++pos, sectionName(sec, i), now());
         sec.idx.forEach((ci) => { cards[ci]._paper_id = pid; cards[ci]._paper_position = ++pos; cards[ci]._paper_score = each; delete cards[ci]._type; });
       });
       const runId = createRun({ title, kind: 'paper', name: '真题试卷', subject, stage, grade, cards });

@@ -96,11 +96,11 @@ function stemImagesHTML(q) {
     used.add(Number(n) - 1);
     return r0FigHTML(src, '图' + n);
   }).replace(/\n/g, '<br>');
-  if (q && q.question_subtype === 'math_match') {
-    const parts = [...(q.match_prompts || []), ...(q.options || []).map(optText)];
+  if (q) {
+    const parts = [q.material, ...(q.match_prompts || []), ...(q.options || []).map(optText)];
     parts.forEach((part) => String(part || '').replace(/\[图(\d+)\]/g, (m, n) => { if (imgs[Number(n) - 1]) used.add(Number(n) - 1); return m; }));
   }
-  const rest = imgs.map((s, i) => (used.has(i) ? '' : r0FigHTML(s, '题目图片'))).join('');
+  const rest = imgs.map((s, i) => (!s || used.has(i) ? '' : r0FigHTML(s, '题目图片'))).join('');
   return { stem, rest: rest ? `<div class="qz-imgs">${rest}</div>` : '' };
 }
 function quizMatchContent(q, value) {
@@ -108,6 +108,12 @@ function quizMatchContent(q, value) {
     const src = (q.images || [])[Number(n) - 1];
     return src ? `<img class="qz-connect-img" src="${esc(src)}" alt="图${Number(n)}">` : m;
   });
+}
+/** 答题后才合并服务端返回的答案/解析专用图，保留原图号。 */
+function quizSolutionContent(q, value, solutionImages) {
+  const images = Array.isArray(q && q.images) ? q.images.slice() : [];
+  (Array.isArray(solutionImages) ? solutionImages : []).forEach((src, i) => { if (src) images[i] = src; });
+  return quizMatchContent({ images }, value).replace(/\n/g, '<br>');
 }
 /** 公式键盘（T8）：只给 数学 / 物理 / 化学 的 填空 / 问答 题；英语等其它科目不出现 */
 const T8_SUBJECTS = ['数学', '物理', '化学'];
@@ -364,7 +370,7 @@ const BankQuiz = {
             else if (sel) { cls += ' r8-wrong'; mark = r8Ic('no', 'r8-om no'); }
           }
           return `<button type="button" class="qz-opt ${cls}" data-i="${i}" ${ck ? 'disabled' : ''}>
-            <span class="qz-l">${L}</span><span class="qz-ot">${esc(t)}</span>${mark}</button>`;
+            <span class="qz-l">${L}</span><span class="qz-ot">${quizMatchContent(q, t)}</span>${mark}</button>`;
         }).join('') + '</div>';
       }
       if (q.type === 'judge') {
@@ -814,8 +820,8 @@ const BankQuiz = {
       <div class="qz-judge-box r8-fb ${ck.ungraded ? 'ung' : ck.ok ? 'ok' : 'no'}">
         <div class="r8-fb-tag">${ck.ungraded ? `${r8Ic('steps')}已提交，本题不自动判分` : ck.match_total ? `${ck.ok ? r8Ic('ok') : r8Ic('no')}连对 ${Number(ck.match_correct)} / ${Number(ck.match_total)} 项` : ck.ok ? `${r8Ic('ok')}答对了` : `${r8Ic('no')}答错了`}</div>
         <div class="qz-jb-r"><span>你的答案</span><em class="${ck.ungraded ? '' : ck.ok ? 'ok' : 'no'}">${esc(ck.my || '未作答')}</em></div>
-        ${ck.ok && !ck.ungraded ? '' : `<div class="qz-jb-r"><span>${ck.ungraded ? '参考答案' : '正确答案'}</span><em class="ok">${esc(ck.answer)}</em></div>`}
-        ${ck.analysis ? `<div class="qz-jb-ana"><span>解析</span><div class="r8-ana-t">${esc(ck.analysis)}</div></div>` : ''}
+        ${ck.ok && !ck.ungraded ? '' : `<div class="qz-jb-r"><span>${ck.ungraded ? '参考答案' : '正确答案'}</span><em class="ok">${quizSolutionContent(q, ck.answer, ck.solution_images)}</em></div>`}
+        ${ck.analysis ? `<div class="qz-jb-ana"><span>解析</span><div class="r8-ana-t">${quizSolutionContent(q, ck.analysis, ck.solution_images)}</div></div>` : ''}
         <div class="r8-fb-acts"><button type="button" class="r8-link" data-fb="1">对题目有反馈？</button></div>
       </div>`;
 
@@ -835,7 +841,7 @@ const BankQuiz = {
             ${q.point ? `<span class="r8-qpoint">${esc(q.point)}</span>` : ''}
             <span class="qz-raqno" title="题目编号">#${String(q.id).padStart(5, '0')}</span></div>
           ${quizAudioHTML(q)}
-          ${q.material ? `<div class="qz-material"><div class="qz-mat-t">原文材料</div><pre class="qz-mat-b">${esc(q.material)}</pre></div>` : ''}
+          ${q.material ? `<div class="qz-material"><div class="qz-mat-t">原文材料</div><div class="qz-mat-b">${quizMatchContent(q, q.material).replace(/\n/g, '<br>')}</div></div>` : ''}
           <div class="qz-stem"><b>${si.stem}</b></div>
           ${q.question_subtype === 'translation' ? '<p class="qz-match-tip">本题按老师设置的参考译文比对；如有其他正确表达，可向老师反馈。</p>' : ''}
           ${si.rest}
@@ -890,17 +896,18 @@ const BankQuiz = {
       const si = stemImagesHTML(q);
       const ung = !!(r && r.ungraded);
       return `<div class="qz-rq ${ung ? 'ung' : okk ? 'ok' : 'no'}" data-qid="${q.id}">
-        <div class="qz-rq-h"><span class="r8-rno ${ung ? 'd' : okk ? 'ok' : 'no'}">${no}</span><span class="qz-rstate">${ung ? '对照参考答案（不计分）' : okk ? '答对了' : '答错了'}</span>
+        <div class="qz-rq-h"><span class="r8-rno ${ung ? 'd' : okk ? 'ok' : 'no'}">${no}</span><span class="qz-rstate">${ung ? '暂未自动评分' : okk ? '答对了' : '答错了'}</span>
           <span class="qz-rtag">${({ calculation: '计算题', drawing: '作图题', writing: '书面表达', translation: '翻译' })[q.question_subtype] || QT_NAME[q.type] || '题目'}</span>${q.point ? `<span class="qz-rpoint">${esc(q.point)}</span>` : ''}
           <span class="qz-raqno">#${String(q.id).padStart(5, '0')}</span></div>
         ${quizAudioHTML(q)}
-        ${q.material ? `<div class="qz-material folded"><div class="qz-mat-t">查看原文</div><pre class="qz-mat-b">${esc(q.material)}</pre></div>` : ''}
+        ${q.material ? `<div class="qz-material folded"><div class="qz-mat-t">查看原文</div><div class="qz-mat-b">${quizMatchContent(q, q.material).replace(/\n/g, '<br>')}</div></div>` : ''}
         <div class="qz-stem"><b>${si.stem}</b></div>
         ${si.rest}
+        ${['single','multi'].includes(q.type) && (q.options || []).length ? `<div class="qz-opts">${q.options.map((o,i) => `<div class="qz-opt"><span class="qz-l">${QT_LETTERS[i]}</span><span class="qz-ot">${quizMatchContent(q,optText(o))}</span></div>`).join('')}</div>` : ''}
         <div class="qz-rrow my"><span>我的答案</span>${q.question_subtype === 'drawing' && st.answers[q.id] ? `<img class="qz-drawing-result" src="${esc(st.answers[q.id])}" alt="我的作图">` : `<em class="${okk ? 'ok' : ung ? '' : 'no'}">${esc(mine || '未作答')}</em>`}</div>
         ${r && r.match_total ? `<div class="qz-rrow"><span>连线结果</span><em>连对 ${Number(r.match_correct)} / ${Number(r.match_total)} 项${r.max_score != null ? `，得 ${Number(r.earned_score)} / ${Number(r.max_score)} 分` : ''}</em></div>` : ''}
-        ${okk ? '' : `<div class="qz-rrow"><span>${ung ? '参考答案' : '正确答案'}</span><em class="ok">${esc(right || '未提供')}</em></div>`}
-        ${r && r.analysis ? `<div class="qz-ana"><span>解析</span><div>${esc(r.analysis)}</div></div>` : ''}
+        ${okk ? '' : `<div class="qz-rrow"><span>${ung ? '参考答案' : '正确答案'}</span><em class="ok">${quizSolutionContent(q, right || '未提供', r && r.solution_images)}</em></div>`}
+        ${r && r.analysis ? `<div class="qz-ana"><span>解析</span><div>${quizSolutionContent(q, r.analysis, r.solution_images)}</div></div>` : ''}
         <div class="qz-racts">
           <button type="button" class="btn ghost sm r8-ai-mini ${okk || ung ? '' : 'hot'}" data-ai="${q.id}">${r8Ic('ai')}AI 老师讲解</button>
           <button type="button" class="btn ghost sm" data-fb="${q.id}">对题目有反馈？</button>
@@ -940,7 +947,7 @@ const BankQuiz = {
               <div><span>用时</span><b>${r8Dur(secs)}</b></div>
               ${scoreTxt ? `<div><span>得分</span><b>${scoreTxt}</b></div>` : ''}
             </div>
-            <div class="r8-rep-msg">${r.wrong ? `${r8Ic('book')}<span>答错的 ${r.wrong} 道题已自动收进<b>错题本</b>，可以在错题本里重做和复习</span>` : !graded.length ? `${r8Ic('book')}<span>本次题目不自动判分，请对照参考内容。</span>` : `${r8Ic('ok')}<span>客观题全部答对。</span>`}</div>
+            <div class="r8-rep-msg">${r.wrong ? `${r8Ic('book')}<span>答错的 ${r.wrong} 道题已自动收进<b>错题本</b>，可以在错题本里重做和复习</span>` : !graded.length ? `${r8Ic('book')}<span>本次题目暂未自动评分，可查看已有参考内容或等待老师评分。</span>` : `${r8Ic('ok')}<span>客观题全部答对。</span>`}</div>
           </div>
           ${ms.video || ms.section ? `<div class="r8-rep-sec"><h4>现在的习题正确率</h4>${ms.video ? mrow('本视频「' + (ms.video.title || '') + '」', ms.video) : ''}${ms.section ? mrow('小分组「' + ms.section.name + '」', ms.section) : ''}</div>` : ''}
           <div class="r8-rep-sec"><h4>题号<em>点方块查看这道题的解析</em></h4>
@@ -999,7 +1006,7 @@ const BankQuiz = {
       try {
         const r = await api('/api/stu/bank/check', { method: 'POST', body: { items: [{ question_id: q.id, quiz_ticket: q.quiz_ticket, my_answer: my }] } });
         const x = (r.list || [])[0] || {};
-        st.checked[st.idx] = { ok: !!x.is_correct, ungraded: !!x.ungraded, raw: x.answer || '', answer: quizAnswerDisplay(q, x.answer, q.options), analysis: x.analysis || '', my: q.question_subtype === 'drawing' ? '已提交作图' : quizAnswerDisplay(q, my, q.options), myRaw: q.question_subtype === 'drawing' ? '已作图' : my, blanks: x.blanks || null, match_correct: x.match_correct, match_total: x.match_total };
+        st.checked[st.idx] = { ok: !!x.is_correct, ungraded: !!x.ungraded, raw: x.answer || '', answer: quizAnswerDisplay(q, x.answer, q.options), analysis: x.analysis || '', solution_images: x.solution_images || [], my: q.question_subtype === 'drawing' ? '已提交作图' : quizAnswerDisplay(q, my, q.options), myRaw: q.question_subtype === 'drawing' ? '已作图' : my, blanks: x.blanks || null, match_correct: x.match_correct, match_total: x.match_total };
         if (typeof FX !== 'undefined') FX.pop();
         paint();
       } catch (e) { toast(e.message || '核对失败，请重试', 'err'); if (btn) btn.disabled = false; }
@@ -1411,7 +1418,7 @@ const BankPages = {
           ${m.resolved ? '<span class="tag ok">已掌握</span>' : `<span class="bm-dots" title="复习连续答对 ${stage}/3 次">${'●'.repeat(stage)}${'○'.repeat(3 - stage)}</span>`}
           <span class="bm-time">${esc(String(m.updated_at || '').slice(0, 16))}</span>
         </div>
-        ${m.material ? `<div class="qz-material folded"><div class="qz-mat-t">查看原文</div><pre class="qz-mat-b">${esc(m.material)}</pre></div>` : ''}
+        ${m.material ? `<div class="qz-material folded"><div class="qz-mat-t">查看原文</div><div class="qz-mat-b">${esc(m.material)}</div></div>` : ''}
         ${quizAudioHTML(m)}
         <div class="bm-stem">${esc(m.stem)}</div>
         ${quizImagesHTML(m)}

@@ -81,7 +81,8 @@ async function viewIntakeManual() {
         const q = qs[i]; const prefix = mode() === 'group' ? `第 ${i + 1} 小题：` : '';
         if (!q.stem) return prefix + '请填写题干';
         if (['translation', 'writing'].includes(q.question_subtype) && val('#r4m-subject') !== '英语') return prefix + '请选择英语学科';
-        if (['calculation', 'drawing'].includes(q.question_subtype) && val('#r4m-subject') !== '数学') return prefix + '计算题和作图题请选择数学学科';
+        if (q.question_subtype === 'calculation' && val('#r4m-subject') !== '数学') return prefix + '计算题请选择数学学科';
+        if (q.question_subtype === 'drawing' && !['数学', '物理', '化学'].includes(val('#r4m-subject'))) return prefix + '作图题请选择数学、物理或化学学科';
         if (['single', 'multi', 'sort'].includes(q.type)) {
           const max = q.type === 'sort' ? 7 : 10;
           if (q.options.length < 2 || q.options.length > max) return prefix + `请填写 2–${max} 个选项`;
