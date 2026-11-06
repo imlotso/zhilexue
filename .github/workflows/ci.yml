@@ -8,7 +8,7 @@ on:
 jobs:
   unit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,6 +16,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Install browser for UI checks
+        run: |
+          npx playwright install --with-deps chromium
+          node -p "'CHROMIUM_PATH=' + require('playwright').chromium.executablePath()" >> "$GITHUB_ENV"
       - run: node bank-test.js
       - run: node wordq-test.js    # Word 规则解析（T3，客户样例文档在 docs/原始需求，不需要数据库）
       - run: node excel-test.js    # Excel 模板解析（T3，同上）
@@ -45,7 +49,7 @@ jobs:
 
   api:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,6 +57,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Install browser for UI checks
+        run: |
+          npx playwright install --with-deps chromium
+          node -p "'CHROMIUM_PATH=' + require('playwright').chromium.executablePath()" >> "$GITHUB_ENV"
       - name: Start MySQL and create database
         run: |
           sudo systemctl start mysql.service
@@ -114,6 +122,20 @@ jobs:
           TTS_MOCK: '1'
       - run: node compose-test.js
         if: ${{ !cancelled() }}   # 组卷（T5）：章节树 / 知识点树组卷、定向下发、学生自组卷
+      - run: node intake-scope-flow-test.js
+        if: ${{ !cancelled() }}
+      - run: node import-receipt-flow-test.js
+        if: ${{ !cancelled() }}
+      - run: node intake-job-flow-test.js
+        if: ${{ !cancelled() }}
+      - run: node upload-recovery-ui-test.js
+        if: ${{ !cancelled() }}
+      - run: node admin-pages-ui-test.js
+        env:
+          AUDIT_OUT: admin-page-screenshots
+        if: ${{ !cancelled() }}
+      - run: node admin-interactions-test.js
+        if: ${{ !cancelled() }}
       - run: node english-workflow-flow-test.js
         if: ${{ !cancelled() }}
       - run: node group-compose-test.js
@@ -150,6 +172,12 @@ jobs:
         if: ${{ !cancelled() }}   # 知识树教材版本（R2）：edition 列与迁移、默认版本表、pickTree 前后端一致、树导入导出与脚本、学生端按默认版本取树
       - run: node r1-test.js
         if: ${{ !cancelled() }}   # R1 二轮整改：菜单调整、#/acc 跳转、习题学习报告合并正确率与导出错题 Word、学习报告详情接口（B2）
+      - name: Upload admin UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-page-screenshots
+          path: admin-page-screenshots
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4

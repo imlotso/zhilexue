@@ -28,6 +28,9 @@ const ContentReview = require('./content-review');
 
 module.exports = function mountPending(d) {
   const { admin, db, ok, fail, now, int, parseArr, parseObj, jstr, TYPE_MAP, TYPES, commitRunCards, commitCaptureItems, store, bankFolder } = d;
+  const receipts = require('./intake-receipts')(db, ok, fail);
+  admin.get('/ext/import-status/:key', receipts.status);
+  const stagedPost = (route, kind, ...handlers) => admin.post(route, ...handlers.slice(0, -1), receipts.middleware(kind), receipts.guard(handlers[handlers.length - 1]));
   const upFile = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024 } });
   const str = (v) => (v == null ? '' : String(v));
   const score10 = (v) => v == null || v === '' || !Number.isInteger(Number(v)) || Number(v) < 1 || Number(v) > 10 ? null : Number(v);
@@ -61,7 +64,7 @@ module.exports = function mountPending(d) {
       content_review_required: !!(c.content_review_required || c.type_unconfirmed), content_review_pending: ContentReview.pending(c, run), content_review_signature: ContentReview.signature(c, run), type_unconfirmed: !!c.type_unconfirmed,
       recognition_notes: Array.isArray(c.recognition_notes) ? c.recognition_notes.map(str) : [], cross_page_review_required: !!c.cross_page_review_required,
       paper_id: paper ? Number(paper.id) : 0, paper_subject: paper ? str(paper.subject) : '', paper_stage: paper ? str(paper.stage) : '',
-      edition: paper ? str(paper.edition) : str(run.edition), term: paper ? str(paper.term) : str(run.term),
+      edition: paper ? str(paper.edition) : str(c.edition || run.edition), term: paper ? str(paper.term) : str(c.term || run.term),
       subject: str(c.subject || (q && q.subject) || run.subject), stage: str(c.stage || (q && q.stage) || run.stage), grade: str(c.grade || (q && q.grade) || run.grade),
       type, type_name: TYPE_NAME[type] || type, type_unconfirmed: c.type_unconfirmed === true,
       question_subtype: str(c.question_subtype || (q && q.question_subtype)),
@@ -104,7 +107,7 @@ module.exports = function mountPending(d) {
         const item = {
           id: `cap:${b.id}:${i}:${fpOf(q.stem || q.stemHtml)}`, kind: 'cap', source: 'capture', source_label: SRC_LABEL.capture,
           batch_id: b.id, batch_title: b.title, index: i,
-          subject: str(q.subject || b.subject), stage: str(q.stage || b.stage), grade: str(q.grade || b.grade),
+          subject: str(q.subject || b.subject), stage: str(q.stage || b.stage), grade: str(q.grade || b.grade), edition:str(q.edition || b.edition), term:str(q.term || b.term),
           type, type_name: TYPE_NAME[type] || type, type_unconfirmed: q.type_unconfirmed === true,
           question_subtype: str(q.question_subtype),
           match_prompts: MatchQ.list(q.match_prompts),
@@ -983,11 +986,13 @@ module.exports = function mountPending(d) {
 
   // ------------------------------------------------------------ 导入：Excel（按客户 9 个 sheet 的模板）
   const TYPE_FROM_CODE = (t) => TYPE_CN[t] || '解答';
-  function createRun({ title, kind, name, subject, stage, grade, cards }) {
+  function createRun({ title, kind, name, subject, stage, grade, cards, scope = {} }) {
+    const checked = require('./intake-scope')(db, {...scope,subject,stage,grade});
     const positions = {};
     cards.forEach((card) => { if (card.group_ref) card.group_position = positions[card.group_ref] = (positions[card.group_ref] || 0) + 1; });
     const info = db.prepare(`INSERT INTO mf_recog_runs (title, subject, stage, grade, source_kind, source_name, status, pages, drafts, ocr_texts, error, created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(title, subject || '', stage || '', grade || '', kind, name || '', 'recognized', '[]', jstr(cards), '[]', '', now());
+    if (checked.edition || checked.term || checked.material_type) db.prepare('UPDATE mf_recog_runs SET edition=?,term=?,material_type=? WHERE id=?').run(checked.edition,checked.term,checked.material_type,info.lastInsertRowid);
     return info.lastInsertRowid;
   }
   function manualFigures(images) {
@@ -1026,7 +1031,7 @@ module.exports = function mountPending(d) {
     return ok(res, result, '试卷草稿已创建，题目审核后自动加入试卷');
   });
   // 手动录入也先保存到审核批次；不会直接写入正式题库。
-  admin.post('/ext/pending/manual', (req, res) => {
+  stagedPost('/ext/pending/manual', 'manual', (req, res) => {
     const b = req.body || {};
     const stem = str(b.stem).trim();
     if (!stem) return fail(res, '请填写题干');
@@ -1047,11 +1052,11 @@ module.exports = function mountPending(d) {
     }
     const figures = manualFigures(b.images); if (!figures) return fail(res, '题图无效或超过 30 张，请重新上传');
     const card = { stem, questionType: TYPE_FROM_CODE(type), question_subtype: QSubtype.compatible(b.question_subtype, str(b.subject), type), match_prompts: match ? match.prompts : MatchQ.list(b.match_prompts), options, figures, material: str(b.material).trim(), audio_key: audioKeyOf(b.audio_key), audio_play_limit: audioLimitOf(b.audio_play_limit), answer: match ? match.answer : str(b.answer).trim(), analysis: str(b.analysis).trim(), subject: str(b.subject), stage: str(b.stage), grade: str(b.grade).trim(), point: str(b.point).trim() };
-    const id = createRun({ title: '手动录题', kind: 'manual', name: '手动录题', subject: card.subject, stage: card.stage, grade: card.grade, cards: [card] });
-    return ok(res, { id }, '已保存到待审核');
+    const result = receipts.commit(req, () => ({ id: createRun({ title: '手动录题', kind: 'manual', name: '手动录题', subject: card.subject, stage: card.stage, grade: card.grade, cards: [card], scope:b }) }));
+    return ok(res, result, '已保存到待审核');
   });
   // 组合题保存为同一批次的独立小题；每张题卡保留材料快照，逐题审核和作答。
-  admin.post('/ext/pending/manual-group', (req, res) => {
+  stagedPost('/ext/pending/manual-group', 'manual-group', (req, res) => {
     const b = req.body || {};
     const subject = str(b.subject).trim(), stage = str(b.stage).trim(), grade = str(b.grade).trim();
     const material = str(b.material).trim();
@@ -1094,8 +1099,8 @@ module.exports = function mountPending(d) {
         material, answer, analysis: str(q.analysis).trim(), subject, stage, grade, group_ref: 'manual',
         audio_key: audioKeyOf(b.audio_key), audio_play_limit: audioLimitOf(b.audio_play_limit) });
     }
-    const id = createRun({ title: '手动录入组合题', kind: 'manual', name: '手动录入组合题', subject, stage, grade, cards });
-    return ok(res, { id, count: cards.length }, '小题已保存到待审核');
+    const result = receipts.commit(req, () => ({ id: createRun({ title: '手动录入组合题', kind: 'manual', name: '手动录入组合题', subject, stage, grade, cards, scope:b }), count: cards.length }));
+    return ok(res, result, '小题已保存到待审核');
   });
   const fileNameOf = (f) => {
     const s = str(f && f.originalname);
@@ -1152,7 +1157,7 @@ module.exports = function mountPending(d) {
     return res.send(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
   });
 
-  admin.post('/ext/import-excel', upFile.single('file'), (req, res) => {
+  stagedPost('/ext/import-excel', 'excel', upFile.single('file'), (req, res) => {
     if (!req.file) return fail(res, '请选择 .xlsx 文件');
     const name = fileNameOf(req.file);
     if (!/\.xlsx?$/i.test(name)) return fail(res, '只支持 Excel（.xlsx）文件，请使用「习题导入模板」');
@@ -1176,12 +1181,12 @@ module.exports = function mountPending(d) {
     if (edition && !db.prepare("SELECT id FROM bank_trees WHERE subject=? AND stage=? AND edition=? LIMIT 1").get(subject, stage, edition)) return fail(res, '教材版本与学科或学段不一致，请重新选择');
     if (!['', '上册', '下册', '全一册'].includes(term)) return fail(res, '请选择有效的册别');
     if (!['', 'textbook', 'exercise', 'paper', 'other'].includes(materialType)) return fail(res, '请选择有效的资料类型');
-    const runId = db.transaction(() => {
+    const result = receipts.commit(req, () => {
       const id = createRun({ title: `Excel导入 ${name}`, kind: 'excel', name, subject, stage, grade: str(b.grade).trim(), cards });
       if (edition || term || materialType) db.prepare('UPDATE mf_recog_runs SET edition=?,term=?,material_type=? WHERE id=?').run(edition, term, materialType, id);
-      return id;
-    })();
-    return ok(res, { run_id: runId, total: cards.length, errors: r.errors.slice(0, 50), error_count: r.errors.length, examples_skipped: r.examples || 0 },
+      return { run_id: id, total: cards.length, errors: r.errors.slice(0, 50), error_count: r.errors.length, examples_skipped: r.examples || 0 };
+    });
+    return ok(res, result,
       `已放入待审核：${cards.length} 题${r.errors.length ? `，${r.errors.length} 行有问题没导入` : ''}${r.examples ? `（忽略 ${r.examples} 行示例）` : ''}`);
   });
 
@@ -1218,7 +1223,7 @@ module.exports = function mountPending(d) {
     return { r, cards, name };
   }
 
-  admin.post('/ext/import-word', upFile.single('file'), async (req, res) => {
+  stagedPost('/ext/import-word', 'word', upFile.single('file'), async (req, res) => {
     const b = req.body || {};
     const subject = str(b.subject).trim(), stage = str(b.stage).trim(), edition = str(b.edition).trim();
     const term = str(b.term).trim(), materialType = str(b.material_type).trim();
@@ -1228,12 +1233,12 @@ module.exports = function mountPending(d) {
     const pw = await parseWordUpload(req.file);
     if (pw.err) return fail(res, pw.err);
     const { r, cards, name } = pw;
-    const runId = db.transaction(() => {
+    const result = receipts.commit(req, () => {
       const id = createRun({ title: `Word导入 ${name}`, kind: 'word', name, subject, stage, grade: str(b.grade).trim(), cards });
       if (edition || term || materialType) db.prepare('UPDATE mf_recog_runs SET edition=?,term=?,material_type=? WHERE id=?').run(edition, term, materialType, id);
-      return id;
-    })();
-    return ok(res, { run_id: runId, total: cards.length, big_count: r.bigCount, errors: r.errors.slice(0, 50), error_count: r.errors.length, warnings: r.warnings.slice(0, 20) },
+      return { run_id: id, total: cards.length, big_count: r.bigCount, errors: r.errors.slice(0, 50), error_count: r.errors.length, warnings: r.warnings.slice(0, 20) };
+    });
+    return ok(res, result,
       `已放入待审核：${r.bigCount} 道大题，共 ${cards.length} 题${r.errors.length ? `；${r.errors.length} 题格式不对没导入` : ''}`);
   });
 

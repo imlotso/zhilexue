@@ -80,7 +80,7 @@ const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8');
   let chromium = null;
   try { chromium = require('playwright').chromium; } catch (e) { /* 没装 */ }
   let browser = null;
-  if (chromium) { try { browser = await chromium.launch(); } catch (e) { browser = null; } }
+  if (chromium) { try { browser = await chromium.launch({ ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}), args:['--no-sandbox'] }); } catch (e) { browser = null; } }
   if (!browser) {
     console.log('  ⏭  没有可用的浏览器（Playwright），跳过页面检查');
   } else {
@@ -103,8 +103,8 @@ const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8');
         }
         log(bad.length === 0, `${label}宽度（${w}px）：${pages.length} 个主要页面都不横向撑破页面`, bad.join(' '));
         if (w === 1300) {
-          await p.goto(BASE + '/admin/#/dash'); await p.waitForSelector('.t11-quick', { timeout: 6000 });
-          log(await p.$$eval('.t11-quick .btn', (e) => e.length) >= 4 && (await p.$$eval('.dash-stats .stat', (e) => e.length)) === 5, '首页：5 张数据卡片 + 快捷操作');
+          await p.goto(BASE + '/admin/#/dash'); await p.waitForSelector('.r10-quick', { timeout: 6000 });
+          log(await p.$$eval('.r10-quick button', (e) => e.length) >= 4 && (await p.$$eval('.r10-metrics .r10-metric', (e) => e.length)) === 5, '首页：学习指标数据卡片 + 快捷操作');
           await p.goto(BASE + '/admin/#/students'); await p.waitForSelector('#btnAdd'); await p.waitForTimeout(500);
           const cs = await p.evaluate(() => { const b = document.getElementById('btnAdd'); const i = document.getElementById('sKw'); const g = document.getElementById('btnBatch'); const c = (e) => e && { r: getComputedStyle(e).borderRadius, h: getComputedStyle(e).height }; return { primary: c(b), ghost: c(g), input: c(i) }; });
           log(['primary', 'ghost', 'input'].every((k) => cs[k] && cs[k].r === '6px' && cs[k].h === '34px'), '主按钮 / 次按钮 / 输入框：圆角 6px、高度 34px（统一变量生效）', JSON.stringify(cs));

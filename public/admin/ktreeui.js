@@ -125,7 +125,7 @@ async function viewKTree() {
       <button type="button" class="btn ghost sm" id="kt-import" title="导入符合 docs/tree-import-format.md 的 JSON：按 类型+学段+学科+版本 找树（没有就建），节点按路径合并，只增不删">导入 JSON</button>
       <input type="file" id="kt-importfile" accept=".json,application/json" style="display:none">
     </div>
-    ${!tree ? `<div class="empty"><div class="e-ic">🌱</div>${esc(st.subject)} · ${esc(stageName)} · ${esc(edition || '通用')} 还没有${kindName}
+    ${!tree ? `<div class="empty"><div class="e-ic"></div>${esc(st.subject)} · ${esc(stageName)} · ${esc(edition || '通用')} 还没有${kindName}
         <div style="margin-top:12px"><button type="button" class="btn primary" id="kt-newtree">＋ 创建${esc(edition)}${esc(st.subject)}·${esc(stageName)}${kindName}</button></div>
         <div class="hint" style="margin-top:8px">也可以点上面的「导入 JSON」，直接导入采集好的整棵树</div></div>` : `
     <div class="t4-bar">
@@ -135,7 +135,7 @@ async function viewKTree() {
       <button type="button" class="btn sm" id="kt-addroot">＋ 添加根节点</button>
       <button type="button" class="btn ghost sm" id="kt-expand">全部展开</button>
       <button type="button" class="btn ghost sm" id="kt-collapse">全部收起</button>
-      ${canAi ? '<button type="button" class="btn ghost sm" id="kt-ai" title="按江苏教材拆解某个年级的单元与知识点，合并进「教材单元知识点」分支（只新增，不删除已有节点）">✨ AI 拆解教材知识点</button>' : ''}
+      ${canAi ? '<button type="button" class="btn ghost sm" id="kt-ai" title="按江苏教材拆解某个年级的单元与知识点，合并进「教材单元知识点」分支（只新增，不删除已有节点）"> AI 拆解教材知识点</button>' : ''}
       <button type="button" class="btn ghost sm" id="kt-import-xlsx">导入 Excel</button>
       <input type="file" id="kt-xlsxfile" accept=".xlsx,.xls" style="display:none">
       <button type="button" class="btn ghost sm" id="kt-export-xlsx">导出 Excel</button>
@@ -333,7 +333,7 @@ async function viewKTree() {
             const r = await api('/api/admin/bank/kbtree/generate', { method: 'POST', body: { subject: st.subject, stage: st.stage, grade } });
             toast((r && r.created != null) ? (r.created ? `已合并，新增 ${r.created} 个节点` : '内容已都在树里，没有新增') : '已完成', 'ok');
             render();
-          } catch (e) { btn.disabled = false; btn.textContent = '✨ AI 拆解教材知识点'; }
+          } catch (e) { btn.disabled = false; btn.textContent = ' AI 拆解教材知识点'; }
         };
       }
       // 节点操作：事件委托

@@ -161,7 +161,7 @@ async function main() {
   let chromium = null;
   try { chromium = require('playwright').chromium; } catch (e) { /* 没装 */ }
   let browser = null;
-  if (chromium) { try { browser = await chromium.launch(); } catch (e) { browser = null; } }
+  if (chromium) { try { browser = await chromium.launch({ ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}),args:['--no-sandbox'] }); } catch (e) { browser = null; } }
   if (!browser) {
     console.log('  ⏭  没有可用的浏览器（Playwright），跳过页面检查');
   } else {
@@ -193,7 +193,7 @@ async function main() {
       log(menu.map((g) => g.t).join('/') === '首页/学生与账号/教学资源/智能题库/学情与报告/系统设置', '菜单分组顺序不变：首页 / 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置', menu.map((g) => g.t).join('/'));
       log(items('学生与账号') === '分校管理/学生管理/学习报告', '「学习报告」在「学生与账号」下、「学生管理」后面', items('学生与账号'));
       log(items('学情与报告') === '成绩管理/谈心谈话/家校沟通/AI学情诊断', '「学情与报告」：成绩管理 / 谈心谈话 / 家校沟通 / AI学情诊断（诊断排在家校沟通后）', items('学情与报告'));
-      log(items('教学资源') === '课程目录/视频管理/讲义资料/词书管理/字母乐园/音标训练' && items('智能题库') === '题库管理/待审核题目/知识树管理/试卷管理/智能组卷/课文习题' && items('系统设置') === 'AI 配置中心/操作日志', '「教学资源」「智能题库」「系统设置」保持不变');
+      log(items('教学资源') === '课程目录/视频管理/讲义资料/词书管理/字母乐园/音标训练' && items('智能题库') === '题库管理/录题中心/待审核题目/知识树管理/试卷管理/智能组卷/课文习题' && items('系统设置') === 'AI 配置中心/操作日志', '教学资源和系统设置保持原组，智能题库包含统一录题中心');
       log(!(await p.$$eval('.nav a', (a) => a.some((x) => /知识点正确率/.test(x.textContent)))), '菜单里没有「知识点正确率」');
       const onItem = await p.$eval('.nav a.on .txt', (e) => e.textContent.trim());
       const crumb = await p.$eval('.tb-crumb b', (e) => e.textContent.trim());
@@ -226,7 +226,7 @@ async function main() {
 
       await p.click('[data-edetail]'); await p.waitForSelector('.r1-drawer #r1Tree .r1-course', { timeout: 8000 });
       const secs = await p.$$eval('.r1-sec h4', (h) => h.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-      log(secs.length === 4 && /学科总览/.test(secs[0]) && /课程.*小分组.*视频/.test(secs[1]) && /试卷成绩/.test(secs[2]) && /最近作答/.test(secs[3]), '详情抽屉三块：学科总览 / 课程→小分组→视频 正确率 / 试卷成绩 + 最近作答', secs.join(' | '));
+      log(secs.length === 5 && /学科总览/.test(secs[0]) && /课程.*小分组.*视频/.test(secs[1]) && /试卷成绩/.test(secs[2]) && /最近作答/.test(secs[3]) && /主观题作答/.test(secs[4]), '详情抽屉：学科总览、课程正确率、试卷成绩、最近作答和主观评分', secs.join(' | '));
       const subj = await p.$$eval('.r1-subj', (c) => c.map((x) => `${x.dataset.subj}:${x.querySelector('.r1-subj-v').textContent.trim()}`).join(','));
       log(subj === '数学:67%,英语:—,物理:100%,化学:—', '学科总览：数学 67%（10/15）、物理 100%（4/4），没做的学科显示「—」', subj);
       const got = await domRows(p);

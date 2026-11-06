@@ -894,6 +894,19 @@ try { db.exec('ALTER TABLE mf_papers ADD COLUMN published INTEGER DEFAULT 0'); }
 try { db.exec("ALTER TABLE questions ADD COLUMN audio_key VARCHAR(255) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 // 0 表示不限制；正数为一道听力题每次练习允许开始播放的次数。
 try { db.exec('ALTER TABLE questions ADD COLUMN audio_play_limit INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ }
+// 录题结果回执：旧批次保持 NULL；只对新客户端提供的恢复凭据去重。
+try { db.exec('ALTER TABLE mf_recog_runs ADD COLUMN intake_request_key VARCHAR(64) DEFAULT NULL'); } catch (e) {}
+try { db.exec('ALTER TABLE mf_recog_runs ADD COLUMN intake_input_hash VARCHAR(64) DEFAULT NULL'); } catch (e) {}
+try { db.exec('ALTER TABLE mf_recog_runs ADD COLUMN intake_result MEDIUMTEXT'); } catch (e) {}
+try { db.exec('CREATE UNIQUE INDEX idx_intake_request ON mf_recog_runs(intake_request_key)'); } catch (e) {}
+try { db.exec('ALTER TABLE paper_uploads ADD COLUMN intake_request_key VARCHAR(64) DEFAULT NULL'); } catch (e) {}
+try { db.exec('ALTER TABLE paper_uploads ADD COLUMN intake_input_hash VARCHAR(64) DEFAULT NULL'); } catch (e) {}
+try { db.exec('ALTER TABLE paper_uploads ADD COLUMN intake_result MEDIUMTEXT'); } catch (e) {}
+try { db.exec('CREATE UNIQUE INDEX idx_upload_request ON paper_uploads(intake_request_key)'); } catch (e) {}
+try { db.exec('ALTER TABLE mf_capture_batches ADD COLUMN intake_request_key VARCHAR(64) DEFAULT NULL'); } catch (e) {}
+try { db.exec('ALTER TABLE mf_capture_batches ADD COLUMN intake_input_hash VARCHAR(64) DEFAULT NULL'); } catch (e) {}
+try { db.exec('ALTER TABLE mf_capture_batches ADD COLUMN intake_result MEDIUMTEXT'); } catch (e) {}
+try { db.exec('CREATE UNIQUE INDEX idx_capture_request ON mf_capture_batches(intake_request_key)'); } catch (e) {}
 // 记录经老师逐项确认的 AI 答案/解析来源；原有题目保持空值。
 try { db.exec('ALTER TABLE questions ADD COLUMN ai_review_metadata MEDIUMTEXT'); } catch (e) { /* 列已存在 */ }
 try { db.exec("ALTER TABLE questions ADD COLUMN question_subtype VARCHAR(50) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
@@ -935,6 +948,9 @@ CREATE TABLE IF NOT EXISTS video_nodes (
 );
 CREATE INDEX IF NOT EXISTS idx_vnode_node ON video_nodes(node_id);
 `);
+
+// 采集入口与其余录题入口共用可选资料范围。
+for (const col of ['edition','term','material_type']) { try { db.exec(`ALTER TABLE mf_capture_batches ADD COLUMN ${col} VARCHAR(80) DEFAULT ''`); } catch (e) {} }
 
 // 老库是空的时，把原来的 SQLite 文件导入 MySQL（只导入一次）
 importIfEmpty(db, DATA_DIR);

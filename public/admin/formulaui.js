@@ -42,6 +42,7 @@ function t8Enhance(root, opt) {
           const url = await t8Upload(file);
           opt.images.push(url);
           MLive.insertAt(el, `\n[图${opt.images.length}]`);
+          el.dispatchEvent(new Event('input',{bubbles:true}));
           if (opt.onImage) opt.onImage(url, opt.images.length - 1);
           toast('图片已上传并插入到光标处', 'ok');
         } catch (err) { toast(err.message || '图片上传失败', 'err'); }

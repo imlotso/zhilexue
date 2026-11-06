@@ -227,7 +227,7 @@ function cleanup() {
   let chromium = null;
   try { chromium = require('playwright').chromium; } catch (e) { /* 没装 */ }
   let browser = null;
-  if (chromium) { try { browser = await chromium.launch(); } catch (e) { browser = null; } }
+  if (chromium) { try { browser = await chromium.launch({ ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}), args:['--no-sandbox'] }); } catch (e) { browser = null; } }
   if (!browser) {
     console.log('  ⏭  没有可用的浏览器（Playwright），跳过浏览器部分');
   } else {
@@ -323,8 +323,8 @@ function cleanup() {
       const btnH = await mp.$$eval('.quiz-f .btn', (a) => a.map((b) => Math.round(b.getBoundingClientRect().height)));
       log(btnH.every((x) => x <= 52), '手机：底部按钮文字不竖排（按钮高度正常）', btnH.join(','));
       await mp.click('#qzAiFab'); await mp.waitForSelector('.r8-ai.show', { timeout: 4000 }); await mp.waitForTimeout(400);
-      const dr = await mp.evaluate(() => { const r = document.querySelector('.r8-ai').getBoundingClientRect(); return { l: Math.round(r.left), w: Math.round(r.width), b: Math.round(innerHeight - r.bottom), h: Math.round(r.height), vh: innerHeight }; });
-      log(dr.l === 0 && dr.w === 390 && dr.b === 0 && Math.abs(dr.h - dr.vh * 0.7) < 4, '手机：AI 浮层是底部抽屉（整宽、贴底、70vh）', JSON.stringify(dr));
+      const dr = await mp.evaluate(() => { const r = document.querySelector('.r8-ai').getBoundingClientRect(); return { l: Math.round(r.left), w: Math.round(r.width), b: Math.round(innerHeight - r.bottom), h: Math.round(r.height), vh: innerHeight, quizBottom: document.querySelector('.quiz-box').getBoundingClientRect().bottom, aiTop:r.top }; });
+      log(dr.l === 0 && dr.w === 390 && dr.b === 0 && Math.abs(dr.h - dr.vh * 0.48) < 4 && dr.quizBottom <= dr.aiTop + 1, '手机：AI 抽屉整宽贴底，与题卡上下分区且不遮挡题卡', JSON.stringify(dr));
       await mp.close();
       log(errs.length === 0, '全程无页面脚本报错', errs.slice(0, 3).join(' | '));
     } catch (e) {

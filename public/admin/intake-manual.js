@@ -37,6 +37,7 @@ async function viewIntakeManual() {
   return { html, after: () => {
     const root = document.querySelector('.r4m-page'); if (!root) return;
     R4Flow.bind(root, 'manual');
+    const scope = R4Flow.scope(root, 'manual', root.querySelector('[data-step="1"] .r4m-grid'), {subject:'r4m-subject',stage:'r4m-stage'});
     const draft = R4Flow.read('manual-draft');
     const $ = (s) => root.querySelector(s);
     const box = $('#r4m-questions');
@@ -128,12 +129,12 @@ async function viewIntakeManual() {
       }
       if (step === 2) { const error = validate(); if (error) return toast(error, 'err'); step = 3; show(); return; }
       const error = validate(); if (error) return toast(error, 'err');
-      const common = { subject: val('#r4m-subject'), stage: val('#r4m-stage'), grade: val('#r4m-grade'), material: val('#r4m-material'), audio_key: audio.get(), audio_play_limit: audio.getLimit() };
+      const common = { ...scope(), subject: val('#r4m-subject'), stage: val('#r4m-stage'), grade: val('#r4m-grade'), material: val('#r4m-material'), audio_key: audio.get(), audio_play_limit: audio.getLimit() };
       const group = mode() === 'group'; const questions = dataQuestions();
       busy = true; $('#r4m-next').disabled = true; $('#r4m-next').textContent = '保存中…';
       try {
-        await api(`/api/admin/bank/mf/ext/pending/${group ? 'manual-group' : 'manual'}`, { method: 'POST', body: group ? { ...common, questions } : { ...common, ...questions[0] } });
-        R4Flow.clear('manual-draft'); toast('已保存到待审核', 'ok'); location.hash = '#/pending';
+        await R4Flow.post(`/api/admin/bank/mf/ext/pending/${group ? 'manual-group' : 'manual'}`, group ? 'manual-group' : 'manual', group ? { ...common, questions } : { ...common, ...questions[0] });
+        R4Flow.clear('manual-draft'); if (!root.isConnected) return; toast('已保存到待审核', 'ok'); location.hash = '#/pending';
       } catch (e) { toast(e.message || '保存失败，请重试', 'err'); busy = false; $('#r4m-next').disabled = false; $('#r4m-next').textContent = '保存到待审核'; }
     };
     addQuestion();
@@ -151,12 +152,12 @@ async function viewIntakeManual() {
         });
       } catch (_) { toast('部分草稿未恢复，请检查后继续', 'err'); }
     }
-    const saveDraft = () => R4Flow.save('manual-draft', {
+    const saveDraft = () => { const stored = R4Flow.save('manual-draft', {
       count: box.children.length, group: mode() === 'group',
       fields: ['subject', 'stage', 'grade', 'material'].map((name) => [`#r4m-${name}`, val(`#r4m-${name}`)]),
       questions: [...box.children].map((q) => Object.assign({ images: questionImages.get(q) || [] }, ...['type', 'subtype', 'stem', 'options', 'match', 'answer', 'analysis'].map((name) => ({ [name]: q.querySelector(`[data-question-${name}]`).value })))),
       audio: { key: audio.get(), limit: audio.getLimit() }
-    });
+    }); if (!stored) R4Flow.bind(root, 'manual'); };
     root.addEventListener('input', saveDraft); root.addEventListener('change', saveDraft);
     box.addEventListener('click', (e) => { if (e.target.closest('[data-question-remove]')) saveDraft(); });
     numberRows(); show();

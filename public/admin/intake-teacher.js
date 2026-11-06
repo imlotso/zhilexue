@@ -24,6 +24,7 @@ async function viewIntakeTeacher() {
     after: () => {
       const $ = (id) => document.getElementById(id);
       const root = document.querySelector('.rt-page'); R4Flow.bind(root, 'teacher');
+      const scope = R4Flow.scope(root, 'teacher', $('rtPrepare'), {subject:'rtSubject'});
       let step = 1, url = '', expiresAt = 0, timer = null, busy = false;
       const parseDrafts = (v) => { try { const a = Array.isArray(v) ? v : JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
       const openReview = (batchId) => { const state = ADM.page.pd = ADM.page.pd || { sel: {} }; state.source = 'teacher_scan'; state.kw = ''; state.batch_id = Number(batchId) || 0; state.review = 'all'; state.sel = {}; ADM.page.pdPage = 1; location.hash = '#/pending'; };
@@ -31,7 +32,7 @@ async function viewIntakeTeacher() {
         const el = $('rtHistory'); if (!el) return;
         if (historyError) { el.innerHTML = `<p class="rt-error">${esc(historyError)}</p>`; return; }
         if (!history.length) { el.innerHTML = '<div class="rt-empty">暂无手机录题记录</div>'; return; }
-        el.innerHTML = `<div class="rt-history-list">${history.map((r) => { const cards = parseDrafts(r.drafts); const left = cards.filter((c) => c && !c.committed).length; const processed = r.status === 'done' || (cards.length && !left); const bad = r.status === 'error'; return `<div class="rt-history-row"><div><strong>${esc(r.subject || '未指定学科')}${r.grade ? ' · ' + esc(r.grade) : ''}</strong><small>${esc(r.created_at || '')} · ${Number(r.draft_count) || cards.length || 0} 题</small>${bad && r.error ? `<small class="rt-error">${esc(r.error)}</small>` : ''}</div><span class="rt-history-status ${bad ? 'error' : processed ? 'done' : ''}">${bad ? '处理异常' : processed ? '已处理' : '待审核'}</span>${processed ? '' : `<button type="button" class="btn ghost sm" data-rt-history="${Number(r.id)}">核对</button>`}</div>`; }).join('')}</div>`;
+        el.innerHTML = `<div class="rt-history-list">${history.map((r) => { const cards = parseDrafts(r.drafts); const left = cards.filter((c) => c && !c.committed).length; const processed = r.status === 'done' || (cards.length && !left); const bad = r.status === 'error'; return `<div class="rt-history-row"><div><strong>${esc(r.subject || '未指定学科')}${r.grade ? ' · ' + esc(r.grade) : ''}</strong><small>${esc(r.created_at || '')} · ${Number(r.draft_count) || cards.length || 0} 题</small>${bad && r.error ? `<small class="rt-error">${esc(r.error)}</small>` : ''}</div><span class="rt-history-status ${bad ? 'error' : processed ? 'done' : ''}">${r.processing ? '正在识别' : bad ? '处理异常' : processed ? '已处理' : '待审核'}</span>${processed ? '' : `<button type="button" class="btn ghost sm" data-rt-history="${Number(r.id)}">核对</button>`}</div>`; }).join('')}</div>`;
       };
       const refreshHistory = async () => {
         $('rtRefresh').disabled = true;
@@ -56,7 +57,7 @@ async function viewIntakeTeacher() {
         const btn = step === 1 ? $('rtCreate') : $('rtRenew'), error = step === 1 ? $('rtCreateError') : $('rtScanError');
         btn.disabled = true; error.hidden = true;
         try {
-          const data = await api('/api/admin/bank/teacher-upload-token', { method: 'POST', silent: true });
+          const data = await api('/api/admin/bank/teacher-upload-token', { method: 'POST', body:scope(), silent: true });
           if (!data || !data.token || !/^\/(?!\/)/.test(String(data.url || ''))) throw new Error('无法生成录题链接，请重试');
           const link = new URL(data.url, location.origin);
           if (link.origin !== location.origin) throw new Error('录题链接地址无效，请重试');
@@ -82,7 +83,7 @@ async function viewIntakeTeacher() {
         catch (_) { $('rtScanError').textContent = '复制失败，请使用二维码或在本设备打开。'; $('rtScanError').hidden = false; }
       };
       $('rtOpen').onclick = () => { if (url && Date.now() < expiresAt) window.open(url, '_blank', 'noopener,noreferrer'); else tick(); };
-      drawHistory(); showStep(1);
+      R4Flow.prepare(root, 'teacher', ['rtSubject']); drawHistory(); showStep(1);
     },
   };
 }

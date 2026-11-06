@@ -112,7 +112,7 @@ function cleanup() {
   let chromium = null;
   try { chromium = require('playwright').chromium; } catch (e) { /* 没装 */ }
   let browser = null;
-  if (chromium) { try { browser = await chromium.launch(); } catch (e) { browser = null; } }
+  if (chromium) { try { browser = await chromium.launch({ ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}), args:['--no-sandbox'] }); } catch (e) { browser = null; } }
   if (!browser) {
     console.log('  ⏭  没有可用的浏览器（Playwright），跳过键盘点击检查');
   } else {
@@ -122,9 +122,9 @@ function cleanup() {
       const sp = await browser.newPage({ viewport: { width: 1100, height: 900 } }); watch(sp, 'stu');
       await sp.goto(BASE + '/'); await sp.waitForTimeout(700);
       await sp.fill('input[type=text],input[type=tel],input:not([type])', 't8s' + uniq); await sp.fill('input[type=password]', '123456'); await sp.keyboard.press('Enter'); await sp.waitForTimeout(1500);
-      await sp.goto(BASE + '/#/papers'); await sp.waitForSelector('.pk-libcard', { timeout: 8000 });
+      await sp.goto(BASE + '/#/papers'); await sp.waitForSelector('.bk-tabs [data-s="数学"]'); await sp.click('.bk-tabs [data-s="数学"]'); await sp.waitForSelector('.pk-libcard', { timeout: 8000 });
       await sp.fill('#pkQ', TAG); await sp.keyboard.press('Enter'); await sp.waitForTimeout(800);
-      await sp.click('.pk-libcard'); await sp.waitForSelector('.quiz-body, #qzBody', { timeout: 8000 });
+      await sp.click('.pk-libcard [data-lib]'); await sp.waitForSelector('#pkPreviewStart'); await sp.click('#pkPreviewStart'); await sp.waitForSelector('.quiz-body, #qzBody', { timeout: 8000 });
       log(await sp.$$eval('.t8-fbtn', (e) => e.length) === 1 && (await sp.$$eval('svg', (e) => e.length)) > 0, '学生端：数学填空题有「公式」按钮，题干里的分数 / 根号已渲染成公式');
       await sp.click('.t8-fbtn'); await sp.waitForSelector('math-field', { timeout: 15000 });
       await sp.evaluate(() => document.querySelector('math-field').setValue('\\frac{1}{2}')); await sp.waitForTimeout(200);

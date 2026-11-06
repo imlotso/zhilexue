@@ -130,7 +130,7 @@
 (function () {
   var token = new URLSearchParams(location.search).get('t') || '';
   var files = [];            // File 对象
-  var isTeacher = false;
+  var isTeacher = false, draftKey = '', draft = {requestKeys:{}}, restoring = false;
   var MAX = 4, MAXMB = 10, mode = 'single';
   var $ = function (s) { return document.querySelector(s); };
   var showErr = function (msg) { var e = $('#err'); e.textContent = msg; e.style.display = 'block'; window.scrollTo(0, 0); };
@@ -155,16 +155,21 @@
     $('#greet').textContent = isTeacher ? '你好，' + (d.name || '老师') + '，选择学科和年级，拍照后提交到待审核。' : '你好，' + (d.name || '同学') + (d.grade ? '（' + d.grade + '）' : '') + '，把不会的题拍下来交给老师吧！';
     if (!grade && d.grade && GRADES.indexOf(d.grade) >= 0) { grade = d.grade; paintPicks(); }
     $('#main').style.display = '';
+    restoreDraft(d.upload_scope);
+    if(isTeacher && d.defaults){if(d.defaults.subject)subject=d.defaults.subject;paintPicks();var scopeNote=document.createElement('p');scopeNote.className='hint';scopeNote.textContent='资料范围：'+[d.defaults.subject,d.defaults.edition,d.defaults.term,({textbook:'教材',exercise:'练习',paper:'试卷',other:'其他'})[d.defaults.material_type]].filter(Boolean).join(' · ');$('#greet').after(scopeNote);draft.signedScope=JSON.stringify(d.defaults);}
     if (!isTeacher) loadMine();
   }, function (msg) { $('#greet').textContent = msg || '二维码已过期，请回到错题本重新获取'; });
 
-  function api(path, body, onOk, onErr, isForm) {
+  function api(path, body, onOk, onErr, isForm, requestKey) {
     var opt = { method: body ? 'POST' : 'GET', headers: {} };
+    if (requestKey) opt.headers['X-Intake-Key'] = requestKey;
+    var controller = window.AbortController ? new AbortController() : null; if(controller)opt.signal=controller.signal;
+    var timeout=setTimeout(function(){if(controller)controller.abort();},120000);
     if (body) opt.body = isForm ? body : JSON.stringify(body);
     if (!isForm && body) opt.headers['Content-Type'] = 'application/json';
     var sep = path.indexOf('?') >= 0 ? '&' : '?';
     fetch('/api/up/' + path + sep + 't=' + encodeURIComponent(token), opt)
-      .then(function (r) { return r.json().catch(function () { throw new Error('网络异常，请稍后重试'); }); })
+      .then(function (r) { clearTimeout(timeout); return r.json().catch(function () { throw new Error('网络异常，请稍后重试'); }); })
       .then(function (j) {
         if (j.code === 0) onOk && onOk(j.data);
         else {
@@ -172,9 +177,35 @@
           onErr && onErr(j.msg || '操作失败'); if (!onErr) showErr(j.msg || '操作失败');
         }
       })
-      .catch(function (e) { onErr && onErr(e.message); if (!onErr) showErr(e.message || '网络异常'); });
+      .catch(function (e) { clearTimeout(timeout); var message=e.name==='AbortError'?'等待超时，保存结果未确认。可查询结果或重新选择同一照片重试，不会重复提交。':'网络连接中断，保存结果未确认。可查询上次结果或用相同照片重试。'; onErr && onErr(message); if (!onErr) showErr(message || '网络异常'); });
   }
 
+  function saveDraft() {
+    if(!draftKey || restoring || !$('#stemText'))return;
+    draft.fields={subject:subject,grade:grade,errorType:errorType,mode:mode};
+    ['stemText','answer','chapter','point','note'].forEach(function(id){draft.fields[id]=$('#'+id).value;});
+    try{localStorage.setItem(draftKey,JSON.stringify(draft));}catch(e){showErr('浏览器未允许保存本机草稿，请及时提交；关闭页面后可能无法恢复。');}
+  }
+  function restoreDraft(scope) {
+    if(!scope)return;draftKey='zx-upload-draft:'+scope;restoring=true;
+    try{var saved=JSON.parse(localStorage.getItem(draftKey)||'null');if(saved && saved.fields){draft=saved;var f=saved.fields;subject=SUBJS.indexOf(f.subject)>=0?f.subject:subject;grade=GRADES.indexOf(f.grade)>=0?f.grade:grade;errorType=ERR_TYPES.indexOf(f.errorType)>=0?f.errorType:'';['stemText','answer','chapter','point','note'].forEach(function(id){if(typeof f[id]==='string')$('#'+id).value=f[id];});if(['single','pages','split'].indexOf(f.mode)>=0){var modeButton=$('#modes [data-mode="'+f.mode+'"]');if(modeButton)modeButton.click();}paintPicks();}}
+    catch(e){}restoring=false;
+    var notice=document.createElement('div');notice.className='card';notice.id='uploadResume';notice.innerHTML='<p class="tip" id="uploadResumeText">文字草稿保存在本机，关闭页面后可恢复；照片需要重新选择。</p><button type="button" class="btn" id="uploadCheck" style="display:none">查询上次提交结果</button><button type="button" class="btn" id="uploadClear">清除本机草稿</button>';
+    $('#main').prepend(notice);
+    $('#uploadClear').onclick=function(){if(!confirm('仅清除本机草稿，已经提交的记录不受影响。'))return;try{localStorage.removeItem(draftKey);}catch(e){}location.reload();};
+    if(draft.lastKey){$('#uploadCheck').style.display='';$('#uploadCheck').onclick=function(){api('status?key='+encodeURIComponent(draft.lastKey),null,function(d){$('#uploadResumeText').textContent=d.found?'上次提交已保存到待审核，不必再次提交；其他题目请另行选择。':'暂未查到保存结果，可重新选择原照片重试。';},showErr);};}
+  }
+  async function submissionKey(fd) {
+    var parts=[];
+    for (var entry of fd.entries()) {
+      if(typeof entry[1]==='string')parts.push(entry);
+      else {var bytes=new Uint8Array(await entry[1].arrayBuffer()),a=2166136261,b=5381;for(var value of bytes){a=Math.imul(a^value,16777619);b=Math.imul(b,33)^value;}parts.push([entry[0],entry[1].size,a>>>0,b>>>0]);}
+    }
+    var signature=JSON.stringify(parts);if(!draft.requestKeys)draft.requestKeys={};
+    if(!draft.requestKeys[signature])draft.requestKeys[signature]=window.crypto && crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)+'-'+Math.random().toString(36).slice(2);
+    draft.lastKey=draft.requestKeys[signature];saveDraft();return draft.lastKey;
+  }
+  $('#main').addEventListener('input',saveDraft);
   // ---- 底部选择弹层 ----
   function openSheet(title, options, current, onPick) {
     var mask = document.createElement('div'); mask.className = 'sheet-mask';
@@ -199,6 +230,7 @@
       b.onclick = function () { subject = b.dataset.s; paintPicks(); };
     });
     $('#gradePick').innerHTML = '<span class="' + (grade ? 'v' : 'ph') + '">' + (grade || '选择年级') + '</span><span class="arr">›</span>';
+    saveDraft();
     $('#errPick').innerHTML = '<span class="' + (errorType ? 'v' : 'ph') + '">' + (errorType || '选择错误类型') + '</span><span class="arr">›</span>';
   }
   paintPicks();
@@ -212,7 +244,7 @@
     $('#modeTip').textContent = tips[mode];
     $('#stemText').style.display = mode === 'split' ? 'none' : '';
     $('#answer').closest('.card').style.display = mode === 'split' ? 'none' : '';
-    paintFiles();
+    paintFiles();saveDraft();
   }; });
   // 图片直接绘制标记；框题生成独立图片，提交时仍使用普通文件上传接口。
   function editImage(index) {
@@ -306,12 +338,13 @@
     if (mode === 'split' && !groups.length) return showErr('请先打开照片，使用“框出一题”框选每一道题');
     if (mode !== 'split' && !originals.length) return showErr('请先拍照或选择至少 1 张原图');
     var btn = this, sent = 0; btn.disabled = true; btn.textContent = '上传中…';
-    function sendNext() {
-      var group = groups.shift(); if (!group) { $('#main').innerHTML = '<div class="card ok-box"><b>上传成功！</b><p>已提交 ' + sent + ' 道题，老师可以查看原图和标记。</p></div>'; return; }
+    async function sendNext() {
+      var group = groups.shift(); if (!group) { $('#main').innerHTML = '<div class="card ok-box"><b>上传成功！</b><p>已提交 ' + sent + ' 道题，老师可以查看原图和标记。</p><button type="button" class="btn btn-primary" id="uploadAgain">继续录题</button></div>'; $('#uploadAgain').onclick=function(){draft={fields:{subject:subject,grade:grade},requestKeys:{}};try{localStorage.setItem(draftKey,JSON.stringify(draft));}catch(e){}location.reload();}; return; }
       var fd = new FormData(); group.forEach(function(f){fd.append('images',f.file);});
-      fd.append('subject',subject);fd.append('stem_text',mode === 'split' ? '' : $('#stemText').value.trim());fd.append('answer',mode === 'split' ? '' : $('#answer').value.trim());fd.append('grade',grade);fd.append('chapter',$('#chapter').value.trim());fd.append('point',$('#point').value.trim());fd.append('error_type',errorType);
+      if(isTeacher)fd.append('_signed_scope',draft.signedScope || '{}');fd.append('subject',subject);fd.append('stem_text',mode === 'split' ? '' : $('#stemText').value.trim());fd.append('answer',mode === 'split' ? '' : $('#answer').value.trim());fd.append('grade',grade);fd.append('chapter',$('#chapter').value.trim());fd.append('point',$('#point').value.trim());fd.append('error_type',errorType);
       fd.append('note', (mode === 'pages' ? '【跨页题】' : mode === 'split' ? '【多题拆分】' : '') + $('#note').value.trim());
-      api('submit',fd,function(){sent++;group.forEach(function(f){var i=files.indexOf(f);if(i>=0)files.splice(i,1);URL.revokeObjectURL(f.url);});sendNext();},function(msg){btn.disabled=false;btn.textContent='提交给老师审核';paintFiles();showErr((sent ? '已成功提交 '+sent+' 道，剩余题目未提交。' : '')+(msg || '上传失败，请重试'));},true);
+      var requestKey;try{requestKey=await submissionKey(fd);}catch(e){btn.disabled=false;return showErr('准备上传失败，请重试');}
+      api('submit',fd,function(){sent++;group.forEach(function(f){var i=files.indexOf(f);if(i>=0)files.splice(i,1);URL.revokeObjectURL(f.url);});sendNext();},function(msg){btn.disabled=false;btn.textContent='提交给老师审核';paintFiles();showErr((sent ? '已成功提交 '+sent+' 道，剩余题目未提交。' : '')+(msg || '上传失败，请重试'));},true,requestKey);
     }
     sendNext();
   };

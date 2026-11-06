@@ -88,7 +88,7 @@ async function viewWords() {
           }).join('')}
         </select>
         ${WB.kind === 'phrase' ? `<button class="btn primary-sm" id="wdFillAllEx" style="font-size:15px;height:42px;padding:0 20px;border-radius:9px;font-weight:600">${ic('robot')} 一键给全部短语书补齐例句</button>` : ''}
-        <button class="btn ghost" id="wdPaper" style="margin-left:auto;background:#f0a93c;border-color:#f0a93c;color:#fff;font-size:15px;height:42px;padding:0 24px;border-radius:9px;font-weight:600;box-shadow:0 2px 8px rgba(240,169,60,.35)">🖨️ 纸质化生成</button>
+        <button class="btn ghost" id="wdPaper" style="margin-left:auto;background:#f0a93c;border-color:#f0a93c;color:#fff;font-size:15px;height:42px;padding:0 24px;border-radius:9px;font-weight:600;box-shadow:0 2px 8px rgba(240,169,60,.35)"> 纸质化生成</button>
       </div>
       <div class="toolbar">
         <select id="wdStageF" style="min-width:130px">
@@ -434,7 +434,7 @@ async function batchDelRows(apiKind, visibleIds) {
   refreshWords();
 }
 
-/* ---------------- 📋 考纲单词（独立窗口）：只管「考纲单词书」 ----------------
+/* ----------------  考纲单词（独立窗口）：只管「考纲单词书」 ----------------
  * 考纲词书与单词速记的词书互不混用。选择词书后，学生端「考纲单词」的学前检测
  * 自动按每 60 个单词为一个大组过筛（纸条遮挡 → 点击核对 → ➕ 筛出生词），
  * 筛完的生词再按学生自选的 5 / 10 个一组识记、学后检测。 */
@@ -522,7 +522,7 @@ function newBook(fixedKind) {
   });
 }
 
-/** ✏️ 编辑词书：改名 / 年级 / 备注（类型固定，改类型请在对应分区重建；保证各分区互不混） */
+/** ✏ 编辑词书：改名 / 年级 / 备注（类型固定，改类型请在对应分区重建；保证各分区互不混） */
 function editBook(id) {
   const b = WB.books.find((x) => String(x.id) === String(id));
   if (!b) return;
@@ -552,7 +552,7 @@ function editBook(id) {
   });
 }
 
-/** 🗑 删除单本词书：需输入删除密码（密码由服务端校验，前端不保存密码） */
+/**  删除单本词书：需输入删除密码（密码由服务端校验，前端不保存密码） */
 async function delBook(id) {
   const b = WB.books.find((x) => String(x.id) === String(id || WB.bookId));
   if (!b) return;
@@ -566,7 +566,7 @@ async function delBook(id) {
   toast('已删除', 'ok'); render();
 }
 
-/** 🗑 批量删除词书：勾选 → 输入删除密码（交给服务端校验）→ 确认 → 逐个删 */
+/**  批量删除词书：勾选 → 输入删除密码（交给服务端校验）→ 确认 → 逐个删 */
 async function batchDelBooks() {
   const ids = [...document.querySelectorAll('.w-bk-chk:checked')].map((c) => c.value);
   if (!ids.length) return toast('先勾选要删除的词书（列表最前面的小方框）', 'err');
@@ -591,7 +591,7 @@ async function batchDelBooks() {
 /* ---------------- AI 助手：补全 / 生成 ---------------- */
 function curBook() { return WB.books.find((b) => String(b.id) === String(WB.bookId)); }
 
-/** 🪄 AI 补全当前词书缺失内容（按当前标签页对应的库） */
+/**  AI 补全当前词书缺失内容（按当前标签页对应的库） */
 async function aiFillBook(btn) {
   const book = curBook();
   if (!book) return toast('请先新建或选择一本词书', 'err');
@@ -608,7 +608,7 @@ async function aiFillBook(btn) {
   }
 }
 
-/** ✍️ 单条短语的 AI 例句（列表里「＋ AI 生成例句」按钮）
+/** ✍ 单条短语的 AI 例句（列表里「＋ AI 生成例句」按钮）
  *  例句优先取自译林版（牛津译林）2024 新版教材本书本单元课文里的真实原句，写进短语行，
  *  学生端语境填空直接用它；生成后老师可在「编辑」里改。 */
 async function aiOneExample(btn, done) {
@@ -623,7 +623,7 @@ async function aiOneExample(btn, done) {
     if (btn) { btn.disabled = false; btn.innerHTML = old; }
   }
 }
-/** 🤖 批量 AI 补全例句：勾选了短语就只补选中的，没勾选则补整本书里还没有例句的。
+/**  批量 AI 补全例句：勾选了短语就只补选中的，没勾选则补整本书里还没有例句的。
  *  AI 一次一条（约 3~6 秒），后台慢慢跑，这里轮询进度，完成后自动刷新列表。 */
 async function aiFillExamples(btn, ids) {
   const old = btn ? btn.innerHTML : '';
@@ -661,7 +661,7 @@ async function aiFillExamples(btn, ids) {
   }
 }
 
-/** 🌐 一键给「所有短语书」补齐例句（词书列表页的按钮）
+/**  一键给「所有短语书」补齐例句（词书列表页的按钮）
  *  不用一本一本点：把所有短语书里还没例句的短语排成一队，AI 在后台并发 3 条慢慢生成，
  *  每条一生成就写回，学生端刷新就能用；页面在这里轮询总进度。 */
 async function aiFillExamplesAllBooks(btn) {
@@ -695,7 +695,7 @@ async function aiFillExamplesAllBooks(btn) {
   }
 }
 
-/** ✨ AI 生成词库 → 预览 → 确认导入当前词书 */
+/**  AI 生成词库 → 预览 → 确认导入当前词书 */
 function aiGenerate() {
   const book = curBook();
   if (!book) return toast('请先新建或选择一本词书', 'err');
@@ -743,7 +743,7 @@ function aiPreview(rows, kindLabel) {
     title: '预览生成结果',
     wide: true,
     body,
-    okText: '✅ 导入当前词书',
+    okText: ' 导入当前词书',
     onOk: async () => {
       const r = await api('/api/admin/word/ai/save', { method: 'POST', body: { bookId: Number(WB.bookId), kind: WB.tab, rows } });
       toast(r.msg || '已导入', 'ok');

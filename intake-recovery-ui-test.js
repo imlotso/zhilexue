@@ -14,10 +14,10 @@ try{({chromium}=require('playwright'))}catch{try{({chromium}=require('/opt/codex
   assert.equal(await p.locator('#r4m-prev').evaluate(el=>getComputedStyle(el).whiteSpace),'nowrap','底部按钮不可竖排');
   if(process.env.INTAKE_SCREENSHOTS){fs.mkdirSync(process.env.INTAKE_SCREENSHOTS,{recursive:true});await p.screenshot({path:path.join(process.env.INTAKE_SCREENSHOTS,`intake-manual-${width}.png`),fullPage:true})}
   await p.evaluate(()=>show('excel'));await p.locator('#rxNext').click();await p.setInputFiles('#rxFile',{name:'synthetic.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from('synthetic')});
-  // 模拟传输事件，不向服务器发送文件。格式错误可重试；超时会阻止盲目重复上传。
+  // 模拟传输事件，不向服务器发送文件。格式错误可重试；超时保留回执，重试复用同一凭据。
   await p.evaluate(()=>{window.RealXHR=window.XMLHttpRequest;window.XMLHttpRequest=class{constructor(){this.upload={}}open(){}setRequestHeader(){}send(){window.currentXhr=this}}});
-  await p.locator('#rxNext').click();await p.evaluate(()=>{const x=window.currentXhr;x.status=400;x.response={code:1,msg:'第 2 行格式错误'};x.onload({})});assert.equal(await p.locator('#rxNext').isEnabled(),true);assert((await p.textContent('#rxMessage')).includes('第 2 行'));
-  await p.locator('#rxNext').click();await p.evaluate(()=>window.currentXhr.ontimeout({}));assert.equal(await p.locator('#rxNext').isDisabled(),true);assert((await p.textContent('#rxMessage')).includes('可能已处理'));
+  await p.locator('#rxNext').click();await p.waitForFunction(()=>window.currentXhr);await p.evaluate(()=>{const x=window.currentXhr;x.status=400;x.response={code:1,msg:'第 2 行格式错误'};x.onload({})});assert.equal(await p.locator('#rxNext').isEnabled(),true);assert((await p.textContent('#rxMessage')).includes('第 2 行'));
+  await p.evaluate(()=>window.currentXhr=null);await p.locator('#rxNext').click();await p.waitForFunction(()=>window.currentXhr);await p.evaluate(()=>window.currentXhr.ontimeout({}));assert.equal(await p.locator('#rxNext').isEnabled(),true);assert((await p.textContent('#rxMessage')).includes('保存结果未确认'));
   await p.evaluate(()=>show('excel'));assert((await p.textContent('.r4-flow-notice')).includes('中断'));await p.locator('.r4-flow-notice button').first().click();assert((await p.evaluate(()=>window.lastHelp)).includes('AI 答案与解析均为建议'));
   // 离开页面后完成回调只记录恢复线索，不访问已移除的 DOM。
   await p.evaluate(()=>{const root=document.createElement('div');document.body.append(root);let touched=false;const x={upload:{},status:200,response:{code:0,data:{run_id:99}},onload:()=>{touched=true}};R4Flow.watch(x,root,'detached','book.xlsx');root.remove();x.onload({});if(touched||R4Flow.read('detached').runId!==99)throw Error('离页回调保护失败');});
@@ -33,6 +33,11 @@ try{({chromium}=require('playwright'))}catch{try{({chromium}=require('/opt/codex
   await p.evaluate(()=>{const input=document.createElement('input');input.id='unsaved-teacher-text';input.value='老师尚未保存的题干';document.querySelector('#wkCards').append(input)});
   await p.locator('#wkAuto').click();await p.waitForFunction(()=>document.querySelector('#wkProgTxt').textContent.includes('模拟保存失败'));assert.equal(await p.inputValue('#unsaved-teacher-text'),'老师尚未保存的题干');assert.equal(await p.locator('#unsaved-teacher-text').isEnabled(),true);
   await p.evaluate(()=>window.failSave=false);await p.locator('#wkAuto').click();await p.waitForFunction(()=>document.querySelector('.mf-wk-top').textContent.includes('模拟页面失败'));await p.locator('#wkAuto').click();await p.waitForFunction(()=>document.querySelector('.mf-wk-top').textContent.includes('逐页处理完成'));assert.deepEqual(await p.evaluate(()=>window.pageCalls),[2,2],'恢复时只请求失败页，不重跑完成页');
+  await p.locator('.mf-wk-page').nth(1).locator('summary').click();await p.fill('#wkOcr2','老师修正后的单页原文');
+  await p.evaluate(()=>{const original=window.api;window.api=async(path,opts)=>{if(path.endsWith('/structure')){await new Promise(r=>window.finishStructure=r);throw Error('模拟单页整理失败')}if(path.endsWith('/ocr'))throw Error('模拟单页转写失败');return original(path,opts)}});
+  await p.locator('[data-struct="2"]').click();await p.waitForFunction(()=>window.finishStructure);assert(await p.locator('#wkOcr2').isDisabled());assert(await p.locator('#wkSkeleton').isVisible());await p.evaluate(()=>window.finishStructure());await p.waitForFunction(()=>document.querySelector('#wkProgTxt').textContent.includes('模拟单页整理失败'));assert.equal(await p.inputValue('#wkOcr2'),'老师修正后的单页原文');assert(await p.locator('#wkOcr2').isEnabled());assert(await p.locator('#wkSkeleton').isHidden());
+  await p.locator('[data-ocr="2"]').click();await p.waitForFunction(()=>document.querySelector('#wkProgTxt').textContent.includes('模拟单页转写失败'));assert.equal(await p.inputValue('#wkOcr2'),'老师修正后的单页原文');assert(await p.locator('[data-ocr="2"]').isEnabled());
+
   assert.deepEqual(errors,[]);await p.close();
  }
  console.log('1440/390 录题草稿恢复、细分题型保留、失败重试、超时重复提交保护、教程、离页回调与英语排序/填空/开放问答作答通过');

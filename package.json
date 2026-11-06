@@ -34,5 +34,8 @@
   "optionalDependencies": {
     "ali-oss": "^6.21.0",
     "qiniu": "^7.15.2"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
   }
 }

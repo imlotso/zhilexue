@@ -53,7 +53,7 @@ async function form(bytes, dryRun) {
     // Optional local browser check: CI may not have Playwright or Chromium installed.
     let chromium;try{({chromium}=require('playwright'));}catch(_){try{({chromium}=require('/opt/codex/runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright'));}catch(__){}}
     if(chromium&&fs.existsSync('/usr/bin/chromium')) {
-      const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox']});
+      const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH || '/usr/bin/chromium',args:['--no-sandbox']});
       try {
         const page=await browser.newPage({viewport:{width:1440,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
         await page.goto(BASE+'/admin/',{waitUntil:'domcontentloaded'});await page.locator('input[type=text],input:not([type])').first().fill('15152099970');await page.locator('input[type=password]').first().fill('123456');await page.keyboard.press('Enter');

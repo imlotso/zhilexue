@@ -93,3 +93,11 @@ zhilexue/
 `ai-proxy.js` 仅为 `ai-client.js` 的 AI 请求选择 HTTP(S) 代理，按标准代理环境变量与 `NO_PROXY` 判断，回环地址直连；不更改全局 Agent 和 TLS 校验。
 
 `public/admin/intake-flow.js` 为录题入口共用的传输超时、离页回调保护、sessionStorage 草稿及批次恢复提示和教程；在录题页面脚本前加载。文件本体不保存在浏览器草稿中，恢复不等于字节级续传或后台任务。英语细分兼容关系统一由 `public/js/question-subtypes.js` 提供，学生端与后台均加载；Word、Excel 和 JSON 导入复用它。
+
+## 七入口的恢复与公共交互（2026-11-06）
+
+- `public/admin/intake-flow.js` 统一教程、按账号的本机草稿、准备范围、请求指纹和结果查询。草稿从旧 sessionStorage 兼容迁移至 localStorage；文件二进制不持久保存。`upload.html` 使用上传通道提供的稳定账号/角色范围，短票据更新后仍可找回本机文字及提交线索。共享电脑由用户在完成后清除草稿；不同设备不自动同步。
+- `src/intake-receipts.js` 在三个现有暂存表保存请求回执；入口路由在创建批次的同一事务中记录输入摘要及结果。相同恢复凭据不会重复建立批次；相同凭据不同输入报错。页图单独在原有 pages JSON 中记录上传凭据。`src/intake-scope.js` 共用范围校验，仅使用真实存在的教材版本。
+- `src/intake-jobs.js` 是现有单进程服务共用的在途 Map：`mfbank.js` 的识别/转写/整理/旧 Word/建议请求互斥，`bank.js` 的教师扫码异步识别也登记状态。重新进入工作台轮询当前页；关闭页面后已发请求继续保存，尚未发出的后续页不自动排队。进程重启不恢复内存中的调用，持久页图/草稿仍在；未引入队列/多进程分布式锁。
+- `public/js/api.js` 的 `DialogUX` 为原公共弹窗提供焦点、Tab、Escape、嵌套窗口与取消 Promise 收尾；`admin.js` 提供整页错误重试、保存期间防重复、表单标签及表格操作列增强，保留原业务提交校验。`theme.css` 仍限定后台作用域。
+- CI 安装固定 Playwright/Chromium，实际执行浏览器恢复/页面检查并上传 35 页面三种视口的截图。没有安装浏览器时旧脚本仍会明确报告跳过；本轮本地验证使用明确 `CHROMIUM_PATH`，不以跳过冒充浏览器通过。

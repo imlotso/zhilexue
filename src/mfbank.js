@@ -13,6 +13,7 @@
  *       即 OSS 上的 bank/ 目录（子目录 img / recog / paper），换存储或迁移只改 bank_folder 配置。
  */
 const express = require('express');
+const crypto = require('crypto');
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const { db } = require('./db');
@@ -35,6 +36,27 @@ const now = () => {
 };
 const ok = (res, data = null, msg = 'ok') => res.json({ code: 0, msg, data });
 const fail = (res, msg = '操作失败', code = 1) => res.json({ code, msg });
+const intakeReceipts = require('./intake-receipts')(db, ok, fail);
+// 当前单进程工作台的在途任务：关闭页面不取消已发出的当前页；相同请求等待同一结果。
+const intakeJobs = require('./intake-jobs');
+function singleIntakeJob(action) {
+  return (req,res,next) => {
+    const id = Number(req.params.id), hash = crypto.createHash('sha256').update(JSON.stringify(req.body || {}));
+    if(req.file)hash.update(req.file.buffer);
+    const signature=action+':'+hash.digest('hex'), active=intakeJobs.get(id);
+    if(active){
+      if(active.signature!==signature)return fail(res,'此批次正在处理当前页，请等待完成后继续',409);
+      active.result.then(payload=>{if(!res.writableEnded)res.json(payload);});return;
+    }
+    let finish; const result=new Promise(resolve=>{finish=resolve;});
+    const job={action,page:Number((req.body || {}).page)||0,started_at:Date.now(),signature,result};intakeJobs.set(id,job);
+    const json=res.json.bind(res);
+    res.json=payload=>{if(intakeJobs.get(id)===job)intakeJobs.delete(id);finish(payload);return json(payload);};
+    next();
+  };
+}
+function intakeProcessing(id){const job=intakeJobs.get(Number(id));return job?{action:job.action,page:job.page,started_at:job.started_at}:null;}
+
 
 /** multer 按 latin1 解 multipart 文件名，中文会变乱码（如 æ´è±…）；能无损转回 UTF-8 时转回 */
 function fixFileName(name) {
@@ -906,14 +928,18 @@ if(!qs.length){
 }
 if(!qs.length){alert('这一页没找到题目。请先在组卷网/菁优网把题加进试题篮再点书签；或用鼠标选中题目文字后保持选中，再点一次书签。');return}
 function goHash(){
-  var payload=JSON.stringify({site:site,url:location.href,title:document.title,questions:qs});
+  var payload=JSON.stringify({site:site,url:location.href,title:document.title,questions:qs,_intake_key:requestKey});
   if(payload.length>150000){alert('这次采的题太多（数据太大），请少选一些题、分几批采集');return}
   var w=window.open(BASE+'/admin/#/mfcap?d='+encodeURIComponent(payload),'_blank');
   alert(w?'浏览器直连被拦（组卷网是 https、后台是 http），已改走「打开后台接收」通道：请在刚打开的智学课堂标签页里查看入库结果':'浏览器拦截了新窗口，请在地址栏右侧允许弹窗后重试');
 }
+var payload={site:site,url:location.href,title:document.title,questions:qs};
+var body=JSON.stringify(payload),slot='mfcap-request:'+BASE+':'+md5(body),requestKey='';
+try{requestKey=localStorage.getItem(slot)||''}catch(e){}
+if(!requestKey){requestKey=Date.now().toString(16)+'-'+Math.random().toString(16).slice(2)+'-'+Math.random().toString(16).slice(2);try{localStorage.setItem(slot,requestKey)}catch(e){}}
 var tokenBad=false;
-fetch(API,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+TOKEN},
- body:JSON.stringify({site:site,url:location.href,title:document.title,questions:qs})})
+fetch(API,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+TOKEN,'X-Intake-Key':requestKey},
+ body:body})
  .then(function(r){tokenBad=(r.status===401);return r.json()}).then(function(j){
   if(j&&j.code===0){alert('已收到 '+qs.length+' 题，批次《'+j.data.title+'》已进入待审核。'+(j.data.image_errors?'有 '+j.data.image_errors+' 张图片转存失败，请在待审核里补图。':''));}
   else{
@@ -931,7 +957,7 @@ const cap = express.Router();
 cap.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Intake-Key');
   res.setHeader('Access-Control-Max-Age', '86400');
   if (req.headers['access-control-request-private-network']) res.setHeader('Access-Control-Allow-Private-Network', 'true');
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -951,7 +977,7 @@ cap.use((req, res, next) => {
     return fail(res, '采集票据无效或已过期', 401);
   }
 });
-cap.post('/push', async (req, res) => {
+cap.post('/push', intakeReceipts.middleware('capture'), intakeReceipts.guard(async (req, res) => {
   const b = req.body || {};
   let qs = b.questions || [];
   if (!Array.isArray(qs) || !qs.length) return fail(res, '没有题目数据');
@@ -963,21 +989,24 @@ cap.post('/push', async (req, res) => {
   const site = String(b.site || 'generic');
   const title = String(b.title || `${SITES[site] || site}采集 ${qs.length} 题`).slice(0, 100);
   // 若最新有一个「空试题篮」（新建试题篮建出的待填篮），题目直接填进去，不再另开新批次
+  const result = intakeReceipts.commit(req, () => {
   const emptyB = db.prepare("SELECT id FROM mf_capture_batches WHERE status='pending' AND IFNULL(paper_mode,0)=0 AND (payload IS NULL OR payload='' OR payload='[]') ORDER BY id DESC LIMIT 1").get();
   if (emptyB) {
     db.prepare('UPDATE mf_capture_batches SET title=?, site=?, url=?, payload=? WHERE id=?')
       .run(title, site, String(b.url || '').slice(0, 500), jstr(qs), emptyB.id);
-    return ok(res, { id: emptyB.id, title, count: qs.length, image_errors: stored.failed }, `已收进待审核（${qs.length} 题）${stored.failed ? `，${stored.failed} 张图片需要补充` : ''}`);
+    return { id: emptyB.id, title, count: qs.length, image_errors: stored.failed };
   }
   const info = db.prepare('INSERT INTO mf_capture_batches (title, site, url, subject, stage, grade, payload, status, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
     .run(title, site, String(b.url || '').slice(0, 500), String(b.subject || '').trim(), String(b.stage || '').trim(), String(b.grade || '').trim(), jstr(qs), 'pending', now());
-  return ok(res, { id: info.lastInsertRowid, title, count: qs.length, image_errors: stored.failed }, `已收到 ${qs.length} 题${stored.failed ? `，${stored.failed} 张图片需要补充` : ''}`);
-});
+  return { id: info.lastInsertRowid, title, count: qs.length, image_errors: stored.failed };
+  });
+  return ok(res,result,`已收到 ${qs.length} 题，已进入待审核`);
+}));
 
 /** 后台自己粘贴/解析出的题目 → 存成批次（与小工具回传共用一张表）
  *  - paper_mode=1：整卷下载批次，不占试题篮；basket=1：建一个空试题篮（悬浮球/一键采集的题会填进最新的空篮） */
-admin.post('/capture/batches', async (req, res) => {
-  const b = req.body || {};
+admin.post('/capture/batches', intakeReceipts.middleware('capture'), intakeReceipts.guard(async (req, res) => {
+  const b = {...req.body,...require('./intake-scope')(db,req.body)};
   let qs = Array.isArray(b.questions) ? b.questions : [];
   const basket = b.basket === 1 || b.basket === true;
   if (!qs.length && !basket) return fail(res, '没有题目数据');
@@ -988,10 +1017,14 @@ admin.post('/capture/batches', async (req, res) => {
   qs = stored.questions.map((q) => { if (!q || typeof q !== 'object') return q; const item = { ...q }; delete item.ai_answer_suggestion; delete item.ai_answer_review; delete item.ai_answer_discard_history; return item; });
   const site = String(b.site || 'generic');
   const title = String(b.title || (basket ? '试题篮' : `${SITES[site] || site}采集 ${qs.length} 题`)).slice(0, 100);
+  const result = intakeReceipts.commit(req, () => {
   const info = db.prepare('INSERT INTO mf_capture_batches (title, site, url, subject, stage, grade, payload, status, paper_mode, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
     .run(title, site, String(b.url || '').slice(0, 500), String(b.subject || '').trim(), String(b.stage || '').trim(), String(b.grade || '').trim(), jstr(qs), 'pending', b.paper_mode ? 1 : 0, now());
-  return ok(res, { id: info.lastInsertRowid, title, count: qs.length, image_errors: stored.failed }, basket ? '新试题篮已建好' : `已存为采集批次（${qs.length} 题）${stored.failed ? `，${stored.failed} 张图片需要补充` : ''}`);
-});
+  db.prepare('UPDATE mf_capture_batches SET edition=?,term=?,material_type=? WHERE id=?').run(b.edition || '',b.term || '',b.material_type || '',info.lastInsertRowid);
+  return { id: info.lastInsertRowid, title, count: qs.length, image_errors: stored.failed };
+  });
+  return ok(res, result, basket ? '新试题篮已建好' : `已存为采集批次（${qs.length} 题）${stored.failed ? `，${stored.failed} 张图片需要补充` : ''}`);
+}));
 
 admin.get('/capture/batches', (req, res) => {
   const rows = db.prepare('SELECT * FROM mf_capture_batches ORDER BY id DESC LIMIT 100').all();
@@ -1576,13 +1609,13 @@ function renderPaperHtml(p, mode) {
 // ==================================================================== 录题工作台
 admin.get('/intake/runs', (req, res) => {
   const rows = db.prepare('SELECT id, title, subject, stage, grade, edition, term, material_type, source_kind, source_name, status, error, pages, drafts, created_at FROM mf_recog_runs ORDER BY id DESC LIMIT 100').all();
-  return ok(res, { list: rows.map((r) => ({ ...r, page_count: parseArr(r.pages).length, draft_count: parseArr(r.drafts).length })) });
+  return ok(res, { list: rows.map((r) => ({ ...r, page_count: parseArr(r.pages).length, draft_count: parseArr(r.drafts).length, processing:intakeProcessing(r.id) })) });
 });
 
 admin.get('/intake/runs/:id', async (req, res) => {
   const r = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(int(req.params.id));
   if (!r) return fail(res, '批次不存在');
-  const run = { ...r, pages: parseArr(r.pages), drafts: parseArr(r.drafts), ocr_texts: parseArr(r.ocr_texts) };
+  const run = { ...r, pages: parseArr(r.pages), drafts: parseArr(r.drafts), ocr_texts: parseArr(r.ocr_texts), processing:intakeProcessing(r.id) };
   // 页图 URL 重新签发：旧数据存的可能带 attachment 下载头，<img> 内联预览必须用不带 disposition 的直链
   for (const p of run.pages) {
     if (p && p.key) { try { p.url = await store.getUrl(p.key); } catch (e) { /* 保留旧 url */ } }
@@ -1590,7 +1623,7 @@ admin.get('/intake/runs/:id', async (req, res) => {
   return ok(res, { run });
 });
 
-admin.post('/intake/runs', (req, res) => {
+admin.post('/intake/runs', (req, res, next) => intakeReceipts.middleware(req.body.source_kind === 'pdf' ? 'pdf' : 'image')(req, res, next), (req, res) => {
   const b = req.body || {};
   const title = String(b.title || '').trim() || `录题 ${new Date().toLocaleString('zh-CN')}`;
   const subject = String(b.subject || '').trim(), stage = String(b.stage || '').trim();
@@ -1598,11 +1631,14 @@ admin.post('/intake/runs', (req, res) => {
   if (edition && !db.prepare('SELECT id FROM bank_trees WHERE subject=? AND stage=? AND edition=? LIMIT 1').get(subject, stage, edition)) return fail(res, '教材版本与学科或学段不一致，请重新选择');
   if (!['', '上册', '下册', '全一册'].includes(term)) return fail(res, '请选择有效的册别');
   if (!['', 'textbook', 'exercise', 'paper', 'other'].includes(materialType)) return fail(res, '请选择有效的资料类型');
+  const result = intakeReceipts.commit(req, () => {
   const info = db.prepare('INSERT INTO mf_recog_runs (title, subject, stage, grade, source_kind, source_name, status, pages, drafts, error, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
     .run(title, subject, stage, String(b.grade || '').trim(),
       b.source_kind === 'pdf' ? 'pdf' : 'image', String(b.source_name || '').trim(), 'draft', jstr([]), jstr([]), '', now());
   if (edition || term || materialType) db.prepare('UPDATE mf_recog_runs SET edition=?,term=?,material_type=? WHERE id=?').run(edition, term, materialType, info.lastInsertRowid);
-  return ok(res, { id: info.lastInsertRowid }, '批次已创建');
+  return { id: info.lastInsertRowid };
+  });
+  return ok(res, result, '批次已创建');
 });
 
 /** 上传页图（前端把 PDF 逐页 canvas 出图后一并上传；服务端只负责存 + 记） */
@@ -1610,22 +1646,34 @@ admin.post('/intake/runs/:id/pages', upload.array('pages', 30), async (req, res)
   const id = int(req.params.id);
   const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(id);
   if (!run) return fail(res, '批次不存在');
+  if(intakeJobs.has(id))return fail(res,'此批次正在处理当前页，请等待完成后追加图片',409);
   const files = req.files || [];
   if (!files.length) return fail(res, '请先选择图片');
-  const pages = parseArr(run.pages);
+  const rawKey = String(req.get('X-Intake-Key') || '').trim();
+  if (rawKey && !/^[a-zA-Z0-9_-]{16,100}$/.test(rawKey)) return fail(res, '上传恢复凭据无效');
+  const uploadKey = rawKey ? crypto.createHash('sha256').update(`${req.user.id}:${id}:${rawKey}`).digest('hex') : '';
+  const uploadHash = crypto.createHash('sha256'); files.forEach(f => { uploadHash.update(String(f.buffer.length) + ':'); uploadHash.update(f.buffer); }); uploadHash.update(JSON.stringify(req.body || {})); const hash = uploadHash.digest('hex');
+  const previous = parseArr(run.pages).find(p => p.upload_request_key === uploadKey && uploadKey);
+  if (previous) return previous.upload_input_hash === hash ? ok(res, { pages: parseArr(run.pages), recovered: true }, '这些页图已上传，未重复追加') : fail(res, '页图内容已变化，请重新选择');
+  const additions = [];
   try {
     for (const f of files) {
       const pname = fixFileName(f.originalname) || 'page.png';
       const saved = await store.saveFile(f.buffer, pname, `${bankFolder()}/recog`);
-      // 不带文件名 → 内联预览直链（带名字会生成 attachment 下载头，<img> 无法渲染）
       const purl = store.bankImageKey(saved.key, bankFolder()) ? store.bankImageProxyUrl(saved.key) : await store.getUrl(saved.key);
-      pages.push({ key: saved.key, url: purl, name: pname });
+      additions.push({ key: saved.key, url: purl, name: pname, ...(uploadKey ? { upload_request_key: uploadKey, upload_input_hash: hash } : {}) });
     }
-  } catch (e) {
-    return fail(res, '图片上传失败：' + e.message);
-  }
-  db.prepare('UPDATE mf_recog_runs SET pages=? WHERE id=?').run(jstr(pages), id);
-  return ok(res, { pages }, `已上传 ${files.length} 页`);
+    const pages = db.transaction(() => {
+      const latest = db.prepare('SELECT pages FROM mf_recog_runs WHERE id=?').get(id);
+      if (!latest) throw new Error('批次已被删除，未追加页图');
+      const current = parseArr(latest.pages);
+      const existing = uploadKey && current.find(p => p.upload_request_key === uploadKey);
+      if (existing) { if (existing.upload_input_hash !== hash) throw new Error('页图内容已变化，请重新选择'); return current; }
+      current.push(...additions); db.prepare('UPDATE mf_recog_runs SET pages=? WHERE id=?').run(jstr(current), id); return current;
+    })();
+    return ok(res, { pages }, `已上传 ${files.length} 页`);
+  } catch (e) { return fail(res, '图片上传失败：' + e.message); }
+
 });
 
 // —— 识别提示词（移植魔方助手 onestep_extract / transcribe_only / twostage_structure 三个提示词资产）——
@@ -1735,7 +1783,7 @@ async function visionCall(pg, system, user, previous) {
 }
 
 /** AI 识别：body.page=页号 → 只识别该页并**追加**题卡（全自动逐页识别）；不传 → 兼容整批（前 8 页，替换式） */
-admin.post('/intake/runs/:id/recognize', async (req, res) => {
+admin.post('/intake/runs/:id/recognize', singleIntakeJob('recognize'), async (req, res) => {
   const id = int(req.params.id);
   const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(id);
   if (!run) return fail(res, '批次不存在');
@@ -1800,7 +1848,7 @@ admin.post('/intake/runs/:id/recognize', async (req, res) => {
 });
 
 /** 半自动腿1：单页 OCR 转写全文（存 ocr_texts，按页下标） */
-admin.post('/intake/runs/:id/ocr', async (req, res) => {
+admin.post('/intake/runs/:id/ocr', singleIntakeJob('ocr'), async (req, res) => {
   const id = int(req.params.id);
   const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(id);
   if (!run) return fail(res, '批次不存在');
@@ -1813,7 +1861,8 @@ admin.post('/intake/runs/:id/ocr', async (req, res) => {
     const ocr = parseArr(run.ocr_texts);
     while (ocr.length < pages.length) ocr.push('');
     ocr[no - 1] = text;
-    db.prepare('UPDATE mf_recog_runs SET ocr_texts=? WHERE id=?').run(jstr(ocr), id);
+    const changed=db.prepare("UPDATE mf_recog_runs SET ocr_texts=? WHERE id=? AND COALESCE(ocr_texts,'')=? AND status<>'done'").run(jstr(ocr), id, run.ocr_texts || '');
+    if(!changed.changes)throw new Error('转写文本在处理期间已被修改，请刷新后继续，原内容未覆盖');
     return ok(res, { page: no, text }, `第 ${no} 页转写完成`);
   } catch (e) {
     return fail(res, 'OCR 转写失败：' + e.message);
@@ -1821,7 +1870,7 @@ admin.post('/intake/runs/:id/ocr', async (req, res) => {
 });
 
 /** 半自动腿2：把一段文字（OCR 全文 / 手动粘贴）整理成结构化题卡并追加 */
-admin.post('/intake/runs/:id/structure', async (req, res) => {
+admin.post('/intake/runs/:id/structure', singleIntakeJob('structure'), async (req, res) => {
   const id = int(req.params.id);
   const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(id);
   if (!run) return fail(res, '批次不存在');
@@ -1841,7 +1890,8 @@ admin.post('/intake/runs/:id/structure', async (req, res) => {
     const materials = RecognitionPages.resolveCurrentMaterials([], RecognitionPages.materialsFrom(j, no), no).current;
     const cards = reviewRecognizedCards(normCards(j, no, materials, run.subject).map((c) => ({ ...c, via: 'semi' })), run);
     drafts.push(...cards);
-    db.prepare('UPDATE mf_recog_runs SET drafts=?, status=?, error=? WHERE id=?').run(jstr(drafts), 'recognized', '', id);
+    const changed=db.prepare("UPDATE mf_recog_runs SET drafts=?, status=?, error=? WHERE id=? AND COALESCE(drafts,'')=? AND status<>'done'").run(jstr(drafts), 'recognized', '', id, run.drafts || '');
+    if(!changed.changes)throw new Error('题卡在处理期间已被修改，请刷新后继续，原内容未覆盖');
     return ok(res, { drafts, added: cards.length }, `整理出 ${cards.length} 张题卡`);
   } catch (e) {
     return fail(res, '文本整理失败：' + e.message);
@@ -1851,7 +1901,7 @@ admin.post('/intake/runs/:id/structure', async (req, res) => {
 const upWord = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024 } });
 
 /** Word 导入（.docx）：解出正文文本 + 内嵌插图 → 走半自动文本结构化同一条 AI 链路出题卡 */
-admin.post('/intake/runs/:id/word', upWord.single('file'), async (req, res) => {
+admin.post('/intake/runs/:id/word', upWord.single('file'), singleIntakeJob('word'), async (req, res) => {
   const id = int(req.params.id);
   const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(id);
   if (!run) return fail(res, '批次不存在');
@@ -1914,7 +1964,8 @@ admin.post('/intake/runs/:id/word', upWord.single('file'), async (req, res) => {
     if (!j || !j.questions.length) {
       const ocr = parseArr(run.ocr_texts);
       ocr.push(full);
-      db.prepare('UPDATE mf_recog_runs SET ocr_texts=? WHERE id=?').run(jstr(ocr), id);
+      const changed=db.prepare("UPDATE mf_recog_runs SET ocr_texts=? WHERE id=? AND COALESCE(ocr_texts,'')=? AND status<>'done'").run(jstr(ocr), id, run.ocr_texts || '');
+    if(!changed.changes)throw new Error('转写文本在处理期间已被修改，请刷新后继续，原内容未覆盖');
       return fail(res, 'AI 没有整理出题卡；Word 全文已保留在转写文本里，可手动复制到「文本整理成题卡」重试');
     }
     // 原文保留在转写文本里（左栏「Word 原文」可查看、可重新整理成题卡）
@@ -1930,8 +1981,9 @@ admin.post('/intake/runs/:id/word', upWord.single('file'), async (req, res) => {
       return { ...c, via: 'word', figures };
     }), run);
     drafts.push(...cards);
-    db.prepare('UPDATE mf_recog_runs SET drafts=?, ocr_texts=?, status=?, error=?, source_kind=?, source_name=? WHERE id=?')
-      .run(jstr(drafts), jstr(ocrSaved), 'recognized', '', 'word', fname || 'Word 导入', id);
+    const changed=db.prepare("UPDATE mf_recog_runs SET drafts=?, ocr_texts=?, status=?, error=?, source_kind=?, source_name=? WHERE id=? AND COALESCE(drafts,'')=? AND COALESCE(ocr_texts,'')=? AND status<>'done'")
+      .run(jstr(drafts), jstr(ocrSaved), 'recognized', '', 'word', fname || 'Word 导入', id, run.drafts || '', run.ocr_texts || '');
+    if(!changed.changes)throw new Error('题卡或原文在处理期间已被修改，请刷新后继续，原内容未覆盖');
     return ok(res, { added: cards.length, drafts, figures: figUrls.length }, `Word 导入完成：整理出 ${cards.length} 张题卡${figUrls.length ? `（含 ${figUrls.length} 张插图）` : ''}`);
   } catch (e) {
     return fail(res, 'Word 导入失败：' + e.message);
@@ -1986,7 +2038,7 @@ const TYPE_MAP = {
 };
 
 /** 旧入口保留路径兼容，但只生成独立的答案/解析建议，不修改题目正式字段。 */
-admin.post('/intake/runs/:id/aifill', async (req, res) => {
+admin.post('/intake/runs/:id/aifill', singleIntakeJob('aifill'), async (req, res) => {
   const id = int(req.params.id);
   const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(id);
   if (!run || run.status === 'done') return fail(res, '批次不存在或已处理');
@@ -2235,7 +2287,7 @@ function mfMapDiff(raw) {
   return 3;
 }
 
-admin.post('/import-pack', upBig.single('file'), async (req, res) => {
+admin.post('/import-pack', upBig.single('file'), intakeReceipts.middleware('skill'), async (req, res) => {
   let pack = null; const warnings = []; const localAssets = new WeakSet();
   try {
     if (req.file) {
@@ -2269,6 +2321,7 @@ admin.post('/import-pack', upBig.single('file'), async (req, res) => {
     } else if (req.body && typeof req.body === 'object') {
       pack = req.body.pack || req.body;
     }
+    const defaults = require('./intake-scope')(db, req.body);
     if (!pack || typeof pack !== 'object') return fail(res, '没有可导入的内容');
     pack = require('./mfpack-adapter').normalizePack(pack);
     if (pack.format !== 'mofang-question-pack') return fail(res, '格式不对：这是「魔方录题转写」技能包的产物（format 应为 mofang-question-pack）');
@@ -2348,8 +2401,11 @@ admin.post('/import-pack', upBig.single('file'), async (req, res) => {
         if (Array.isArray(c.analysis)) analysis = c.analysis.map((a) => `【${(a && a.label) || '解析'}】${(a && a.text) || ''}`).join('\n');
         else if (typeof c.analysis === 'string') analysis = c.analysis;
         // 学科/学段/题型/难度
-        const subject = String((meta.subject && meta.subject.label) || '').trim().slice(0, 20);
-        const stage = mfMapStage(meta.stage && meta.stage.label);
+        const subject = String((meta.subject && meta.subject.label) || defaults.subject).trim().slice(0, 20);
+        const sourceStage=String(meta.stage && meta.stage.label || '').trim();
+        const stage=sourceStage ? mfMapStage(sourceStage) : defaults.stage;
+        if(sourceStage && !stage)throw new Error('题包学段无法识别，请修正原分类后重试：'+sourceStage);
+        const cardScope = require('./intake-scope')(db,{...defaults,subject,stage});
         const grade = mfMapGrade((meta.grade && meta.grade.label) || (typeof ext.grade === 'string' && ext.grade) || (meta.stage && meta.stage.label));
         const rawSubtype = String(meta.questionSubtype && meta.questionSubtype.label || '').trim();
         const subtype = QSubtype.find(rawSubtype || meta.questionType && meta.questionType.label);
@@ -2375,7 +2431,7 @@ admin.post('/import-pack', upBig.single('file'), async (req, res) => {
           qno: rk, questionType: ({ single: '单选', multi: '多选', judge: '判断', fill: '填空', sort: '排序', answer: '解答' })[type] || '解答',
           stem, material, options: opts.map((o) => ({ label: o.label, content: o.text })), answer: answer.slice(0, 10000), analysis: analysis.slice(0, 10000),
           suggestedTags: [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20),
-          figures: urls.map((u) => ({ url: u })), _image_errors: imageErrors, difficulty: diff.difficulty, difficulty_score_10: diff.difficulty_score_10, subject, stage, grade, question_subtype: subtype ? subtype.code : '',
+          edition:cardScope.edition,term:cardScope.term,material_type:cardScope.material_type, figures: urls.map((u) => ({ url: u })), _image_errors: imageErrors, difficulty: diff.difficulty, difficulty_score_10: diff.difficulty_score_10, subject, stage, grade, question_subtype: subtype ? subtype.code : '',
           audio_key: audioKey, audio_play_limit: audioLimit, match_prompts: MatchQ.list(c.match_prompts),
           group_ref: group ? String(group.ref || '') : '', group_position: group ? int(group.position, 0) : 0, checked: true,
           _q: { subject, stage, grade, type, stem, material, stem_html: '', options: opts, answer: answer.slice(0, 10000), analysis: analysis.slice(0, 10000), difficulty: diff.difficulty, difficulty_score_10: diff.difficulty_score_10, images: urls, detail },
@@ -2385,15 +2441,18 @@ admin.post('/import-pack', upBig.single('file'), async (req, res) => {
         errors.push({ recordKey: rk || `#${imported + skipped + errors.length + 1}`, msg: e.message });
       }
     }
+    const result = intakeReceipts.commit(req, () => {
     let runId = 0;
     if (cards.length) {
       runId = db.prepare(`INSERT INTO mf_recog_runs (title, subject, stage, grade, source_kind, source_name, status, pages, drafts, ocr_texts, error, created_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(`技能包导入 ${String(pack.packageId || (req.file && req.file.originalname) || '').slice(0, 60)}`, '', '', '', 'skill',
         String((req.file && req.file.originalname) || pack.packageId || '转写包'), 'recognized', '[]', jstr(cards), '[]', '', now()).lastInsertRowid;
     }
+    return { total: qs.length, imported, staged: imported, run_id: runId, skipped, updated, failed: errors.length, errors: errors.slice(0, 20), warnings };
+    });
     let msg = `已放入待审核：${imported} 题，跳过 ${skipped}，失败 ${errors.length}`;
     if (updated) msg += `，补图 ${updated}`;
-    return ok(res, { total: qs.length, imported, staged: imported, run_id: runId, skipped, updated, failed: errors.length, errors: errors.slice(0, 20), warnings }, msg);
+    return ok(res, result, msg);
   } catch (e) {
     return fail(res, '导入失败：' + e.message);
   }

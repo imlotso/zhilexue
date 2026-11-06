@@ -429,7 +429,7 @@ async function mfReviewDialog(it, done) {
     w.remove(); if (typeof done === 'function') done();
   };
   modal({
-    title: `核对学生错题（学生：${it.student_name || ''}）`, wide: true, okText: '✅ 审核通过',
+    title: `核对学生错题（学生：${it.student_name || ''}）`, wide: true, okText: ' 审核通过',
     body: `
       ${imgs.length ? `<div class="mf-rvimgs" style="margin-bottom:10px">${imgs.map((u) => `<img src="${esc(u)}" data-rvimg="${esc(u)}" title="点击看大图">`).join('')}</div>` : ''}
       <div class="mf-form">
@@ -448,8 +448,8 @@ async function mfReviewDialog(it, done) {
             <div id="rvNodes" class="mf-pick" style="margin-top:6px;max-height:180px"></div></div>
         </div></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
-        <button class="btn ghost xs" id="rvSave">💾 仅保存核对</button>
-        <button class="btn ghost xs" id="rvReject" style="color:#dc2626">❌ 拒绝并删除</button>
+        <button class="btn ghost xs" id="rvSave"> 仅保存核对</button>
+        <button class="btn ghost xs" id="rvReject" style="color:#dc2626"> 拒绝并删除</button>
       </div>`,
     onOk: async (w, showErr) => { await reviewSave(w, 'approved', showErr); },
     onMount: (w) => {
@@ -815,6 +815,9 @@ async function viewMfCapture() {
     html,
     after: () => {
       const captureRoot = document.getElementById('capReviewAll'); if (captureRoot) R4Flow.bind(captureRoot.closest('.card') || captureRoot.parentElement, 'capture');
+      R4Flow.prepare(document.getElementById('view'), 'capture', ['mfRaw','mfUrl','bkSub','mfRuleHtml','mfRulePage','mfRuleSite']);
+      const captureScopeHost = document.querySelector('.r4-capture-scope');
+      const captureScope = captureScopeHost ? R4Flow.scope(document.getElementById('view'), 'capture', captureScopeHost, {subject:'bkSub',stage:'bkStage'}) : () => ({});
       const openReview = (batchId = 0) => { const pd = ADM.page.pd = ADM.page.pd || { sel: {} }; pd.source = 'capture'; pd.kw = ''; pd.batch_id = Number(batchId) || 0; pd.review = 'all'; pd.sel = {}; ADM.page.pdPage = 1; location.hash = '#/pending'; };
       document.getElementById('capReviewAll').onclick = () => openReview();
       document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { st.tab = b.dataset.tab; render(); }; });
@@ -894,7 +897,7 @@ async function viewMfCapture() {
             st.bStage = stage; st.bSub = subject;
             btn.disabled = true; btn.textContent = '保存中…';
             try {
-              const saved = await api(MF_API + '/capture/batches', { method: 'POST', body: { title: `采集 ${stName[d.site] || d.site} ${sel.length} 题`, site: d.site, url, subject, stage, questions: sel.map((i) => parsed[i]) } });
+              const saved = await R4Flow.post(MF_API + '/capture/batches', 'capture', { ...captureScope(), title: `采集 ${stName[d.site] || d.site} ${sel.length} 题`, site: d.site, url, subject, stage, questions: sel.map((i) => parsed[i]) });
               toast(saved.image_errors ? `已保存到待审核，${saved.image_errors} 张图片需要补充` : '已保存到待审核', saved.image_errors ? 'err' : 'ok'); openReview(saved.id);
             } catch (e) { btn.disabled = false; btn.textContent = '送入待审核'; }
           };
@@ -976,7 +979,7 @@ async function viewMfCapture() {
             if (!qs.length) {
               toast('抓到了页面，但没认出题目：可能要登录（去「浏览器」登录后再试）或页面是图片卷', 'err');
             } else {
-              await api(MF_API + '/capture/batches', { method: 'POST', body: { paper_mode: 1, site: d.site, url, title: `整卷 ${d.site_name || d.site || ''} ${qs.length} 题`, questions: qs } });
+              await R4Flow.post(MF_API + '/capture/batches', 'capture', { ...captureScope(), paper_mode: 1, site: d.site, url, title: `整卷 ${d.site_name || d.site || ''} ${qs.length} 题`, questions: qs });
               document.getElementById('wpOut').innerHTML = `<div class="mf-tip">解析出 <b>${qs.length}</b> 题${d.via === 'ai' ? '（AI 识别）' : ''}，已送入待审核。审核通过后，题目进入题库；需要在组卷中另外创建试卷。</div>`;
               toast(`已解析 ${qs.length} 题并送入待审核`, 'ok');
               setTimeout(rerender, 800);
@@ -1081,8 +1084,8 @@ async function viewMfSet() {
       document.querySelectorAll('[data-aigroup]').forEach((b) => { b.onclick = () => mfProfileDialog(b.dataset.aigroup); });
       document.getElementById('mfTestCur').onclick = async () => {
         const box = document.getElementById('mfTestCurMsg'); box.style.color = ''; box.textContent = '测试中…';
-        try { const r = await api('/api/admin/ai/test', { method: 'POST', silent: true }); box.style.color = '#0e9f5f'; box.textContent = '✅ ' + ((r && r.message) || '连接正常'); }
-        catch (e) { box.style.color = '#e0343f'; box.textContent = '❌ ' + (e.message || '连接失败'); }
+        try { const r = await api('/api/admin/ai/test', { method: 'POST', silent: true }); box.style.color = '#0e9f5f'; box.textContent = ' ' + ((r && r.message) || '连接正常'); }
+        catch (e) { box.style.color = '#e0343f'; box.textContent = ' ' + (e.message || '连接失败'); }
       };
       document.getElementById('mfTestAll').onclick = async (event) => {
         const button = event.currentTarget, box = document.getElementById('mfTestAllMsg');
@@ -1124,7 +1127,7 @@ async function mfProfileDialog(onlyRole) {
     title: onlyRole ? `AI 配置 · ${MF_ROLE_NAME[onlyRole] || onlyRole}` : '模型配置', wide: true, okText: '关闭',
     body: `<div class="mf-tip" style="margin-bottom:10px">按用途维护模型档案，新档案须先测试连通才能启用。编辑时密钥留空即不更换。</div>
       ${roles.map(roleRow).join('')}
-      <div style="text-align:right;margin-top:14px"><a href="javascript:;" id="mfHelp" style="color:#6366f1;font-size:13px">📖 配置教程（去哪个网站、怎么拿 Key）</a></div>`,
+      <div style="text-align:right;margin-top:14px"><a href="javascript:;" id="mfHelp" style="color:#6366f1;font-size:13px"> 配置教程（去哪个网站、怎么拿 Key）</a></div>`,
     onMount: (w) => {
       const hp = w.querySelector('#mfHelp'); if (hp) hp.onclick = () => mfHelpDialog();
       w.querySelectorAll('[data-new]').forEach((b) => { b.onclick = () => mfProfileForm(b.dataset.new, null, onlyRole); });
@@ -1306,13 +1309,13 @@ async function mfNewQDialog(done) {
       <div class="field"><label>题面（必填）</label>
         <div style="display:flex;gap:6px;margin-bottom:6px">
           <button class="btn ghost xs" id="nqFx" title="插入公式（计算器）">∑ fx</button>
-          <button class="btn ghost xs" id="nqImg" title="插入图片">🖼</button>
+          <button class="btn ghost xs" id="nqImg" title="插入图片"></button>
           <button class="btn ghost xs" id="nqTbl" title="插入表格">▦</button>
           <button class="btn ghost xs" id="nqLst" title="插入列表">≡</button>
           <input type="file" id="nqImgFile" accept="image/*" style="display:none">
         </div>
         <div id="nqFpad" style="display:none;margin-bottom:6px"></div>
-        <textarea id="nqStem" class="inp" rows="5" style="width:100%" placeholder="题干，公式点 ∑ fx 用公式计算器插入，图片点 🖼 上传"></textarea>
+        <textarea id="nqStem" class="inp" rows="5" style="width:100%" placeholder="题干，公式点 ∑ fx 用公式计算器插入，图片点  上传"></textarea>
         <div id="nqImgs" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"></div></div>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin:2px 0 8px">
         <div style="display:flex;gap:8px">
@@ -1321,7 +1324,7 @@ async function mfNewQDialog(done) {
         </div>
         <span style="display:flex;gap:10px;align-items:center">
           <span class="hint" style="line-height:1.5">点 AI 归属建议：<br>AI 自动判断学段 / 年级 / 知识点 / 难度</span>
-          <button class="btn ghost xs" id="nqAI" style="white-space:nowrap">✨ AI 归属建议</button>
+          <button class="btn ghost xs" id="nqAI" style="white-space:nowrap"> AI 归属建议</button>
         </span>
       </div>
       <div id="nqAnsWrap" style="display:none;margin-bottom:8px"><textarea id="nqAns" class="inp" rows="3" style="width:100%" placeholder="答案，支持公式；留空则入库为「缺答案」"></textarea></div>
@@ -1478,7 +1481,7 @@ async function mfNewQDialog(done) {
       aiBtn.onclick = async () => {
         const stem = ta.value.trim();
         if (!stem) return toast('先填题干再点 AI 归属建议', 'err');
-        aiBtn.disabled = true; const oldTxt = aiBtn.textContent; aiBtn.textContent = '✨ AI 判断中…';
+        aiBtn.disabled = true; const oldTxt = aiBtn.textContent; aiBtn.textContent = ' AI 判断中…';
         try {
           const r = await api(MFX + '/ai-attrib', { method: 'POST', body: { stem, subject: dSub } });
           let filled = [];
@@ -1689,8 +1692,8 @@ function mfProfileForm(role, prof, fromRole) {
         const body = { role, id: isEdit ? prof.id : undefined, name: w.querySelector('#pfName').value.trim(), format: w.querySelector('#pfFormat').value,
           base_url: w.querySelector('#pfBase').value.trim(), model: w.querySelector('#pfModel').value.trim(), api_key: w.querySelector('#pfKey').value.trim() };
         msgEl.style.color = ''; msgEl.textContent = '测试中…';
-        try { const r = await api(MFX + '/profiles/test-draft', { method: 'POST', body, silent: true }); msgEl.style.color = '#0e9f5f'; msgEl.textContent = '✅ ' + (r && r.ms != null ? `连接成功（${r.ms} ms）` : '连接成功'); }
-        catch (e) { msgEl.style.color = '#e0343f'; msgEl.textContent = '❌ ' + (e.message || '连接失败'); }
+        try { const r = await api(MFX + '/profiles/test-draft', { method: 'POST', body, silent: true }); msgEl.style.color = '#0e9f5f'; msgEl.textContent = ' ' + (r && r.ms != null ? `连接成功（${r.ms} ms）` : '连接成功'); }
+        catch (e) { msgEl.style.color = '#e0343f'; msgEl.textContent = ' ' + (e.message || '连接失败'); }
       };
       w.querySelector('#pfFetch').onclick = async () => {
         const base = w.querySelector('#pfBase').value.trim();

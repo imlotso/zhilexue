@@ -91,3 +91,11 @@
 `papers.question_partial_scores` 保存普通试卷各多选题明确设置的少选分 JSON 映射；`mf_paper_questions.partial_score` 为真题卷单题对应值。未设置为缺失 / NULL，与显式设置 0 区分。该配置作用于本卷，既不改题目标准答案，也不回写历史作答得分；每次作答实际得分已保存在试卷记录 `detail`，后续老师评分按本次明细汇总。
 
 识别题目经老师确认图文归属后，`questions.source_detail` 中可含 `question_image_public`（经确认的题面图号）和 `question_image_public_basis`（题面、选项、材料、匹配项及图片的快照哈希）。这两个字段只作用于学生作答前显示，修改题面或图片后旧快照不再生效；正文/解析明确的 `[图N]` 引用按当前内容判断。旧题未回填，所有正文与解析都不带图号的历史图片仍按旧方式显示，具体归属无法自动追溯。
+
+## 录题保存结果与采集范围（2026-11-06）
+
+`mf_recog_runs`、`paper_uploads`、`mf_capture_batches` 各增加三列：`intake_request_key VARCHAR(64) NULL`（账号+入口+客户端凭据的 SHA-256）、`intake_input_hash VARCHAR(64) NULL`（请求输入摘要）、`intake_result MEDIUMTEXT`（已保存结果）。各表在 request_key 上建唯一索引，历史行保持 NULL，多个历史 NULL 不冲突；同一次事务创建/填写批次并保存结果，已有记录不猜测回填。客户端原始恢复凭据不存入该列。
+
+`mf_recog_runs.pages` 的页对象可带 `upload_request_key/upload_input_hash`，用于同批次同账号页图重复上传保护；保留原来的图片 key、url、name。没有凭据的历史页不猜测合并。
+
+`mf_capture_batches` 增加 `edition/term/material_type VARCHAR(80) DEFAULT ''`，与录题批次已有的资料范围对应。技能包可在题卡保存这些范围，避免不同学科题包使用一个批次版本；手动与教师扫码保存到 `mf_recog_runs` 既有范围列。均由 `src/db.js` 幂等只加不删，旧记录保持空值；没有新增示例目录内容，也没有改正式题目的答案字段。

@@ -14,7 +14,7 @@ function t7Src(u) {
 
 function t7AudioWidget(root, init) {
   let key = (init && init.key) || '';
-  let url = (init && init.url) || '';
+  let url = (init && init.url) || (key ? '/api/file?key=' + encodeURIComponent(key) : '');
   let label = key ? '已有音频' : '';
   root.innerHTML = `<div class="t7-adm">
     <div style="font-weight:700;font-size:13px;margin-bottom:6px">听力音频（选填：听力题上传音频）</div>
@@ -43,7 +43,7 @@ function t7AudioWidget(root, init) {
     $('.t7-del').style.display = key ? '' : 'none';
     $('.t7-player').innerHTML = key ? `<audio controls preload="none" playsinline src="${esc(t7Src(url))}"></audio>` : '';
   };
-  const set = (r, name) => { key = r.key; url = r.url; label = name || r.name || '音频'; paint(); };
+  const set = (r, name) => { key = r.key; url = r.url; label = name || r.name || '音频'; paint(); root.dispatchEvent(new Event('change',{bubbles:true})); };
   $('.t7-up').onclick = () => $('.t7-file').click();
   $('.t7-file').onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -62,7 +62,7 @@ function t7AudioWidget(root, init) {
     catch (err) { /* api 已提示 */ }
     btn.disabled = false; btn.textContent = '生成朗读';
   };
-  $('.t7-del').onclick = () => { key = ''; url = ''; label = ''; paint(); };
+  $('.t7-del').onclick = () => { key = ''; url = ''; label = ''; paint(); root.dispatchEvent(new Event('change',{bubbles:true})); };
   paint();
   return { get: () => key, url: () => url, getLimit: () => Number($('.t7-limit').value) || 0 };
 }

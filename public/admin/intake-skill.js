@@ -1,6 +1,6 @@
 /* 录题中心：AI 转写包导入。成功批次统一进入待审核。 */
 async function viewIntakeSkill() {
-  const response = await api('/api/admin/bank/mf/intake/runs', { silent: true }).catch(() => ({ list: [] }));
+  const response = await api('/api/admin/bank/mf/intake/runs', { silent: true });
   const runs = (response.list || []).filter((r) => r.source_kind === 'skill').slice(0, 8);
   const label = { draft: '待处理', recognized: '待核对', done: '已处理', error: '处理失败' };
   const prompts = {
@@ -34,6 +34,8 @@ async function viewIntakeSkill() {
     after: () => {
       const $ = (id) => document.getElementById(id);
       const root = $('rsPage'); R4Flow.bind(root, 'skill');
+      const scope = R4Flow.scope(root, 'skill', $('rsPrepare'));
+      $('rsPrepare').insertAdjacentHTML('beforeend','<p class="r4-skill-note">资料范围只补充包内缺失信息；已有学科、学段保留原值。不同版本请分批导入。</p>');
       let step = 1, mode = 'file', file = null, busy = false, uncertain = false, xhr = null, lastResult = null;
       const alive = () => document.contains(root);
       const openReview = (id) => { const st = ADM.page.pd = ADM.page.pd || { sel: {} }; st.source = 'skill'; st.kw = ''; st.batch_id = Number(id) || 0; st.review = 'all'; st.sel = {}; ADM.page.pdPage = 1; location.hash = '#/pending'; };
@@ -79,7 +81,7 @@ async function viewIntakeSkill() {
         setMode('file');
       };
       $('rsModeFile').onclick = () => setMode('file'); $('rsModeText').onclick = () => setMode('text');
-      const textDraft = R4Flow.read('skill-text'); if (textDraft && typeof textDraft.text === 'string') $('rsText').value = textDraft.text;
+      const textDraft = R4Flow.read('skill-text'); if (textDraft && typeof textDraft.text === 'string') { $('rsText').value = textDraft.text; if (textDraft.text.trim()) { step = 2; setMode('text'); } }
       $('rsText').oninput = () => { R4Flow.save('skill-text', { text: $('rsText').value }); message(''); paint(); };
       $('rsChoose').onclick = (e) => { e.stopPropagation(); $('rsFile').click(); };
       $('rsDrop').onclick = () => $('rsFile').click();
@@ -89,7 +91,7 @@ async function viewIntakeSkill() {
       ['dragleave', 'drop'].forEach((name) => $('rsDrop').addEventListener(name, (e) => { e.preventDefault(); $('rsDrop').classList.remove('dragging'); if (name === 'drop') setFile(e.dataTransfer.files[0]); }));
       root.addEventListener('paste', (e) => { const f = e.clipboardData && e.clipboardData.files[0]; if (step === 2 && f) { e.preventDefault(); setFile(f); } });
       $('rsPrevious').onclick = () => { if (step === 2) { step = 1; paint(); } else location.hash = '#/intake'; };
-      $('rsAgain').onclick = () => { file = null; lastResult = null; $('rsFile').value = ''; $('rsFileStatus').textContent = '尚未选择文件'; $('rsText').value = ''; step = 2; setMode('file'); };
+      $('rsAgain').onclick = () => { R4Flow.clear('skill-requests'); R4Flow.clear('skill-text'); file = null; lastResult = null; $('rsFile').value = ''; $('rsFileStatus').textContent = '尚未选择文件'; $('rsText').value = ''; step = 2; setMode('file'); };
       $('rsAbort').onclick = () => { if (xhr) xhr.abort(); };
       $('rsNext').onclick = () => {
         if (step === 1) { step = 2; paint(); return; }
@@ -104,7 +106,7 @@ async function viewIntakeSkill() {
         if (!selected) { message('请先选择文件或粘贴 JSON。'); return; }
         if (selected.size > 60 * 1024 * 1024) { message('内容超过 60 MB，请拆分后导入。'); return; }
         busy = true; message('正在上传…'); paint();
-        const fd = new FormData(); fd.append('file', selected);
+        const fd = new FormData(); fd.append('file', selected); Object.entries(scope()).forEach(([key,value])=>fd.append(key,value));
         xhr = new XMLHttpRequest(); xhr.open('POST', '/api/admin/bank/mf/import-pack'); xhr.setRequestHeader('Authorization', 'Bearer ' + Auth.token); xhr.responseType = 'json';
         xhr.upload.onprogress = (e) => { if (!alive() || !e.lengthComputable) return; const n = Math.min(100, Math.round(e.loaded / e.total * 100)); message(n === 100 ? '上传完成，正在解析和保存…' : `正在上传… ${n}%`); };
         xhr.onload = () => {
@@ -117,9 +119,9 @@ async function viewIntakeSkill() {
           $('rsResultBody').innerHTML = `<div class="r4-skill-success"><strong>${staged ? `已接收 ${staged} 道题，等待核对` : '没有新的题目进入待审核'}</strong><span>共 ${Number(d.total) || 0} 道 · 跳过 ${skipped} 道 · 失败 ${failed} 道${updated ? ` · 已有题目补图 ${updated} 道` : ''}</span></div>${errors.length ? `<div class="r4-skill-errors"><b>未导入的题目</b>${errors.map((e) => `<p>${esc((e.recordKey ? e.recordKey + '：' : '') + (e.msg || '处理失败'))}</p>`).join('')}${failed > errors.length ? '<p>其余错误请检查原始题目包。</p>' : ''}</div>` : ''}${warnings.length ? `<div class="r4-skill-warnings"><b>需要留意</b>${warnings.map((w) => `<p>${esc(w)}</p>`).join('')}</div>` : ''}`;
           paint();
         };
-        xhr.onerror = () => { if (!alive()) return; busy = false; uncertain = true; xhr = null; message('连接中断，题目包可能已处理。请先返回录题中心检查最近批次，再决定是否重新上传。'); paint(); };
-        xhr.onabort = () => { if (!alive()) return; busy = false; uncertain = true; xhr = null; message('已中止等待，服务器可能仍在处理。请先返回录题中心检查最近批次，再决定是否重新上传。'); paint(); };
-        R4Flow.watch(xhr, root, 'skill', selected.name); xhr.send(fd);
+        xhr.onerror = () => { if (!alive()) return; busy = false; uncertain = false; xhr = null; message('连接中断，题目包可能已处理。可以检查已有批次，或重试原题目包；相同恢复凭据不会重复生成批次。'); paint(); };
+        xhr.onabort = () => { if (!alive()) return; busy = false; uncertain = false; xhr = null; message('已中止等待，服务器可能仍在处理。可以检查已有批次，或重试原题目包；相同恢复凭据不会重复生成批次。'); paint(); };
+        R4Flow.send(xhr, root, 'skill', selected.name, 0, fd);
       };
       paint();
     },

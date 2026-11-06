@@ -443,3 +443,10 @@ body.t11 .r1-time{font-size:12px;color:var(--t11-text3)}
   body.t11 .r1-rate{flex:1 1 100%;order:4;padding-left:15px}
   body.t11 .r1-rate .t6-acc-n{font-size:11px}
 }
+
+/* R10：宽表格的操作入口固定在右侧；焦点样式与现有主题一致。 */
+body.t11 .admin-app table .r10-actions-col{position:sticky;right:0;z-index:2;background:var(--t11-card,#fff);box-shadow:-8px 0 8px -8px rgba(31,45,61,.2)}
+body.t11 .admin-app table th.r10-actions-col{z-index:3;background:var(--t11-bg,#f7f9fc)}
+body.t11 button:focus-visible,body.t11 a:focus-visible,body.t11 input:focus-visible,body.t11 select:focus-visible,body.t11 textarea:focus-visible,body.t11 [tabindex]:focus-visible{outline:2px solid var(--t11-primary,#1e88e5);outline-offset:2px}
+body.t11 .el-dialog__footer .btn,body.t11 .el-dialog__headerbtn{white-space:nowrap;flex-shrink:0}
+body.t11 .r10-page-error p{overflow-wrap:anywhere}

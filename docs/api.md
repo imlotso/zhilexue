@@ -274,3 +274,14 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 - `POST /import-pack` 中明确的基础 `question_type/type` 优先于细分默认值，不兼容时逐题报错。普通 JSON 的 `audio_key`、`audio_play_limit` 可由共同材料继承到小题；小题显式值优先。仅接收题库音频目录 key，次数为 0–5 整数；外部 URL 或包内音频须先上传到待审核，不自动下载。
 - Word 规则导入支持听力排序和连词成句标题，选项 A–G 连续、2–7 项；答案可用字母或逗号分隔位置序列，缺失则保持空白。显式共同材料采用独立行 `[材料]`、`[材料结束]`，材料作用于其后的各小题，直至新材料或 `[材料清空]`，保留材料图号和题组顺序。未闭合的材料块报错，不能将其中的文字猜成题目。
 - `GET /ext/import-template?english_subtypes=1` 在既有扩展表基础上增加问答表和英语题型说明；`POST /ext/import-excel` 支持问答表的参考答案和细分题型。无参数模板仍为客户原文件。
+
+### 录题关闭页面恢复、重试与资料范围（2026-11-06）
+
+- 七类录题入口（PDF/Word 共一类）的保存请求、`POST /api/up/submit` 和 `POST /api/mfcap/push` 可带 `X-Intake-Key`（16–100 位字母/数字/`_`/`-`）。凭据按当前账号及入口隔离；输入相同恢复已保存结果并返回 `recovered:true`，输入改变则报错，结果与批次同事务落库。旧客户端不带头仍兼容，但不保证响应丢失后的重发去重。返回的 `recovered` 只表示恢复保存结果，不表示题目内容正确。
+- `GET /api/admin/bank/mf/ext/import-status/:key?kind=...` 查询本账号的保存结果，`kind` 为 `excel/word/skill/manual/manual-group/image/pdf/teacher_scan/student_scan/capture`，返回 `found` 及 `run_id`、`batch_id/id` 或 `upload_id`。不存在/非本账号均为 `found:false`；不删除或改变批次。
+- `GET /api/up/status?t=<上传票据>&key=<凭据>` 为手机上传页查询对应账号/角色的结果，凭据不能充当登录/上传票据。
+- `GET /api/up/info` 增加 `upload_scope`（同账号/角色的稳定本机草稿命名空间）和 `defaults`（教师签名票据的资料范围）。`POST /api/admin/bank/teacher-upload-token` 接收可选 `subject/stage/edition/term/material_type`；范围签名后手机不能改为其他版本，手机提交的学科/年级与版本不符时报错并要求调整范围。
+- 手动/组合、技能包、后台采集新增可选 `edition/term/material_type`，与已有图片/PDF/Word/Excel 的范围一致；版本须实际存在于所选学科/学段。技能包范围只补缺失学科/学段，保留题目明确分类；冲突版本使对应题报错，不静默改题。待审核返回题卡或批次的 `edition/term`。
+- `GET /api/admin/bank/mf/intake/runs` 的每个批次以及 `GET .../runs/:id` 的 `run` 增加 `processing:null | {action,page,started_at}`，包含工作台与教师扫码当前在途操作，时间为毫秒。同批次相同在途请求复用结果，不同操作返回业务码 409；关闭客户端不取消服务器已发出的当前页。这里只反映现有单进程内状态，不是重启可恢复的持久任务队列。
+- `POST .../intake/runs/:id/pages` 支持相同恢复头；PDF 页另传 `source_document_key/source_page` 作为输入的一部分。每页保存去重凭据，重新选择同来源同页可复用；不同页即使图片相同仍是独立页。后台不是文件字节续传服务。
+- 书签 CORS 额外放行 `X-Intake-Key`。书签转到后台接收时沿用同一凭据，避免直连已成功但响应丢失造成二次录入。

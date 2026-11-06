@@ -279,26 +279,32 @@ function modal({ title, body, wide, okText = '保存', onOk, onMount }) {
     </div>` : ''}
   </div>`;
   document.body.appendChild(wrap);
-  const close = () => wrap.remove();
+  let saving = false;
+  const close = () => { if (!saving) wrap.remove(); };
+  if (typeof DialogUX !== 'undefined') DialogUX.bind(wrap);
   wrap.querySelector('.close-x').onclick = close;
   wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
   const c = wrap.querySelector('#mCancel'); if (c) c.onclick = close;
   const errBox = wrap.querySelector('#mErr');
   const errTitle = errBox.querySelector('.el-alert__title') || errBox;
+  errBox.setAttribute('role', 'alert');
   const showErr = (m) => {
     if (errTitle !== errBox) errTitle.textContent = m; else errBox.textContent = m;
     errBox.classList.remove('hide');
     return false;
   };
-  if (onOk) wrap.querySelector('#mOk').onclick = async (btn) => {
-    btn.target.disabled = true;
+  if (onOk) wrap.querySelector('#mOk').onclick = async () => {
+    if (saving) return; saving = true;
+    const controls = [wrap.querySelector('#mOk'), wrap.querySelector('#mCancel'), wrap.querySelector('.close-x')].filter(Boolean);
+    controls.forEach(el=>{el.disabled=true;});wrap.querySelector('[role="dialog"]').setAttribute('aria-busy','true');
     try {
       const r = await onOk(wrap, showErr);
-      if (r === false) { btn.target.disabled = false; return; }
-      close();
-    } catch (e) { showErr(e.message); btn.target.disabled = false; }
+      if (r !== false) { saving = false; close(); }
+    } catch (e) { showErr(e.message || '保存失败，请重试'); }
+    finally { saving = false; if(wrap.isConnected){controls.forEach(el=>{el.disabled=false;});wrap.querySelector('[role="dialog"]').removeAttribute('aria-busy');} }
   };
-  if (onMount) onMount(wrap, showErr);
+  if (onMount) { try { const mounting = onMount(wrap, showErr); if(mounting && mounting.catch)mounting.catch(e=>showErr(e.message || '表单加载失败')); } catch(e) { showErr(e.message || '表单加载失败，请重试'); } }
+  if (typeof r10Enhance === 'function') r10Enhance(wrap);
   return { el: wrap, close };
 }
 
@@ -1121,7 +1127,7 @@ function chapterForm(c) {
           ${[['', '通用（上下册都显示）'], ['上册', '上册'], ['下册', '下册']].map(([v, t]) => `<option value="${v}" ${(c ? c.term || '' : '') === v ? 'selected' : ''}>${t}</option>`).join('')}
         </select></div>
       <div class="field"><label>章节名称 *（自己创建，如：第一章 有理数）</label><input class="input" id="kName" value="${esc(c ? c.name : '')}" placeholder="输入章节名称，学生端会按这个名字显示课程卡片"></div>
-      <div class="field"><label>二级名称（可选，显示在学生端章节卡片的副标题位置）</label><input class="input" id="kBook" value="${esc(c ? c.book : '')}" placeholder="如：人教版·七年级上册 / 小升初衔接"></div>
+      <div class="field"><label>二级名称（可选，显示在学生端章节卡片的副标题位置）</label><input class="input" id="kBook" value="${esc(c ? c.book : '')}" placeholder="如：苏科版·七年级上册 / 小升初衔接"></div>
       <div class="field"><label>排序（越小越靠前，可不填）</label><input class="input" type="number" id="kSort" value="${c ? c.sort : 0}"></div>
       <p style="color:var(--text3);font-size:12px" id="kTip"></p>`,
     onMount: (w) => {
@@ -1137,8 +1143,8 @@ function chapterForm(c) {
         stageSel.disabled = exam;
         if (exam) stageSel.value = 'junior';
         tip.innerHTML = by
-          ? '🎯 <b>专项提升 / 中考冲刺</b>：学生端按<b>学段</b>显示 —— 小学账号看全部小学专项，初中账号看全部初中专项 + 全部中考冲刺课程，<b>不看年级也不分上下册</b>。接着去「视频管理」上传视频（每个视频 = 一个知识点），再在「讲义资料」里配讲义 / 传习题。'
-          : '📗 <b>同步类</b>：学生端只显示与自己<b>年级、册别</b>一致的章节（册别选「通用」则上下册都能看到）。接着去「视频管理」上传视频（每个视频 = 一个知识点），再在「讲义资料」里配讲义 / 传习题。';
+          ? ' <b>专项提升 / 中考冲刺</b>：学生端按<b>学段</b>显示 —— 小学账号看全部小学专项，初中账号看全部初中专项 + 全部中考冲刺课程，<b>不看年级也不分上下册</b>。接着去「视频管理」上传视频（每个视频 = 一个知识点），再在「讲义资料」里配讲义 / 传习题。'
+          : ' <b>同步类</b>：学生端只显示与自己<b>年级、册别</b>一致的章节（册别选「通用」则上下册都能看到）。接着去「视频管理」上传视频（每个视频 = 一个知识点），再在「讲义资料」里配讲义 / 传习题。';
       };
       sub.onchange = () => {
         cat.innerHTML = (CATEGORY_MAP[sub.value] || []).map((k) => `<option value="${k}">${k}</option>`).join('');
@@ -1857,12 +1863,12 @@ function addVideoForm() {
 // ------------------------------------------------------------ 分校管理（仅校长）
 async function viewBranches() {
   if (Auth.user.role !== 'admin') {
-    return { html: '<div class="empty"><div class="e-ic">🔒</div>仅校长可管理分校账号</div>', after: () => {} };
+    return { html: '<div class="empty"><div class="e-ic"></div>仅校长可管理分校账号</div>', after: () => {} };
   }
   const list = await api('/api/admin/branches');
   return {
     html: `<div class="card">
-      <div class="card-h"><h3>🏢 分校账号 <span class="tag gray">${list.length} 个</span></h3>
+      <div class="card-h"><h3> 分校账号 <span class="tag gray">${list.length} 个</span></h3>
         <button class="btn primary-sm" id="btnAdd">+ 开通分校</button></div>
       <p style="color:var(--text2);font-size:13px;margin-bottom:12px">分校编号开通后固定不变——改名称 / 换登录手机号，已绑定学生与学情数据都不受影响。登录账号即手机号。</p>
       ${list.length ? `<table><thead><tr><th>编号</th><th>分校名称</th><th>登录账号（手机号）</th><th>已开通学生</th><th>到期时间</th><th>状态</th><th>最后登录</th><th>操作</th></tr></thead>
@@ -1880,7 +1886,7 @@ async function viewBranches() {
             <button class="link-btn danger" data-del="${b.id}">删除</button>
           </div></td></tr>`;
         }).join('')}</tbody></table>`
-      : '<div class="empty"><div class="e-ic">🏢</div>还没有分校账号，点击右上角"开通分校"添加</div>'}
+      : '<div class="empty"><div class="e-ic"></div>还没有分校账号，点击右上角"开通分校"添加</div>'}
     </div>`,
     after: () => {
       document.getElementById('btnAdd').onclick = () => branchForm(null);
@@ -1984,9 +1990,34 @@ const VIEWS = {
   talks: () => viewCareApp('talks'), care: () => viewCareApp('care'),
 };
 
+let r10ControlId = 0, r10ViewObserver = null;
+function r10Enhance(root) {
+  if (!root) return;
+  root.querySelectorAll('label:not([for])').forEach(label=>{
+    if(label.querySelector('input,select,textarea'))return;
+    const field=label.closest('.field') || label.parentElement;
+    const controls=field && field.querySelectorAll('input:not([type="hidden"]),select,textarea');
+    if(controls && controls.length===1){const el=controls[0];if(!el.id)el.id='r10-field-'+(++r10ControlId);label.htmlFor=el.id;}
+  });
+  root.querySelectorAll('select,input[placeholder],textarea[placeholder]').forEach(el=>{
+    if(el.getAttribute('aria-label') || el.labels && el.labels.length)return;
+    const title=el.getAttribute('title') || el.getAttribute('placeholder') || (el.tagName==='SELECT' && el.options[0] && el.options[0].textContent);
+    if(title)el.setAttribute('aria-label',title);
+  });
+  root.querySelectorAll('table').forEach(table=>{
+    const head=table.querySelector('thead tr');if(!head)return;
+    [...head.cells].filter(cell=>cell.textContent.trim()==='操作').forEach(cell=>{
+      cell.classList.add('r10-actions-col');const index=cell.cellIndex;
+      table.querySelectorAll('tbody tr').forEach(row=>{if(row.cells.length===head.cells.length && row.cells[index])row.cells[index].classList.add('r10-actions-col');});
+    });
+    let parent=table.parentElement;
+    while(parent && parent!==root){const css=getComputedStyle(parent);if(['auto','scroll'].includes(css.overflowX)){if(parent.scrollWidth>parent.clientWidth+1){parent.tabIndex=0;parent.setAttribute('role','region');parent.setAttribute('aria-label','表格，可横向滚动查看其他列');}break;}parent=parent.parentElement;}
+  });
+}
 let RENDER_SEQ = 0;   // 渲染序号：慢的旧渲染不允许覆盖新渲染（快速连点导航时页面不会串）
 async function render() {
   const mySeq = ++RENDER_SEQ;
+  if(r10ViewObserver){r10ViewObserver.disconnect();r10ViewObserver=null;}
   if (!Auth.token) {
     if (typeof closeWordDrawer === 'function') closeWordDrawer();
     renderLogin();
@@ -2008,6 +2039,8 @@ async function render() {
     if (!document.getElementById('view')) return;   // 页面已被替换
     document.getElementById('view').innerHTML = out.html;
     if (out.after) out.after();
+    const root = document.getElementById('view'); r10Enhance(root);
+    if(root){let queued=false;r10ViewObserver=new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;if(root.isConnected)r10Enhance(root);});});r10ViewObserver.observe(root,{childList:true,subtree:true});}
   } catch (e) {
     if (mySeq !== RENDER_SEQ) return;
     const v = document.getElementById('view');
@@ -2016,7 +2049,7 @@ async function render() {
     const reloadTip = /not defined|is not a function|Failed to fetch|NetworkError/i.test(msg)
       ? `<p style="margin-top:10px;color:#6b7280">页面脚本没有加载全（网络抖动），<a href="javascript:location.reload()" style="color:#2563eb">点此刷新</a>即可恢复。</p>`
       : '';
-    if (v) v.innerHTML = `<div class="empty"><div class="e-ic">⚠️</div>${esc(msg)}${reloadTip}</div>`;
+    if (v) { v.innerHTML = `<div class="empty r10-page-error" role="alert"><div class="e-ic">${ic('info')}</div><p>${esc(msg)}</p>${reloadTip}<button type="button" class="btn primary" id="r10-retry-page">重新加载本页</button></div>`; v.querySelector('#r10-retry-page').onclick = render; }
   }
 }
 window.addEventListener('hashchange', render);
@@ -2029,8 +2062,8 @@ async function mfcapSave(raw) {
   try { d = JSON.parse(raw); if (!d || !Array.isArray(d.questions) || !d.questions.length) d = null; } catch (e) { d = null; }
   if (!d) { toast('书签回传数据无效，请重新点书签采集', 'err'); return; }
   try {
-    await api('/api/admin/bank/mf/capture/batches', { method: 'POST', body: { site: d.site, url: d.url, title: d.title, questions: d.questions } });
-    toast(`书签采集成功：已收到 ${d.questions.length} 题，已存进采集篮，去「智能题库 → 网络采集」入库`, 'ok');
+    await R4Flow.post('/api/admin/bank/mf/capture/batches', 'capture', {site:d.site,url:d.url,title:d.title,questions:d.questions}, d._intake_key);
+    toast(`书签采集成功：已收到 ${d.questions.length} 题，已送入待审核，请核对题目和分类后入库`, 'ok');
     if ((location.hash.replace('#/', '').split('?')[0]) === 'mfc') render();
   } catch (e) { /* api 已提示 */ }
 }

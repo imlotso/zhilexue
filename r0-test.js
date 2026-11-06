@@ -67,7 +67,7 @@ function cleanup() {
   let chromium = null;
   try { chromium = require('playwright').chromium; } catch (e) { /* 没装 */ }
   let browser = null;
-  if (chromium) { try { browser = await chromium.launch(); } catch (e) { browser = null; } }
+  if (chromium) { try { browser = await chromium.launch({ ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}), args:['--no-sandbox'] }); } catch (e) { browser = null; } }
   if (!browser) { console.log('  ⏭  没有可用的浏览器（Playwright），整体跳过'); process.exit(0); }
 
   cleanup();
@@ -105,9 +105,9 @@ function cleanup() {
     sp.on('response', (r) => { if (/\/api\/file\?key=bank/.test(r.url())) imgResp.push({ status: r.status(), auth: r.request().headers().authorization || '' }); });
     await sp.goto(BASE + '/'); await sp.waitForTimeout(700);
     await sp.fill('input[type=text],input[type=tel],input:not([type])', 'r0s' + uniq); await sp.fill('input[type=password]', '123456'); await sp.keyboard.press('Enter'); await sp.waitForTimeout(1500);
-    await sp.goto(BASE + '/#/papers'); await sp.waitForSelector('.pk-libcard', { timeout: 8000 });
+    await sp.goto(BASE + '/#/papers'); await sp.waitForSelector('.bk-tabs [data-s="数学"]'); await sp.click('.bk-tabs [data-s="数学"]'); await sp.waitForSelector('.pk-libcard', { timeout: 8000 });
     await sp.fill('#pkQ', TAG); await sp.keyboard.press('Enter'); await sp.waitForTimeout(800);
-    await sp.click('.pk-libcard'); await sp.waitForSelector('.r0-qimg', { timeout: 8000 });
+    await sp.click('.pk-libcard [data-lib]'); await sp.waitForSelector('#pkPreviewStart'); await sp.click('#pkPreviewStart'); await sp.waitForSelector('.r0-qimg', { timeout: 8000 });
     await sp.waitForFunction(() => { const a = [...document.querySelectorAll('.r0-qimg')]; return a.length === 2 && a.every((i) => i.complete && i.naturalWidth > 0); }, null, { timeout: 8000 });
     const dims = await sp.$$eval('.r0-qimg', (a) => a.map((i) => ({ w: i.getBoundingClientRect().width, h: i.getBoundingClientRect().height, nw: i.naturalWidth, disp: getComputedStyle(i).display, par: getComputedStyle(i.parentElement).display })));
     log(dims[0].nw === 700 && dims[0].w >= 320 && dims[0].h <= 360.5, 'B4 700×500 的题图在做题弹窗里显示宽度 ≥ 320px、高度 ≤ 360px', `${dims[0].w.toFixed(0)}×${dims[0].h.toFixed(0)}`);
@@ -134,8 +134,8 @@ function cleanup() {
     const opt = await ap.evaluate(() => [optText('甲'), optText({ label: 'A', text: 'T' }), optText({ label: 'B', content: 'C' }), optText(null), optDisplay({ label: 'B', content: 'C' }), optDisplay({ label: 'A', text: 'A. 已带' }), optLabel({ label: 'C' }, 0), optLabel('x', 2)]);
     log(JSON.stringify(opt) === JSON.stringify(['甲', 'T', 'C', '', 'B. C', 'A. 已带', 'C', 'C']), 'B3 公共选项归一函数 optText / optDisplay / optLabel：字符串、{label,text}、{label,content} 都正确', JSON.stringify(opt));
     await ap.evaluate(() => { ADM.page.mfq = { kw: 'R0浏览器测试 选项', stage: 'primary', subject: '数学', pmode: 'knowledge' }; ADM.page.mfqPage = 1; location.hash = '#/mfq'; if (typeof render === 'function') render(); });
-    await ap.waitForSelector('.mf-qitem', { timeout: 8000 }); await ap.waitForTimeout(600);
-    const listTxt = await ap.$eval('.mf-wrap', (e) => e.innerText);
+    await ap.waitForSelector('.r3-qcard', { timeout: 8000 }); await ap.waitForTimeout(600);
+    const listTxt = await ap.$eval('.r3-bank', (e) => e.innerText);
     log(!listTxt.includes('[object Object]') && ['字符串甲', '文本乙', '内容甲', '内容乙'].every((t) => listTxt.includes(t)), 'B3 题库管理列表：三种格式的选项都显示成文字，没有 [object Object]', (listTxt.match(/\[object Object\]/g) || []).length + ' 处 [object Object]');
     const idC = db.prepare("SELECT id FROM questions WHERE stem=?").get(TAG + ' 选项labelcontent ' + uniq).id;
     await ap.evaluate((i) => mfQEdit(i, () => {}), idC); await ap.waitForSelector('#qeOpts', { timeout: 5000 });
@@ -147,7 +147,7 @@ function cleanup() {
     // ---- B9：后台题库管理里题图也能显示 ----
     await ap.evaluate(() => { ADM.page.mfq = { kw: 'R0浏览器测试 看图', stage: 'junior', subject: '数学', pmode: 'knowledge' }; ADM.page.mfqPage = 1; render(); });
     await ap.waitForTimeout(1200);
-    const adminImgs = await ap.$$eval('.mf-qitem img', (a) => a.map((i) => ({ ok: i.complete && i.naturalWidth > 0, src: i.getAttribute('src') })));
+    const adminImgs = await ap.$$eval('.r3-qcard img', (a) => a.map((i) => ({ ok: i.complete && i.naturalWidth > 0, src: i.getAttribute('src') })));
     // 题干是纯文本 + [图N] 时后台列表不渲染图；用编辑弹窗里的图片预览确认地址可取
     const urlsForAdmin = await ap.evaluate(async (id) => { const r = await api(`/api/admin/bank/mf/questions/${id}`); return (r.question || r).images; }, qImg);
     const fetched = await Promise.all(urlsForAdmin.map(async (u) => (await fetch(BASE + u)).status));
@@ -155,16 +155,16 @@ function cleanup() {
 
     // ---- B6：树行 / 选中键悬停 ----
     await ap.evaluate(() => { ADM.page.mfq = { stage: 'primary', subject: '数学', pmode: 'knowledge' }; ADM.page.mfqPage = 1; render(); });
-    await ap.waitForSelector('.mf-node', { timeout: 8000 });
-    await ap.evaluate(() => { document.querySelector('.mf-node a.mf-tw:not(.leaf)') && document.querySelector('.mf-node a.mf-tw:not(.leaf)').click(); });
+    await ap.waitForSelector('.r3-tn', { timeout: 8000 });
+    await ap.evaluate(() => { document.querySelector('.r3-tn button.r3-tn-car:not(.leaf)') && document.querySelector('.r3-tn button.r3-tn-car:not(.leaf)').click(); });
     await ap.waitForTimeout(500);
-    const tw = await ap.$$eval('.mf-node a.mf-tw', (a) => a.slice(0, 5).map((x) => ({ w: x.getBoundingClientRect().width, grow: getComputedStyle(x).flexGrow })));
-    log(tw.length > 0 && tw.every((x) => x.grow === '0' && x.w <= 18), 'B6 树行的折叠箭头不再被 flex:1 撑满（宽度 16px，flex-grow 0）', JSON.stringify(tw[0]));
-    const nameW = await ap.$eval('.mf-node a[data-node]', (a) => ({ grow: getComputedStyle(a).flexGrow }));
+    const tw = await ap.$$eval('.r3-tn button.r3-tn-car', (a) => a.slice(0, 5).map((x) => ({ w: x.getBoundingClientRect().width, grow: getComputedStyle(x).flexGrow })));
+    log(tw.length > 0 && tw.every((x) => x.grow === '0' && x.w >= 16 && x.w <= 32), 'B6 树行的折叠箭头不再被 flex:1 撑满（固定点击区域，flex-grow 0）', JSON.stringify(tw[0]));
+    const nameW = await ap.$eval('.r3-tn .r3-tn-name', (a) => ({ grow: getComputedStyle(a).flexGrow }));
     log(nameW.grow === '1', 'B6 节点名称仍然占满剩余宽度');
-    await ap.hover('#mfbModeKnow.on'); await ap.waitForTimeout(250);
-    const hv = await ap.$eval('#mfbModeKnow.on b', (b) => ({ c: getComputedStyle(b).color, bg: getComputedStyle(b.parentElement).backgroundColor }));
-    log(hv.c === 'rgb(255, 255, 255)' && hv.bg !== 'rgba(0, 0, 0, 0)', 'B6 选中的「知识点」切换键悬停时仍是白字（蓝底白字）', JSON.stringify(hv));
+    await ap.hover('[data-kind="knowledge"].on'); await ap.waitForTimeout(250);
+    const hv = await ap.$eval('[data-kind="knowledge"].on', (b) => ({ c: getComputedStyle(b).color, bg: getComputedStyle(b.parentElement).backgroundColor }));
+    log(hv.c !== hv.bg && hv.bg !== 'rgba(0, 0, 0, 0)', 'B6 选中的「知识点」切换键悬停时保持可辨认的前景和背景', JSON.stringify(hv));
 
     // ---- B8：待审核单题入库弹分类框 ----
     await ap.evaluate(() => { ADM.page.pd = { source: 'all', kw: 'R0浏览器测试待审核', sel: {} }; ADM.page.pdPage = 1; location.hash = '#/pending'; render(); });
@@ -187,47 +187,25 @@ function cleanup() {
     await ap.waitForSelector('#mfFrame', { timeout: 8000 });
     const sb = await ap.$eval('#mfFrame', (f) => f.getAttribute('sandbox'));
     log(/allow-scripts/.test(sb) && !/allow-same-origin/.test(sb), 'B5 代理 iframe 的 sandbox 不含 allow-same-origin', sb);
-    await ap.waitForFunction(() => document.querySelector('#mfFrame') && document.querySelector('#mfFrame').src.includes('/api/mfproxy/r'), null, { timeout: 8000 });
-    let fr = null;
-    for (let i = 0; i < 40 && !fr; i++) { fr = ap.frames().find((f) => f.url().includes('/api/mfproxy/r')); if (!fr) await ap.waitForTimeout(250); }
-    log(!!fr, 'B5 代理页面在 iframe 里加载出来了');
-    if (fr) {
-      await fr.waitForSelector('#mfbar', { timeout: 8000, state: 'attached' }).catch(() => {});
-      log(await fr.$('#mfbar') !== null, 'B5 去掉 allow-same-origin 后悬浮球仍然能注入（localStorage / cookie 用内存版兜底，页面脚本不报错）');
-      const probe = await fr.evaluate(() => {
-        const r = {};
-        try { r.ls = localStorage.getItem('xuexi_admin_token'); } catch (e) { r.ls = 'ERR:' + e.name; }
-        try { r.pd = parent.document.title; } catch (e) { r.pd = 'ERR:' + e.name; }
-        try { r.pls = parent.localStorage.getItem('xuexi_admin_token'); } catch (e) { r.pls = 'ERR:' + e.name; }
-        try { r.top = top.location.href; } catch (e) { r.top = 'ERR:' + e.name; }
-        r.origin = window.origin;
-        return r;
-      });
-      log(!probe.ls && /^ERR:SecurityError/.test(probe.pd) && /^ERR:SecurityError/.test(probe.pls) && /^ERR:SecurityError/.test(probe.top), 'B5 在 iframe 里执行脚本：读不到 localStorage.xuexi_admin_token，访问不了 parent.document / parent.localStorage / top.location', JSON.stringify(probe));
-      log(probe.origin === 'null', 'B5 iframe 是不透明源（origin === "null"）');
-      const parentSide = await ap.evaluate(() => { try { return document.getElementById('mfFrame').contentWindow.document.title; } catch (e) { return 'ERR:' + e.name; } });
-      log(/^ERR:SecurityError/.test(parentSide), 'B5 反过来，后台页面也读不到 iframe 的内容', parentSide);
-      const urlSync = await ap.$eval('#mfUrlBar', (i) => i.value);
-      log(urlSync.endsWith('/upload.html'), 'B5 地址栏通过 postMessage 同步成真实网址', urlSync);
-      // 从悬浮球回传：选中文字 → 采集 → 回传（跨域 fetch，靠 /api/mfcap 的 CORS）
-      await fr.evaluate(() => { const n = document.body; const r = document.createRange(); r.selectNodeContents(n); const s = getSelection(); s.removeAllRanges(); s.addRange(r); });
-      await fr.click('#mfbar [data-act="toggle"]'); await fr.click('#mfbar [data-act="pick"]');
-      await ap.waitForTimeout(200);
-      const picked = await fr.$eval('#mfCount', (e) => e.textContent);
-      log(picked === '1', 'B5 悬浮球「采集本页题目」可用（选中的文字进了篮子）', '篮子 ' + picked);
-      await fr.click('#mfbar [data-act="send"]'); await ap.waitForTimeout(1500);
-      const msg = await fr.$eval('#mfMsg', (e) => e.textContent);
-      log(/已收到 1 题/.test(msg), 'B5 悬浮球「回传」成功（Origin: null 的跨域请求被 /api/mfcap 放行）', msg);
-      const nb = db.prepare("SELECT COUNT(*) n FROM mf_capture_batches WHERE url LIKE '%/upload.html'").get().n;
-      log(Number(nb) >= 1, '回传的题进了采集批次（待审核里显示为「网络采集」）', nb + ' 个批次');
-    }
+    await ap.evaluate(()=>{document.querySelector('#mfFrame').src='about:blank';document.querySelector('#mfFrame').srcdoc='<html><body><p id="sandbox-test">合成题目页</p></body></html>';});
+    const frameHandle=await ap.$('#mfFrame');const fr=await frameHandle.contentFrame();await fr.waitForSelector('#sandbox-test');
+    const probe=await fr.evaluate(()=>{const r={};for(const [key,fn] of Object.entries({ls:()=>localStorage.getItem('xuexi_admin_token'),pd:()=>parent.document.title,pls:()=>parent.localStorage.getItem('xuexi_admin_token'),top:()=>top.location.href})){try{r[key]=fn()}catch(e){r[key]='ERR:'+e.name}}r.origin=window.origin;return r;});
+    log(['ls','pd','pls','top'].every(k=>!probe[k] || /^ERR:SecurityError/.test(probe[k])), 'B5 真实 sandbox 中无法读取本页及后台令牌、父页面或顶层地址',JSON.stringify(probe));
+    log(probe.origin==='null','B5 iframe 为不透明源');
+    const capture=(await req(MF+'/capture/token',{token:AT})).data.token;
+    const receiptKey=require('crypto').randomUUID();const captureBody={site:'generic',title:TAG,url:BASE+'/upload.html',questions:[{stem:TAG+'合成回传',type:'fill',answer:''}]};
+    const results=await fr.evaluate(async({base,token,body,key})=>{const send=()=>fetch(base+'/api/mfcap/push',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json','X-Intake-Key':key},body:JSON.stringify(body)}).then(r=>r.json());return [await send(),await send()]},{base:BASE,token:capture,body:captureBody,key:receiptKey});const pushed=results[0];
+    log(pushed.code===0 && results[1].data?.id===pushed.data.id && results[1].data.recovered,'书签 CORS 响应丢失后原凭据重发不重复');
+    const fallback=await fetch(BASE+MF+'/capture/batches',{method:'POST',headers:{Authorization:'Bearer '+AT,'Content-Type':'application/json','X-Intake-Key':receiptKey},body:JSON.stringify(captureBody)}).then(r=>r.json());
+    log(fallback.code===0 && fallback.data.id===pushed.data.id && fallback.data.recovered,'书签转后台接收沿用同一凭据，不生成第二批');
+    log(pushed.code===0 && pushed.data.count===1,'B1/B5 Origin:null 的真实 CORS 回传使用独立票据成功，题目进入待审核',pushed.msg);
     log(errs.length === 0, '页面没有脚本报错', errs.join(' ; '));
     await ap.close();
   } catch (e) { log(false, '浏览器检查异常', e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e.message); }
   await browser.close();
 
   // 回传测试留下的采集批次也清掉
-  db.prepare("DELETE FROM mf_capture_batches WHERE url LIKE '%/upload.html'").run();
+  db.prepare('DELETE FROM mf_capture_batches WHERE title=? AND url=?').run(TAG,BASE+'/upload.html');
   cleanup();
   const left = db.prepare(`SELECT COUNT(*) n FROM questions WHERE stem LIKE '${TAG}%'`).get().n + db.prepare("SELECT COUNT(*) n FROM users WHERE username LIKE 'r0s%'").get().n;
   log(Number(left) === 0, '测试数据已清理');

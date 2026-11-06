@@ -40,6 +40,7 @@ const now = () => {
 };
 const ok = (res, data = null, msg = 'ok') => res.json({ code: 0, msg, data });
 const fail = (res, msg = '操作失败', code = 1) => res.json({ code, msg });
+const uploadReceipts = require('./intake-receipts')(db, ok, fail);
 
 const TYPES = ['single', 'multi', 'judge', 'fill', 'sort', 'answer'];
 const TYPE_NAMES = { single: '单选题', multi: '多选题', judge: '判断题', fill: '填空题', sort: '排序题', answer: '解答题' };
@@ -1032,6 +1033,10 @@ async function recognizeTeacherPhoto(runId, files) {
       .run(cfg.mock ? '当前为演示模式，请打开待审核对照图片录入题干' : '视觉识别尚未配置，请打开待审核对照图片录入题干', runId);
     return;
   }
+  const jobs = require('./intake-jobs');
+  const job = {action:'recognize',page:0,started_at:Date.now()};
+  jobs.set(Number(runId),job);
+  try {
   const images = files.map((f) => ({ buf: f.buffer, mime: f.mimetype }));
   const { info } = await aiLib.analyzeWrongQuestion({ images, hint: '图片按页序组成同一道题，请结合所有图片识别题干和知识点，不要编造答案或解析。' });
   const run = db.prepare('SELECT drafts, status FROM mf_recog_runs WHERE id=?').get(runId);
@@ -1045,6 +1050,7 @@ async function recognizeTeacherPhoto(runId, files) {
   if (suggestion && !/^(无|暂无|没|未|未知|无法|不能|不是)/.test(suggestion)) card.ai_point_suggestion = suggestion;
   card.ai_recognized = true;
   db.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=?').run(JSON.stringify(cards), runId);
+  } finally { if(jobs.get(Number(runId))===job)jobs.delete(Number(runId)); }
 }
 async function aiRecognizeUpload(id) {
   const row = parseUp(db.prepare('SELECT * FROM paper_uploads WHERE id=?').get(id));
@@ -2050,7 +2056,8 @@ const upSecret = () => {
 const upSign = (payload, expires) => jwt.sign({ role: 'up', ...payload }, upSecret(), { expiresIn: expires || '4h' });
 // 教师扫码票据仅允许上传到待审核，短时有效，不能作为后台登录凭证。
 admin.post('/teacher-upload-token', (req, res) => {
-  const token = jwt.sign({ role: 'upteacher', uid: req.user.id }, upSecret(), { expiresIn: '30m' });
+  let defaults; try { defaults = require('./intake-scope')(db,req.body); } catch(e) {return fail(res,e.message);}
+  const token = jwt.sign({ role: 'upteacher', uid: req.user.id, defaults }, upSecret(), { expiresIn: '30m' });
   return ok(res, { token, url: '/upload.html', expires_in: 1800 });
 });
 const upAuth = (req, res, next) => {
@@ -2061,6 +2068,7 @@ const upAuth = (req, res, next) => {
     if (!user || Number(user.status) !== 1 || (p.role === 'upteacher' ? !['admin', 'branch'].includes(user.role) : user.role !== 'student')) throw new Error('bad user');
     req.upUid = Number(p.uid);
     req.upRole = p.role;
+    req.upDefaults = p.role === 'upteacher' ? (p.defaults || {}) : {};
     next();
   } catch (e) { res.status(401).json({ code: 401, msg: '二维码已过期，请回到错题本重新获取' }); }
 };
@@ -2069,15 +2077,18 @@ const okUp = (res, data = null, msg = 'ok') => res.json({ code: 0, msg, data });
 up.get('/info', upAuth, (req, res) => {
   const u = db.prepare('SELECT name, grade, stage FROM users WHERE id=?').get(req.upUid);
   if (!u) return res.status(404).json({ code: 404, msg: '用户不存在' });
-  okUp(res, { name: u.name || '用户', grade: u.grade || '', teacher: req.upRole === 'upteacher' });
+  okUp(res, { name: u.name || '用户', grade: u.grade || '', teacher: req.upRole === 'upteacher', defaults:req.upDefaults, upload_scope:crypto.createHmac('sha256',upSecret()).update(req.upRole+':'+req.upUid).digest('hex').slice(0,32) });
 });
 
-up.post('/submit', upAuth, upUpload.array('images', 4), (req, res) => {
+up.get('/status',upAuth,(req,res)=>{req.user={id:req.upUid};req.params.key=String(req.query.key || '');req.query.kind=req.upRole==='upteacher'?'teacher_scan':'student_scan';return uploadReceipts.status(req,res);});
+up.post('/submit', upAuth, upUpload.array('images', 4), (req,res,next)=>{req.user={id:req.upUid};if(req.upRole==='upteacher')req.body._signed_scope=JSON.stringify(req.upDefaults);return uploadReceipts.middleware(req.upRole==='upteacher'?'teacher_scan':'student_scan')(req,res,next);}, uploadReceipts.guard((req, res) => {
   const files = (req.files || []).filter((f) => /^image\/(jpeg|png|webp|gif|heic|heif)$/.test(f.mimetype));
   if (!files.length) return fail(res, '请先拍照或选择图片（JPG/PNG，单张不超过 10MB）');
   const b = req.body || {};
   const subject = ['数学', '英语', '物理', '化学'].includes(String(b.subject || '')) ? b.subject : '';
   if (req.upRole === 'upteacher' && (!subject || !stageOfGrade('', String(b.grade || '').trim()))) return fail(res, '请选择学科和年级');
+  let scope={};
+  if (req.upRole==='upteacher') { try { scope=require('./intake-scope')(db,{...req.upDefaults,subject,stage:stageOfGrade('',String(b.grade || '').trim())}); } catch(e) {return fail(res,e.message+'；请返回电脑调整资料范围并重新生成二维码');} }
   const EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/heic': '.heic', 'image/heif': '.heif' };
   const saved = [];
   for (const f of files) {
@@ -2093,17 +2104,22 @@ up.post('/submit', upAuth, upUpload.array('images', 4), (req, res) => {
     if (!subject || !stage) return fail(res, '请选择学科和年级');
     const stem = String(b.stem_text || '').trim().slice(0, 500) || '（请对照图片录入题干）';
     const card = { stem, questionType: '解答', subject, stage, grade, answer: String(b.answer || '').trim().slice(0, 500), analysis: '', point: String(b.point || '').trim().slice(0, 100), upload_note: String(b.note || '').trim().slice(0, 200), options: [], figures: saved.map((url) => ({ url })) };
+    const result = uploadReceipts.commit(req, () => {
     const run = db.prepare(`INSERT INTO mf_recog_runs (title,subject,stage,grade,source_kind,source_name,status,pages,drafts,ocr_texts,error,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run('老师手机扫码录题', subject, stage, grade, 'teacher_scan', '老师手机扫码', 'recognized', '[]', JSON.stringify([card]), '[]', '', now());
+    db.prepare('UPDATE mf_recog_runs SET edition=?,term=?,material_type=? WHERE id=?').run(scope.edition || '',scope.term || '',scope.material_type || '',run.lastInsertRowid);
     recognizeTeacherPhoto(run.lastInsertRowid, files).catch((e) => {
       console.error('[teacher-upload-ai] 识别失败:', e.message || e);
       db.prepare("UPDATE mf_recog_runs SET status='error', error=? WHERE id=? AND status<>'done'")
         .run('识别失败，请在待审核中对照图片核对或补录', run.lastInsertRowid);
     });
-    return okUp(res, { run_id: run.lastInsertRowid, count: saved.length }, '上传成功，题目已进入待审核');
+    return {run_id:run.lastInsertRowid,count:saved.length};
+    });
+    return okUp(res, result, '上传成功，题目已进入待审核');
   }
   const stu = db.prepare('SELECT grade, stage FROM users WHERE id=?').get(req.upUid) || {};
   // 1) 上传记录入池（待老师审核）
+  const result = uploadReceipts.commit(req, () => {
   const ins = db.prepare(`INSERT INTO paper_uploads (user_id, subject, grade, stem_text, answer, chapter, point, error_type, note, images, status, created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?)`)
     .run(req.upUid, subject,
@@ -2121,8 +2137,10 @@ up.post('/submit', upAuth, upUpload.array('images', 4), (req, res) => {
   db.prepare('UPDATE paper_uploads SET stage=? WHERE id=?').run(stage || '', upId);
   // AI 视觉识别不阻塞上传；只补充审核草稿，不直接入库。
   aiRecognizeUpload(upId).catch((e) => { console.error('[upload-ai] 识别失败:', e.message || e); });
-  okUp(res, { count: saved.length, question_id: 0 }, '上传成功！题目已送到老师审核，审核后进入错题本');
-});
+  return { count:saved.length, question_id:0, upload_id:upId };
+  });
+  okUp(res, result, '上传成功！题目已送到老师审核，审核后进入错题本');
+}));
 
 up.get('/mine', upAuth, (req, res) => {
   if (req.upRole === 'upteacher') return okUp(res, { list: [] });

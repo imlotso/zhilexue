@@ -419,10 +419,10 @@ async function viewMfIntake() {
       <div class="card-h-r"><button class="btn primary sm" id="miNew">${ic('plus')} 新建录题批次</button></div></div>
     <div class="card-b">
       <div class="mf-tip">拍照 / 截图 / PDF / Word 都行：PDF 自动逐页转成图片，AI 识别成结构化题卡——
-        <b>✨全自动</b>逐页一步出卡，<b>◐半自动</b>先转写全文再整理成卡。勾选校对后一键入库（图片存在对象存储 bank/recog 下）。</div>
+        <b>全自动</b>逐页一步出卡，<b>◐半自动</b>先转写全文再整理成卡。识别结果先保存为草稿，再到待审核核对内容和分类；AI 答案与解析须分别确认。</div>
       ${runs.length ? `<table class="tb"><thead><tr><th>批次</th><th style="width:90px">来源</th><th style="width:70px">页数</th><th style="width:70px">题卡</th><th style="width:90px">状态</th><th style="width:180px">操作</th></tr></thead>
         <tbody>${runs.map((r) => `<tr><td>${esc(r.title)}</td><td>${kindName[r.source_kind] || r.source_kind}</td><td>${r.page_count}</td><td>${r.draft_count}</td>
-          <td><span class="tag ${r.status === 'error' ? 'err' : ''}">${statusMap[r.status] || r.status}</span></td>
+          <td><span class="tag ${r.status === 'error' ? 'err' : ''}">${r.processing ? '正在处理' : statusMap[r.status] || r.status}</span></td>
           <td><button class="btn ghost xs" data-open="${r.id}">打开工作台</button>
               <button class="btn ghost xs" data-delr="${r.id}">删</button></td></tr>`).join('')}</tbody></table>`
         : '<div class="empty">还没有批次，点右上角新建一个</div>'}
@@ -532,7 +532,7 @@ function mfLightbox(urls, idx) {
   let cur = idx || 0;
   let scale = 1;
   const ov = document.createElement('div');
-  ov.className = 'mf-lb';
+  ov.className = 'mf-lb'; ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true'); ov.setAttribute('aria-label','查看题图');
   const draw = () => {
     ov.querySelector('img').src = urls[cur];
     ov.querySelector('img').style.transform = `scale(${scale})`;
@@ -566,54 +566,48 @@ function mfLightbox(urls, idx) {
 }
 
 /** 文件上传：图片/PDF → 逐页转图上传；.docx → Word 导入；完成回调刷新 */
-async function mfIntakeFiles(runId, files, after) {
-  const imgs = [];
-  const docx = files.filter((f) => /\.docx$/i.test(f.name || ''));
-  const rest = files.filter((f) => !/\.docx$/i.test(f.name || ''));
-  if (!rest.length && !docx.length) { toast('没有可上传的文件（支持图片 / PDF / .docx）', 'err'); return; }
-  const pgs = [];
-  if (rest.length) {
-    if (!window.PdfPages) { toast('上传组件没加载成功，请刷新页面（Ctrl+F5）后重试', 'err'); return; }
-    await window.PdfPages.upload(rest, {
-      maxPages: 30, maxWidth: 1600,
-      progressTitle: '📄 正在逐页转图',
-      onImage: async (f) => imgs.push(f),
-      onPage: async (canvas, page) => {
-        const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
-        if (blob) pgs.push(new File([blob], `page-${String(page).padStart(3, '0')}.png`, { type: 'image/png' }));
-      },
-      onError: (m) => toast(m, 'err'),
-    });
+async function mfIntakeFiles(runId, files, after, options = {}) {
+  const job = options.job || { entries: [], prepared: false };
+  const notify = () => { if (options.onProgress) options.onProgress(job); };
+  if (!job.prepared) {
+    const entries = [];
+    for (const f of files) {
+      if (/\.docx$/i.test(f.name || '')) entries.push({ file: f, word: true, state: 'pending' });
+      else if (/\.pdf$/i.test(f.name || '')) {
+        if (!window.PdfPages) throw new Error('PDF 组件未加载，请刷新后重试');
+        const result = await PdfPages.toCanvases(f, {maxPages:30,maxWidth:1600,onProgress:(done,total)=>{if(options.onConvert)options.onConvert(`${f.name}：${done}/${total} 页`);}});
+        if (result.truncated) throw new Error(`${f.name} 超过 30 页，请拆分后上传`);
+        const sourceDocumentKey = await R4Flow.filesKey([f]);
+        for (const page of result.pages) {
+          const blob = await new Promise(resolve => page.canvas.toBlob(resolve,'image/png'));
+          if (!blob) throw new Error(`${f.name} 第 ${page.page} 页转换失败`);
+          entries.push({file:new File([blob],`${f.name}-page-${page.page}.png`,{type:'image/png'}),state:'pending',source_document_key:sourceDocumentKey,source_page:page.page});page.canvas.width=page.canvas.height=0;
+        }
+      } else if (/^image\//.test(f.type) || /\.(png|jpe?g|webp|bmp|gif|heic|heif)$/i.test(f.name || '')) entries.push({file:f,state:'pending'});
+      else throw new Error(`不支持的文件：${f.name || '未命名文件'}，请选择图片、PDF 或 .docx`);
+    }
+    if (!entries.length) throw new Error('没有可上传的页面');
+    job.entries = entries; job.prepared = true;
   }
-  // 页图分批上传（每批 10 张）
-  for (let i = 0; i < pgs.length; i += 10) {
-    const batch = pgs.slice(i, i + 10);
-    if (!batch.length) continue;
-    const fd = new FormData();
-    batch.forEach((f) => fd.append('pages', f));
-    const res = await fetch(`${MF_API}/intake/runs/${runId}/pages`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
-    const j = await res.json();
-    if (j.code !== 0) { toast(j.msg || '页图上传失败', 'err'); return; }
+  for (const entry of job.entries) {
+    if (entry.state === 'success') continue;
+    if (entry.state === 'uncertain' && entry.word) throw new Error('Word 保存结果未确认，请先查看批次中的题卡，避免重复整理');
+    entry.state = 'uploading'; entry.progress = 0; notify();
+    try {
+      await new Promise((resolve,reject)=>{
+        const xhr = new XMLHttpRequest(); xhr.open('POST',`${MF_API}/intake/runs/${runId}/${entry.word?'word':'pages'}`);xhr.setRequestHeader('Authorization','Bearer '+Auth.token);xhr.responseType='json';
+        xhr.upload.onprogress=e=>{if(e.lengthComputable){entry.progress=Math.round(e.loaded/e.total*100);notify();}};
+        xhr.onload=()=>{const r=xhr.response || {};if(xhr.status>=200&&xhr.status<300&&r.code===0)resolve(r.data);else reject(new Error(r.msg || `上传失败（HTTP ${xhr.status}）`));};
+        xhr.addEventListener('loadend',()=>{if(options.root && !options.root.isConnected)resolve(null);});
+        xhr.onerror=()=>{const e=new Error('连接中断，保存结果未确认；已完成的页图不会重复上传');e.uncertain=true;reject(e);};
+        const fd=new FormData();fd.append(entry.word?'file':'pages',entry.file,entry.file.name);if(entry.source_document_key){fd.append('source_document_key',entry.source_document_key);fd.append('source_page',String(entry.source_page));}
+        R4Flow.send(xhr, options.root || document.getElementById('view'), entry.word?'word':'image',entry.file.name,runId,fd);
+      });
+      entry.state='success';entry.error='';notify();if(options.root && !options.root.isConnected)throw new Error('页面已关闭，已上传页面保留，未完成文件可重新选择');
+    } catch(e) {entry.state=e.uncertain?'uncertain':'error';entry.error=e.message;notify();throw e;}
   }
-  for (const f of imgs) {
-    const fd = new FormData();
-    fd.append('pages', f, f.name || 'image.png');
-    const res = await fetch(`${MF_API}/intake/runs/${runId}/pages`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
-    const j = await res.json();
-    if (j.code !== 0) { toast(j.msg || '图片上传失败', 'err'); return; }
-  }
-  // Word 导入
-  for (const f of docx) {
-    toast(`正在导入 Word「${f.name}」并交给 AI 整理…`, '');
-    const fd = new FormData();
-    fd.append('file', f);
-    const res = await fetch(`${MF_API}/intake/runs/${runId}/word`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
-    const j = await res.json();
-    if (j.code !== 0) toast(j.msg || 'Word 导入失败', 'err');
-    else toast(j.msg || 'Word 导入完成', 'ok');
-  }
-  if (pgs.length || imgs.length) toast(`已上传 ${pgs.length + imgs.length} 页`, 'ok');
   if (after) await after();
+  return job;
 }
 
 async function mfIntakeWork(runId) {
@@ -621,7 +615,7 @@ async function mfIntakeWork(runId) {
   const view = document.getElementById('view');
   if (!Array.isArray(run.ocr_texts)) run.ocr_texts = [];
   let busy = false;
-  let abortFlag = false, jobMessage = run.error || '', workRoot = null;
+  let abortFlag = false, jobMessage = run.processing ? `服务器正在${({recognize:'识别',ocr:'转写',structure:'整理',word:'整理 Word',aifill:'生成建议'})[run.processing.action] || '处理'}${run.processing.page ? '第 ' + run.processing.page + ' 页' : ''}，当前页保存后可继续。` : run.error || '', workRoot = null, uploadJob = null;
   // 题库分类清单（课本章节 + 知识点）：工作台打开时拉一次
   let cats = { chapters: [], points: [] };
   try {
@@ -653,14 +647,16 @@ async function mfIntakeWork(runId) {
         <span class="sp"></span>
         <button class="btn ghost sm" id="wkUpload">${ic('upload')} 上传页图 / PDF</button>
         <button class="btn ghost sm" id="wkWord">W 导入 Word</button>
-        <button class="btn primary sm" id="wkAuto">✨ 全自动识别</button>
+        <button class="btn primary sm" id="wkAuto"> 全自动识别</button>
         <button class="btn sm" id="wkSemi">◐ 半自动转写</button>
         <button class="btn ghost sm" id="wkAllStruct">全部整理成题卡</button>
         <button class="btn sm" id="wkAiFill" title="生成需要老师确认的答案或解析建议">AI 生成答案/解析建议</button>
         <button class="btn danger sm ghost" id="wkDel">删除批次</button>
       </div>
-      <div class="mf-wk-hint">把图片 / PDF / Word 拖到左栏，或 <b>Ctrl+V</b> 粘贴截图 · ✨全自动逐页识别出卡 · ◐半自动先转写全文，点每页「整理成题卡」或「全部整理成题卡」</div>
+      <div class="mf-wk-hint">把图片 / PDF / Word 拖到左栏，或 <b>Ctrl+V</b> 粘贴截图 · 全自动逐页识别出卡 · ◐半自动先转写全文，点每页「整理成题卡」或「全部整理成题卡」</div>
       <p class="r4-excel-note" role="status">${esc(jobMessage)}</p>
+      <div id="wkTransfer" class="r4-transfer-list" aria-live="polite">${uploadJob ? uploadJob.entries.map(e=>`<div><strong>${esc(e.file.name)}</strong><span>${e.state==='success'?'已保存':e.state==='pending'?'等待上传':esc(e.error || '等待重试')}</span></div>`).join('') : ''}</div>
+      ${uploadJob && uploadJob.entries.some(e=>['error','uncertain'].includes(e.state)) ? '<button type="button" class="btn ghost sm" id="wkUploadRetry">重试未完成上传</button>' : ''}
       <div class="mf-wk-prog" id="wkProg" style="display:none"><div class="mf-wk-prog-t"><i></i></div><span id="wkProgTxt"></span></div>
     </div></div>
     <div class="mf-wk-body">
@@ -683,14 +679,15 @@ async function mfIntakeWork(runId) {
       <div class="card mf-wk-right"><div class="card-h"><h3>题卡（${cards.length}）</h3>
           <div class="card-h-r"><button class="btn ghost sm" id="wkAddCard">+ 空白题卡</button>
             <button class="btn ghost sm" id="wkAsPaper">保存为试卷草稿</button><button class="btn primary sm" id="wkCommit">保存并前往待审核</button></div></div>
-        <div class="card-b mf-wk-cards" id="wkCards">
-          ${cards.length ? cards.map((c, i) => mfCardHtml(c, i, cats)).join('') : '<div class="empty">还没有题卡——✨全自动识别、◐半自动整理，或「+ 空白题卡」手动录</div>'}
+        <div id="wkSkeleton" class="r4-recognition-skeleton" aria-hidden="true" ${run.processing ? '' : 'hidden'}><i></i><i></i><i></i></div><div class="card-b mf-wk-cards" id="wkCards">
+          ${cards.length ? cards.map((c, i) => mfCardHtml(c, i, cats)).join('') : '<div class="empty">还没有题卡——全自动识别、◐半自动整理，或「+ 空白题卡」手动录</div>'}
         </div></div>
     </div>`;
 
     /* ---- 顶栏 ---- */
     view.querySelector('#wkBack').onclick = () => render();
     view.querySelector('#wkUpload').onclick = () => mfPickFiles();
+    if (view.querySelector('#wkUploadRetry')) view.querySelector('#wkUploadRetry').onclick = () => uploadDropped([], true);
     view.querySelector('#wkWord').onclick = () => mfPickFiles(true);
     view.querySelector('#wkAuto').onclick = autoRecognize;
     view.querySelector('#wkSemi').onclick = semiOcr;
@@ -703,6 +700,12 @@ async function mfIntakeWork(runId) {
 
     /* ---- 左栏：拖拽 / 点击大图 / 转写 / 整理 ---- */
     workRoot = view.firstElementChild;
+    if(run.processing){
+      view.querySelectorAll('#wkAuto,#wkSemi,#wkAllStruct,#wkUpload,#wkWord,#wkAiFill,#wkCards input,#wkCards textarea,#wkCards select,#wkCards button').forEach(el=>{el.disabled=true;});
+      const processingRoot=workRoot;
+      setTimeout(async()=>{if(!processingRoot.isConnected)return;try{const latest=(await api(`${MF_API}/intake/runs/${runId}`,{silent:true})).run;if(!processingRoot.isConnected)return;run=latest;jobMessage=run.processing?'服务器仍在处理当前页，已保存页面保留。':'当前页已处理完，请核对结果或继续剩余页面。';draw();}catch(e){if(processingRoot.isConnected){jobMessage='任务状态读取失败，请重新打开批次核对；不必重复上传。';run.processing=null;draw();}}},2000);
+    }
+
     const pagesBox = view.querySelector('#wkPages');
     ['dragover', 'drop'].forEach((ev) => pagesBox.addEventListener(ev, (e) => {
       e.preventDefault();
@@ -717,7 +720,7 @@ async function mfIntakeWork(runId) {
     cardsBox.addEventListener('click', async (e) => {
       const accept = e.target.closest('[data-ai-accept]');
       if (accept) {
-        if (busy) return toast('有任务在跑，稍等一下', 'err');
+        if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
         const index = Number(accept.dataset.aiIndex), field = accept.dataset.aiAccept;
         const card = mfCardSnap[index];
         if (!card || !card.ai_answer_suggestion) return toast('建议已变化，请重新生成', 'err');
@@ -816,7 +819,7 @@ async function mfIntakeWork(runId) {
 
     /* ---- AI 答案/解析建议：老师逐项确认后才写入题卡 ---- */
     async function aiFill(indexes) {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
       busy = true;
       setProg(indexes ? '正在为该题生成建议…' : '正在批量生成答案/解析建议…', 0.4);
       try {
@@ -837,14 +840,28 @@ async function mfIntakeWork(runId) {
       input.onchange = () => { const fs = [...(input.files || [])]; if (fs.length) uploadDropped(fs); };
       input.click();
     }
-    async function uploadDropped(fs) {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
-      busy = true; setProg('正在上传…', 0.5);
-      await mfIntakeFiles(runId, fs, async () => {
-        run = (await api(`${MF_API}/intake/runs/${runId}`)).run; setProg(null); draw();
-      }).catch(() => setProg(null));
-      busy = false; setProg(null);
+    async function uploadDropped(fs, retry = false) {
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
+      if (!retry) uploadJob = {entries:[],prepared:false};
+      busy = true; let prepared = false;
+      const locked = [...view.querySelectorAll('#wkCards input,#wkCards textarea,#wkCards select,#wkCards button')].map(el=>[el,el.disabled]);locked.forEach(([el])=>{el.disabled=true;});
+      try {
+        await saveCards(); prepared = true;
+        await mfIntakeFiles(runId,fs,null,{job:uploadJob,root:workRoot,onConvert:t=>setProg(t,0),onProgress:job=>{
+          if (!workRoot.isConnected) return;
+          view.querySelector('#wkTransfer').innerHTML=job.entries.map(e=>`<div><strong>${esc(e.file.name)}</strong><span>${e.state==='success'?'已保存':e.state==='uploading'?`上传 ${e.progress}%`:e.state==='pending'?'等待上传':esc(e.error || '上传失败')}</span></div>`).join('');
+        }});
+        jobMessage='文件已保存，可继续识别或到待审核核对；上传成功不代表内容已核对。';
+      } catch(e) {jobMessage=e.message || '上传失败，可重试未完成部分';}
+      finally {
+        busy=false;
+        if(workRoot && workRoot.isConnected){
+          if(prepared){try{run=(await api(`${MF_API}/intake/runs/${runId}`)).run;}catch(e){jobMessage+='；批次刷新失败，请重新打开核对';}if(workRoot.isConnected){setProg(null);draw();}}
+          else {locked.forEach(([el,disabled])=>{el.disabled=disabled;});setProg(jobMessage,0);}
+        }
+      }
     }
+
     window.__mfWkUploadPaste = uploadDropped;
     if (!window.__mfWkPaste) {
       window.__mfWkPaste = (e) => {
@@ -861,6 +878,7 @@ async function mfIntakeWork(runId) {
     /* ---- 进度条 ---- */
     function setProg(txt, ratio) {
       const box = view.querySelector('#wkProg');
+      const skeleton=view.querySelector('#wkSkeleton');if(skeleton)skeleton.hidden=!(busy && txt && /识别|整理/.test(txt));
       if (!box) return;
       if (txt == null) { box.style.display = 'none'; return; }
       box.style.display = 'flex';
@@ -869,9 +887,9 @@ async function mfIntakeWork(runId) {
     }
     mfIntakeWork._setProg = setProg;
 
-    /* ---- ✨ 全自动：逐页识别（可中断，继续跑会跳过已出的页） ---- */
+    /* ----  全自动：逐页识别（可中断，继续跑会跳过已出的页） ---- */
     async function autoRecognize() {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
       if (!pages.length) return toast('先上传页图', 'err');
       busy = true; abortFlag = false;
       let prepared = false, activePage = 0;
@@ -901,7 +919,7 @@ async function mfIntakeWork(runId) {
 
     /* ---- ◐ 半自动：逐页 OCR 转写 ---- */
     async function semiOcr() {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
       if (!pages.length) return toast('先上传页图', 'err');
       busy = true; abortFlag = false;
       try {
@@ -929,38 +947,38 @@ async function mfIntakeWork(runId) {
     }
 
     async function ocrOne(no, btn) {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
       busy = true;
-      const old = btn.textContent; btn.textContent = '转写中…';
+      const old = btn.textContent,ta=view.querySelector(`#wkOcr${no}`),wasDisabled=ta && ta.disabled; btn.textContent = '转写中…';btn.disabled=true;if(ta)ta.disabled=true;
       try {
         const r = await api(`${MF_API}/intake/runs/${runId}/ocr`, { method: 'POST', body: { page: no } });
         run.ocr_texts = run.ocr_texts || [];
         run.ocr_texts[no - 1] = r.text || '';
-        const ta = view.querySelector(`#wkOcr${no}`);
-        if (ta) { ta.value = r.text || ''; ta.closest('details').open = true; }
-      } catch (e) { /* api 已提示 */ }
-      btn.textContent = old; busy = false;
+        if (ta && ta.isConnected) { ta.value = r.text || ''; ta.closest('details').open = true; }
+        jobMessage=`第 ${no} 页转写已保存，请核对后整理成题卡。`;
+      } catch (e) { jobMessage=`第 ${no} 页转写失败：${e.message || e}。原文字保留，可重试。`; }
+      finally {btn.textContent = old;btn.disabled=false;if(ta)ta.disabled=wasDisabled;busy = false;if(workRoot.isConnected)setProg(jobMessage,0);}
     }
 
     /* ---- 半自动腿2：文本整理成题卡 ---- */
     async function structureOne(no) {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
       const ta = view.querySelector(`#wkOcr${no}`);
       const text = ta ? ta.value.trim() : '';
       if (!text) return toast('这一页还没有转写文本，先「转写」或手动粘贴', 'err');
-      busy = true; setProg(`◐ 正在整理第 ${no} 页文字…`, 0.5);
+      busy = true; setProg(`正在整理第 ${no} 页文字…`, 0.5);
+      const locked=[...view.querySelectorAll('#wkCards input,#wkCards textarea,#wkCards select,#wkCards button,.mf-wk-pages textarea')].map(el=>[el,el.disabled]);locked.forEach(([el])=>{el.disabled=true;});
       try {
         await saveCards();
         const r = await api(`${MF_API}/intake/runs/${runId}/structure`, { method: 'POST', body: { page: no, text } });
-        run.drafts = r.drafts || [];
-        toast(`整理出 ${r.added} 张题卡`, 'ok');
-        draw();
-        view.querySelector('#wkCards').scrollTop = view.querySelector('#wkCards').scrollHeight;
-      } catch (e) { /* api 已提示 */ }
-      setProg(null); busy = false;
+        run.drafts = r.drafts || [];jobMessage=`第 ${no} 页整理出 ${r.added} 张题卡，请逐题核对。`;
+        if(!workRoot.isConnected)return;
+        busy=false;draw();view.querySelector('#wkCards').scrollTop=view.querySelector('#wkCards').scrollHeight;
+      } catch (e) {jobMessage=`第 ${no} 页整理失败：${e.message || e}。原文和题卡保留，可重试。`;}
+      finally {busy=false;locked.forEach(([el,disabled])=>{el.disabled=disabled;});if(workRoot.isConnected)setProg(jobMessage,0);}
     }
     async function structureAll() {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
       const withText = [...view.querySelectorAll('.mf-wk-ocr textarea')].filter((ta) => ta.value.trim()).map((ta) => ({ no: Number(ta.id.replace('wkOcr', '')), text: ta.value }));
       if (!withText.length) return toast('先做「◐ 半自动转写」，再整理成题卡', 'err');
       busy = true; abortFlag = false; let prepared = false;
@@ -986,6 +1004,7 @@ async function mfIntakeWork(runId) {
     async function saveCards() {
       const cardsBox = view.querySelector('#wkCards');
       if (!cardsBox) return;
+      view.querySelectorAll('.mf-wk-pages textarea[id^="wkOcr"]').forEach(ta=>{const no=Number(ta.id.replace('wkOcr',''));if(no>0)run.ocr_texts[no-1]=ta.value;});
       const next = mfCollectCards(cardsBox);
       await api(`${MF_API}/intake/runs/${runId}/drafts`, { method: 'PUT', body: { drafts: next } });
       run.drafts = next;

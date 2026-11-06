@@ -8,11 +8,11 @@ const { log, done } = (() => {
     if (ok) pass++; else failN++;
     console.log(`  ${ok ? '✅' : '❌'} ${name}${detail ? '  →  ' + detail : ''}`);
   };
-  const done = () => console.log(`\n=== 结果： 通过 ${pass} 项，失败 ${failN} 项 ===` + (failN ? '（有失败项）' : ''));
+  const done = () => { if(failN)process.exitCode=1;console.log(`\n=== 结果： 通过 ${pass} 项，失败 ${failN} 项 ===` + (failN ? '（有失败项）' : '')); };
   return { log, done };
 })();
 
-const BASE = 'http://127.0.0.1:3000';
+const BASE = process.env.BASE || 'http://127.0.0.1:3000';
 const fs = require('fs');
 const path = require('path');
 const tp = require('./src/tableparse');

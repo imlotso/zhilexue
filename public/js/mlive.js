@@ -50,6 +50,7 @@
       '<div class="t8-f"><button type="button" class="btn ghost t8-cancel">取消</button><button type="button" class="btn primary t8-ok" disabled>插入</button></div>' +
       '</div>';
     document.body.appendChild(mask);
+    if (typeof DialogUX !== 'undefined') DialogUX.bind(mask);
     var mf = null;
     function close() {
       try { if (window.mathVirtualKeyboard) window.mathVirtualKeyboard.hide(); } catch (e) { /* 忽略 */ }

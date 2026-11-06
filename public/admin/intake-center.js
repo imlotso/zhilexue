@@ -16,7 +16,7 @@ async function viewIntakeCenter() {
     html: `<div class="r4-intake"><div class="r4-intake-head"><div><span class="r4-kicker">智能题库</span><h2>录题中心</h2><p>选择适合的方式录入题目，核对并分类后再入库。</p></div><button class="btn primary" type="button" id="r4-review">查看待审核题目</button></div>
       <div class="r4-steps" aria-label="录题步骤"><div><b>1</b><span><strong>准备资料</strong><small>选择学科、学段和文件</small></span></div><div><b>2</b><span><strong>上传或录入</strong><small>可随时查看处理状态</small></span></div><div><b>3</b><span><strong>核对入库</strong><small>检查答案和分类后入库</small></span></div></div>
       <h3>选择录题方式</h3><div class="r4-entry-grid">${entries.map(([id, title, text, icon]) => `<button type="button" class="r4-entry" data-intake="${id}"><span class="r4-entry-icon">${ic(icon)}</span><span><strong>${esc(title)}</strong><small>${esc(text)}</small></span><span aria-hidden="true">›</span></button>`).join('')}</div>
-      <div class="r4-history"><div class="r4-history-head"><div><h3>最近录题批次</h3><p>继续未完成的识别，或查看已处理批次。</p></div><button type="button" class="btn ghost sm" id="r4-history">管理批次</button></div>${historyError ? `<p role="alert">${esc(historyError)}，请点击管理批次重试；不能据此判断上次上传失败。</p>` : runs.length ? `<div class="r4-history-list">${runs.slice(0, 8).map((r) => `<div class="r4-history-row"><span><strong>${esc(r.title)}</strong><small>${esc(r.source_name || r.source_kind)} · ${Number(r.draft_count) || 0} 题</small></span><span class="r4-status ${r.status === 'error' ? 'error' : ''}">${esc(status[r.status] || r.status)}</span><button class="btn ghost sm" type="button" data-run="${r.id}" data-kind="${esc(r.source_kind)}">打开</button></div>`).join('')}</div>` : '<div class="r4-empty">还没有录题批次，选择上方方式开始。</div>'}</div></div>`,
+      <div class="r4-history"><div class="r4-history-head"><div><h3>最近录题批次</h3><p>继续未完成的识别，或查看已处理批次。</p></div><button type="button" class="btn ghost sm" id="r4-history">管理批次</button></div>${historyError ? `<p role="alert">${esc(historyError)}，请点击管理批次重试；不能据此判断上次上传失败。</p>` : runs.length ? `<div class="r4-history-list">${runs.slice(0, 8).map((r) => `<div class="r4-history-row"><span><strong>${esc(r.title)}</strong><small>${esc(r.source_name || r.source_kind)} · ${Number(r.draft_count) || 0} 题</small></span><span class="r4-status ${r.status === 'error' ? 'error' : ''}">${esc(r.processing ? '正在处理'+(r.processing.page ? '第 '+r.processing.page+' 页' : '') : status[r.status] || r.status)}</span><button class="btn ghost sm" type="button" data-run="${r.id}" data-kind="${esc(r.source_kind)}">打开</button></div>`).join('')}</div>` : '<div class="r4-empty">还没有录题批次，选择上方方式开始。</div>'}</div></div>`,
     after: () => {
       R4Flow.bind(document.querySelector('.r4-intake'), 'center');
       const go = (route) => { location.hash = '#/' + route; };
@@ -55,7 +55,7 @@ function r4DocumentChoice() {
 /* Excel 上传是同步解析：进度条只代表文件上传，解析结果确认后才展示下一步。 */
 async function viewIntakeExcel(mode = 'excel') {
   const isWord = mode === 'word';
-  const [trees, data] = await Promise.all([tpTrees(), api('/api/admin/bank/mf/intake/runs', { silent: true }).catch(() => ({ list: [] }))]);
+  const [trees, data] = await Promise.all([tpTrees(undefined, {strict:true}), api('/api/admin/bank/mf/intake/runs', { silent: true })]);
   const runs = (data.list || []).filter((r) => r.source_kind === mode).slice(0, 8);
   return {
     html: `<div class="r4-intake r4-excel">
@@ -94,7 +94,7 @@ async function viewIntakeExcel(mode = 'excel') {
         const editions = [...new Set(trees.filter((t) => t.subject === sub && t.stage === stage && t.edition).map((t) => t.edition))];
         $('rxEdition').innerHTML = pdOpts(editions, '', editions.length ? '暂不指定' : '该学段学科暂无版本');
       };
-      $('rxSubject').onchange = scope; $('rxStage').onchange = scope; scope();
+      $('rxSubject').onchange = scope; $('rxStage').onchange = scope; scope(); R4Flow.prepare(root, mode, ['rxSubject','rxStage','rxGrade','rxEdition','rxTerm','rxMaterial'], scope);
       const paintStep = () => {
         $('rxPrepare').hidden = step !== 1; $('rxUpload').hidden = step !== 2; $('rxResult').hidden = step !== 3;
         document.querySelectorAll('.r4-excel-steps [data-step]').forEach((el) => { const n = Number(el.dataset.step); el.classList.toggle('active', n === step); el.classList.toggle('complete', n < step); });
@@ -136,8 +136,8 @@ async function viewIntakeExcel(mode = 'excel') {
           $('rxResultBody').innerHTML = `<div class="r4-excel-success"><strong>已接收 ${Number(d.total) || 0} 道题</strong><span>${esc(file.name)}${d.examples_skipped ? ` · 忽略 ${Number(d.examples_skipped)} 行示例` : ''}</span></div>${errors.length ? `<div class="r4-excel-errors"><b>${Number(d.error_count) || errors.length} ${isWord ? '题' : '行'}未导入，请修正后另行上传</b>${errors.map((msg) => `<p>${esc(typeof msg === 'string' ? msg : `第 ${msg.para} 段（第 ${msg.no} 题）：${msg.msg}`)}</p>`).join('')}${Number(d.error_count) > errors.length ? '<p>其余错误请检查原文件。</p>' : ''}</div>` : '<p class="r4-excel-note">解析完成，没有发现格式错误。</p>'}${isWord && (d.warnings || []).length ? `<div class="r4-excel-guide"><strong>解析提醒</strong>${d.warnings.map((w) => `<span>${esc(`第 ${w.para} 段：${w.msg}`)}</span>`).join('')}</div>` : ''}`;
           paintStep();
         };
-        xhr.onerror = () => { busy = false; uncertain = true; $('rxProgressLabel').textContent = '连接中断'; $('rxMessage').textContent = '连接中断，文件可能已处理。请先返回录题中心检查最近批次，再决定是否重新上传。'; paintStep(); };
-        R4Flow.watch(xhr, root, mode, file.name); xhr.send(fd);
+        xhr.onerror = () => { busy = false; uncertain = false; $('rxProgressLabel').textContent = '连接中断'; $('rxMessage').textContent = '连接中断，保存结果未确认。可检查已有批次，或重试发送原文件；服务器会返回同一批次，避免重复导入。'; paintStep(); };
+        R4Flow.send(xhr, root, mode, file.name, 0, fd);
       };
       paintStep();
     },
@@ -147,7 +147,7 @@ async function viewIntakeExcel(mode = 'excel') {
 /* 图片上传后沿用既有识别工作台；每张图单独上传，以保留已成功的页。 */
 async function viewIntakePhoto(mode = 'image') {
   const isPdf = mode === 'pdf';
-  const [trees, data] = await Promise.all([tpTrees(), api('/api/admin/bank/mf/intake/runs', { silent: true }).catch(() => ({ list: [] }))]);
+  const [trees, data] = await Promise.all([tpTrees(undefined, {strict:true}), api('/api/admin/bank/mf/intake/runs', { silent: true })]);
   const runs = (data.list || []).filter((r) => ['image', 'pdf'].includes(r.source_kind)).slice(0, 8);
   const status = { draft: '待识别', recognized: '待核对', done: '已处理', error: '识别失败' };
   return {
@@ -163,7 +163,7 @@ async function viewIntakePhoto(mode = 'image') {
           <div id="rpFiles" class="r4-photo-files" aria-live="polite"><p class="r4-excel-note">尚未选择${isPdf ? '文件' : '图片'}</p></div><p id="rpMessage" class="r4-excel-message" aria-live="polite"></p><button type="button" class="btn ghost sm" id="rpOpenExisting" hidden>打开已有批次</button></section>
         <section class="r4-excel-panel" id="rpResult" hidden><div class="r4-excel-sectionhead"><h3>${isPdf ? 'PDF 页图已上传' : '图片已上传'}</h3><p>接下来在识别工作台选择全自动识别或半自动转写，识别进度和失败原因会显示在工作台。</p></div><div id="rpResultBody"></div></section>
         <div class="r4-excel-actions"><button type="button" class="btn ghost" id="rpPrevious">取消</button><button type="button" class="btn primary" id="rpNext">下一步：选择图片</button></div>
-      </main><aside><div class="r4-history"><h3>最近识别批次</h3><p>可返回工作台继续识别或核对。</p>${runs.length ? `<div class="r4-history-list">${runs.map((r) => `<div class="r4-history-row"><span><strong>${esc(r.title)}</strong><small>${Number(r.page_count) || 0} 页 · ${Number(r.draft_count) || 0} 题 · ${esc(status[r.status] || r.status)}${r.error ? '：' + esc(r.error) : ''}</small></span><button type="button" class="btn ghost sm" data-rp-run="${Number(r.id)}">打开</button></div>`).join('')}</div>` : '<div class="r4-empty">暂无识别批次</div>'}</div></aside></div></div>`,
+      </main><aside><div class="r4-history"><h3>最近识别批次</h3><p>可返回工作台继续识别或核对。</p>${runs.length ? `<div class="r4-history-list">${runs.map((r) => `<div class="r4-history-row"><span><strong>${esc(r.title)}</strong><small>${Number(r.page_count) || 0} 页 · ${Number(r.draft_count) || 0} 题 · ${esc(r.processing ? '正在处理'+(r.processing.page ? '第 '+r.processing.page+' 页' : '') : status[r.status] || r.status)}${r.error ? '：' + esc(r.error) : ''}</small></span><button type="button" class="btn ghost sm" data-rp-run="${Number(r.id)}">打开</button></div>`).join('')}</div>` : '<div class="r4-empty">暂无识别批次</div>'}</div></aside></div></div>`,
     after: () => {
       const $ = (id) => document.getElementById(id);
       const root = document.querySelector('.r4-photo'); R4Flow.bind(root, mode);
@@ -172,7 +172,7 @@ async function viewIntakePhoto(mode = 'image') {
       $('rpHelp').onclick = () => modal({ title: isPdf ? 'PDF 识别说明' : '拍摄与识别说明', body: isPdf ? '<p>PDF 会在浏览器中逐页转为图片，每次最多处理 30 页。上传后进入识别工作台，题目需要在待审核中确认后入库。</p>' : '<p>请保持文字清晰、画面光线均匀，尽量拍全题目和选项。图片上传后进入工作台，选择识别方式并核对题卡；题目最终需要在待审核中确认后入库。</p>' });
       document.querySelectorAll('[data-rp-run]').forEach((button) => { button.onclick = () => mfIntakeWork(Number(button.dataset.rpRun)); });
       const scope = () => { const editions = [...new Set(trees.filter((t) => t.subject === $('rpSubject').value && t.stage === $('rpStage').value && t.edition).map((t) => t.edition))]; $('rpEdition').innerHTML = pdOpts(editions, '', editions.length ? '暂不指定' : '该学段学科暂无版本'); };
-      $('rpSubject').onchange = scope; $('rpStage').onchange = scope; scope();
+      $('rpSubject').onchange = scope; $('rpStage').onchange = scope; scope(); R4Flow.prepare(root, mode, ['rpTitle','rpSubject','rpStage','rpGrade','rpEdition','rpTerm','rpMaterial'], scope);
       const openRun = () => { if (runId && !busy) mfIntakeWork(runId); };
       $('rpOpenExisting').onclick = openRun;
       const paint = () => {
@@ -213,7 +213,7 @@ async function viewIntakePhoto(mode = 'image') {
         xhr.onload = () => { const result = xhr.response || {}; entry.state = xhr.status >= 200 && xhr.status < 300 && result.code === 0 ? 'success' : 'error'; entry.error = result.msg || '请检查图片后重试'; fileRows(); resolve(); };
         xhr.onerror = () => { entry.state = 'uncertain'; fileRows(); resolve(); };
         xhr.addEventListener('loadend', () => resolve());
-        const fd = new FormData(); fd.append('pages', entry.file, entry.file.name || 'screenshot.png'); R4Flow.watch(xhr, root, mode, entry.file.name, runId); xhr.send(fd);
+        const fd = new FormData(); fd.append('pages', entry.file, entry.file.name || 'screenshot.png'); if(entry.source_document_key){fd.append('source_document_key',entry.source_document_key);fd.append('source_page',String(entry.source_page));} R4Flow.send(xhr, root, mode, entry.file.name, runId, fd);
       });
       $('rpNext').onclick = async () => {
         if (step === 1) { step = 2; paint(); return; }
@@ -227,16 +227,17 @@ async function viewIntakePhoto(mode = 'image') {
             if (converted.truncated) throw new Error(`PDF 共 ${converted.total} 页，超过 30 页；请先拆分文件再上传。`);
             if (!converted.pages.length) throw new Error('PDF 没有可读取的页面');
             const pageFiles = [];
+            const sourceDocumentKey = await R4Flow.filesKey([entries[0].file]);
             for (const page of converted.pages) {
               const blob = await new Promise((resolve) => page.canvas.toBlob(resolve, 'image/png'));
               if (!blob) throw new Error(`第 ${page.page} 页转换失败，请重试`);
-              pageFiles.push({ file: new File([blob], `page-${String(page.page).padStart(3, '0')}.png`, { type: 'image/png' }), state: 'pending', progress: 0 });
+              pageFiles.push({ file: new File([blob], `page-${String(page.page).padStart(3, '0')}.png`, { type: 'image/png' }), state: 'pending', progress: 0, source_document_key: sourceDocumentKey, source_page: page.page });
               page.canvas.width = page.canvas.height = 0;
             }
             if (!root.isConnected) return; entries = pageFiles; pdfPrepared = true; fileRows();
           }
           if (!runId) {
-            const result = await api('/api/admin/bank/mf/intake/runs', { method: 'POST', body: { title: $('rpTitle').value.trim() || (isPdf ? pdfName : entries[0].file.name), subject: $('rpSubject').value, stage: $('rpStage').value, grade: $('rpGrade').value, edition: $('rpEdition').value, term: $('rpTerm').value, material_type: $('rpMaterial').value, source_kind: mode, source_name: isPdf ? pdfName : entries[0].file.name }, silent: true });
+            const result = await R4Flow.post('/api/admin/bank/mf/intake/runs', mode, { client_source_key: await R4Flow.filesKey(entries.map(e => e.file)), title: $('rpTitle').value.trim() || (isPdf ? pdfName : entries[0].file.name), subject: $('rpSubject').value, stage: $('rpStage').value, grade: $('rpGrade').value, edition: $('rpEdition').value, term: $('rpTerm').value, material_type: $('rpMaterial').value, source_kind: mode, source_name: isPdf ? pdfName : entries[0].file.name });
             runId = result.id;
           }
           for (const entry of entries) { if (!root.isConnected) return; if (entry.state === 'success') continue; await send(entry); if (!root.isConnected) return; if (entry.state !== 'success') break; }
