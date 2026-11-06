@@ -814,6 +814,7 @@ async function viewMfCapture() {
   return {
     html,
     after: () => {
+      const captureRoot = document.getElementById('capReviewAll'); if (captureRoot) R4Flow.bind(captureRoot.closest('.card') || captureRoot.parentElement, 'capture');
       const openReview = (batchId = 0) => { const pd = ADM.page.pd = ADM.page.pd || { sel: {} }; pd.source = 'capture'; pd.kw = ''; pd.batch_id = Number(batchId) || 0; pd.review = 'all'; pd.sel = {}; ADM.page.pdPage = 1; location.hash = '#/pending'; };
       document.getElementById('capReviewAll').onclick = () => openReview();
       document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { st.tab = b.dataset.tab; render(); }; });

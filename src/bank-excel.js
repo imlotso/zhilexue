@@ -123,7 +123,7 @@ function parseBankWorkbook(buffer) {
     if (rowSubtype) {
       const subtype = QSubtype.find(rowSubtype);
       if (!subtype) { errors.push(`${where}：不支持的细分题型「${rowSubtype}」`); return; }
-      if (subtype.type !== q.type) { errors.push(`${where}：细分题型「${rowSubtype}」与本表基础题型不匹配`); return; }
+      if (!QSubtype.matchesType(subtype, q.type)) { errors.push(`${where}：细分题型「${rowSubtype}」与本表基础题型不匹配`); return; }
       q.question_subtype = subtype.code;
       if (QSubtype.isMatch(subtype.code)) {
         const checked = MatchQ.normalize(rowMatch.split(/\r?\n/), q.options, q.answer, true, subtype.code);
@@ -186,10 +186,10 @@ function parseBankWorkbook(buffer) {
         if (!stem) return;
         push({ type: 'answer', question_subtype: 'drawing', stem, options: [], answer: pick(r, ['参考答案', '答案']), analysis, point: tag, material: '' }, line);
 
-      } else if (sheet === '书面表达题') {
+      } else if (sheet === '书面表达题' || sheet === '问答题') {
         const stem = pick(r, ['题目']);
         if (!stem) return;
-        push({ type: 'answer', question_subtype: 'writing', stem, options: [], answer: pick(r, ['参考范文', '参考答案', '答案']), analysis, point: tag, material: '' }, line);
+        push({ type: 'answer', question_subtype: sheet === '书面表达题' ? 'writing' : '', stem, options: [], answer: pick(r, ['参考范文', '参考答案', '答案']), analysis, point: tag, material: '' }, line);
 
       } else if (sheet === '单选题') {
         const stem = pick(r, ['题目']);

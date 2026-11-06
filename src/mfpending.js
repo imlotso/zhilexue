@@ -1131,6 +1131,14 @@ module.exports = function mountPending(d) {
         ['【例题】写一篇关于你学校的短文', '', '', '书面表达', ''],
       ]);
       XLSX.utils.book_append_sheet(wb, writing, '书面表达题');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['题目（必填）', '参考答案（选填）', '解析（选填）', '英语细分题型（选填）'],
+        ['【例题】根据材料用自己的话作答', '', '', '任务型阅读'],
+      ]), '问答题');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['细分题型', '填写值', '基础题型', '说明'],
+        ...QSubtype.list.filter((x) => QSubtype.matchesSubject(x, '英语')).map((x) => [x.label, x.code, (x.types || [x.type]).map((t) => TYPE_NAME[t]).join(' / '), '填写对应基础题型工作表的细分题型列；问答和写作由老师评分；音频在待审核上传。']),
+      ]), '英语题型说明');
     }
     if (math) {
       const drawing = XLSX.utils.aoa_to_sheet([

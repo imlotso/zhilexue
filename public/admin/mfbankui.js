@@ -619,8 +619,9 @@ async function mfIntakeFiles(runId, files, after) {
 async function mfIntakeWork(runId) {
   let run = (await api(`${MF_API}/intake/runs/${runId}`)).run;
   const view = document.getElementById('view');
+  if (!Array.isArray(run.ocr_texts)) run.ocr_texts = [];
   let busy = false;
-  let abortFlag = false;
+  let abortFlag = false, jobMessage = run.error || '', workRoot = null;
   // 题库分类清单（课本章节 + 知识点）：工作台打开时拉一次
   let cats = { chapters: [], points: [] };
   try {
@@ -659,6 +660,7 @@ async function mfIntakeWork(runId) {
         <button class="btn danger sm ghost" id="wkDel">删除批次</button>
       </div>
       <div class="mf-wk-hint">把图片 / PDF / Word 拖到左栏，或 <b>Ctrl+V</b> 粘贴截图 · ✨全自动逐页识别出卡 · ◐半自动先转写全文，点每页「整理成题卡」或「全部整理成题卡」</div>
+      <p class="r4-excel-note" role="status">${esc(jobMessage)}</p>
       <div class="mf-wk-prog" id="wkProg" style="display:none"><div class="mf-wk-prog-t"><i></i></div><span id="wkProgTxt"></span></div>
     </div></div>
     <div class="mf-wk-body">
@@ -700,6 +702,7 @@ async function mfIntakeWork(runId) {
     };
 
     /* ---- 左栏：拖拽 / 点击大图 / 转写 / 整理 ---- */
+    workRoot = view.firstElementChild;
     const pagesBox = view.querySelector('#wkPages');
     ['dragover', 'drop'].forEach((ev) => pagesBox.addEventListener(ev, (e) => {
       e.preventDefault();
@@ -871,20 +874,29 @@ async function mfIntakeWork(runId) {
       if (busy) return toast('有任务在跑，稍等一下', 'err');
       if (!pages.length) return toast('先上传页图', 'err');
       busy = true; abortFlag = false;
-      view.querySelector('#wkAuto').textContent = '■ 停止';
-      view.querySelector('#wkAuto').onclick = () => { abortFlag = true; };
-      await saveCards();
-      for (let i = 0; i < pages.length; i++) {
-        if (abortFlag) break;
-        setProg(`✨ 正在识别第 ${i + 1} / ${pages.length} 页…`, (i) / pages.length);
-        try {
+      let prepared = false, activePage = 0;
+      const locked = [...view.querySelectorAll('#wkCards input, #wkCards textarea, #wkCards button, #wkCards select')].map((el) => [el, el.disabled]);
+      locked.forEach(([el]) => { el.disabled = true; });
+      try {
+        await saveCards(); prepared = true;
+        if (!workRoot.isConnected) return;
+        for (let i = 0; i < pages.length; i++) {
+          if (abortFlag || !workRoot.isConnected) break;
+          if (pages[i].recognition_complete) continue;
+          view.querySelector('#wkAuto').textContent = '停止（当前页保存后暂停）';
+          view.querySelector('#wkAuto').onclick = () => { abortFlag = true; };
+          activePage = i + 1;
+          setProg(`正在识别第 ${i + 1} / ${pages.length} 页…`, i / pages.length);
           const r = await api(`${MF_API}/intake/runs/${runId}/recognize`, { method: 'POST', body: { page: i + 1 } });
-          run.drafts = r.drafts || [];
-          draw();
-          setProg(`✨ 第 ${i + 1} 页完成：累计 ${run.drafts.length} 张题卡`, (i + 1) / pages.length);
-        } catch (e) { toast(`第 ${i + 1} 页识别失败：${e.message || e}`, 'err'); break; }
-      }
-      busy = false; setProg(null); draw();
+          if (!workRoot.isConnected) return;
+          run.drafts = r.drafts || []; pages[i].recognition_complete = true;
+          jobMessage = `第 ${i + 1} 页已保存，累计 ${run.drafts.length} 张题卡；内容仍须核对。`;
+          // 不在任务执行中重新绘制编辑区，避免停止按钮和老师未保存的输入被替换。
+        }
+        if (abortFlag) jobMessage = '已暂停，已保存页面保留；继续识别将跳过完成页。';
+        else if (pages.every((p) => p.recognition_complete)) jobMessage = '逐页处理完成；请到待审核核对内容，接口成功不代表识别正确。';
+      } catch (e) { jobMessage = `${activePage ? '第 ' + activePage + ' 页处理' : '保存题卡'}失败：${e.message || e}。已保存的页面和当前题卡保留，可重试。`; }
+      finally { busy = false; if (workRoot && workRoot.isConnected) { if (prepared) { setProg(null); draw(); } else { locked.forEach(([el, disabled]) => { el.disabled = disabled; }); setProg(jobMessage, 0); } } }
     }
 
     /* ---- ◐ 半自动：逐页 OCR 转写 ---- */
@@ -892,22 +904,28 @@ async function mfIntakeWork(runId) {
       if (busy) return toast('有任务在跑，稍等一下', 'err');
       if (!pages.length) return toast('先上传页图', 'err');
       busy = true; abortFlag = false;
-      view.querySelector('#wkSemi').textContent = '■ 停止';
-      view.querySelector('#wkSemi').onclick = () => { abortFlag = true; };
-      if (!run.ocr_texts) run.ocr_texts = [];
-      for (let i = 0; i < pages.length; i++) {
-        if (abortFlag) break;
-        setProg(`◐ 正在转写第 ${i + 1} / ${pages.length} 页…`, i / pages.length);
-        try {
+      try {
+        for (let i = 0; i < pages.length; i++) {
+          if (abortFlag || !workRoot.isConnected) break;
+          if (String(run.ocr_texts[i] || '').trim()) continue;
+          view.querySelector('#wkSemi').textContent = '停止（当前页保存后暂停）';
+          view.querySelector('#wkSemi').onclick = () => { abortFlag = true; };
+          setProg(`正在转写第 ${i + 1} / ${pages.length} 页…`, i / pages.length);
           const r = await api(`${MF_API}/intake/runs/${runId}/ocr`, { method: 'POST', body: { page: i + 1 } });
           run.ocr_texts[i] = r.text || '';
+          if (!workRoot.isConnected) return;
           const ta = view.querySelector(`#wkOcr${i + 1}`);
           if (ta) { ta.value = run.ocr_texts[i]; ta.closest('details').open = true; }
-        } catch (e) { toast(`第 ${i + 1} 页转写失败：${e.message || e}`, 'err'); break; }
+        }
+        jobMessage = abortFlag ? '转写已暂停，已保存的页文保留，可继续。' : '转写完成，可核对页文并整理成题卡。';
+      } catch (e) { jobMessage = `转写失败：${e.message || e}。已保存的页文保留，可重试。`; }
+      finally {
+        busy = false;
+        if (workRoot && workRoot.isConnected) {
+          // 只更新状态和按钮，不重绘，以保留老师正在编辑的题卡和页文。
+          setProg(jobMessage, 0); view.querySelector('#wkSemi').textContent = '◐ 半自动转写'; view.querySelector('#wkSemi').onclick = semiOcr;
+        }
       }
-      busy = false; setProg(null);
-      view.querySelector('#wkSemi').textContent = '◐ 半自动转写';
-      view.querySelector('#wkSemi').onclick = semiOcr;
     }
 
     async function ocrOne(no, btn) {
@@ -943,22 +961,25 @@ async function mfIntakeWork(runId) {
     }
     async function structureAll() {
       if (busy) return toast('有任务在跑，稍等一下', 'err');
-      const withText = [];
-      new Set([...view.querySelectorAll('.mf-wk-ocr textarea'), view.querySelector('#wkOcr1')].filter(Boolean)).forEach((ta) => { if (ta.value.trim()) withText.push(Number(ta.id.replace('wkOcr', ''))); });
+      const withText = [...view.querySelectorAll('.mf-wk-ocr textarea')].filter((ta) => ta.value.trim()).map((ta) => ({ no: Number(ta.id.replace('wkOcr', '')), text: ta.value }));
       if (!withText.length) return toast('先做「◐ 半自动转写」，再整理成题卡', 'err');
-      busy = true; abortFlag = false;
-      await saveCards();
-      for (let k = 0; k < withText.length; k++) {
-        if (abortFlag) break;
-        const no = withText[k];
-        setProg(`◐ 正在整理第 ${no} 页（${k + 1} / ${withText.length}）…`, k / withText.length);
-        try {
-          const r = await api(`${MF_API}/intake/runs/${runId}/structure`, { method: 'POST', body: { page: no, text: view.querySelector(`#wkOcr${no}`).value } });
+      busy = true; abortFlag = false; let prepared = false;
+      const locked = [...view.querySelectorAll('#wkCards input, #wkCards textarea, #wkCards button, #wkCards select, .mf-wk-ocr textarea')].map((el) => [el, el.disabled]);
+      locked.forEach(([el]) => { el.disabled = true; });
+      withText.forEach(({ no, text }) => { run.ocr_texts[no - 1] = text; });
+      try {
+        await saveCards(); prepared = true;
+        for (let k = 0; k < withText.length; k++) {
+          if (abortFlag || !workRoot.isConnected) break;
+          const { no, text } = withText[k]; run.ocr_texts[no - 1] = text;
+          view.querySelector('#wkAllStruct').textContent = '停止（当前页保存后暂停）'; view.querySelector('#wkAllStruct').onclick = () => { abortFlag = true; };
+          setProg(`正在整理第 ${no} 页（${k + 1} / ${withText.length}）…`, k / withText.length);
+          const r = await api(`${MF_API}/intake/runs/${runId}/structure`, { method: 'POST', body: { page: no, text } });
           run.drafts = r.drafts || [];
-        } catch (e) { break; }
-      }
-      busy = false; setProg(null); draw();
-      view.querySelector('#wkCards').scrollTop = view.querySelector('#wkCards').scrollHeight;
+        }
+        jobMessage = abortFlag ? '整理已暂停，已保存题卡保留。' : '整理完成，题卡需要逐题核对。';
+      } catch (e) { jobMessage = `整理失败：${e.message || e}。已保存题卡保留，可核对后重试。`; }
+      finally { busy = false; if (workRoot && workRoot.isConnected) { if (prepared) { setProg(null); draw(); } else { locked.forEach(([el, disabled]) => { el.disabled = disabled; }); setProg(jobMessage, 0); } } }
     }
 
     /* ---- 校对保存 ---- */

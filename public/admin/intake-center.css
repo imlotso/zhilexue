@@ -51,3 +51,5 @@
   .r4-review-row{flex:0 0 178px}
   .r4-review-preview .pd-batch{flex-basis:100%;max-width:100%}
 }
+
+.r4-flow-notice{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 14px;margin:12px 0 20px;background:#f2f7fc;border:1px solid #dce8f3;border-radius:10px;font-size:13px;line-height:1.65;color:#435c78}.r4-flow-notice>span{flex:1;min-width:180px;overflow-wrap:anywhere}

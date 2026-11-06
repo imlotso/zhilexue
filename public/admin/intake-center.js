@@ -1,6 +1,7 @@
 /* 统一录题入口：各方式保留独立工作流，审核结果集中在待审核页。 */
 async function viewIntakeCenter() {
-  const runs = (await api('/api/admin/bank/mf/intake/runs', { silent: true }).catch(() => ({ list: [] }))).list || [];
+  let historyError = '';
+  const runs = (await api('/api/admin/bank/mf/intake/runs', { silent: true }).catch((e) => { historyError = e.message || '读取批次失败'; return { list: [] }; })).list || [];
   const entries = [
     ['recognize', '拍照 / 截图识别', '上传题目图片，在工作台中识别和核对。', 'image'],
     ['document', 'PDF / Word 识别', '上传试卷或文档，识别后逐题核对。', 'doc'],
@@ -15,8 +16,9 @@ async function viewIntakeCenter() {
     html: `<div class="r4-intake"><div class="r4-intake-head"><div><span class="r4-kicker">智能题库</span><h2>录题中心</h2><p>选择适合的方式录入题目，核对并分类后再入库。</p></div><button class="btn primary" type="button" id="r4-review">查看待审核题目</button></div>
       <div class="r4-steps" aria-label="录题步骤"><div><b>1</b><span><strong>准备资料</strong><small>选择学科、学段和文件</small></span></div><div><b>2</b><span><strong>上传或录入</strong><small>可随时查看处理状态</small></span></div><div><b>3</b><span><strong>核对入库</strong><small>检查答案和分类后入库</small></span></div></div>
       <h3>选择录题方式</h3><div class="r4-entry-grid">${entries.map(([id, title, text, icon]) => `<button type="button" class="r4-entry" data-intake="${id}"><span class="r4-entry-icon">${ic(icon)}</span><span><strong>${esc(title)}</strong><small>${esc(text)}</small></span><span aria-hidden="true">›</span></button>`).join('')}</div>
-      <div class="r4-history"><div class="r4-history-head"><div><h3>最近录题批次</h3><p>继续未完成的识别，或查看已处理批次。</p></div><button type="button" class="btn ghost sm" id="r4-history">管理批次</button></div>${runs.length ? `<div class="r4-history-list">${runs.slice(0, 8).map((r) => `<div class="r4-history-row"><span><strong>${esc(r.title)}</strong><small>${esc(r.source_name || r.source_kind)} · ${Number(r.draft_count) || 0} 题</small></span><span class="r4-status ${r.status === 'error' ? 'error' : ''}">${esc(status[r.status] || r.status)}</span><button class="btn ghost sm" type="button" data-run="${r.id}" data-kind="${esc(r.source_kind)}">打开</button></div>`).join('')}</div>` : '<div class="r4-empty">还没有录题批次，选择上方方式开始。</div>'}</div></div>`,
+      <div class="r4-history"><div class="r4-history-head"><div><h3>最近录题批次</h3><p>继续未完成的识别，或查看已处理批次。</p></div><button type="button" class="btn ghost sm" id="r4-history">管理批次</button></div>${historyError ? `<p role="alert">${esc(historyError)}，请点击管理批次重试；不能据此判断上次上传失败。</p>` : runs.length ? `<div class="r4-history-list">${runs.slice(0, 8).map((r) => `<div class="r4-history-row"><span><strong>${esc(r.title)}</strong><small>${esc(r.source_name || r.source_kind)} · ${Number(r.draft_count) || 0} 题</small></span><span class="r4-status ${r.status === 'error' ? 'error' : ''}">${esc(status[r.status] || r.status)}</span><button class="btn ghost sm" type="button" data-run="${r.id}" data-kind="${esc(r.source_kind)}">打开</button></div>`).join('')}</div>` : '<div class="r4-empty">还没有录题批次，选择上方方式开始。</div>'}</div></div>`,
     after: () => {
+      R4Flow.bind(document.querySelector('.r4-intake'), 'center');
       const go = (route) => { location.hash = '#/' + route; };
       document.getElementById('r4-review').onclick = () => go('pending');
       document.getElementById('r4-history').onclick = () => go('mfi');
@@ -75,7 +77,8 @@ async function viewIntakeExcel(mode = 'excel') {
       </main><aside class="r4-excel-aside"><div class="r4-history"><h3>最近 ${isWord ? 'Word' : 'Excel'} 批次</h3><p>可随时回到待审核继续处理。</p>${runs.length ? `<div class="r4-history-list">${runs.map((r) => `<div class="r4-history-row"><span><strong>${esc(r.source_name || r.title)}</strong><small>${Number(r.draft_count) || 0} 题 · ${r.status === 'done' ? '已处理' : '待核对'} · ${esc(r.created_at || '')}</small></span><button type="button" class="btn ghost sm" data-rx-history="${Number(r.id)}">查看</button></div>`).join('')}</div>` : '<div class="r4-empty">暂无导入记录</div>'}</div></aside></div></div>`,
     after: () => {
       const $ = (id) => document.getElementById(id);
-      let step = 1, file = null, busy = false, lastResult = null;
+      const root = document.querySelector('.r4-excel'); R4Flow.bind(root, mode);
+      let step = 1, file = null, busy = false, uncertain = false, lastResult = null;
       const openReview = (batchId) => { const st = ADM.page.pd = ADM.page.pd || { sel: {} }; st.source = mode; st.kw = ''; st.batch_id = Number(batchId) || 0; st.review = 'all'; st.sel = {}; ADM.page.pdPage = 1; location.hash = '#/pending'; };
       $('rxBack').onclick = () => { location.hash = '#/intake'; };
       const help = () => modal({ title: isWord ? 'Word 格式要求' : 'Excel 填写说明', wide: isWord, body: isWord ? PD_WORD_RULES : '<p>下载模板后按工作表里的题型填写，保留工作表名称、表头及列顺序。示例行不会导入。上传后请检查错误行，在待审核中核对题干、答案和分类。</p>' });
@@ -97,7 +100,7 @@ async function viewIntakeExcel(mode = 'excel') {
         document.querySelectorAll('.r4-excel-steps [data-step]').forEach((el) => { const n = Number(el.dataset.step); el.classList.toggle('active', n === step); el.classList.toggle('complete', n < step); });
         $('rxPrevious').textContent = step === 1 ? '取消' : step === 2 ? '上一步' : '返回录题中心';
         $('rxNext').textContent = step === 1 ? '下一步：选择文件' : step === 2 ? '上传并解析' : '去核对题目';
-        $('rxPrevious').disabled = busy; $('rxNext').disabled = busy || (step === 2 && !file);
+        $('rxPrevious').disabled = busy; $('rxNext').disabled = busy || uncertain || (step === 2 && !file);
       };
       const setFile = (next) => {
         if (busy || !next) return;
@@ -133,8 +136,8 @@ async function viewIntakeExcel(mode = 'excel') {
           $('rxResultBody').innerHTML = `<div class="r4-excel-success"><strong>已接收 ${Number(d.total) || 0} 道题</strong><span>${esc(file.name)}${d.examples_skipped ? ` · 忽略 ${Number(d.examples_skipped)} 行示例` : ''}</span></div>${errors.length ? `<div class="r4-excel-errors"><b>${Number(d.error_count) || errors.length} ${isWord ? '题' : '行'}未导入，请修正后另行上传</b>${errors.map((msg) => `<p>${esc(typeof msg === 'string' ? msg : `第 ${msg.para} 段（第 ${msg.no} 题）：${msg.msg}`)}</p>`).join('')}${Number(d.error_count) > errors.length ? '<p>其余错误请检查原文件。</p>' : ''}</div>` : '<p class="r4-excel-note">解析完成，没有发现格式错误。</p>'}${isWord && (d.warnings || []).length ? `<div class="r4-excel-guide"><strong>解析提醒</strong>${d.warnings.map((w) => `<span>${esc(`第 ${w.para} 段：${w.msg}`)}</span>`).join('')}</div>` : ''}`;
           paintStep();
         };
-        xhr.onerror = () => { busy = false; $('rxProgressLabel').textContent = '连接中断'; $('rxMessage').textContent = '连接中断，文件可能已处理。请先返回录题中心检查最近批次，再决定是否重新上传。'; paintStep(); };
-        xhr.send(fd);
+        xhr.onerror = () => { busy = false; uncertain = true; $('rxProgressLabel').textContent = '连接中断'; $('rxMessage').textContent = '连接中断，文件可能已处理。请先返回录题中心检查最近批次，再决定是否重新上传。'; paintStep(); };
+        R4Flow.watch(xhr, root, mode, file.name); xhr.send(fd);
       };
       paintStep();
     },
@@ -163,6 +166,7 @@ async function viewIntakePhoto(mode = 'image') {
       </main><aside><div class="r4-history"><h3>最近识别批次</h3><p>可返回工作台继续识别或核对。</p>${runs.length ? `<div class="r4-history-list">${runs.map((r) => `<div class="r4-history-row"><span><strong>${esc(r.title)}</strong><small>${Number(r.page_count) || 0} 页 · ${Number(r.draft_count) || 0} 题 · ${esc(status[r.status] || r.status)}${r.error ? '：' + esc(r.error) : ''}</small></span><button type="button" class="btn ghost sm" data-rp-run="${Number(r.id)}">打开</button></div>`).join('')}</div>` : '<div class="r4-empty">暂无识别批次</div>'}</div></aside></div></div>`,
     after: () => {
       const $ = (id) => document.getElementById(id);
+      const root = document.querySelector('.r4-photo'); R4Flow.bind(root, mode);
       let step = 1, busy = false, runId = 0, entries = [], pdfName = '', pdfPrepared = false;
       $('rpBack').onclick = () => { if (!busy) location.hash = '#/intake'; };
       $('rpHelp').onclick = () => modal({ title: isPdf ? 'PDF 识别说明' : '拍摄与识别说明', body: isPdf ? '<p>PDF 会在浏览器中逐页转为图片，每次最多处理 30 页。上传后进入识别工作台，题目需要在待审核中确认后入库。</p>' : '<p>请保持文字清晰、画面光线均匀，尽量拍全题目和选项。图片上传后进入工作台，选择识别方式并核对题卡；题目最终需要在待审核中确认后入库。</p>' });
@@ -208,7 +212,8 @@ async function viewIntakePhoto(mode = 'image') {
         xhr.upload.onprogress = (e) => { if (e.lengthComputable) { entry.progress = Math.min(100, Math.round(e.loaded / e.total * 100)); fileRows(); } };
         xhr.onload = () => { const result = xhr.response || {}; entry.state = xhr.status >= 200 && xhr.status < 300 && result.code === 0 ? 'success' : 'error'; entry.error = result.msg || '请检查图片后重试'; fileRows(); resolve(); };
         xhr.onerror = () => { entry.state = 'uncertain'; fileRows(); resolve(); };
-        const fd = new FormData(); fd.append('pages', entry.file, entry.file.name || 'screenshot.png'); xhr.send(fd);
+        xhr.addEventListener('loadend', () => resolve());
+        const fd = new FormData(); fd.append('pages', entry.file, entry.file.name || 'screenshot.png'); R4Flow.watch(xhr, root, mode, entry.file.name, runId); xhr.send(fd);
       });
       $('rpNext').onclick = async () => {
         if (step === 1) { step = 2; paint(); return; }
@@ -218,7 +223,7 @@ async function viewIntakePhoto(mode = 'image') {
         try {
           if (isPdf && !pdfPrepared) {
             if (!window.PdfPages) throw new Error('PDF 组件加载失败，请刷新页面后重试');
-            const converted = await window.PdfPages.toCanvases(entries[0].file, { maxPages: 30, maxWidth: 1600, onProgress: (done, total) => { $('rpFiles').innerHTML = `<p class="r4-excel-note">正在转换 PDF：${done} / ${total} 页…</p>`; } });
+            const converted = await window.PdfPages.toCanvases(entries[0].file, { maxPages: 30, maxWidth: 1600, onProgress: (done, total) => { if (!root.isConnected) return; $('rpFiles').innerHTML = `<p class="r4-excel-note">正在转换 PDF：${done} / ${total} 页…</p>`; } });
             if (converted.truncated) throw new Error(`PDF 共 ${converted.total} 页，超过 30 页；请先拆分文件再上传。`);
             if (!converted.pages.length) throw new Error('PDF 没有可读取的页面');
             const pageFiles = [];
@@ -228,17 +233,17 @@ async function viewIntakePhoto(mode = 'image') {
               pageFiles.push({ file: new File([blob], `page-${String(page.page).padStart(3, '0')}.png`, { type: 'image/png' }), state: 'pending', progress: 0 });
               page.canvas.width = page.canvas.height = 0;
             }
-            entries = pageFiles; pdfPrepared = true; fileRows();
+            if (!root.isConnected) return; entries = pageFiles; pdfPrepared = true; fileRows();
           }
           if (!runId) {
             const result = await api('/api/admin/bank/mf/intake/runs', { method: 'POST', body: { title: $('rpTitle').value.trim() || (isPdf ? pdfName : entries[0].file.name), subject: $('rpSubject').value, stage: $('rpStage').value, grade: $('rpGrade').value, edition: $('rpEdition').value, term: $('rpTerm').value, material_type: $('rpMaterial').value, source_kind: mode, source_name: isPdf ? pdfName : entries[0].file.name }, silent: true });
             runId = result.id;
           }
-          for (const entry of entries) { if (entry.state === 'success') continue; await send(entry); if (entry.state !== 'success') break; }
+          for (const entry of entries) { if (!root.isConnected) return; if (entry.state === 'success') continue; await send(entry); if (!root.isConnected) return; if (entry.state !== 'success') break; }
           if (entries.every((entry) => entry.state === 'success')) { step = 3; $('rpResultBody').innerHTML = `<div class="r4-excel-success"><strong>已上传 ${entries.length} ${isPdf ? '页' : '张图片'}</strong><span>页图已保存到批次，可随时返回工作台继续识别。</span></div>`; }
           else $('rpMessage').textContent = entries.some((entry) => entry.state === 'uncertain') ? '连接中断，图片可能已经保存；请打开批次核对后继续。' : '有图片上传失败，可重试，已成功的图片不会重复上传。';
-        } catch (err) { $('rpMessage').textContent = err.message || '创建批次失败，请重试'; }
-        finally { busy = false; fileRows(); paint(); }
+        } catch (err) { if (!root.isConnected) return; $('rpMessage').textContent = err.message || '创建批次失败，请重试'; }
+        finally { busy = false; if (root.isConnected) { fileRows(); paint(); } }
       };
       paint();
     },

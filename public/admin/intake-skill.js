@@ -33,8 +33,8 @@ async function viewIntakeSkill() {
     </div>`,
     after: () => {
       const $ = (id) => document.getElementById(id);
-      const root = $('rsPage');
-      let step = 1, mode = 'file', file = null, busy = false, xhr = null, lastResult = null;
+      const root = $('rsPage'); R4Flow.bind(root, 'skill');
+      let step = 1, mode = 'file', file = null, busy = false, uncertain = false, xhr = null, lastResult = null;
       const alive = () => document.contains(root);
       const openReview = (id) => { const st = ADM.page.pd = ADM.page.pd || { sel: {} }; st.source = 'skill'; st.kw = ''; st.batch_id = Number(id) || 0; st.review = 'all'; st.sel = {}; ADM.page.pdPage = 1; location.hash = '#/pending'; };
       $('rsBack').onclick = () => { location.hash = '#/intake'; };
@@ -62,7 +62,7 @@ async function viewIntakeSkill() {
         $('rsPrevious').textContent = step === 1 ? '取消' : step === 2 ? '上一步' : '返回录题中心';
         $('rsNext').textContent = step === 1 ? '下一步：上传或粘贴' : step === 2 ? '上传并解析' : '去核对题目';
         $('rsPrevious').disabled = busy;
-        $('rsNext').disabled = busy || (step === 2 && !(mode === 'file' ? file : $('rsText').value.trim())) || (step === 3 && !(lastResult && lastResult.run_id));
+        $('rsNext').disabled = busy || uncertain || (step === 2 && !(mode === 'file' ? file : $('rsText').value.trim())) || (step === 3 && !(lastResult && lastResult.run_id));
         $('rsModeFile').disabled = busy; $('rsModeText').disabled = busy; $('rsAbort').hidden = !busy;
       };
       const setMode = (next) => {
@@ -79,7 +79,8 @@ async function viewIntakeSkill() {
         setMode('file');
       };
       $('rsModeFile').onclick = () => setMode('file'); $('rsModeText').onclick = () => setMode('text');
-      $('rsText').oninput = () => { message(''); paint(); };
+      const textDraft = R4Flow.read('skill-text'); if (textDraft && typeof textDraft.text === 'string') $('rsText').value = textDraft.text;
+      $('rsText').oninput = () => { R4Flow.save('skill-text', { text: $('rsText').value }); message(''); paint(); };
       $('rsChoose').onclick = (e) => { e.stopPropagation(); $('rsFile').click(); };
       $('rsDrop').onclick = () => $('rsFile').click();
       $('rsDrop').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('rsFile').click(); } };
@@ -93,7 +94,7 @@ async function viewIntakeSkill() {
       $('rsNext').onclick = () => {
         if (step === 1) { step = 2; paint(); return; }
         if (step === 3) { if (lastResult && lastResult.run_id) openReview(lastResult.run_id); return; }
-        if (busy) return;
+        if (busy || uncertain) return;
         let selected = file;
         if (mode === 'text') {
           const raw = $('rsText').value.trim(); if (!raw) { message('请先粘贴 JSON 内容。'); return; }
@@ -110,15 +111,15 @@ async function viewIntakeSkill() {
           if (!alive()) return;
           busy = false; const status = xhr.status; const result = xhr.response || {}; xhr = null;
           if (status < 200 || status >= 300 || result.code !== 0) { message(result.msg || `导入失败（HTTP ${status || '异常'}），请检查内容后重试。`); paint(); return; }
-          const d = result.data || {}; lastResult = { run_id: Number(d.run_id) || 0 }; step = 3;
+          const d = result.data || {}; R4Flow.clear('skill-text'); lastResult = { run_id: Number(d.run_id) || 0 }; step = 3;
           const errors = Array.isArray(d.errors) ? d.errors : [], warnings = Array.isArray(d.warnings) ? d.warnings : [];
           const staged = Number(d.staged) || 0, failed = Number(d.failed) || 0, skipped = Number(d.skipped) || 0, updated = Number(d.updated) || 0;
           $('rsResultBody').innerHTML = `<div class="r4-skill-success"><strong>${staged ? `已接收 ${staged} 道题，等待核对` : '没有新的题目进入待审核'}</strong><span>共 ${Number(d.total) || 0} 道 · 跳过 ${skipped} 道 · 失败 ${failed} 道${updated ? ` · 已有题目补图 ${updated} 道` : ''}</span></div>${errors.length ? `<div class="r4-skill-errors"><b>未导入的题目</b>${errors.map((e) => `<p>${esc((e.recordKey ? e.recordKey + '：' : '') + (e.msg || '处理失败'))}</p>`).join('')}${failed > errors.length ? '<p>其余错误请检查原始题目包。</p>' : ''}</div>` : ''}${warnings.length ? `<div class="r4-skill-warnings"><b>需要留意</b>${warnings.map((w) => `<p>${esc(w)}</p>`).join('')}</div>` : ''}`;
           paint();
         };
-        xhr.onerror = () => { if (!alive()) return; busy = false; xhr = null; message('连接中断，题目包可能已处理。请先返回录题中心检查最近批次，再决定是否重新上传。'); paint(); };
-        xhr.onabort = () => { if (!alive()) return; busy = false; xhr = null; message('已中止等待，服务器可能仍在处理。请先返回录题中心检查最近批次，再决定是否重新上传。'); paint(); };
-        xhr.send(fd);
+        xhr.onerror = () => { if (!alive()) return; busy = false; uncertain = true; xhr = null; message('连接中断，题目包可能已处理。请先返回录题中心检查最近批次，再决定是否重新上传。'); paint(); };
+        xhr.onabort = () => { if (!alive()) return; busy = false; uncertain = true; xhr = null; message('已中止等待，服务器可能仍在处理。请先返回录题中心检查最近批次，再决定是否重新上传。'); paint(); };
+        R4Flow.watch(xhr, root, 'skill', selected.name); xhr.send(fd);
       };
       paint();
     },

@@ -2351,8 +2351,17 @@ admin.post('/import-pack', upBig.single('file'), async (req, res) => {
         const subject = String((meta.subject && meta.subject.label) || '').trim().slice(0, 20);
         const stage = mfMapStage(meta.stage && meta.stage.label);
         const grade = mfMapGrade((meta.grade && meta.grade.label) || (typeof ext.grade === 'string' && ext.grade) || (meta.stage && meta.stage.label));
-        const subtype = QSubtype.find(meta.questionSubtype && meta.questionSubtype.label || meta.questionType && meta.questionType.label);
-        const type = subtype ? subtype.type : mfMapType(meta.questionType && meta.questionType.label, opts.length);
+        const rawSubtype = String(meta.questionSubtype && meta.questionSubtype.label || '').trim();
+        const subtype = QSubtype.find(rawSubtype || meta.questionType && meta.questionType.label);
+        if (rawSubtype && !subtype) throw new Error('不支持的细分题型：' + rawSubtype);
+        const rawType = String(meta.questionType && meta.questionType.label || '').trim();
+        const explicitType = ['single', 'multi', 'judge', 'fill', 'sort', 'answer'].includes(rawType) ? rawType : TYPE_MAP[rawType];
+        const type = explicitType || (subtype ? subtype.type : mfMapType(rawType, opts.length));
+        if (subtype && (!QSubtype.matchesType(subtype, type) || (subject && !QSubtype.matchesSubject(subtype, subject)))) throw new Error('细分题型与学科或基础题型不匹配');
+        const audioKey = audioKeyOf(c.audio_key);
+        if (c.audio_key && !audioKey) throw new Error('听力音频须使用已上传的题库音频 key，请在待审核中上传音频');
+        const audioLimit = c.audio_play_limit == null ? 0 : Number(c.audio_play_limit);
+        if (!Number.isInteger(audioLimit) || audioLimit < 0 || audioLimit > 5) throw new Error('听力播放次数须为 0–5 的整数（0 表示不限）');
         if (meta.difficulty && meta.difficulty.score_10 != null && ext.difficulty_score_10 != null && Number(meta.difficulty.score_10) !== Number(ext.difficulty_score_10)) throw new Error('题目包含冲突的十级难度值');
         const rawScore = meta.difficulty && meta.difficulty.score_10 != null ? meta.difficulty.score_10 : ext.difficulty_score_10;
         const legacyDiff = mfMapDiff(meta.difficulty && meta.difficulty.raw);
@@ -2367,7 +2376,7 @@ admin.post('/import-pack', upBig.single('file'), async (req, res) => {
           stem, material, options: opts.map((o) => ({ label: o.label, content: o.text })), answer: answer.slice(0, 10000), analysis: analysis.slice(0, 10000),
           suggestedTags: [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20),
           figures: urls.map((u) => ({ url: u })), _image_errors: imageErrors, difficulty: diff.difficulty, difficulty_score_10: diff.difficulty_score_10, subject, stage, grade, question_subtype: subtype ? subtype.code : '',
-          match_prompts: MatchQ.list(c.match_prompts),
+          audio_key: audioKey, audio_play_limit: audioLimit, match_prompts: MatchQ.list(c.match_prompts),
           group_ref: group ? String(group.ref || '') : '', group_position: group ? int(group.position, 0) : 0, checked: true,
           _q: { subject, stage, grade, type, stem, material, stem_html: '', options: opts, answer: answer.slice(0, 10000), analysis: analysis.slice(0, 10000), difficulty: diff.difficulty, difficulty_score_10: diff.difficulty_score_10, images: urls, detail },
         });

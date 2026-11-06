@@ -50,7 +50,7 @@ function normalizePack(pack) {
     parent.children.forEach((child, j) => {
       if (!child || typeof child !== 'object' || Array.isArray(child) || (Array.isArray(child.children) && child.children.length)) throw new Error(`第 ${i + 1} 题的小题 ${j + 1} 格式不受支持`);
       const childContent = child.content && typeof child.content === 'object' ? child.content : child;
-      items.push({ ...inherited, ...child, content: { ...childContent, material, images: childContent.images ?? child.images ?? content.images ?? parent.images ?? [] },
+      items.push({ ...inherited, ...child, content: { ...childContent, material, audio_key: childContent.audio_key ?? child.audio_key ?? content.audio_key ?? parent.audio_key, audio_play_limit: childContent.audio_play_limit ?? child.audio_play_limit ?? content.audio_play_limit ?? parent.audio_play_limit, images: childContent.images ?? child.images ?? content.images ?? parent.images ?? [] },
         recordKey: `${parentKey}:sub:${text(child.recordKey ?? child.id ?? child.question_id) || j + 1}`,
         _group_ref: `json:${i + 1}`, _group_position: j + 1 });
     });
@@ -79,7 +79,7 @@ function normalizePack(pack) {
     }
     return {
       recordKey: text(item.recordKey ?? item.id ?? item.question_id) || String(i + 1),
-      content: {stem, material: text(c.material ?? item.material ?? c.passage ?? item.passage), match_prompts: values(c.match_prompts ?? item.match_prompts), options: optionsOf(c.options ?? item.options), answer: text(c.answer ?? item.answer), analysis: text(c.analysis ?? item.analysis), figures},
+      content: {stem, audio_key: c.audio_key ?? item.audio_key, audio_play_limit: c.audio_play_limit ?? item.audio_play_limit, material: text(c.material ?? item.material ?? c.passage ?? item.passage), match_prompts: values(c.match_prompts ?? item.match_prompts), options: optionsOf(c.options ?? item.options), answer: text(c.answer ?? item.answer), analysis: text(c.analysis ?? item.analysis), figures},
       metadata: {
         subject: {label: text(item.subject ?? c.subject)}, stage: {label: text(item.stage ?? c.stage ?? item.grade ?? c.grade)},
         grade: {label: text(item.grade ?? c.grade)},

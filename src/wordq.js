@@ -30,8 +30,8 @@ const SECTION_NAMES = {
   问答题: 'answer', 解答题: 'answer', 简答题: 'answer', 计算题: 'answer', 论述题: 'answer', 应用题: 'answer',
 };
 const TYPE_HINT = { 单选: 'single', 多选: 'multi', 判断: 'judge', 填空: 'fill', 问答: 'answer', 解答: 'answer', 简答: 'answer', 计算: 'answer' };
-// 听力匹配和数学连线使用显式「匹配项」标记，其他排序题仍走现有模板。
-QSubtype.list.filter((x) => x.type !== 'sort' || QSubtype.isMatch(x.code)).forEach((x) => {
+// 排序题保留选项及明确的答案序列；匹配题使用显式「匹配项」标记。
+QSubtype.list.forEach((x) => {
   [x.label, ...(x.aliases || [])].forEach((label) => {
     if (/[（）()]/.test(label)) return;
     SECTION_NAMES[label] = x.type; SECTION_NAMES[label + '题'] = x.type;
@@ -54,7 +54,7 @@ const hintFromHead = (s) => {
   const m = String(s || '').match(/^[（(]\s*([^）)]{1,20}?)\s*[)）]\s*/);
   if (!m) return null;
   const subtype = QSubtype.find(m[1]);
-  if (subtype && (subtype.type !== 'sort' || QSubtype.isMatch(subtype.code))) return { type: subtype.type, subtype: subtype.code, rest: String(s).slice(m[0].length) };
+  if (subtype) return { type: subtype.type, subtype: subtype.code, rest: String(s).slice(m[0].length) };
   const key = Object.keys(TYPE_HINT).find((k) => m[1].indexOf(k) === 0);
   return key ? { type: TYPE_HINT[key], rest: String(s).slice(m[0].length) } : null;
 };
@@ -94,6 +94,7 @@ function parseWordQuestions(paras) {
   const errors = [];
   const warnings = [];
   let bigCount = 0;
+  let sharedMaterial = '', materialRef = '', materialLines = null;
   let section = '';        // 当前小节题型
   let sectionSubtype = '';
   let sectionChoiceExplicit = false;
@@ -128,12 +129,16 @@ function parseWordQuestions(paras) {
     if (!cur) return;
     const c = cur; cur = null;
     const emit = (item) => {
+      if (sharedMaterial && !item.material) {
+        item.material = sharedMaterial; item.group_ref = materialRef;
+        item.imgRefs = [...new Set([...(item.imgRefs || []), ...figRefs(sharedMaterial)])];
+      }
       const subtype = QSubtype.find(c.subtype);
       const difficulty = item.difficulty_score_10 != null ? item.difficulty_score_10 : c.difficulty_score_10;
       const missingAnswer = !String(item.answer || '').trim();
       if (missingAnswer) warnings.push({ para: item.para, no: item.no, sub: item.sub || 0, msg: `第 ${item.no} 题${item.sub ? `小问（${item.sub}）` : ''}未提供答案，已留空，请老师核对` });
       const uncertainType = missingAnswer && ['single','multi'].includes(item.type) && !c.choiceExplicit;
-      list.push({ ...item, ...(difficulty != null ? { difficulty_score_10: difficulty } : {}), ...(uncertainType ? { type_unconfirmed: true } : {}), question_subtype: subtype && subtype.type === item.type ? subtype.code : '' });
+      list.push({ ...item, ...(difficulty != null ? { difficulty_score_10: difficulty } : {}), ...(uncertainType ? { type_unconfirmed: true } : {}), question_subtype: QSubtype.matchesType(subtype, item.type) ? subtype.code : '' });
     };
     bigCount++;
     if (c.difficultyError) return fail(c, c.difficultyError);
@@ -202,6 +207,17 @@ function parseWordQuestions(paras) {
       emit({ no: c.no, sub: 0, type, stem, material: '', options: opts, answer: letters.join(','), analysis: cleanAna(c.analysis), imgRefs: [...new Set([...figRefs(stem), ...opts.map((o) => figRefs(o.content)).flat(), ...figRefs(c.analysis)])], para: c.para });
       return;
     }
+    if (type === 'sort') {
+      if (opts.length < 2 || opts.length > 7 || !opts.every((o, i) => o.label === LETTERS[i])) return fail(c, '排序题需要从 A 开始连续排列的 2–7 个选项');
+      let seq = [];
+      if (ans) {
+        if (/^[A-G\s,，、;；]+$/i.test(ans)) seq = (ans.toUpperCase().match(/[A-G]/g) || []).map((v) => LETTERS.indexOf(v) + 1);
+        else if (/^[1-7](?:\s*[,，、;；]\s*[1-7])*$/.test(ans)) seq = ans.split(/[,，、;；]/).map(Number);
+        if (seq.length !== opts.length || new Set(seq).size !== opts.length || seq.some((v) => v > opts.length)) return fail(c, '排序题答案须按顺序列出全部选项且不重复，如 C,A,B 或 3,1,2');
+      }
+      emit({ no: c.no, sub: 0, type, stem, material: '', options: opts, answer: seq.join(','), analysis: cleanAna(c.analysis), imgRefs: [...new Set([...figRefs(stem), ...opts.flatMap((o) => figRefs(o.content)), ...figRefs(c.analysis)])], para: c.para });
+      return;
+    }
     if (type === 'judge') {
       const j = normJudge(ans);
       if (ans && !j) return fail(c, `判断题答案应为 对/错、正确/错误、正/误，现在是「${ans.slice(0, 20)}」`);
@@ -237,6 +253,14 @@ function parseWordQuestions(paras) {
     const para = i + 1;
     let line = String(raw || '').trim();
     if (!line) return;
+    if (line === '[材料]') { finish(); materialLines = []; materialRef = `word:material:${para}`; sharedMaterial = ''; sectionFresh = true; return; }
+    if (materialLines) {
+      if (line === '[材料结束]') { sharedMaterial = materialLines.join('\n').trim(); materialLines = null; if (!sharedMaterial) errors.push({ para, no: 0, msg: '共同材料不能为空' }); }
+      else materialLines.push(line);
+      return;
+    }
+    if (line === '[材料清空]') { finish(); sharedMaterial = ''; materialRef = ''; return; }
+
 
     // 小节标题：结束当前题，记下题型，题号可从 1 重来
     const sec = line.match(RE_SECTION);
@@ -328,6 +352,7 @@ function parseWordQuestions(paras) {
     addLine(line);
   });
   finish();
+  if (materialLines) errors.push({ para: paras.length, no: 0, msg: '材料缺少 [材料结束] 标记，材料后的题目未导入' });
   return { list, errors, warnings, bigCount };
 }
 

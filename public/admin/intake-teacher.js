@@ -23,7 +23,7 @@ async function viewIntakeTeacher() {
     </div>`,
     after: () => {
       const $ = (id) => document.getElementById(id);
-      const root = document.querySelector('.rt-page');
+      const root = document.querySelector('.rt-page'); R4Flow.bind(root, 'teacher');
       let step = 1, url = '', expiresAt = 0, timer = null, busy = false;
       const parseDrafts = (v) => { try { const a = Array.isArray(v) ? v : JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
       const openReview = (batchId) => { const state = ADM.page.pd = ADM.page.pd || { sel: {} }; state.source = 'teacher_scan'; state.kw = ''; state.batch_id = Number(batchId) || 0; state.review = 'all'; state.sel = {}; ADM.page.pdPage = 1; location.hash = '#/pending'; };

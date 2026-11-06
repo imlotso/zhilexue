@@ -1730,7 +1730,7 @@ stu.get('/mistakes', (req, res) => {
       q.type, q.stem, q.options, q.answer, q.analysis, q.material, q.subject, q.point, q.difficulty, q.images, q.audio_key, q.audio_play_limit, q.question_subtype, q.match_prompts, q.source
     FROM mistakes m JOIN questions q ON q.id=m.question_id${where}
     ORDER BY m.resolved, m.updated_at DESC LIMIT 300`).all(...args).map(parseQ)
-    .map((r) => Object.assign(r, { quiz_ticket: signQuestionTicket(uid, r.question_id), audio_url: r.audio_key ? store.getUrlSync(r.audio_key) : '', question_subtype: r.type === 'sort' ? (r.question_subtype || '') : '', match_prompts: r.type === 'sort' && QSubtype.isMatch(r.question_subtype) ? require('./match-question').list(r.match_prompts) : [] }));
+    .map((r) => Object.assign(r, { quiz_ticket: signQuestionTicket(uid, r.question_id), audio_url: r.audio_key ? store.getUrlSync(r.audio_key) : '', question_subtype: QSubtype.compatible(r.question_subtype, r.subject, r.type), match_prompts: r.type === 'sort' && QSubtype.isMatch(r.question_subtype) ? require('./match-question').list(r.match_prompts) : [] }));
   const counts = {};
   db.prepare(`SELECT q.subject AS s, COUNT(*) n FROM mistakes m JOIN questions q ON q.id=m.question_id
     WHERE m.user_id=? GROUP BY q.subject`).all(uid).forEach((r) => { counts[r.s || '其他'] = r.n; });

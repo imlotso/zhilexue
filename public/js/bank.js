@@ -12,7 +12,7 @@ const quizTryText = (last) => !last ? '' : (last.ungraded_count ? `${last.object
 
 /** 稳定打乱（按题目 id 做种子，同一题每次进入顺序一致，避免「答案就是原顺序」的排序题泄题） */
 function quizShuffle(arr, seed) {
-  const a = arr.map((v, i) => [v, i]);
+  const a = arr.map((v, i) => ({ v, i }));
   let s = (Number(seed) || 1) * 9301 + 49297;
   for (let i = a.length - 1; i > 0; i--) {
     s = (s * 233280 + 8251) % 2147483647;
@@ -837,7 +837,7 @@ const BankQuiz = {
         <div class="r8-qcard">
           ${opt.notice ? `<div class="r9-sim-notice" role="status">${esc(opt.notice)}</div>` : ''}
           <div class="qz-qhead"><span class="qz-qno">第 ${st.idx + 1} / ${total} 题</span>
-            <span class="qz-qtype">${({ listen_match: '听力匹配', math_match: '连线题', drawing: '作图题', translation: '翻译', writing: '书面表达', calculation: '计算题' })[q.question_subtype] || QT_NAME[q.type] || (q.type === 'answer' ? '问答题' : '')}</span>
+            <span class="qz-qtype">${(typeof QSubtype !== 'undefined' && QSubtype.find(q.question_subtype) || {}).label || ({ listen_match: '听力匹配', math_match: '连线题', drawing: '作图题', translation: '翻译', writing: '书面表达', calculation: '计算题' })[q.question_subtype] || QT_NAME[q.type] || (q.type === 'answer' ? '问答题' : '')}</span>
             ${q.type === 'multi' ? '<span class="qz-qtip">可多选</span>' : ''}
             ${q.point ? `<span class="r8-qpoint">${esc(q.point)}</span>` : ''}
             <span class="qz-raqno" title="题目编号">#${String(q.id).padStart(5, '0')}</span></div>

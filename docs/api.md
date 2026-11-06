@@ -191,7 +191,7 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 
 - `GET /api/admin/bank/mf/ext/import-template?options_10=1`：下载十选项扩展模板；单选、多选、完形填空和阅读理解工作表在客户原表列尾追加缺失的 A–J 选项列。无参数仍返回字节不变的客户原模板；英语、数学、十级难度扩展模板同样支持 A–J。选择题选项须从 A 连续填写，最多 10 项。
 - `POST /api/admin/bank/mf/ext/pending/manual`：手动题保存为待审核批次，支持 `material`、`audio_key`、`audio_play_limit` 和听力匹配 `match_prompts`；未填答案、解析保持空白。`GET /ext/pending` 支持 `review_status=no_answer|no_analysis|no_image|no_class` 和对应计数。
-- `POST /api/admin/bank/mf/ext/pending/manual-group`：接收共同材料、可选共用音频和 2–30 道小题，拆成独立待审核题卡并保留同组标识；材料以小题快照保存，后续修改不会联动。部分 Excel、Word 和单层 JSON 组合题也保留组信息；整组组卷支持加入当前已入库小题并保留原顺序，复杂嵌套及 JSON 共用音频仍未完成。
+- `POST /api/admin/bank/mf/ext/pending/manual-group`：接收共同材料、可选共用音频和 2–30 道小题，拆成独立待审核题卡并保留同组标识；材料以小题快照保存，后续修改不会联动。部分 Excel、Word 和单层 JSON 组合题也保留组信息；整组组卷支持加入当前已入库小题并保留原顺序，复杂嵌套仍未完成；JSON 共用音频支持已上传的题库音频 key 和播放次数，不支持包内本地音频自动转存。
 - `POST /api/admin/bank/mf/ext/pending/image`：使用 multipart `id`、`index`、`file` 替换待审核题中转存失败的图片。外链图只允许经过公网地址及跳转检查的 HTTP(S) 图片，限制 5 MB 并验证图片签名；未补齐的题目不能入库。
 - `POST /api/admin/bank/mf/ext/pending/ai-classify`：返回题型、十级难度和限定题目学科、学段、教材版本等范围的现有树节点建议；生成过程不改写题目、答案或解析。建议须由老师逐项勾选确认。已用一道合成题通过真实模型检查请求和原答案保护，推荐准确率尚未验收。
 - `POST /api/admin/bank/mf/papers/from-run`：将图片/PDF 识别批次转换为未发布试卷草稿，审核入库后自动回挂。`POST /api/admin/bank/videos/:id/import-docx` 与旧 `POST /api/admin/bank/questions/import` 也先创建待审核批次。
@@ -267,3 +267,10 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 ### Word 真题原序与待核对题型标题
 
 `POST /api/admin/bank/mf/papers/import-word` 按文档中连续题型生成大题标题和题目行，不再将中间穿插的题目移到同题型的其他位置；未明确单双选且尚未确认的选择题标题显示「待核对选择题」，不会预先标成单选。老师可在试卷编辑中修改文本块标题；`PUT /papers/:id/rows/:rowId` 修改文本块时要求内容非空，更新文字不会改变其原顺序、样式或对齐方式。题型仍须在待审核中单独确认。
+
+### 英语录入补齐（2026-11-06）
+
+- 英语细分增加 `cloze`、`reading`、`task_reading`、`reading_restore`、`word_choice`、`dialogue`、`correction`；`reading/task_reading/dialogue` 支持选择、填空、问答中的适用基础题型，`word_choice` 支持选择或填空，`correction` 支持填空或问答。实际兼容组合见 `public/js/question-subtypes.js`；问答不自动判分。已有题型与判分格式不变。
+- `POST /import-pack` 中明确的基础 `question_type/type` 优先于细分默认值，不兼容时逐题报错。普通 JSON 的 `audio_key`、`audio_play_limit` 可由共同材料继承到小题；小题显式值优先。仅接收题库音频目录 key，次数为 0–5 整数；外部 URL 或包内音频须先上传到待审核，不自动下载。
+- Word 规则导入支持听力排序和连词成句标题，选项 A–G 连续、2–7 项；答案可用字母或逗号分隔位置序列，缺失则保持空白。显式共同材料采用独立行 `[材料]`、`[材料结束]`，材料作用于其后的各小题，直至新材料或 `[材料清空]`，保留材料图号和题组顺序。未闭合的材料块报错，不能将其中的文字猜成题目。
+- `GET /ext/import-template?english_subtypes=1` 在既有扩展表基础上增加问答表和英语题型说明；`POST /ext/import-excel` 支持问答表的参考答案和细分题型。无参数模板仍为客户原文件。

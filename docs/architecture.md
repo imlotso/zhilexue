@@ -91,3 +91,5 @@ zhilexue/
 `difficulty.js` 统一处理十级精度与原有五星字段的校验和同步；无十级来源时保留空值，既有按五星的筛选和组卷不变。
 
 `ai-proxy.js` 仅为 `ai-client.js` 的 AI 请求选择 HTTP(S) 代理，按标准代理环境变量与 `NO_PROXY` 判断，回环地址直连；不更改全局 Agent 和 TLS 校验。
+
+`public/admin/intake-flow.js` 为录题入口共用的传输超时、离页回调保护、sessionStorage 草稿及批次恢复提示和教程；在录题页面脚本前加载。文件本体不保存在浏览器草稿中，恢复不等于字节级续传或后台任务。英语细分兼容关系统一由 `public/js/question-subtypes.js` 提供，学生端与后台均加载；Word、Excel 和 JSON 导入复用它。

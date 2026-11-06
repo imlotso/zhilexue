@@ -36,6 +36,8 @@ jobs:
       - run: node drawing-answer-test.js
       - run: node question-ticket-test.js    # 学生题目票据的身份绑定、到期与篡改
       - run: node mfpack-adapter-test.js
+      - run: node english-workflow-test.js
+      - run: node intake-recovery-ui-test.js
       - run: node writing-translation-test.js
       - run: node match-export-test.js
       - run: node docx-solution-images-test.js
@@ -112,6 +114,8 @@ jobs:
           TTS_MOCK: '1'
       - run: node compose-test.js
         if: ${{ !cancelled() }}   # 组卷（T5）：章节树 / 知识点树组卷、定向下发、学生自组卷
+      - run: node english-workflow-flow-test.js
+        if: ${{ !cancelled() }}
       - run: node group-compose-test.js
         if: ${{ !cancelled() }}   # 组合题分组、材料、来源和试卷顺序
       - run: node lessonq-test.js

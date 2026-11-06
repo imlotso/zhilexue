@@ -11,6 +11,7 @@ async function viewIntakeManual() {
   const row = () => `<section class="r4m-question">
     <div class="r4m-question-head"><h3 data-question-title>小题</h3><button type="button" class="btn ghost sm" data-question-remove>删除小题</button></div>
     <div class="field"><label>题型<select class="input" data-question-type>${opts(types)}</select></label></div>
+    <div class="field"><label>细分题型（选填）<select class="input" data-question-subtype><option value="">不细分</option></select></label></div>
     <div class="field"><label>题干 <span aria-hidden="true">*</span><textarea class="input" rows="3" data-question-stem placeholder="填写题目内容"></textarea></label></div>
     <div class="field" data-match-field style="display:none"><label>匹配左侧项目<textarea class="input" rows="3" data-question-match placeholder="每行一项，如人物名称"></textarea></label><small data-match-hint></small></div>
     <div class="field" data-options-field><label>选项<textarea class="input" rows="4" data-question-options placeholder="每行填写一个选项，按 A、B、C 顺序排列"></textarea></label><small data-options-hint>每行填写一个选项。</small></div>
@@ -35,11 +36,13 @@ async function viewIntakeManual() {
   </div>`;
   return { html, after: () => {
     const root = document.querySelector('.r4m-page'); if (!root) return;
+    R4Flow.bind(root, 'manual');
+    const draft = R4Flow.read('manual-draft');
     const $ = (s) => root.querySelector(s);
     const box = $('#r4m-questions');
     let step = 1, busy = false;
     const questionImages = new WeakMap();
-    const audio = t7AudioWidget($('#r4m-audio'), {});
+    const audio = t7AudioWidget($('#r4m-audio'), draft && draft.audio || {});
     const val = (selector) => $(selector).value.trim();
     const mode = () => root.querySelector('[name="r4m-kind"]:checked').value;
     const lines = (value) => String(value || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
@@ -51,6 +54,8 @@ async function viewIntakeManual() {
     };
     const showQuestionType = (question) => {
       const type = question.querySelector('[data-question-type]').value;
+      const base = (QSubtype.find(type) || {}).type || type;
+      QSubtype.fillSelect(question.querySelector('[data-question-subtype]'), val('#r4m-subject'), base);
       const fields = question.querySelector('[data-options-field]');
       fields.style.display = ['single', 'multi', 'sort', 'listen_match', 'math_match'].includes(type) ? '' : 'none';
       question.querySelector('[data-match-field]').style.display = ['listen_match', 'math_match'].includes(type) ? '' : 'none';
@@ -70,7 +75,7 @@ async function viewIntakeManual() {
     const dataQuestions = () => [...box.querySelectorAll('.r4m-question')].filter((q) => !q.hidden).map((q) => {
       const get = (key) => q.querySelector(`[data-question-${key}]`).value.trim();
       const selected = get('type');
-      return { type: ['listen_match', 'math_match'].includes(selected) ? 'sort' : selected === 'translation' ? 'fill' : ['writing', 'calculation', 'drawing'].includes(selected) ? 'answer' : selected, question_subtype: ['listen_match', 'math_match', 'translation', 'writing', 'calculation', 'drawing'].includes(selected) ? selected : '',
+      return { type: ['listen_match', 'math_match'].includes(selected) ? 'sort' : selected === 'translation' ? 'fill' : ['writing', 'calculation', 'drawing'].includes(selected) ? 'answer' : selected, question_subtype: ['listen_match', 'math_match', 'translation', 'writing', 'calculation', 'drawing'].includes(selected) ? selected : get('subtype'),
         stem: get('stem'), options: ['single', 'multi', 'sort', 'listen_match', 'math_match'].includes(selected) ? lines(get('options')) : [],
         match_prompts: ['listen_match', 'math_match'].includes(selected) ? lines(get('match')) : [], answer: get('answer'), analysis: get('analysis'), images: questionImages.get(q) || [] };
     });
@@ -96,7 +101,7 @@ async function viewIntakeManual() {
     };
     const makeSummary = () => {
       const kind = mode() === 'group' ? '组合题' : '单道题';
-      const itemType = (q) => (types.find(([k]) => k === (q.question_subtype || q.type)) || [null, q.type])[1];
+      const itemType = (q) => (QSubtype.find(q.question_subtype) || {}).label || (types.find(([k]) => k === q.type) || [null, q.type])[1];
       const summary = $('#r4m-summary');
       summary.innerHTML = `<div class="r4m-summary-meta"><b>${esc(kind)}</b><span>${esc(val('#r4m-subject'))} · ${esc($('#r4m-stage').selectedOptions[0].textContent)}${val('#r4m-grade') ? ' · ' + esc(val('#r4m-grade')) : ''}</span><span>${audio.get() ? '已添加听力音频' : '未添加音频'}</span></div>
         ${val('#r4m-material') ? `<div class="r4m-summary-material"><b>材料 / 原文</b><p>${esc(val('#r4m-material')).replace(/\n/g, '<br>')}</p></div>` : ''}
@@ -113,6 +118,7 @@ async function viewIntakeManual() {
     root.querySelectorAll('[name="r4m-kind"]').forEach((el) => el.onchange = () => { if (mode() === 'group' && box.children.length < 2) addQuestion(); numberRows(); });
     box.onclick = (e) => { const remove = e.target.closest('[data-question-remove]'); if (!remove) return; if (box.children.length <= 2) return toast('组合题至少保留两道小题', 'err'); remove.closest('.r4m-question').remove(); numberRows(); };
     $('#r4m-add').onclick = addQuestion;
+    $('#r4m-subject').onchange = () => box.querySelectorAll('.r4m-question').forEach(showQuestionType);
     $('#r4m-prev').onclick = () => { if (step > 1) { step--; show(); } };
     $('#r4m-next').onclick = async () => {
       if (busy) return;
@@ -127,9 +133,32 @@ async function viewIntakeManual() {
       busy = true; $('#r4m-next').disabled = true; $('#r4m-next').textContent = '保存中…';
       try {
         await api(`/api/admin/bank/mf/ext/pending/${group ? 'manual-group' : 'manual'}`, { method: 'POST', body: group ? { ...common, questions } : { ...common, ...questions[0] } });
-        toast('已保存到待审核', 'ok'); location.hash = '#/pending';
+        R4Flow.clear('manual-draft'); toast('已保存到待审核', 'ok'); location.hash = '#/pending';
       } catch (e) { toast(e.message || '保存失败，请重试', 'err'); busy = false; $('#r4m-next').disabled = false; $('#r4m-next').textContent = '保存到待审核'; }
     };
-    addQuestion(); numberRows(); show();
+    addQuestion();
+    if (draft && Array.isArray(draft.fields)) {
+      try {
+        while (box.children.length < Math.min(30, Number(draft.count) || 1)) addQuestion();
+        const set = (selector, value) => { const el = root.querySelector(selector); if (el) el.value = value; };
+        (draft.fields || []).filter(([id]) => id.startsWith('#')).forEach(([id, value]) => set(id, value));
+        const radio = root.querySelector(`[name="r4m-kind"][value="${draft.group ? 'group' : 'single'}"]`); if (radio) radio.checked = true;
+        [...box.children].forEach((q, i) => {
+          const values = draft.questions && draft.questions[i] || {};
+          q.querySelector('[data-question-type]').value = values.type || 'single'; showQuestionType(q);
+          for (const name of ['stem', 'options', 'match', 'answer', 'analysis', 'subtype']) if (typeof values[name] === 'string') q.querySelector(`[data-question-${name}]`).value = values[name];
+          const imgs = questionImages.get(q); if (imgs && Array.isArray(values.images)) imgs.push(...values.images);
+        });
+      } catch (_) { toast('部分草稿未恢复，请检查后继续', 'err'); }
+    }
+    const saveDraft = () => R4Flow.save('manual-draft', {
+      count: box.children.length, group: mode() === 'group',
+      fields: ['subject', 'stage', 'grade', 'material'].map((name) => [`#r4m-${name}`, val(`#r4m-${name}`)]),
+      questions: [...box.children].map((q) => Object.assign({ images: questionImages.get(q) || [] }, ...['type', 'subtype', 'stem', 'options', 'match', 'answer', 'analysis'].map((name) => ({ [name]: q.querySelector(`[data-question-${name}]`).value })))),
+      audio: { key: audio.get(), limit: audio.getLimit() }
+    });
+    root.addEventListener('input', saveDraft); root.addEventListener('change', saveDraft);
+    box.addEventListener('click', (e) => { if (e.target.closest('[data-question-remove]')) saveDraft(); });
+    numberRows(); show();
   } };
 }
