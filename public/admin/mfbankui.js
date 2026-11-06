@@ -1016,9 +1016,8 @@ async function mfIntakeWork(runId) {
       if (!cards.some((c) => String(c.stem || '').trim())) return toast('请先识别或录入题目', 'err');
       await api(`${MF_API}/intake/runs/${runId}/drafts`, { method: 'PUT', body: { drafts: cards } });
       toast('已保存，请到待审核核对题目和分类', 'ok');
-      const state = ADM.page.pd = ADM.page.pd || { sel: {} };
-      state.source = ({ image: 'photo', pdf: 'photo', word: 'word', excel: 'excel', skill: 'skill', teacher_scan: 'teacher_scan', manual: 'manual', paper: 'paper', lesson: 'lesson' })[run.source_kind] || 'photo';
-      state.batch_id = run.id; state.kw = ''; state.review = 'all'; state.sel = {}; ADM.page.pdPage = 1;
+      const source = ({ image: 'photo', pdf: 'photo', word: 'word', excel: 'excel', skill: 'skill', teacher_scan: 'teacher_scan', manual: 'manual', paper: 'paper', lesson: 'lesson' })[run.source_kind] || 'photo';
+      pdSelectBatch(source, run.id);
       location.hash = '#/pending';
     }
 

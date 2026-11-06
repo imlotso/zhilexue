@@ -332,6 +332,7 @@ tr.row-open .expand-icon{transform:rotate(90deg);color:var(--primary)}
 .page-head .toolbar,.page-head .filters{flex:0 1 auto;justify-content:flex-end}
 @media(max-width:980px){
   .page-head{flex-direction:column;align-items:stretch}
+  .page-head>div:first-child{flex-basis:auto}
   .page-head .toolbar,.page-head .filters{justify-content:flex-start}
 }
 

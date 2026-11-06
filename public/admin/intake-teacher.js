@@ -27,7 +27,7 @@ async function viewIntakeTeacher() {
       const scope = R4Flow.scope(root, 'teacher', $('rtPrepare'), {subject:'rtSubject'});
       let step = 1, url = '', expiresAt = 0, timer = null, busy = false;
       const parseDrafts = (v) => { try { const a = Array.isArray(v) ? v : JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
-      const openReview = (batchId) => { const state = ADM.page.pd = ADM.page.pd || { sel: {} }; state.source = 'teacher_scan'; state.kw = ''; state.batch_id = Number(batchId) || 0; state.review = 'all'; state.sel = {}; ADM.page.pdPage = 1; location.hash = '#/pending'; };
+      const openReview = (batchId) => { pdSelectBatch('teacher_scan', batchId); location.hash = '#/pending'; };
       const drawHistory = () => {
         const el = $('rtHistory'); if (!el) return;
         if (historyError) { el.innerHTML = `<p class="rt-error">${esc(historyError)}</p>`; return; }

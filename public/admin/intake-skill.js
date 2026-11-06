@@ -38,7 +38,7 @@ async function viewIntakeSkill() {
       $('rsPrepare').insertAdjacentHTML('beforeend','<p class="r4-skill-note">资料范围只补充包内缺失信息；已有学科、学段保留原值。不同版本请分批导入。</p>');
       let step = 1, mode = 'file', file = null, busy = false, uncertain = false, xhr = null, lastResult = null;
       const alive = () => document.contains(root);
-      const openReview = (id) => { const st = ADM.page.pd = ADM.page.pd || { sel: {} }; st.source = 'skill'; st.kw = ''; st.batch_id = Number(id) || 0; st.review = 'all'; st.sel = {}; ADM.page.pdPage = 1; location.hash = '#/pending'; };
+      const openReview = (id) => { pdSelectBatch('skill', id); location.hash = '#/pending'; };
       $('rsBack').onclick = () => { location.hash = '#/intake'; };
       $('rsHelp').onclick = () => modal({ title: '如何使用技能包导入', body: '<p>下载技能包后按其中说明使用 AI 助手转写；也可复制提示词自行生成题目包。将结果保存为 JSON 或 ZIP，或者直接粘贴 JSON。导入后请检查处理结果，再到待审核核对题干、答案、图片与分类。</p><p>答案、解析在原文中缺失时应留空。听力音频可在待审核中上传。</p>' });
       $('rsDownload').onclick = async () => {

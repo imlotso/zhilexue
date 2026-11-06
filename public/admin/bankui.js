@@ -852,10 +852,12 @@ function bkPaperPreview(p) {
       <div id="ppPrevBody">${paint(false)}</div>`,
     onMount: (w) => {
       let show = false;
+      if (window.mtxTypeset) mtxTypeset(w.querySelector('#ppPrevBody'));
       w.querySelector('#ppAnsToggle').onclick = (e) => {
         show = !show;
         e.target.textContent = show ? '隐藏答案解析' : '显示答案解析';
         w.querySelector('#ppPrevBody').innerHTML = paint(show);
+        if (window.mtxTypeset) mtxTypeset(w.querySelector('#ppPrevBody'));
       };
       w.querySelector('#ppPrint').onclick = () => bkPrintWindow(p.title, paint(true));
       w.querySelector('#ppDocx').onclick = async (e) => {

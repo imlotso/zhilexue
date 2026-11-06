@@ -79,7 +79,7 @@ async function viewIntakeExcel(mode = 'excel') {
       const $ = (id) => document.getElementById(id);
       const root = document.querySelector('.r4-excel'); R4Flow.bind(root, mode);
       let step = 1, file = null, busy = false, uncertain = false, lastResult = null;
-      const openReview = (batchId) => { const st = ADM.page.pd = ADM.page.pd || { sel: {} }; st.source = mode; st.kw = ''; st.batch_id = Number(batchId) || 0; st.review = 'all'; st.sel = {}; ADM.page.pdPage = 1; location.hash = '#/pending'; };
+      const openReview = (batchId) => { pdSelectBatch(mode, batchId); location.hash = '#/pending'; };
       $('rxBack').onclick = () => { location.hash = '#/intake'; };
       const help = () => modal({ title: isWord ? 'Word 格式要求' : 'Excel 填写说明', wide: isWord, body: isWord ? PD_WORD_RULES : '<p>下载模板后按工作表里的题型填写，保留工作表名称、表头及列顺序。示例行不会导入。上传后请检查错误行，在待审核中核对题干、答案和分类。</p>' });
       $('rxHelp').onclick = help;

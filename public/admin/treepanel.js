@@ -48,12 +48,17 @@ function treePanel(el, opt = {}) {
   let casOpen = false; let casStage = ''; let casSubj = '';
   const uid = 'tpn' + Math.random().toString(36).slice(2, 8);
 
-  const stagesOf = () => TPN_STAGES.filter(([k]) => trees.some((t) => (t.stage || '') === k));
-  const subjectsOf = (stage) => [...new Set(trees.filter((t) => (t.stage || '') === stage && t.subject).map((t) => t.subject))]
+  // 分类入口不应因目录尚未导入而消失；空范围仍展示真实空态，不制造树或节点。
+  const stagesOf = () => TPN_STAGES;
+  const subjectsOf = (stage) => [...new Set([
+    ...(stage === 'primary' ? ['数学', '英语', '语文'] : ['数学', '英语', '语文', '物理', '化学']),
+    ...trees.filter((t) => (t.stage || '') === stage && t.subject).map((t) => t.subject),
+  ])]
     .sort((a, b) => ((TPN_SUBJ_ORDER.indexOf(a) + 1 || 99) - (TPN_SUBJ_ORDER.indexOf(b) + 1 || 99)) || a.localeCompare(b, 'zh'));
   const editionsOf = (stage, subject) => {
     const tb = tpEditions(trees, { kind: 'textbook', subject, stage });
-    return tb.length ? tb : tpEditions(trees, { kind: 'knowledge', subject, stage });
+    const editions = tb.length ? tb : tpEditions(trees, { kind: 'knowledge', subject, stage });
+    return editions.length ? editions : [''];
   };
   const stageName = (k) => (TPN_STAGES.find((x) => x[0] === k) || [k, k || '不限学段'])[1];
   const pathOf = (id) => { const out = []; let n = byId.get(String(id)); let g = 0; while (n && g++ < 20) { out.unshift(n.name); n = n.parent_id ? byId.get(String(n.parent_id)) : null; } return out; };

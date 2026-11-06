@@ -172,6 +172,14 @@ jobs:
         if: ${{ !cancelled() }}   # 知识树教材版本（R2）：edition 列与迁移、默认版本表、pickTree 前后端一致、树导入导出与脚本、学生端按默认版本取树
       - run: node r1-test.js
         if: ${{ !cancelled() }}   # R1 二轮整改：菜单调整、#/acc 跳转、习题学习报告合并正确率与导出错题 Word、学习报告详情接口（B2）
+      - run: node browser-audit-test.js
+        if: ${{ !cancelled() }}
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_DATABASE: xuexi
+          STORAGE_DRIVER: local
+          AI_MOCK: '1'
+          TTS_MOCK: '1'
       - name: Upload admin UI evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -549,7 +549,7 @@ async function wtShell(sub, inner) {
         ${(units || []).length ? `
         <div class="wt-panel-units">
           <span class="wt-panel-lb wt-panel-lb-u">单元选择</span>
-          <button class="wt-uchip wt-uchip-all ${!WT.unit ? 'on' : ''}" data-wu="">全部单元<i>共 ${poolAll.length}</i></button>
+          <button class="wt-uchip wt-uchip-all ${!WT.unit && subSt.unitAll ? 'on' : ''}" data-wu="">全部单元<i>共 ${poolAll.length}</i></button>
           <div class="wt-uchips">
             ${units.map((u) => `<button class="wt-uchip ${WT.unit === u ? 'on' : ''} ${unitChipCls(u)}" data-wu="${esc(u)}"><span class="wt-uchip-t">${esc(u)}</span><i>${unitCnt(u)}</i></button>`).join('')}
           </div>
@@ -776,7 +776,7 @@ function wtBindGroups() {
   if (!bar) return;
   bar.innerHTML = (WT.groupDefs && WT.groupDefs.length)
     ? `<div class="wt-groups">${WT.groupDefs.map((g, i) => `
-        <button class="wt-grp ${wtGroupDone(i) ? 'done' : ''} ${i === WT.groupIdx ? 'on' : ''}" data-g="${i}" title="分组${i + 1}">
+        <button class="wt-grp ${wtGroupDone(i) ? 'done' : ''} ${i === WT.groupIdx && !WT.needPick ? 'on' : ''}" data-g="${i}" title="分组${i + 1}">
           <span>分组${i + 1}</span><em>${g.length} 个</em>
         </button>`).join('')}</div>`
     : '';

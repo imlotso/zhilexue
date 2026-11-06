@@ -14,6 +14,12 @@ const pdStageName = (k) => (PD_STAGES.find((s) => s[0] === k) || [])[1] || '';
 const pdOpts = (list, cur, empty) => (empty != null ? `<option value="">${esc(empty)}</option>` : '')
   + list.map((x) => { const v = Array.isArray(x) ? x[0] : x; const t = Array.isArray(x) ? x[1] : x; return `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(t)}</option>`; }).join('');
 const pdBr = (s) => esc(s).replace(/\n/g, '<br>');
+// 新批次进入核对时，来源、批次和列表筛选必须一起切换。
+function pdSelectBatch(source, batchId) {
+  const st = ADM.page.pd = ADM.page.pd || {};
+  Object.assign(st, { source, batch_id: Number(batchId) || 0, kw: '', review: 'all', mode: 'questions', active: '', sel: {}, mergePins: [] });
+  ADM.page.pdPage = 1;
+}
 const pdImage = (src, alt) => {
   const url = String(src || '').trim();
   if (!/^(?:https?:\/\/|\/(?!\/)|data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(url)) return '';
@@ -655,7 +661,7 @@ function pdImportDialog(kind) {
             ${errHTML ? `<div style="color:#dc2626;margin-top:6px">没导入的题（${d.error_count}）：${errHTML}${d.error_count > errs.length ? `<div>…另有 ${d.error_count - errs.length} 条</div>` : ''}</div>` : ''}
             ${warnHTML ? `<div style="color:#d97706;margin-top:6px">提醒：${warnHTML}</div>` : ''}
             <div style="margin-top:8px"><button type="button" class="btn sm primary" id="pdI-done">去看看这批题</button></div>`;
-          el.querySelector('#pdI-done').onclick = () => { el.closest('.mask').remove(); const st = ADM.page.pd = ADM.page.pd || { sel: {} }; st.source = kind; st.sel = {}; ADM.page.pdPage = 1; render(); };
+          el.querySelector('#pdI-done').onclick = () => { el.closest('.mask').remove(); pdSelectBatch(kind, d.run_id); render(); };
         } catch (er) {
           out.innerHTML = `<span style="color:#dc2626">❌ ${esc(er.message)}</span>`;
         }

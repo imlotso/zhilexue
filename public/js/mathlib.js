@@ -10,6 +10,15 @@
   let running = false;
   const pending = []; // 待排版元素
 
+  // 历史公式键盘作答保存的是裸 LaTeX。只在只读答案中补定界符，
+  // 不改存储/判分文本；已有定界符的混排保留原样，所有 HTML 先转义。
+  window.mtxAnswerHTML = function (value, subject) {
+    let text = String(value == null ? '' : value);
+    const script = ['数学', '物理', '化学'].includes(subject) && /[a-zA-Z0-9)}]\s*[_^](?:\{[^{}]+\}|[a-zA-Z0-9](?![a-zA-Z0-9]))/.test(text);
+    if (!/\\\(|\\\[|\$/.test(text) && (/\\[a-zA-Z]+/.test(text) || script)) text = '\\(' + text + '\\)';
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, '<br>');
+  };
+
   // 题目展示通常将换行转为 <br>。MathJax 无法跨 DOM 节点匹配一组公式定界符；
   // 仅在完整的块公式或 \(…\) 内将 <br> 还原为文本换行，普通文本换行不变。
   // 不跨图片、链接等其他元素合并，也不改编辑区、代码或尚未闭合的公式。

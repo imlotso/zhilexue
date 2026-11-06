@@ -51,9 +51,10 @@
       '</div>';
     document.body.appendChild(mask);
     if (typeof DialogUX !== 'undefined') DialogUX.bind(mask);
-    var mf = null;
+    var mf = null, keyboardHost = null;
     function close() {
       try { if (window.mathVirtualKeyboard) window.mathVirtualKeyboard.hide(); } catch (e) { /* 忽略 */ }
+      if (window.mathVirtualKeyboard && window.mathVirtualKeyboard.container === keyboardHost) window.mathVirtualKeyboard.container = document.body;
       mask.remove();
     }
     mask.querySelector('.t8-x').onclick = close;
@@ -67,6 +68,8 @@
       if (opt.onOk) opt.onOk(opt.delimit === false ? latex : '\\(' + latex + '\\)', latex);
     };
     load().then(function () {
+      if (!mask.isConnected) return;
+      customElements.get('math-field').locale = 'zh-cn';
       mf = document.createElement('math-field');
       mf.className = 't8-mf';
       mf.setAttribute('math-virtual-keyboard-policy', 'manual');   // 我们自己在下面 show()，不依赖"是不是触屏设备"
@@ -74,6 +77,12 @@
       var box = mask.querySelector('.t8-box');
       box.innerHTML = '';
       box.appendChild(mf);
+      // 放进同一焦点范围，但不参与弹层的横向 flex 布局。
+      keyboardHost = document.createElement('div');
+      keyboardHost.className = 't8-keyboard-host';
+      keyboardHost.style.cssText = 'position:fixed;inset:0;pointer-events:none';
+      mask.appendChild(keyboardHost);
+      if (window.mathVirtualKeyboard) window.mathVirtualKeyboard.container = keyboardHost;
       ok.disabled = false;
       mf.addEventListener('keydown', function (e) { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) ok.click(); });
       setTimeout(function () {

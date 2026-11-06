@@ -107,6 +107,7 @@ async function viewIntakeManual() {
       summary.innerHTML = `<div class="r4m-summary-meta"><b>${esc(kind)}</b><span>${esc(val('#r4m-subject'))} · ${esc($('#r4m-stage').selectedOptions[0].textContent)}${val('#r4m-grade') ? ' · ' + esc(val('#r4m-grade')) : ''}</span><span>${audio.get() ? '已添加听力音频' : '未添加音频'}</span></div>
         ${val('#r4m-material') ? `<div class="r4m-summary-material"><b>材料 / 原文</b><p>${esc(val('#r4m-material')).replace(/\n/g, '<br>')}</p></div>` : ''}
         ${dataQuestions().map((q, i) => `<article class="r4m-summary-q"><b>${mode() === 'group' ? `小题 ${i + 1} · ` : ''}${esc(itemType(q))}</b><p>${esc(q.stem).replace(/\n/g, '<br>')}</p>${q.match_prompts.length ? `<div class="r4m-summary-label">匹配项目</div><ol>${q.match_prompts.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}${q.options.length ? `<div class="r4m-summary-label">选项</div><ol type="A">${q.options.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}<div class="r4m-summary-answer">答案：${q.answer ? esc(q.answer) : '未填写'}　·　解析：${q.analysis ? esc(q.analysis) : '未填写'}</div></article>`).join('')}`;
+      if (window.mtxTypeset) mtxTypeset(summary);
     };
     const show = () => {
       root.querySelectorAll('[data-step]').forEach((el) => { el.hidden = Number(el.dataset.step) !== step; });
@@ -133,8 +134,8 @@ async function viewIntakeManual() {
       const group = mode() === 'group'; const questions = dataQuestions();
       busy = true; $('#r4m-next').disabled = true; $('#r4m-next').textContent = '保存中…';
       try {
-        await R4Flow.post(`/api/admin/bank/mf/ext/pending/${group ? 'manual-group' : 'manual'}`, group ? 'manual-group' : 'manual', group ? { ...common, questions } : { ...common, ...questions[0] });
-        R4Flow.clear('manual-draft'); if (!root.isConnected) return; toast('已保存到待审核', 'ok'); location.hash = '#/pending';
+        const saved = await R4Flow.post(`/api/admin/bank/mf/ext/pending/${group ? 'manual-group' : 'manual'}`, group ? 'manual-group' : 'manual', group ? { ...common, questions } : { ...common, ...questions[0] });
+        R4Flow.clear('manual-draft'); if (!root.isConnected) return; pdSelectBatch('manual', saved.run_id || saved.id); toast('已保存到待审核', 'ok'); location.hash = '#/pending';
       } catch (e) { toast(e.message || '保存失败，请重试', 'err'); busy = false; $('#r4m-next').disabled = false; $('#r4m-next').textContent = '保存到待审核'; }
     };
     addQuestion();

@@ -818,7 +818,7 @@ async function viewMfCapture() {
       R4Flow.prepare(document.getElementById('view'), 'capture', ['mfRaw','mfUrl','bkSub','mfRuleHtml','mfRulePage','mfRuleSite']);
       const captureScopeHost = document.querySelector('.r4-capture-scope');
       const captureScope = captureScopeHost ? R4Flow.scope(document.getElementById('view'), 'capture', captureScopeHost, {subject:'bkSub',stage:'bkStage'}) : () => ({});
-      const openReview = (batchId = 0) => { const pd = ADM.page.pd = ADM.page.pd || { sel: {} }; pd.source = 'capture'; pd.kw = ''; pd.batch_id = Number(batchId) || 0; pd.review = 'all'; pd.sel = {}; ADM.page.pdPage = 1; location.hash = '#/pending'; };
+      const openReview = (batchId = 0) => { pdSelectBatch('capture', batchId); location.hash = '#/pending'; };
       document.getElementById('capReviewAll').onclick = () => openReview();
       document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { st.tab = b.dataset.tab; render(); }; });
       const rerender = () => render();

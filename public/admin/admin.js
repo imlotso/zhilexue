@@ -608,19 +608,22 @@ function renderLogin() {
     <section class="lg2-main">
       <div class="lg2-card-form">
         <div class="lg2-flogo"><img src="/img/logo.jpg" alt="智学课堂"><b>校长/教师登录</b></div>
-        <div id="loginErr" class="alert hide"></div>
-        <form id="loginForm">
+        <div id="loginErr" class="alert hide" role="alert" aria-live="polite"></div>
+        <form id="loginForm" novalidate>
           <div class="field"><label>账号</label><input class="input" name="username" required autocomplete="username" placeholder="请输入账号"></div>
           <div class="field"><label>密码</label><input class="input" name="password" type="password" required autocomplete="current-password" placeholder="请输入密码"></div>
           <button class="btn lg2-submit" type="submit" id="loginBtn">登 录</button>
         </form>
-        <p class="lg2-reg">如需开通账号，请联系校长或平台管理员 · <a href="/" class="lg2-back">返回学生端</a></p>
+        <p class="lg2-reg"><span>如需开通账号，请联系校长或平台管理员</span><a href="/" class="lg2-back">返回学生端</a></p>
       </div>
     </section>
   </div>`;
   document.getElementById('loginForm').onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target, btn = document.getElementById('loginBtn'), err = document.getElementById('loginErr');
+    const missing = !f.username.value.trim() ? f.username : !f.password.value ? f.password : null;
+    if (missing) { err.textContent = missing === f.username ? '请输入账号' : '请输入密码'; err.classList.remove('hide'); missing.focus(); return; }
+    err.classList.add('hide');
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 登录中';
     try {
       const d = await api('/api/login', { method: 'POST', body: { username: f.username.value.trim(), password: f.password.value, role: 'admin' } });

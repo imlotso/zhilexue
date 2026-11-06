@@ -56,7 +56,7 @@ window.R4Flow = (() => {
         let id = state.runId;
         if (!id && state.request_key && state.receipt_kind) { const result = await api(`/api/admin/bank/mf/ext/import-status/${encodeURIComponent(state.request_key)}?kind=${encodeURIComponent(state.receipt_kind)}`); if (result.found) id = result.run_id || result.id || result.batch_id; else { label.textContent = '暂未找到保存结果。可重新选择原文件重试，同一恢复凭据不会生成重复批次。'; return; } }
         if (id && ['image','pdf'].includes(kind)) return mfIntakeWork(Number(id));
-        if (id) { const st = ADM.page.pd = ADM.page.pd || {sel:{}}; Object.assign(st, {source:kind === 'capture' ? 'capture' : 'all',batch_id:Number(id),kw:'',review:'all',sel:{}}); ADM.page.pdPage=1; location.hash='#/pending'; }
+        if (id) { pdSelectBatch(kind === 'capture' ? 'capture' : 'all', id); location.hash='#/pending'; }
         else location.hash = '#/intake';
       } catch (e) { label.textContent = e.message || '查询失败，请重试'; }
       finally { if (check.isConnected) check.disabled = false; }
