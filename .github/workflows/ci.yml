@@ -5,6 +5,11 @@ on:
     branches: ['**']
   pull_request:
 
+env:
+  STORAGE_DRIVER: local
+  AI_MOCK: '1'
+  TTS_MOCK: '1'
+
 jobs:
   unit:
     runs-on: ubuntu-24.04
@@ -21,6 +26,7 @@ jobs:
           npx playwright install --with-deps chromium
           node -p "'CHROMIUM_PATH=' + require('playwright').chromium.executablePath()" >> "$GITHUB_ENV"
       - run: node bank-test.js
+      - run: node ci-isolation-test.js
       - run: node wordq-test.js    # Word 规则解析（T3，客户样例文档在 docs/原始需求，不需要数据库）
       - run: node excel-test.js    # Excel 模板解析（T3，同上）
       - run: node choices-ten-test.js
@@ -180,6 +186,11 @@ jobs:
           STORAGE_DRIVER: local
           AI_MOCK: '1'
           TTS_MOCK: '1'
+      - run: node astra-retest-test.js
+        if: ${{ !cancelled() }}
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_DATABASE: xuexi
       - name: Upload admin UI evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -14,6 +14,7 @@
     "test:word": "node word-test.js",
     "test:ui": "node ui-test.js",
     "test:audit": "node browser-audit-test.js",
+    "test:astra": "node astra-retest-test.js",
     "make-template": "node src/excel.js"
   },
   "dependencies": {
