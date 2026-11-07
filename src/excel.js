@@ -82,7 +82,7 @@ function parseWorkbook(buffer, chapters) {
     const rawType = String(r['题型'] || '').trim();
     const type = TYPES[rawType];
     const stem = String(r['题干'] || '').trim();
-    const answerRaw = String(r['答案'] || '').trim();
+    const answerRaw = String(r['答案'] == null ? '' : r['答案']).trim();
     const code = String(r['章节编码'] || '').trim();
 
     if (!stem && !rawType && !answerRaw) return; // 空行跳过
@@ -94,7 +94,7 @@ function parseWorkbook(buffer, chapters) {
     const options = [];
     let gap = false;
     for (const L of LETTERS) {
-      const v = String(r['选项' + L] || '').trim();
+      const v = String(r['选项' + L] == null ? '' : r['选项' + L]).trim();
       if (!v) { gap = true; continue; }
       if (gap && (type === 'single' || type === 'multi')) { errors.push(`第 ${line} 行：选项须从 A 开始连续填写`); return; }
       options.push(v.replace(/^[A-Ja-j][.、．)）]\s*/, ''));

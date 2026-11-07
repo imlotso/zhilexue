@@ -67,6 +67,9 @@
     });
   }
 
+  // 独立打印窗口复用相同预处理，再等待自己的 MathJax 排版完成。
+  window.mtxPrepareFormulaBreaks = restoreFormulaBreaks;
+
   function flush() {
     const my = ++seq;
     const list = pending.splice(0, pending.length);

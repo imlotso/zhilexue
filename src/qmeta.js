@@ -98,3 +98,34 @@ function expandNodes(db, nodeIds, exact) {
 }
 
 module.exports = { usageMap, referenceMap, mountInfo, expandNodes };
+
+/** Pending/reviewed legacy scan questions stay private until approved. Any
+ * foreign or ownerless linkage denies access, even if another link is local.
+ * Identifiers below are fixed by callers; user values are validated integers. */
+function questionScopeSql(user, alias = 'q') {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) throw new Error('Invalid question alias');
+  if (user && user.role === 'admin') return '1=1';
+  const uid = Number(user && user.id);
+  const own = user && user.role === 'branch' && Number.isSafeInteger(uid) && uid > 0
+    ? ` AND (u.id IS NULL OR IFNULL(u.role,'') <> 'student' OR u.created_by IS NULL OR u.created_by <> ${uid})` : '';
+  return `NOT EXISTS (SELECT 1 FROM paper_uploads pu LEFT JOIN users u ON u.id=pu.user_id
+    WHERE pu.question_id=${alias}.id AND pu.question_id>0 AND pu.status IN ('pending','reviewed')${own})`;
+}
+function questionsAllowed(db, user, ids) {
+  if (!Array.isArray(ids)) return false;
+  const parsed = ids.map(Number);
+  if (parsed.some(n => !Number.isSafeInteger(n) || n <= 0)) return false;
+  const values = [...new Set(parsed)];
+  if (!values.length || (user && user.role === 'admin')) return true;
+  return !db.prepare(`SELECT q.id FROM questions q WHERE q.id IN (${values.map(() => '?').join(',')}) AND NOT (${questionScopeSql(user, 'q')}) LIMIT 1`).get(...values);
+}
+function paperQuestionsAllowed(db, user, paperId) {
+  const id = Number(paperId);
+  if (!Number.isSafeInteger(id) || id <= 0) return false;
+  const ids = db.prepare('SELECT question_id, kind FROM mf_paper_questions WHERE paper_id=?').all(id)
+    .filter(r => !(r.kind === 'text' && r.question_id == null)).map(r => r.question_id);
+  return questionsAllowed(db, user, ids);
+}
+module.exports.questionScopeSql = questionScopeSql;
+module.exports.questionsAllowed = questionsAllowed;
+module.exports.paperQuestionsAllowed = paperQuestionsAllowed;

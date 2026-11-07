@@ -86,9 +86,9 @@ window.R4Flow = (() => {
     try { const signature = await fingerprint(fd); const token = requestKey(kind + (runId ? ':' + runId : ''), signature); xhr.setRequestHeader('X-Intake-Key', token); watch(xhr, root, kind, name, runId, { request_key: token, receipt_kind: runId ? '' : kind }); xhr.send(fd); }
     catch (e) { if (root.isConnected && xhr.onerror) xhr.onerror(e); }
   }
-  async function post(url, kind, body, existingKey) {
+  async function post(url, kind, body, existingKey, { silent = false } = {}) {
     const token = existingKey || requestKey(kind, JSON.stringify(body)); save(kind === 'manual-group' ? 'manual' : kind, {phase:'sending',request_key:token,receipt_kind:kind});
-    try { const result = await api(url, {method:'POST',body,headers:{'X-Intake-Key':token}}); save(kind === 'manual-group' ? 'manual' : kind,{phase:'saved',runId:result.run_id || result.id || result.batch_id,request_key:token,receipt_kind:kind}); return result; }
+    try { const result = await api(url, {method:'POST',body,silent,headers:{'X-Intake-Key':token}}); save(kind === 'manual-group' ? 'manual' : kind,{phase:'saved',runId:result.run_id || result.id || result.batch_id,request_key:token,receipt_kind:kind}); return result; }
     catch(e) { save(kind === 'manual-group' ? 'manual' : kind,{phase:'uncertain',request_key:token,receipt_kind:kind}); throw e; }
   }
   function prepare(root, kind, ids, refresh) {

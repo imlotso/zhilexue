@@ -5,7 +5,9 @@
   var SEL = '.t13-card .wq-word, .t13-card .wq-mean, .t13-card .wt-opt';
   var MIN = 0.42;                       // 最小缩到原字号的 42%
   var raf = 0;
-  function over(el) { return el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1; }
+  // scrollHeight/clientHeight 都会取整，1px 差值仍可能裁掉 Windows 字体的 y/g 下沿。
+  // 横向保留原有舍入容差；纵向有溢出就继续缩字，不改变卡片或区域高度。
+  function over(el) { return el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight; }
   function fit(el) {
     el.style.fontSize = '';
     if (!el.clientWidth || !el.clientHeight) return;            // 没显示（display:none）不量

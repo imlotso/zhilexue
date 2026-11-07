@@ -86,7 +86,7 @@
   function view(id) {
     var c = store.communications.get(id);
     if (!c) return;
-    ui.modal({
+    var detail = ui.modal({
       title: '家校沟通记录详情',
       wide: true,
       bodyHTML:
@@ -101,10 +101,14 @@
         '<div class="detail-row"><div class="detail-k">沟通内容</div><div class="detail-v" style="white-space:pre-wrap">' + esc(c.content || '—') + '</div></div>' +
         (c.audioUrl
           ? '<div class="detail-row"><div class="detail-k">沟通录音</div><div class="detail-v">' +
-            '<audio controls style="width:100%" src="' + esc(c.audioUrl) + '"></audio></div></div>'
+            '<button class="btn" id="detailAudio" type="button">安全收听录音</button></div></div>'
           : '') +
         '<div class="detail-row"><div class="detail-k">跟进结果</div><div class="detail-v">' + esc(c.result || '—') + '</div></div>',
       buttons: [{ text: '关闭', cls: 'btn btn-primary' }]
+    });
+    var audioButton = $('#detailAudio', detail.el);
+    if (audioButton) audioButton.addEventListener('click', function () {
+      ui.playAudio(c.audioUrl, '沟通录音 · ' + (c.studentName || ''));
     });
   }
 

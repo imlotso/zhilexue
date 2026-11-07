@@ -81,7 +81,7 @@
   function openModal(opts) {
     /* 防止连点叠加：打开新弹窗前先关闭已有弹窗 */
     var root = document.getElementById('modalRoot');
-    [...root.children].forEach(function (old) { old.remove(); });
+    [...root.children].forEach(function (old) { if (old.closeModal) old.closeModal(); else old.remove(); });
     var mask = document.createElement('div');
     mask.className = 'mask';
 
@@ -111,7 +111,12 @@
         btn.textContent = b.text;
         btn.addEventListener('click', function () {
           var keep = false;
-          if (typeof b.onClick === 'function') keep = b.onClick(ctx) === false;
+          try {
+            if (typeof b.onClick === 'function') keep = b.onClick(ctx) === false;
+          } catch (e) {
+            toast(e.message || '保存失败，请重试；当前内容仍保留', 'err');
+            keep = true;
+          }
           if (!keep) close();
         });
         foot.appendChild(btn);
@@ -119,7 +124,14 @@
       modal.appendChild(foot);
     }
 
-    function close() { mask.remove(); document.removeEventListener('keydown', onKey); }
+    var closed = false;
+    function close() {
+      if (closed) return;
+      closed = true;
+      mask.remove(); document.removeEventListener('keydown', onKey);
+      if (typeof opts.onClose === 'function') opts.onClose();
+    }
+    mask.closeModal = close;
     function onKey(e) { if (e.key === 'Escape') close(); }
 
     modal.querySelector('.modal-close').addEventListener('click', close);
@@ -354,13 +366,73 @@
     });
   }
 
-  /* 录音播放弹窗：列表/详情共用 */
+  function audioToken() {
+    try { return localStorage.getItem('xuexi_admin_token') || localStorage.getItem('xuexi_token') || ''; }
+    catch (e) { return ''; }
+  }
+
+  /* 仅向同源、受保护的录音路由发送认证头。旧地址只作服务器映射键，绝不据此认领归属。 */
+  function loadAudio(value, signal) {
+    return Promise.resolve().then(function () {
+      var url;
+      try { url = new URL(String(value || ''), global.location.href); } catch (e) { /* 下方统一提示 */ }
+      if (!url || url.origin !== global.location.origin || url.username || url.password || url.search || url.hash ||
+          !(/^\/api\/admin\/care-audio\/[a-f0-9]{32}$/.test(url.pathname) ||
+            /^\/uploads\/audio\/[A-Za-z0-9_-]+\.(webm|mp3|m4a|wav|ogg|aac|amr)$/i.test(url.pathname))) {
+        throw new Error('此录音链接归属待核对，请联系管理员；原记录仍保留');
+      }
+      var tk = audioToken();
+      if (!tk) throw new Error('请先登录后收听录音');
+      return fetch(url.pathname, {
+        headers: { Authorization: 'Bearer ' + tk }, credentials: 'same-origin',
+        redirect: 'error', cache: 'no-store', signal: signal
+      }).then(function (r) {
+        if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) {
+          throw new Error(j.msg || '录音暂不可用，请确认登录状态或联系管理员核对归属');
+        });
+        if (!/^audio\//i.test(r.headers.get('Content-Type') || '')) throw new Error('录音响应格式无效');
+        return r.blob();
+      }).then(function (blob) {
+        if (tk !== audioToken()) throw new Error('登录状态已变化，请重新打开录音');
+        return blob;
+      });
+    });
+  }
+
+  /* 列表/详情共用；弹窗关闭、替换或离开页面时撤销 blob，并中止尚未完成的请求。 */
   function playAudio(url, title) {
-    openModal({
+    var objectUrl = '', closed = false;
+    var controller = new AbortController();
+    var player;
+    function cleanup() {
+      if (closed) return;
+      closed = true; controller.abort();
+      if (player) { player.pause(); player.removeAttribute('src'); player.load(); }
+      if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = ''; }
+      global.removeEventListener('pagehide', cleanup);
+      global.removeEventListener('storage', onStorage);
+    }
+    function onStorage(e) {
+      if (!e.key || e.key === 'xuexi_admin_token' || e.key === 'xuexi_token') ctx.close();
+    }
+    var ctx = openModal({
       title: title || '收听录音',
-      bodyHTML: '<audio controls autoplay style="width:100%;margin-top:4px" src="' + esc(url) + '"></audio>' +
-        '<div class="small" style="color:var(--txt-3);margin-top:6px">若浏览器无法播放，请下载后使用本地播放器收听。</div>',
-      buttons: [{ text: '关闭', cls: 'btn btn-primary' }]
+      bodyHTML: '<div class="audio-status" role="status">正在安全加载录音…</div>' +
+        '<audio controls style="width:100%;margin-top:4px" hidden></audio>',
+      buttons: [{ text: '关闭', cls: 'btn btn-primary' }],
+      onClose: cleanup
+    });
+    player = $('audio', ctx.el);
+    global.addEventListener('pagehide', cleanup);
+    global.addEventListener('storage', onStorage);
+    loadAudio(url, controller.signal).then(function (blob) {
+      if (closed) return;
+      objectUrl = URL.createObjectURL(blob);
+      player.src = objectUrl; player.hidden = false;
+      $('.audio-status', ctx.el).textContent = '录音仅对当前获授权账号开放。';
+      player.play().catch(function () { /* 浏览器禁止自动播放时保留手动播放按钮 */ });
+    }).catch(function (e) {
+      if (!closed) $('.audio-status', ctx.el).textContent = e.message || '录音加载失败，请重试';
     });
   }
 
@@ -372,6 +444,6 @@
     toast: toast, modal: openModal, confirm: confirm, alert: alert, combo: combo,
     download: download, exportXlsx: exportXlsx, exportPdf: exportPdf,
     safeName: safeName,
-    uploadAudio: uploadAudio, playAudio: playAudio
+    uploadAudio: uploadAudio, playAudio: playAudio, loadAudio: loadAudio
   };
 })(window);

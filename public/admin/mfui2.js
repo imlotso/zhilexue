@@ -1271,7 +1271,7 @@ async function mfNewQDialog(done) {
   let chapNodes = [], knowNodes = [];
   let gradeName = ''; let volName = '上册'; let unitId = '';
   let katExp = '';
-  const GRADES = { primary: ['三年级', '四年级', '五年级', '六年级'], junior: ['七年级', '八年级', '九年级'] };
+  const GRADES = { primary: ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'], junior: ['七年级', '八年级', '九年级'] };
   const SUBJECTS4 = ['英语', '数学', '物理', '化学'];
 
   const loadTrees = async () => {

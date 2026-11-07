@@ -32,7 +32,7 @@ function expandNodeIds(db, ids) {
 
 /** 候选题的 WHERE 片段。opt: { subject, stage, grade, difficulty, point, nodeIds } */
 function scopeSql(db, opt) {
-  let where = ' WHERE 1=1'; const args = [];
+  let where = ' WHERE ' + require('./qmeta').questionScopeSql(null, 'q'); const args = [];
   if (opt.subject) { where += ' AND q.subject=?'; args.push(opt.subject); }
   if (opt.stage) { where += " AND IFNULL(q.stage,'')=?"; args.push(opt.stage); }
   if (opt.grade) { where += " AND IFNULL(q.grade,'')=?"; args.push(opt.grade); }

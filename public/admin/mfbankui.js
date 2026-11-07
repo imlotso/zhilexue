@@ -6,7 +6,7 @@ const MF_API = '/api/admin/bank/mf';
 const MF_TYPES = [['single', '单选题'], ['multi', '多选题'], ['judge', '判断题'], ['fill', '填空题'], ['sort', '排序题'], ['answer', '解答题']];
 const MF_TYPE_NAME = Object.fromEntries(MF_TYPES);
 const MF_STAGES = [['', '全部学段'], ['primary', '小学'], ['junior', '初中'], ['senior', '高中']];
-const MF_GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
+const MF_GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const MF_SUBJECTS = ['数学', '英语', '物理', '化学', '语文'];
 const MF_EXAM_CATEGORIES = [['', '未分类'], ['unit', '单元'], ['midterm', '期中'], ['final', '期末'], ['entrance', '真题']];
 const mfExamOptions = (selected = '') => MF_EXAM_CATEGORIES.map(([v, label]) => `<option value="${v}" ${v === selected ? 'selected' : ''}>${label}</option>`).join('');

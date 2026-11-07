@@ -46,7 +46,7 @@ const TYPES = ['single', 'multi', 'judge', 'fill', 'sort', 'answer'];
 const TYPE_NAMES = { single: '单选题', multi: '多选题', judge: '判断题', fill: '填空题', sort: '排序题', answer: '解答题' };
 const LETTERS = 'ABCDEFGHIJ';
 const STAGES = [['primary', '小学'], ['junior', '初中']];
-const GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
+const GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const SUBJECTS = ['数学', '英语', '物理', '化学'];
 
 /** 选项归一化：兼容 {label,text} 对象数组（Word 批量上传 / 转写包）与字符串数组 */
@@ -211,7 +211,7 @@ admin.get('/questions', (req, res) => {
   const { stage = '', subject = '', grade = '', point = '', type = '', difficulty = '', source = '', video = '', kw = '' } = req.query;
   const page = Math.max(1, Number(req.query.page) || 1);
   const size = Math.min(100, Math.max(1, Number(req.query.size) || 20));
-  let where = ' WHERE 1=1'; const args = [];
+  let where = ' WHERE ' + require('./qmeta').questionScopeSql(req.user, 'q'); const args = [];
   if (stage) { where += " AND IFNULL(q.stage,'')=?"; args.push(stage); }
   if (subject) { where += ' AND q.subject=?'; args.push(subject); }
   if (grade) { where += ' AND q.grade=?'; args.push(grade); }
@@ -245,7 +245,9 @@ admin.post('/questions', (req, res) => {
 });
 
 admin.put('/questions/:id', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, req.user, [Number(req.params.id)])) return fail(res, '无权访问题目', 403);
   const id = Number(req.params.id);
+  if (req.body && req.body.video_id && !require('./qmeta').questionsAllowed(db, null, [id])) return fail(res, '扫码题尚未审核，不能公开绑定', 403);
   const cur = db.prepare('SELECT * FROM questions WHERE id=?').get(id);
   if (!cur) return fail(res, '题目不存在');
   const { q, err } = normalizeBankQ(req.body || {}, cur);
@@ -257,6 +259,7 @@ admin.put('/questions/:id', (req, res) => {
 });
 
 admin.delete('/questions/:id', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, req.user, [Number(req.params.id)])) return fail(res, '无权访问题目', 403);
   const id = Number(req.params.id);
   db.prepare('DELETE FROM questions WHERE id=?').run(id);
   db.prepare('DELETE FROM mistakes WHERE question_id=?').run(id);
@@ -267,6 +270,7 @@ admin.delete('/questions/:id', (req, res) => {
 admin.post('/questions/batch-delete', (req, res) => {
   const ids = (Array.isArray(req.body && req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean);
   if (!ids.length) return fail(res, '请选择要删除的题目');
+  if (!require('./qmeta').questionsAllowed(db, req.user, ids)) return fail(res, '无权访问题目', 403);
   const ph = ids.map(() => '?').join(',');
   db.prepare(`DELETE FROM questions WHERE id IN (${ph})`).run(...ids);
   db.prepare(`DELETE FROM mistakes WHERE question_id IN (${ph})`).run(...ids);
@@ -304,8 +308,8 @@ admin.get('/questions/template', (req, res) => {
 admin.get('/points', (req, res) => {
   const { subject = '' } = req.query;
   const rows = subject
-    ? db.prepare("SELECT DISTINCT point FROM questions WHERE IFNULL(point,'')<>'' AND subject=? ORDER BY point").all(subject)
-    : db.prepare("SELECT DISTINCT point FROM questions WHERE IFNULL(point,'')<>'' ORDER BY point").all();
+    ? db.prepare(`SELECT DISTINCT point FROM questions WHERE IFNULL(point,'')<>'' AND subject=? AND ${require('./qmeta').questionScopeSql(req.user, 'questions')} ORDER BY point`).all(subject)
+    : db.prepare(`SELECT DISTINCT point FROM questions WHERE IFNULL(point,'')<>'' AND ${require('./qmeta').questionScopeSql(req.user, 'questions')} ORDER BY point`).all();
   const set = new Set();
   rows.forEach((r) => String(r.point).split(/&&|,|，/).forEach((p) => { const t = p.trim(); if (t) set.add(t); }));
   const subjects = subject ? [subject] : SUBJECTS;
@@ -450,7 +454,7 @@ admin.get('/papers', (req, res) => {
   ok(res, rows.map((p) => {
     const ids = parseIds(p.q_ids);
     return { ...p, q_ids: undefined, q_count: ids.length, done_count: db.prepare('SELECT COUNT(DISTINCT user_id) n FROM paper_tries WHERE paper_id=?').get(p.id).n,
-      assign_count: db.prepare('SELECT COUNT(*) n FROM paper_assignments WHERE paper_id=?').get(p.id).n };
+      assign_count: db.prepare('SELECT COUNT(DISTINCT user_id) n FROM paper_assignments WHERE paper_id=?').get(p.id).n };
   }));
 });
 
@@ -461,6 +465,7 @@ admin.post('/papers', (req, res) => {
   if (!title) return fail(res, '试卷标题必填');
   const ids = parseIds(JSON.stringify(b.q_ids || []));
   if (!ids.length) return fail(res, '请先组好卷面题目');
+  if (!require('./qmeta').questionsAllowed(db, null, ids)) return fail(res, '无权访问题目', 403);
   // 校验题目都存在
   const ph = ids.map(() => '?').join(',');
   const found = db.prepare(`SELECT id FROM questions WHERE id IN (${ph})`).all(...ids).length;
@@ -497,6 +502,8 @@ admin.put('/papers/:id', (req, res) => {
     if (found !== arr.length) return fail(res, '有题目已不存在，请重新组卷');
   }
   const idList = parseIds(ids);
+  if (!require('./qmeta').questionsAllowed(db, null, idList)) return fail(res, '无权访问题目', 403);
+
   const scores = paperScores(b.question_scores === undefined ? p.question_scores : b.question_scores, idList);
   if (b.question_scores != null && !scores) return fail(res, '请为每道题设置有效的正整数分值');
   const due = b.due_at === undefined ? (p.due_at || '') : paperDeadline(b.due_at);
@@ -524,7 +531,9 @@ admin.put('/papers/:id', (req, res) => {
 admin.post('/papers/:id/publish', (req, res) => {
   const p = db.prepare('SELECT * FROM papers WHERE id=?').get(Number(req.params.id));
   if (!p) return fail(res, '试卷不存在');
+  if (!require('./qmeta').questionsAllowed(db, req.user, parseIds(p.q_ids))) return fail(res, '无权访问试卷中的题目', 403);
   const pub = Number((req.body || {}).publish) === 1;
+  if (pub && !require('./qmeta').questionsAllowed(db, null, parseIds(p.q_ids))) return fail(res, '扫码题尚未审核，不能下发', 403);
   if (pub && !parseIds(p.q_ids).length) return fail(res, '卷面还没有题目，不能下发');
   db.prepare('UPDATE papers SET status=?, published_at=? WHERE id=?').run(pub ? 'published' : 'draft', pub ? now() : null, p.id);
   if (!pub) db.prepare('DELETE FROM paper_assignments WHERE paper_id=?').run(p.id);   // 撤回同时清掉定向下发名单
@@ -538,7 +547,7 @@ const paperHasAssignees = (pid) => !!db.prepare('SELECT 1 FROM paper_assignments
 admin.get('/papers/:id/assignees', (req, res) => {
   const pid = Number(req.params.id);
   const scope = req.user.role === 'branch' ? ' AND u.created_by=?' : '';
-  const rows = db.prepare(`SELECT a.user_id, u.name, u.grade FROM paper_assignments a JOIN users u ON u.id=a.user_id WHERE a.paper_id=?${scope}`)
+  const rows = db.prepare(`SELECT DISTINCT a.user_id, u.name, u.grade FROM paper_assignments a JOIN users u ON u.id=a.user_id WHERE a.paper_id=?${scope}`)
     .all(pid, ...(req.user.role === 'branch' ? [req.user.id] : []));
   ok(res, rows);
 });
@@ -547,19 +556,31 @@ admin.post('/papers/:id/assign', (req, res) => {
   const pid = Number(req.params.id);
   const p = db.prepare('SELECT * FROM papers WHERE id=?').get(pid);
   if (!p) return fail(res, '试卷不存在');
+  if (!require('./qmeta').questionsAllowed(db, null, parseIds(p.q_ids))) return fail(res, '无权访问试卷中的题目', 403);
   if (!parseIds(p.q_ids).length) return fail(res, '卷面还没有题目，不能下发');
   const ids = [...new Set((Array.isArray((req.body || {}).user_ids) ? req.body.user_ids : []).map(Number).filter(Boolean))];
   if (!ids.length) return fail(res, '请至少选择一名学生');
-  const due = req.body.due_at === undefined ? (p.due_at || '') : paperDeadline(req.body.due_at);
+  const changeDue = req.body.due_at !== undefined;
+  const due = changeDue ? paperDeadline(req.body.due_at) : '';
   if (due === null) return fail(res, '截止时间格式不正确');
   const allowed = db.prepare(`SELECT id FROM users WHERE role='student' AND status=1 AND id IN (${ids.map(() => '?').join(',')})${req.user.role === 'branch' ? ' AND created_by=?' : ''}`)
     .all(...ids, ...(req.user.role === 'branch' ? [req.user.id] : []));
   if (allowed.length !== ids.length) return fail(res, '学生不存在或不属于当前分校');
-  const ins = db.prepare('INSERT OR IGNORE INTO paper_assignments (paper_id, user_id, assigned_by, created_at) VALUES (?,?,?,?)');
+  const existing = db.prepare('SELECT 1 FROM paper_assignments WHERE paper_id=? AND user_id=? LIMIT 1');
+  const ins = db.prepare('INSERT INTO paper_assignments (paper_id, user_id, assigned_by, created_at) VALUES (?,?,?,?)');
   let added = 0;
   const tx = db.transaction(() => {
-    ids.forEach((uid) => { const r = ins.run(pid, uid, req.user.id, now()); if (r.changes) added++; });
-    db.prepare('UPDATE papers SET status=?, due_at=?, published_at=CASE WHEN published_at IS NULL THEN ? ELSE published_at END WHERE id=?').run('published', due, now(), pid);
+    // 必须是事务内首条表查询：先取得同卷排他锁，再建立 assignments 的读取快照。
+    // 这样旧库即使已有重复、暂不能加唯一索引，多进程重发也不会继续插入重复。
+    // 未传截止使用锁定行的当前值，不回写事务外读到的旧截止。
+    const locked = db.prepare('UPDATE papers SET status=?, due_at=CASE WHEN ?=1 THEN ? ELSE due_at END, published_at=CASE WHEN published_at IS NULL THEN ? ELSE published_at END WHERE id=?')
+      .run('published', changeDue ? 1 : 0, due, now(), pid);
+    // 支持驱动按“实际改动行数”返回0的配置；UPDATE仍持有存在行的锁。
+    if (!locked.changes && !db.prepare('SELECT id FROM papers WHERE id=?').get(pid)) throw new Error('试卷已不存在，请重新打开试卷列表');
+    ids.forEach((uid) => {
+      if (existing.get(pid, uid)) return;
+      const r = ins.run(pid, uid, req.user.id, now()); if (r.changes) added++;
+    });
   });
   tx();
   ok(res, { added, total: ids.length }, `已下发给 ${ids.length} 名学生（新增 ${added}）`);
@@ -652,6 +673,7 @@ admin.get('/papers/:id', (req, res) => {
   const p = db.prepare('SELECT * FROM papers WHERE id=?').get(Number(req.params.id));
   if (!p) return fail(res, '试卷不存在');
   const ids = parseIds(p.q_ids);
+  if (!require('./qmeta').questionsAllowed(db, req.user, ids)) return fail(res, '无权访问题目', 403);
   const qs = ids.map((id) => db.prepare('SELECT * FROM questions WHERE id=?').get(id)).filter(Boolean).map(parseQ);
   ok(res, { ...p, q_ids: undefined, questions: qs });
 });
@@ -742,7 +764,7 @@ admin.get('/mistakes/export-docx', async (req, res) => {
     const u = db.prepare("SELECT id, name, username, created_by FROM users WHERE id=? AND role='student'").get(uid);
     if (!u) return fail(res, '学生不存在');
     if (req.user.role === 'branch' && Number(u.created_by) !== Number(req.user.id)) return fail(res, '无权导出该学生的错题', 403);
-    await require('./mistake-docx').sendMistakeDocx(db, res, u, req.query);
+    await require('./mistake-docx').sendMistakeDocx(db, res, u, req.query, { questionUser: req.user });
   } catch (e) {
     console.error('[admin mistakes/export-docx]', (e && e.message) || e);
     if (!res.headersSent) fail(res, '导出失败：' + ((e && e.message) || e));
@@ -753,7 +775,7 @@ admin.get('/mistakes/export-docx', async (req, res) => {
 admin.get('/videos/:id/questions', (req, res) => {
   const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
   if (!v) return fail(res, '视频不存在');
-  const rows = db.prepare('SELECT * FROM questions WHERE video_id=? ORDER BY id').all(v.id).map(parseQ);
+  const rows = db.prepare(`SELECT * FROM questions WHERE video_id=? AND ${require('./qmeta').questionScopeSql(req.user, 'questions')} ORDER BY id`).all(v.id).map(parseQ);
   // R8：顺带返回视频关联的知识点（编辑题目时默认继承）
   const nodes = db.prepare('SELECT n.id, n.name FROM video_nodes vn JOIN bank_tree_nodes n ON n.id=vn.node_id WHERE vn.video_id=? ORDER BY n.sort, n.id').all(v.id);
   ok(res, { video: v, list: rows, nodes });
@@ -764,6 +786,8 @@ admin.post('/videos/:id/bind', (req, res) => {
   const unbind = Number(b.unbind) === 1;
   const ids = (Array.isArray(b.ids) ? b.ids : []).map(Number).filter(Boolean);
   if (!ids.length) return fail(res, '请选择题目');
+  if (!require('./qmeta').questionsAllowed(db, req.user, ids)) return fail(res, '无权访问题目', 403);
+  if (!unbind && !require('./qmeta').questionsAllowed(db, null, ids)) return fail(res, '扫码题尚未审核，不能公开绑定', 403);
   const ph = ids.map(() => '?').join(',');
   if (unbind) {
     db.prepare(`UPDATE questions SET video_id=NULL, chapter_id=NULL WHERE id IN (${ph})`).run(...ids);
@@ -781,9 +805,9 @@ admin.get('/sections/:id/questions', (req, res) => {
   const sec = db.prepare('SELECT * FROM sections WHERE id=?').get(Number(req.params.id));
   if (!sec) return fail(res, '小分组不存在');
   const ch = db.prepare('SELECT id, name, subject, grade, stage, term, category FROM chapters WHERE id=?').get(sec.chapter_id) || null;
-  const rows = db.prepare('SELECT * FROM questions WHERE section_id=? ORDER BY id').all(sec.id).map(parseQ);
+  const rows = db.prepare(`SELECT * FROM questions WHERE section_id=? AND ${require('./qmeta').questionScopeSql(req.user, 'questions')} ORDER BY id`).all(sec.id).map(parseQ);
   const videoQ = Number((db.prepare(`SELECT COUNT(*) n FROM questions q JOIN videos v ON v.id=q.video_id
-    WHERE v.chapter_id=? AND ${accuracy.SEC_EXPR}=?`).get(sec.chapter_id, sec.id) || {}).n || 0);
+    WHERE v.chapter_id=? AND ${accuracy.SEC_EXPR}=? AND ${require('./qmeta').questionScopeSql(req.user, 'q')}`).get(sec.chapter_id, sec.id) || {}).n || 0);
   ok(res, { section: sec, chapter: ch, list: rows, video_question_count: videoQ });
 });
 // 绑定 / 解绑题目到小分组（与视频绑定二选一：挂到小分组时清掉 video_id）
@@ -792,6 +816,8 @@ admin.post('/sections/:id/bind', (req, res) => {
   const unbind = Number(b.unbind) === 1;
   const ids = (Array.isArray(b.ids) ? b.ids : []).map(Number).filter(Boolean);
   if (!ids.length) return fail(res, '请选择题目');
+  if (!require('./qmeta').questionsAllowed(db, req.user, ids)) return fail(res, '无权访问题目', 403);
+  if (!unbind && !require('./qmeta').questionsAllowed(db, null, ids)) return fail(res, '扫码题尚未审核，不能公开绑定', 403);
   const ph = ids.map(() => '?').join(',');
   const sec = db.prepare('SELECT * FROM sections WHERE id=?').get(Number(req.params.id));
   if (unbind) {
@@ -812,7 +838,7 @@ const chapterStage = (c) => {
   const s = String((c && c.stage) || '').trim();
   if (s === 'primary' || s === 'junior') return s;
   const g = String((c && c.grade) || '');
-  if (['三年级', '四年级', '五年级', '六年级'].includes(g)) return 'primary';
+  if (['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'].includes(g)) return 'primary';
   if (['七年级', '八年级', '九年级', '中考冲刺'].includes(g)) return 'junior';
   return '';
 };
@@ -871,7 +897,7 @@ async function importLessonDocx(req, res, kind) {
         try {
           const saved = await store.saveFile(buf, name, `${bankImgFolder()}/img`);
           return store.bankImageKey(saved.key, bankImgFolder()) ? store.bankImageProxyUrl(saved.key) : await store.getUrl(saved.key);
-        } catch (e) { return ''; }   // 单图上传失败不影响整卷
+        } catch (e) { return ''; }   // 保留缺图标记，解析完成后阻止残缺题目进入待审核
       },
     });
     figs = d.figs || [];
@@ -882,6 +908,7 @@ async function importLessonDocx(req, res, kind) {
   if (!parsed.list.length) {
     return fail(res, '没认出题目。请确认文档格式：1.（单选题）题干 → A. 选项 → 答案：X → 解析：……（洋葱题库样例格式）');
   }
+  if (parsed.list.some(q => q.imgRefs.some(n => !(figs[n - 1] && figs[n - 1].url)))) return fail(res, '文档中的题图未能保存，请检查存储后重新导入');
   const subject = (ch && ch.subject) || String((req.body || {}).subject || '').trim();
   const grade = (ch && ch.grade) || String((req.body || {}).grade || '').trim();
   const stage = (ch && ch.stage) || String((req.body || {}).stage || '').trim() || stageOfGrade('', grade);
@@ -891,7 +918,8 @@ async function importLessonDocx(req, res, kind) {
   try {
     const cards = parsed.list.map((q) => {
       const imgs = q.imgRefs.map((n) => (figs[n - 1] || {}).url).filter(Boolean);
-      return { questionType: types[q.type] || '解答', stem: String(q.stem).trim(), options: q.options, answer: q.answer, analysis: q.analysis, subject, stage, grade, point, chapter_id: target.chapter_id || 0, figures: imgs.map(url => ({url})), ...(q.difficulty_score_10 != null ? { difficulty_score_10: q.difficulty_score_10 } : {}), ...(isSection ? { _lesson_section_id: target.id } : { _lesson_video_id: target.id }) };
+      const remap = value => String(value == null ? '' : value).replace(/\[图(\d+)\]/g, (mark, n) => { const index = q.imgRefs.indexOf(Number(n)); return index < 0 ? mark : `[图${index + 1}]`; });
+      return { questionType: types[q.type] || '解答', stem: remap(q.stem).trim(), options: q.options.map(o => ({ ...o, content: remap(o.content) })), answer: remap(q.answer), analysis: remap(q.analysis), subject, stage, grade, point, chapter_id: target.chapter_id || 0, figures: imgs.map(url => ({url})), ...(q.difficulty_score_10 != null ? { difficulty_score_10: q.difficulty_score_10 } : {}), ...(isSection ? { _lesson_section_id: target.id } : { _lesson_video_id: target.id }) };
     });
     runId = db.prepare(`INSERT INTO mf_recog_runs (title,subject,stage,grade,source_kind,source_name,status,pages,drafts,ocr_texts,error,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(`课文习题 · ${isSection ? target.name : target.title || target.id}`, subject, stage, grade, 'lesson', '课文习题 Word', 'recognized', '[]', JSON.stringify(cards), '[]', '', now()).lastInsertRowid;
@@ -909,7 +937,9 @@ admin.get('/feedback', (req, res) => {
   const q = req.query || {};
   const page = Math.max(1, Number(q.page) || 1);
   const size = Math.min(50, Math.max(1, Number(q.size) || 20));
-  const where = []; const args = [];
+  const questionScope = require('./qmeta').questionScopeSql(req.user, 'q');
+  const where = [questionScope]; const args = [];
+  if (req.user.role === 'branch') { where.push('u.created_by=?'); args.push(req.user.id); }
   if (q.status) { where.push('f.status=?'); args.push(String(q.status)); } else { where.push("f.status<>'hidden'"); }
   if (q.subject) { where.push('q.subject=?'); args.push(String(q.subject)); }
   if (q.kw) {
@@ -927,7 +957,8 @@ admin.get('/feedback', (req, res) => {
     FROM bank_feedback f JOIN questions q ON q.id=f.question_id JOIN users u ON u.id=f.user_id
     ${w} ORDER BY f.id DESC LIMIT ? OFFSET ?`).all(...args, size, (p - 1) * size).map(parseQ);
   const stat = { pending: 0, done: 0, ignored: 0 };
-  db.prepare("SELECT status, COUNT(*) n FROM bank_feedback GROUP BY status").all().forEach((r) => { stat[r.status] = Number(r.n) || 0; });
+  db.prepare(`SELECT f.status, COUNT(*) n FROM bank_feedback f JOIN questions q ON q.id=f.question_id JOIN users u ON u.id=f.user_id WHERE ${questionScope}${req.user.role === 'branch' ? ' AND u.created_by=?' : ''} GROUP BY f.status`)
+    .all(...(req.user.role === 'branch' ? [req.user.id] : [])).forEach((r) => { stat[r.status] = Number(r.n) || 0; });
   return ok(res, { page: p, size, total, pages, stat, list: rows });
 });
 
@@ -936,6 +967,9 @@ admin.put('/feedback/:id', (req, res) => {
   const b = req.body || {};
   const status = ['pending', 'done', 'ignored', 'hidden'].includes(b.status) ? b.status : '';
   if (!id || !status) return fail(res, '参数不正确');
+  const row = db.prepare('SELECT user_id FROM bank_feedback WHERE id=?').get(id);
+  if (!row) return fail(res, '记录不存在');
+  if (!canManageStudentRecord(req, row.user_id)) return fail(res, '无权处理其他分校的学生记录', 403);
   const note = String(b.admin_note || '').trim().slice(0, 300);
   db.prepare('UPDATE bank_feedback SET status=?, admin_note=? WHERE id=?').run(status, note, id);
   return ok(res, null, '已更新');
@@ -965,7 +999,7 @@ admin.get('/mistakes', (req, res) => {
   const { student_id = '', subject = '', resolved = '', campus = '' } = req.query;
   const page = Math.max(1, Number(req.query.page) || 1);
   const size = Math.min(200, Math.max(1, Number(req.query.size) || 20));
-  let where = ' WHERE 1=1'; const args = [];
+  let where = ' WHERE ' + require('./qmeta').questionScopeSql(req.user, 'q'); const args = [];
   if (req.user.role === 'branch') { where += ' AND u.created_by=?'; args.push(req.user.id); }
   else if (campus) { where += ' AND u.created_by=?'; args.push(Number(campus)); }
   if (student_id) { where += ' AND m.user_id=?'; args.push(Number(student_id)); }
@@ -984,6 +1018,9 @@ admin.get('/mistakes', (req, res) => {
 
 // ---------- 纸质错题上传审核（学生扫码上传 → 老师核对 → 入库进题库 + 学生错题本） ----------
 const UP_STATUS = ['pending', 'reviewed', 'approved', 'rejected'];
+function canManageStudentRecord(req, studentId) {
+  return req.user.role === 'admin' || !!db.prepare("SELECT id FROM users WHERE id=? AND role='student' AND created_by=?").get(studentId, req.user.id);
+}
 const parseUp = (row) => {
   if (!row) return row;
   let images = [];
@@ -1124,7 +1161,11 @@ admin.get('/uploads', (req, res) => {
     ORDER BY p.created_at DESC LIMIT ? OFFSET ?`)
     .all(...args, size, (page - 1) * size).map(parseUp);
   const counts = { pending: 0, reviewed: 0, approved: 0, rejected: 0 };
-  db.prepare(`SELECT status, COUNT(*) n FROM paper_uploads GROUP BY status`).all()
+  let countWhere = ' WHERE 1=1'; const countArgs = [];
+  if (req.user.role === 'branch') { countWhere += ' AND u.created_by=?'; countArgs.push(req.user.id); }
+  else if (campus) { countWhere += ' AND u.created_by=?'; countArgs.push(Number(campus)); }
+  if (subject) { countWhere += ' AND p.subject=?'; countArgs.push(subject); }
+  db.prepare(`SELECT p.status, COUNT(*) n FROM paper_uploads p JOIN users u ON u.id=p.user_id${countWhere} GROUP BY p.status`).all(...countArgs)
     .forEach((r) => { if (counts[r.status] !== undefined) counts[r.status] = Number(r.n); });
   ok(res, { total, page, size, list: rows, counts });
 });
@@ -1134,6 +1175,8 @@ admin.post('/uploads/:id/review', (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare('SELECT * FROM paper_uploads WHERE id=?').get(id);
   if (!row) return fail(res, '记录不存在');
+  if (!canManageStudentRecord(req, row.user_id)) return fail(res, '无权处理其他分校的学生记录', 403);
+  if (Number(row.question_id) > 0 && !require('./qmeta').questionsAllowed(db, req.user, [Number(row.question_id)])) return fail(res, '无权访问题目', 403);
   if (row.status === 'approved') return fail(res, '该题已审核通过，不能再修改');
   const b = req.body || {};
   const status = ['approved', 'rejected', 'reviewed'].includes(b.status) ? b.status : 'reviewed';
@@ -1160,7 +1203,9 @@ admin.post('/uploads/:id/review', (req, res) => {
 
 /** 批量通过：全部待审核（题目已自动入库）的记录确认为审核通过 */
 admin.post('/uploads/import-all', (req, res) => {
-  const rows = db.prepare("SELECT id, subject FROM paper_uploads WHERE status IN ('pending','reviewed') AND question_id>0").all();
+  const rows = db.prepare(`SELECT p.id, p.subject, p.question_id FROM paper_uploads p WHERE p.status IN ('pending','reviewed') AND p.question_id>0${req.user.role === 'branch' ? " AND EXISTS (SELECT 1 FROM users u WHERE u.id=p.user_id AND u.role='student' AND u.created_by=?)" : ''}`)
+    .all(...(req.user.role === 'branch' ? [req.user.id] : []));
+  if (!require('./qmeta').questionsAllowed(db, req.user, rows.map(row => Number(row.question_id)))) return fail(res, '无权访问题目', 403);
   let n = 0;
   for (const row of rows) {
     if (!['数学', '英语', '物理', '化学'].includes(String(row.subject || ''))) continue;
@@ -1175,6 +1220,8 @@ admin.delete('/uploads/:id', (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare('SELECT * FROM paper_uploads WHERE id=?').get(id);
   if (!row) return fail(res, '记录不存在');
+  if (!canManageStudentRecord(req, row.user_id)) return fail(res, '无权处理其他分校的学生记录', 403);
+  if (Number(row.question_id) > 0 && !require('./qmeta').questionsAllowed(db, req.user, [Number(row.question_id)])) return fail(res, '无权访问题目', 403);
   if (row.status === 'approved') return fail(res, '已入库的记录不能删除，请到题库管理里操作');
   removeUploadQuestion(row.question_id);   // 待审核的题已自动入库，删记录时一并删除题目和学生错题本里的这道题
   db.prepare('DELETE FROM paper_uploads WHERE id=?').run(id);
@@ -1198,7 +1245,7 @@ const stageOfGrade = (stage, grade) => {
   const s = String(stage || '').trim().toLowerCase();
   if (s === 'primary' || s === 'junior') return s;
   const g = String(grade || '').trim();
-  if (['三年级', '四年级', '五年级', '六年级'].includes(g)) return 'primary';
+  if (['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'].includes(g)) return 'primary';
   if (['七年级', '八年级', '九年级', '中考冲刺'].includes(g)) return 'junior';
   return '';
 };
@@ -1210,7 +1257,7 @@ const todayStr = () => {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 };
 const addDays = (base, n) => {
-  const d = new Date(String(base || todayStr()).replace(/-/g, '/') + 'T00:00:00');
+  const d = new Date(String(base || todayStr()).slice(0, 10) + 'T00:00:00');
   d.setDate(d.getDate() + Number(n) || 0);
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 };
@@ -1238,7 +1285,7 @@ stu.get('/lesson-questions', (req, res) => {
     }
     if (!visible) return fail(res, '这门课不属于你的年级 / 学段');
   }
-  const rows = db.prepare('SELECT * FROM questions WHERE video_id=? ORDER BY id LIMIT 50').all(v.id);
+  const rows = db.prepare(`SELECT * FROM questions q WHERE video_id=? AND ${require('./qmeta').questionScopeSql(null, 'q')} ORDER BY id LIMIT 50`).all(v.id);
   ok(res, { title: v.title, list: rows.map((q) => serveQ(q, req.user.id)) });
 });
 
@@ -1260,8 +1307,8 @@ function stuSeesChapter(uid, chapterId) {
 /** R8：小分组练习的题 = 小分组自己的题 + 组内视频的题（视频顺序在前，小分组自己的题在后） */
 function sectionPracticeQs(sec) {
   return db.prepare(`SELECT q.* FROM questions q LEFT JOIN videos v ON v.id=q.video_id
-    WHERE ((q.video_id IS NULL OR q.video_id=0) AND q.section_id=?)
-      OR (q.video_id IS NOT NULL AND q.video_id<>0 AND v.chapter_id=? AND ${accuracy.SEC_EXPR}=?)
+    WHERE ${require('./qmeta').questionScopeSql(null, 'q')} AND (((q.video_id IS NULL OR q.video_id=0) AND q.section_id=?)
+      OR (q.video_id IS NOT NULL AND q.video_id<>0 AND v.chapter_id=? AND ${accuracy.SEC_EXPR}=?))
     ORDER BY CASE WHEN (q.video_id IS NULL OR q.video_id=0) AND q.section_id=? THEN 1 ELSE 0 END, v.sort, v.id, q.id LIMIT 60`).all(sec.id, sec.chapter_id, sec.id, sec.id);
 }
 /** R8：小分组练习取题（不含答案） */
@@ -1285,7 +1332,7 @@ stu.get('/node-mastery', (req, res) => {
   const ids = []; const stack = [node.id]; const seen = new Set();
   while (stack.length) { const x = stack.pop(); if (seen.has(x)) continue; seen.add(x); ids.push(x); (kids[x] || []).forEach((k) => stack.push(k)); }
   const ph = ids.map(() => '?').join(',');
-  const qids = db.prepare(`SELECT DISTINCT q.id FROM questions q WHERE q.type<>'answer' AND (
+  const qids = db.prepare(`SELECT DISTINCT q.id FROM questions q WHERE ${require('./qmeta').questionScopeSql(null, 'q')} AND q.type<>'answer' AND (
       q.id IN (SELECT question_id FROM question_nodes WHERE node_id IN (${ph}))
       OR q.video_id IN (SELECT video_id FROM video_nodes WHERE node_id IN (${ph})))`).all(...ids, ...ids).map((r) => r.id);
   const last = accuracy.lastAnswers(db, uid, qids);
@@ -1377,6 +1424,7 @@ stu.get('/papers/:id', (req, res) => {
     return fail(res, '这份试卷不属于你的年级 / 学段');
   }
   const ids = parseIds(p.q_ids);
+  if (!require('./qmeta').questionsAllowed(db, null, ids)) return fail(res, '题目待老师审核，暂不能练习', 403);
   const questions = ids.map((id) => db.prepare('SELECT * FROM questions WHERE id=?').get(id)).filter(Boolean).map((q) => serveQ(q, req.user.id));
   const last = presentAttempt(db.prepare('SELECT total, correct, score, detail, created_at FROM paper_tries WHERE user_id=? AND paper_id=? ORDER BY id DESC LIMIT 1').get(uid, p.id));
   ok(res, {
@@ -1393,6 +1441,7 @@ stu.post('/submit', (req, res) => {
   const kind = ['practice', 'section', 'paper', 'redo', 'review', 'mfpaper', 'self'].includes(b.kind) ? b.kind : 'practice';
   const answers = Array.isArray(b.answers) ? b.answers.filter((a) => a && typeof a === 'object') : [];
   if (!answers.length) return fail(res, '没有作答内容');
+  if (!require('./qmeta').questionsAllowed(db, null, answers.map(a => Number(a.question_id)))) return fail(res, '题目待老师审核，暂不能练习', 403);
   if (kind === 'self' && answers.some((a) => !verifyQuestionTicket(uid, Number(a.question_id), a.quiz_ticket))) return res.status(403).json({ code: 403, msg: '题目授权已失效或客户端版本过旧，请重新打开练习' });
   const videoId = b.video_id ? Number(b.video_id) : 0;
   const paperId = b.paper_id ? Number(b.paper_id) : 0;
@@ -1414,10 +1463,12 @@ stu.post('/submit', (req, res) => {
       return fail(res, '这份试卷不属于你的年级 / 学段');
     }
     allowedIds = new Set(parseIds(paper.q_ids));
+    if (!require('./qmeta').questionsAllowed(db, null, [...allowedIds])) return fail(res, '题目待老师审核，暂不能练习', 403);
   }
   if (kind === 'mfpaper') {
     paper = db.prepare('SELECT * FROM mf_papers WHERE id=?').get(paperId);
     if (!paper || !Number(paper.published) || ['basket', 'trashed', 'archived'].includes(paper.status)) return fail(res, '试卷不存在或未发布');
+    if (!require('./qmeta').paperQuestionsAllowed(db, null, paperId)) return fail(res, '试卷含待审核题目，请等待老师审核后再作答', 403);
     allowedIds = new Set(db.prepare("SELECT question_id FROM mf_paper_questions WHERE paper_id=? AND kind='question'").all(paperId).map((r) => r.question_id));
   }
 
@@ -1647,6 +1698,7 @@ stu.get('/mfpapers/filters', (req, res) => {
 stu.get('/mfpapers/:id', (req, res) => {
   const p = db.prepare('SELECT * FROM mf_papers WHERE id=?').get(Number(req.params.id));
   if (!p || !Number(p.published) || ['basket', 'trashed', 'archived'].includes(p.status)) return fail(res, '试卷不存在或未发布');
+  if (!require('./qmeta').paperQuestionsAllowed(db, null, p.id)) return fail(res, '试卷含待审核题目，请等待老师审核后再作答', 403);
   const qs = db.prepare(`SELECT q.* FROM mf_paper_questions r JOIN questions q ON q.id=r.question_id
     WHERE r.paper_id=? AND r.kind='question' ORDER BY r.position, r.id`).all(p.id);
   const total = db.prepare("SELECT COALESCE(SUM(score),0) AS s FROM mf_paper_questions WHERE paper_id=? AND kind='question'").get(p.id).s;
@@ -1660,12 +1712,23 @@ stu.get('/scan-tree', (req, res) => {
   const kind = req.query.kind === 'knowledge' ? 'knowledge' : 'textbook';
   const subject = String(req.query.subject || '').trim();
   if (!subject) return fail(res, '请选择学科');
-  // R2：同 学段+学科 可能有多个教材版本——按学生学段 + 默认版本表选一棵（可选 ?edition= 指定）；本学段没有时退回不分学段的树
-  const tree = pickTree(db, { kind, subject, stage, edition: String(req.query.edition || '').trim() })
-    || pickTree(db, { kind, subject, stage: '', edition: String(req.query.edition || '').trim() });
-  if (!tree) return ok(res, { nodes: [], tree_id: 0, tree_name: '', edition: '' });
+  const trees = db.prepare(`SELECT id, name, edition, stage FROM bank_trees
+    WHERE kind=? AND subject=? AND (stage=? OR IFNULL(stage,'')='') ORDER BY sort, id`).all(kind, subject, stage);
+  // 精确选择只接受当前学生可用的真实树；旧 edition / 默认版本请求保持兼容。
+  let tree;
+  if (req.query.tree_id !== undefined) {
+    const id = Number(req.query.tree_id);
+    if (!/^\d+$/.test(String(req.query.tree_id)) || !Number.isSafeInteger(id) || id <= 0) return fail(res, '请选择有效的教材版本');
+    tree = trees.find(t => Number(t.id) === id);
+    if (!tree) return fail(res, '该教材版本不属于当前学科或学段，请重新选择');
+  } else {
+    tree = pickTree(db, { kind, subject, stage, edition: String(req.query.edition || '').trim() })
+      || pickTree(db, { kind, subject, stage: '', edition: String(req.query.edition || '').trim() });
+  }
+  const choices = trees.map(t => ({ id: t.id, name: t.name, edition: t.edition || '', stage: t.stage || '' }));
+  if (!tree) return ok(res, { nodes: [], tree_id: 0, tree_name: '', edition: '', trees: choices });
   const nodes = db.prepare('SELECT id, tree_id, parent_id, name, sort FROM bank_tree_nodes WHERE tree_id=? ORDER BY sort, id').all(tree.id);
-  ok(res, { nodes, tree_id: tree.id, tree_name: tree.name, edition: tree.edition || '' });
+  ok(res, { nodes, tree_id: tree.id, tree_name: tree.name, edition: tree.edition || '', trees: choices });
 });
 
 // 题量查询与组卷共用范围校验，避免将其他学科或学段的节点混入。
@@ -1695,7 +1758,7 @@ function scanScope(req, res) {
 stu.post('/scan-count', (req, res) => {
   const scope = scanScope(req, res); if (!scope) return;
   const { where, args } = compose.scopeSql(db, { subject: scope.subject, nodeIds: scope.ids });
-  const total = Number(db.prepare(`SELECT COUNT(*) AS n FROM questions q${where}`).get(...args).n);
+  const total = Number(db.prepare(`SELECT COUNT(*) AS n FROM questions q${where} AND ${require('./qmeta').questionScopeSql(null, 'q')}`).get(...args).n);
   ok(res, { total });
 });
 
@@ -1709,9 +1772,9 @@ stu.post('/scan-compose', (req, res) => {
     if (![5, 10, 20].includes(count)) return fail(res, '请选择 5、10 或 20 题');
     const expanded = [...compose.expandNodeIds(db, ids)];
     const { where, args } = compose.scopeSql(db, { subject, nodeIds: ids });
-    const total = Number(db.prepare(`SELECT COUNT(*) AS n FROM questions q${where}`).get(...args).n);
+    const total = Number(db.prepare(`SELECT COUNT(*) AS n FROM questions q${where} AND ${require('./qmeta').questionScopeSql(null, 'q')}`).get(...args).n);
     if (total < count) return fail(res, `该范围只有 ${total} 道题，请减少题量或扩大范围`);
-    const rows = db.prepare(`SELECT q.* FROM questions q${where} ORDER BY RANDOM() LIMIT ?`).all(...args, count);
+    const rows = db.prepare(`SELECT q.* FROM questions q${where} AND ${require('./qmeta').questionScopeSql(null, 'q')} ORDER BY RANDOM() LIMIT ?`).all(...args, count);
     const nodeFor = db.prepare(`SELECT n.id, n.name FROM question_nodes qn JOIN bank_tree_nodes n ON n.id=qn.node_id
       WHERE qn.question_id=? AND n.id IN (${expanded.map(() => '?').join(',')}) ORDER BY n.id LIMIT 1`);
     const items = rows.map((row) => {
@@ -1723,7 +1786,7 @@ stu.post('/scan-compose', (req, res) => {
   const ph = treeIds.map(() => '?').join(',');
   const allNodes = db.prepare(`SELECT id, tree_id, parent_id, name FROM bank_tree_nodes WHERE tree_id IN (${ph})`).all(...treeIds);
   // 每个"最小的有题节点"抽 1 题（共用 compose.js）
-  const items = compose.pickPerNode(db, allNodes, ids).map((it) => ({ node_id: it.node_id, node_name: it.node_name, count: it.count, question: { ...serveQ(it.row, req.user.id), point: it.node_name } }));
+  const items = compose.pickPerNode(db, allNodes, ids).filter(it => require('./qmeta').questionsAllowed(db, null, [it.row.id])).map((it) => ({ node_id: it.node_id, node_name: it.node_name, count: it.count, question: { ...serveQ(it.row, req.user.id), point: it.node_name } }));
   if (!items.length) return fail(res, '选中的范围里还没有题目，先去题库管理补题或换个范围');
   ok(res, { items, total: items.length });
 });
@@ -1734,11 +1797,12 @@ stu.get('/subjective-responses', (req, res) => {
   const rows = db.prepare(`SELECT r.id, r.question_id, r.kind, r.paper_id, r.my_answer, r.score, r.max_score, r.review_comment, r.reviewed_at, r.created_at,
     CASE WHEN r.drawing_data IS NOT NULL AND r.drawing_data<>'' THEN 1 ELSE 0 END AS has_drawing,
     q.stem, q.subject, q.question_subtype FROM subjective_responses r LEFT JOIN questions q ON q.id=r.question_id
-    WHERE r.user_id=? ORDER BY r.id DESC LIMIT 100`).all(req.user.id);
+    WHERE ${require('./qmeta').questionScopeSql(null, 'q')} AND r.user_id=? ORDER BY r.id DESC LIMIT 100`).all(req.user.id);
   ok(res, { list: rows });
 });
 stu.get('/subjective-responses/:id/drawing', (req, res) => {
-  const row = db.prepare('SELECT drawing_data FROM subjective_responses WHERE id=? AND user_id=?').get(Number(req.params.id), req.user.id);
+  const row = db.prepare('SELECT question_id, drawing_data FROM subjective_responses WHERE id=? AND user_id=?').get(Number(req.params.id), req.user.id);
+  if (row && !require('./qmeta').questionsAllowed(db, null, [row.question_id])) return fail(res, '题目待老师审核，暂不能查看', 403);
   if (!row || !row.drawing_data) return res.status(404).send('作图不存在');
   try { const image = decodeDrawing(row.drawing_data); res.setHeader('Cache-Control', 'private, no-store'); res.type('image/png'); return res.send(image); }
   catch (_) { return res.status(404).send('作图不可读取'); }
@@ -1747,7 +1811,7 @@ stu.get('/subjective-responses/:id/drawing', (req, res) => {
 stu.get('/mistakes', (req, res) => {
   const uid = req.user.id;
   const { subject = '', resolved = '' } = req.query;
-  let where = ' WHERE m.user_id=?'; const args = [uid];
+  let where = ' WHERE ' + require('./qmeta').questionScopeSql(null, 'q') + ' AND m.user_id=?'; const args = [uid];
   if (subject) { where += ' AND q.subject=?'; args.push(subject); }
   if (resolved === '0') where += ' AND m.resolved=0';
   if (resolved === '1') where += ' AND m.resolved=1';
@@ -1758,12 +1822,12 @@ stu.get('/mistakes', (req, res) => {
     .map((r) => Object.assign(r, { quiz_ticket: signQuestionTicket(uid, r.question_id), audio_url: r.audio_key ? store.getUrlSync(r.audio_key) : '', question_subtype: QSubtype.compatible(r.question_subtype, r.subject, r.type), match_prompts: r.type === 'sort' && QSubtype.isMatch(r.question_subtype) ? require('./match-question').list(r.match_prompts) : [] }));
   const counts = {};
   db.prepare(`SELECT q.subject AS s, COUNT(*) n FROM mistakes m JOIN questions q ON q.id=m.question_id
-    WHERE m.user_id=? GROUP BY q.subject`).all(uid).forEach((r) => { counts[r.s || '其他'] = r.n; });
+    WHERE ${require('./qmeta').questionScopeSql(null, 'q')} AND m.user_id=? GROUP BY q.subject`).all(uid).forEach((r) => { counts[r.s || '其他'] = r.n; });
   const one = (sql, ...a) => Number((db.prepare(sql).get(...a) || {}).n || 0);
   const review = {
-    due: one(`SELECT COUNT(*) n FROM mistakes WHERE user_id=? AND resolved=0 AND (IFNULL(next_review,'')='' OR next_review<=?)`, uid, todayStr()),
-    total: one('SELECT COUNT(*) n FROM mistakes WHERE user_id=? AND resolved=0', uid),
-    mastered: one('SELECT COUNT(*) n FROM mistakes WHERE user_id=? AND resolved=1', uid),
+    due: one(`SELECT COUNT(*) n FROM mistakes WHERE question_id IN (SELECT q.id FROM questions q WHERE ${require('./qmeta').questionScopeSql(null, 'q')}) AND user_id=? AND resolved=0 AND (IFNULL(next_review,'')='' OR HEX(next_review)='4E614E2D4E614E2D4E614E' OR next_review<=?)`, uid, todayStr()),
+    total: one(`SELECT COUNT(*) n FROM mistakes WHERE user_id=? AND resolved=0 AND question_id IN (SELECT q.id FROM questions q WHERE ${require('./qmeta').questionScopeSql(null, 'q')})`, uid),
+    mastered: one(`SELECT COUNT(*) n FROM mistakes WHERE user_id=? AND resolved=1 AND question_id IN (SELECT q.id FROM questions q WHERE ${require('./qmeta').questionScopeSql(null, 'q')})`, uid),
   };
   ok(res, { list: rows, counts, review });
 });
@@ -1772,7 +1836,7 @@ stu.get('/mistakes', (req, res) => {
 stu.get('/mistakes/:id/similar', (req, res) => {
   const uid = req.user.id;
   const original = db.prepare(`SELECT q.*, m.ai_point FROM mistakes m JOIN questions q ON q.id=m.question_id
-    WHERE m.user_id=? AND m.question_id=?`).get(uid, Number(req.params.id) || 0);
+    WHERE ${require('./qmeta').questionScopeSql(null, 'q')} AND m.user_id=? AND m.question_id=?`).get(uid, Number(req.params.id) || 0);
   if (!original) return fail(res, '错题不存在');
   const me = db.prepare('SELECT grade, stage FROM users WHERE id=?').get(uid) || {};
   const stage = stageOfGrade(me.stage, me.grade);
@@ -1796,7 +1860,7 @@ stu.get('/mistakes/:id/similar', (req, res) => {
   tests.push('same_node=1');
   points.forEach((point) => { tests.push("IFNULL(point,'') LIKE ?"); params.push('%' + point + '%'); });
   const rows = db.prepare(`SELECT * FROM (SELECT q.*, ${nodeExpr} AS same_node FROM questions q
-    WHERE q.subject=? AND q.stage=? AND q.id<>?
+    WHERE ${require('./qmeta').questionScopeSql(null, 'q')} AND q.subject=? AND q.stage=? AND q.id<>?
       AND NOT EXISTS (SELECT 1 FROM records r WHERE r.user_id=? AND r.question_id=q.id)
       AND NOT EXISTS (SELECT 1 FROM mistakes m WHERE m.user_id=? AND m.question_id=q.id)) candidates
     WHERE (${tests.join(' OR ')}) ORDER BY RANDOM() LIMIT 500`)
@@ -1808,7 +1872,7 @@ stu.get('/mistakes/:id/similar', (req, res) => {
 
 // 顶栏角标：未掌握错题数（轻量）
 stu.get('/mistake-count', (req, res) => {
-  const n = Number((db.prepare('SELECT COUNT(*) n FROM mistakes WHERE user_id=? AND resolved=0').get(req.user.id) || {}).n || 0);
+  const n = Number((db.prepare(`SELECT COUNT(*) n FROM mistakes WHERE user_id=? AND resolved=0 AND question_id IN (SELECT q.id FROM questions q WHERE ${require('./qmeta').questionScopeSql(null, 'q')})`).get(req.user.id) || {}).n || 0);
   ok(res, { pending: n });
 });
 
@@ -1819,7 +1883,7 @@ stu.get('/mistake-points', async (req, res) => {
   const subject = String(req.query.subject || '数学');
   const loadRows = () => db.prepare(`SELECT m.question_id, m.ai_point, q.point, q.stem, q.type, q.options
     FROM mistakes m JOIN questions q ON q.id=m.question_id
-    WHERE m.user_id=? AND m.resolved=0 AND q.subject=?
+    WHERE ${require('./qmeta').questionScopeSql(null, 'q')} AND m.user_id=? AND m.resolved=0 AND q.subject=?
     ORDER BY m.updated_at DESC LIMIT 80`).all(uid, subject);
   let rows = loadRows();
   let aiUsed = false, aiFail = false;
@@ -1866,11 +1930,13 @@ stu.get('/mistake-points', async (req, res) => {
 });
 
 // ---------- 错题复习：今日到期队列 ----------
+// 旧日期错误产生的精确 NaN-NaN-NaN 视为立即可复习，不回填历史数据。
+// HEX 同时兼容 MySQL/SQLite，避免 MySQL 排序规则忽略大小写或尾空格；与 due 计数保持一致。
 stu.get('/review-queue', (req, res) => {
   const uid = req.user.id;
   const rows = db.prepare(`SELECT m.review_stage, q.*
     FROM mistakes m JOIN questions q ON q.id=m.question_id
-    WHERE m.user_id=? AND m.resolved=0 AND (IFNULL(m.next_review,'')='' OR m.next_review<=?)
+    WHERE ${require('./qmeta').questionScopeSql(null, 'q')} AND m.user_id=? AND m.resolved=0 AND (IFNULL(m.next_review,'')='' OR HEX(m.next_review)='4E614E2D4E614E2D4E614E' OR m.next_review<=?)
     ORDER BY m.next_review, m.updated_at DESC LIMIT 50`).all(uid, todayStr());
   ok(res, { list: rows.map((r) => Object.assign(serveQ(r, req.user.id), { review_stage: Number(r.review_stage) || 0 })) });
 });
@@ -1879,6 +1945,7 @@ stu.get('/review-queue', (req, res) => {
 stu.post('/check', (req, res) => {
   const items = Array.isArray((req.body || {}).items) ? req.body.items.slice(0, 50) : [];
   if (!items.length) return fail(res, '没有要核对的内容');
+  if (!require('./qmeta').questionsAllowed(db, null, items.map(a => Number(a && a.question_id)))) return fail(res, '题目待老师审核，暂不能练习', 403);
   if (items.some((a) => !a || !verifyQuestionTicket(req.user.id, Number(a.question_id), a.quiz_ticket))) return res.status(403).json({ code: 403, msg: '题目授权已失效或客户端版本过旧，请重新打开练习' });
   for (const a of items) {
     const q = db.prepare('SELECT question_subtype FROM questions WHERE id=?').get(Number(a.question_id) || 0);
@@ -1905,6 +1972,7 @@ stu.post('/check', (req, res) => {
 
 // ---------- 题目反馈：学生做完题觉得题有问题，反馈给管理端「错题反馈记录」 ----------
 stu.post('/feedback', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, null, [Number((req.body || {}).question_id)])) return fail(res, '题目待老师审核，暂不能练习', 403);
   const uid = req.user.id;
   const b = req.body || {};
   const qid = Number(b.question_id) || 0;
@@ -1920,6 +1988,7 @@ stu.post('/feedback', (req, res) => {
 
 // ---------- AI 讲解：苏格拉底式分步引导（不直接给答案） ----------
 stu.post('/ai-explain', async (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, null, [Number((req.body || {}).question_id)])) return fail(res, '题目待老师审核，暂不能练习', 403);
   const uid = req.user.id;
   const b = req.body || {};
   const qid = Number(b.question_id) || 0;
@@ -2000,6 +2069,7 @@ function aiMockReply(q, mode, ask, turn, myAns) {
   return `### 知识点\n\n这道题考的是 **${pt}**。\n\n### 思路\n\n先弄清题目给了什么、要求什么，再用「${pt}」的方法把条件联系起来。\n\n### 步骤\n\n1. 读题，圈出关键条件；\n2. ${ana}\n3. 得出答案：**${ansTxt}**。\n\n### 易错点\n\n- 你的答案是「${myAns || '未作答'}」，和正确答案不一样的地方要特别注意；\n- 符号（正负号）最容易看错，算完要再检查一遍；\n- 公式示例：\\(|a| \\ge 0\\)，任何数的绝对值都不是负数。`;
 }
 stu.post('/ai-explain/stream', async (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, null, [Number((req.body || {}).question_id)])) return fail(res, '题目待老师审核，暂不能练习', 403);
   const b = req.body || {};
   if (!verifyQuestionTicket(req.user.id, Number(b.question_id), b.quiz_ticket)) return res.status(403).json({ code: 403, msg: '题目授权已失效或客户端版本过旧，请重新打开练习' });
   const q = db.prepare('SELECT * FROM questions WHERE id=?').get(Number(b.question_id) || 0);
@@ -2076,15 +2146,19 @@ const upSign = (payload, expires) => jwt.sign({ role: 'up', ...payload }, upSecr
 // 教师扫码票据仅允许上传到待审核，短时有效，不能作为后台登录凭证。
 admin.post('/teacher-upload-token', (req, res) => {
   let defaults; try { defaults = require('./intake-scope')(db,req.body); } catch(e) {return fail(res,e.message);}
-  const token = jwt.sign({ role: 'upteacher', uid: req.user.id, defaults }, upSecret(), { expiresIn: '30m' });
+  const token = jwt.sign({ role: 'upteacher', uid: req.user.id, account_role: req.user.role, defaults }, upSecret(), { expiresIn: '30m' });
   return ok(res, { token, url: '/upload.html', expires_in: 1800 });
 });
 const upAuth = (req, res, next) => {
   try {
     const p = jwt.verify(String(req.query.token || req.query.t || ''), upSecret());
     if (!['up', 'upteacher'].includes(p.role) || !p.uid) throw new Error('bad token');
-    const user = db.prepare('SELECT role, status FROM users WHERE id=?').get(Number(p.uid));
+    const user = db.prepare('SELECT role, status, expire_at FROM users WHERE id=?').get(Number(p.uid));
     if (!user || Number(user.status) !== 1 || (p.role === 'upteacher' ? !['admin', 'branch'].includes(user.role) : user.role !== 'student')) throw new Error('bad user');
+    if (p.role === 'upteacher' && (!p.account_role || p.account_role !== user.role)) throw new Error('changed role');
+    const d = new Date(), pad = n => String(n).padStart(2, '0');
+    const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    if (['student', 'branch'].includes(user.role) && user.expire_at && String(user.expire_at).slice(0, 10) < today) throw new Error('expired user');
     req.upUid = Number(p.uid);
     req.upRole = p.role;
     req.upDefaults = p.role === 'upteacher' ? (p.defaults || {}) : {};

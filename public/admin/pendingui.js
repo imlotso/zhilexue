@@ -5,11 +5,11 @@
  */
 const PD_API = '/api/admin/bank/mf';
 const PD_SRC = [['all', '全部'], ['photo', '拍照识别'], ['word', 'Word导入'], ['excel', 'Excel导入'], ['skill', '技能包'], ['capture', '网络采集'], ['scan', '手机扫码（错题）'], ['teacher_scan', '老师手机扫码'], ['manual', '手动录入'], ['paper', '真题试卷'], ['lesson', '课文习题']];
-const PD_REVIEW = [['all', '全部题目'], ['no_answer', '缺答案'], ['no_analysis', '缺解析'], ['no_image', '待补图'], ['no_class', '缺分类']];
+const PD_REVIEW = [['all', '全部题目'], ['needs_review', '待核对'], ['no_answer', '缺答案'], ['no_analysis', '缺解析'], ['no_image', '待补图'], ['no_class', '缺分类']];
 const PD_TYPES = [['single', '单选题'], ['multi', '多选题'], ['judge', '判断题'], ['fill', '填空题'], ['sort', '排序题'], ['answer', '解答题']];
 const PD_STAGES = [['', '未识别'], ['primary', '小学'], ['junior', '初中'], ['senior', '高中']];
 const PD_SUBJECTS = ['数学', '英语', '物理', '化学', '语文'];
-const PD_GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
+const PD_GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const pdStageName = (k) => (PD_STAGES.find((s) => s[0] === k) || [])[1] || '';
 const pdOpts = (list, cur, empty) => (empty != null ? `<option value="">${esc(empty)}</option>` : '')
   + list.map((x) => { const v = Array.isArray(x) ? x[0] : x; const t = Array.isArray(x) ? x[1] : x; return `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(t)}</option>`; }).join('');

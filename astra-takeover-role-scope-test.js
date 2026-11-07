@@ -25,6 +25,7 @@ function fixture(t){
  CREATE TABLE papers(id INTEGER PRIMARY KEY,title TEXT,subject TEXT,grade TEXT,term TEXT,stage TEXT,status TEXT,q_ids TEXT,published_at TEXT,due_at TEXT,duration INTEGER,total_score INTEGER);
  CREATE TABLE paper_assignments(paper_id INTEGER,user_id INTEGER,assigned_by INTEGER,created_at TEXT);
  CREATE TABLE questions(id INTEGER PRIMARY KEY,stem TEXT);
+ CREATE TABLE paper_uploads(question_id INTEGER,user_id INTEGER,status TEXT);
  CREATE TABLE paper_tries(id INTEGER PRIMARY KEY,user_id INTEGER,paper_id INTEGER,total INTEGER,correct INTEGER,score INTEGER,detail TEXT,created_at TEXT);
  INSERT INTO users VALUES(1,'admin',1,NULL,'principal','','','','',NULL),(10,'branch',1,1,'campus A','','','','',NULL),(20,'branch',1,1,'campus B','','','','',NULL);
  INSERT INTO users VALUES(101,'student',1,10,'A one','a1','四年级','上册','primary',NULL),(102,'student',1,10,'A two','a2','四年级','上册','primary',NULL),(103,'student',0,10,'A stopped','a3','四年级','上册','primary',NULL),(201,'student',1,20,'B one','b1','四年级','上册','primary',NULL),(104,'student',1,10,'A unassigned','a4','四年级','上册','primary',NULL);
@@ -34,7 +35,7 @@ function fixture(t){
  `);
  const writes=[];const db={prepare(sql){const q=raw.prepare(sql);return {get:(...a)=>q.get(...a),all:(...a)=>q.all(...a),run:(...a)=>{writes.push({sql,args:a});return {changes:1,lastInsertRowid:1};}};},transaction:fn=>()=>fn()};
  const admin={},stu={},middleware=[];
- const box={db,admin:{get:(p,f)=>admin['GET '+p]=f,post:(p,f)=>admin['POST '+p]=f},stu:{get:(p,f)=>stu[p]=f,use:f=>middleware.push(f)},
+ const box={require:p=>require(path.join(__dirname,'src',p)),db,admin:{get:(p,f)=>admin['GET '+p]=f,post:(p,f)=>admin['POST '+p]=f},stu:{get:(p,f)=>stu[p]=f,use:f=>middleware.push(f)},
  ok:(res,data)=>res.data=data,fail:(res,error)=>res.error=error,now:()=> '2026-01-01',serveQ:q=>q,presentAttempt:t=>t||null};
  const snippets=[slice('const parseIds =','\n};'),slice('const stageOfGrade =','\n};'),slice('function paperDeadline(','\n}'),slice('const paperHasAssignees =',';'),slice('stu.use((req, res, next) => {','\n});'),
  ...['/papers/:id/assignees','/students-options'].map(p=>slice("admin.get('"+p+"',",'\n});')),slice("admin.post('/papers/:id/assign',",'\n});'),
@@ -48,7 +49,8 @@ function fixture(t){
  vm.runInNewContext(snippets.slice(0,4).join('\n')+'\n(function(){'+slice('  let paper = null;','  if (kind === \'mfpaper\') {').replace("  if (kind === 'mfpaper') {",'')+'\nthis.allowed=allowedIds;}).call(this)',ctx);return {error:res.error,ids:ctx.allowed&&Array.from(ctx.allowed)};}};
 }
 const branch={id:10,role:'branch'},principal={id:1,role:'admin'};
-test('same-campus multiple active students can be assigned with deduplication',t=>{const f=fixture(t),r=f.admin('POST /papers/:id/assign',branch,{body:{user_ids:[101,102,101]}});assert.equal(r.error,undefined);assert.equal(r.data.total,2);assert.equal(f.writes.filter(x=>x.sql.startsWith('INSERT')).length,2);});
+test('same-campus existing recipients are idempotent even with duplicate requested ids',t=>{const f=fixture(t),r=f.admin('POST /papers/:id/assign',branch,{body:{user_ids:[101,102,101]}});assert.equal(r.error,undefined);assert.equal(r.data.total,2);assert.equal(r.data.added,0);assert.equal(f.writes.filter(x=>x.sql.startsWith('INSERT')).length,0);});
+test('same-campus new recipients are inserted once per distinct requested id',t=>{const f=fixture(t),r=f.admin('POST /papers/:id/assign',branch,{params:{id:3},body:{user_ids:[101,102,101]}});assert.equal(r.error,undefined);assert.equal(r.data.total,2);assert.equal(r.data.added,2);const inserts=f.writes.filter(x=>x.sql.startsWith('INSERT'));assert.equal(inserts.length,2);assert.deepEqual(inserts.map(x=>x.args.slice(0,2)),[[3,101],[3,102]]);});
 for(const ids of [[101,201],[101,103],[101,999],[101,10]])test('invalid/cross-campus assignment is rejected atomically '+ids,t=>{const f=fixture(t);assert.ok(f.admin('POST /papers/:id/assign',branch,{body:{user_ids:ids}}).error);assert.equal(f.writes.length,0);});
 test('principal may assign active students across campuses',t=>{const f=fixture(t);assert.equal(f.admin('POST /papers/:id/assign',principal,{body:{user_ids:[101,201]}}).data.total,2);});
 test('student options cannot override branch scope and exclude stopped accounts',t=>{const f=fixture(t);assert.deepEqual(Array.from(f.admin('GET /students-options',branch,{query:{campus:20}}).data,x=>x.id).sort(),[101,102,104]);assert.deepEqual(Array.from(f.admin('GET /students-options',principal,{query:{campus:20}}).data,x=>x.id),[201]);});

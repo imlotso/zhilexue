@@ -129,13 +129,27 @@ module.exports = function mountPending(d) {
     });
     return out;
   }
-  function scanItems() {
+  function scanAccessError(req, ids) {
+    if (req.user.role !== 'branch') return '';
+    // 批量操作先校验全部学生记录，不能先写入本校题再发现外校题。
+    for (const id of ids) {
+      const p = parseId(id);
+      if (!p || p.kind !== 'up') continue;
+      const up = db.prepare("SELECT pu.id, pu.question_id FROM paper_uploads pu JOIN users u ON u.id=pu.user_id WHERE pu.id=? AND u.role='student' AND u.created_by=?").get(p.batch, req.user.id);
+      if (!up) return '无权处理其他分校的学生记录';
+      // 同一题可能被多校上传共用；记录属于本校不代表其关联题目可修改。
+      if (Number(up.question_id) > 0 && !require('./qmeta').questionsAllowed(db, req.user, [Number(up.question_id)])) return '无权访问题目';
+    }
+    return '';
+  }
+  function scanItems(req) {
     const rows = db.prepare(`SELECT pu.id AS up_id, pu.status AS up_status, pu.images AS up_images, pu.point AS pu_point, pu.subject AS pu_subject, pu.stage AS pu_stage,
         pu.grade AS pu_grade, pu.created_at AS up_created, pu.stem_text AS up_stem_text, pu.note AS up_note, pu.answer AS pu_answer, pu.draft_json AS pu_draft,
         q.id AS qid, q.stem, q.options, q.answer, q.analysis, q.type, q.difficulty, q.difficulty_score_10, q.point, q.images AS q_images, q.material, q.audio_key, q.audio_play_limit, q.question_subtype, q.match_prompts,
         u.name AS student_name
       FROM paper_uploads pu LEFT JOIN questions q ON q.id=pu.question_id JOIN users u ON u.id=pu.user_id
-      WHERE pu.status IN ('pending','reviewed') ORDER BY pu.created_at DESC, pu.id DESC`).all();
+      WHERE pu.status IN ('pending','reviewed') AND (IFNULL(pu.question_id,0)<=0 OR (q.id IS NOT NULL AND ${require('./qmeta').questionScopeSql(req.user, 'q')}))${req.user.role === 'branch' ? ' AND u.created_by=?' : ''} ORDER BY pu.created_at DESC, pu.id DESC`)
+      .all(...(req.user.role === 'branch' ? [req.user.id] : []));
     return rows.map((r) => {
       const draft = parseObj(r.pu_draft);
       const ups = parseArr(r.up_images); const qimgs = parseArr(r.q_images);
@@ -163,13 +177,15 @@ module.exports = function mountPending(d) {
   function suggestionFor(item, suggestion) {
     return suggestion ? { ...suggestion, stale: suggestion.basis !== AiAnswerReview.signature(item) } : null;
   }
-  const allItems = () => [].concat(runItems(), capItems(), scanItems());
+  const allItems = (req) => [].concat(runItems(), capItems(), scanItems(req));
 
 
   // 采集和学生扫码的建议独立暂存，逐项确认时在事务内锁住来源记录。
   // 历史扫码题可能已有正式题目，必须同时锁住其题目记录，防止并发审核或编辑。
-  function mutateExternalAi(id, fn) {
+  function mutateExternalAi(req, id, fn) {
     return db.transaction(() => {
+      const scopeError = scanAccessError(req, [id]);
+      if (scopeError) throw new Error(scopeError);
       const p = parseId(id);
       if (!p || !['cap', 'up'].includes(p.kind)) throw new Error('题目来源不支持');
       let row, container, target;
@@ -184,7 +200,7 @@ module.exports = function mountPending(d) {
         container = parseObj(row.draft_json); target = container;
         if (row.question_id && !db.prepare('SELECT id FROM questions WHERE id=? FOR UPDATE').get(row.question_id)) throw new Error(STALE);
       }
-      const item = allItems().find((x) => x.id === id);
+      const item = allItems(req).find((x) => x.id === id);
       if (!item) throw new Error(STALE);
       const result = fn({ p, row, target, item });
       if (p.kind === 'cap') db.prepare('UPDATE mf_capture_batches SET payload=? WHERE id=?').run(jstr(container), row.id);
@@ -195,7 +211,9 @@ module.exports = function mountPending(d) {
   admin.post('/ext/pending/ai-answer', async (req, res) => {
     const ids = [...new Set(Array.isArray((req.body || {}).ids) ? req.body.ids.map(str) : [])];
     if (!ids.length || ids.length > 20) return fail(res, '请选择 1 到 20 道待审核题目');
-    const current = new Map(allItems().map((x) => [x.id, x]));
+    const scopeError = scanAccessError(req, ids);
+    if (scopeError) return fail(res, scopeError, 403);
+    const current = new Map(allItems(req).map((x) => [x.id, x]));
     const list = ids.map((id) => current.get(id));
     if (list.some((x) => !x || !['cap', 'scan'].includes(x.kind))) return fail(res, '题目已变化，或该来源请使用录题 AI 建议入口');
     const failed = [];
@@ -220,7 +238,7 @@ module.exports = function mountPending(d) {
       const answer = byIndex.get(entry.i);
       if (!answer) continue;
       try {
-        const saved = mutateExternalAi(entry.item.id, ({ target, item }) => {
+        const saved = mutateExternalAi(req, entry.item.id, ({ target, item }) => {
           if (target.ai_answer_suggestion || AiAnswerReview.signature(item) !== entry.basis) throw new Error('题目或建议已变化，请刷新后核对');
           const a = !str(item.answer).trim() ? str(answer.answer).trim().slice(0, 4000) : '';
           const explanation = !str(item.analysis).trim() ? str(answer.analysis).trim().slice(0, 12000) : '';
@@ -235,8 +253,10 @@ module.exports = function mountPending(d) {
   });
   admin.post('/ext/pending/ai-answer/discard', (req, res) => {
     const b = req.body || {}, id = str(b.id);
+    const scopeError = scanAccessError(req, [id]);
+    if (scopeError) return fail(res, scopeError, 403);
     try {
-      mutateExternalAi(id, ({ target, item }) => {
+      mutateExternalAi(req, id, ({ target, item }) => {
         if (!target.ai_answer_suggestion || !target.ai_answer_suggestion.token || str(b.token) !== target.ai_answer_suggestion.token || str(b.expected) !== AiAnswerReview.discardSignature(item)) throw new Error('题目或建议已变化，请刷新后重新核对');
         AiAnswerReview.discardSuggestion(target, req.user.id, now());
       });
@@ -245,10 +265,12 @@ module.exports = function mountPending(d) {
   });
   admin.post('/ext/pending/ai-answer/confirm', (req, res) => {
     const b = req.body || {}, id = str(b.id);
+    const scopeError = scanAccessError(req, [id]);
+    if (scopeError) return fail(res, scopeError, 403);
     const fields = [...new Set(Array.isArray(b.fields) ? b.fields : [])];
     if (fields.length !== 1 || fields.some((x) => !['answer', 'analysis'].includes(x))) return fail(res, '请逐项选择要采纳的答案或解析建议');
     try {
-      mutateExternalAi(id, ({ p, row, target, item }) => {
+      mutateExternalAi(req, id, ({ p, row, target, item }) => {
         if (b.recheck === true) {
           const field = fields[0];
           if (str(b.expected) !== AiAnswerReview.signature(item) || !AiAnswerReview.reviewedPendingFields(item).includes(field)) throw new Error('题目已变化，请重新核对');
@@ -290,7 +312,9 @@ module.exports = function mountPending(d) {
   admin.post('/ext/pending/ai-classify', async (req, res) => {
     const ids = [...new Set(Array.isArray((req.body || {}).ids) ? req.body.ids.map(str) : [])];
     if (!ids.length || ids.length > 20) return fail(res, '请选择 1 到 20 道待审核题目');
-    const current = new Map(allItems().map((item) => [item.id, item]));
+    const scopeError = scanAccessError(req, ids);
+    if (scopeError) return fail(res, scopeError, 403);
+    const current = new Map(allItems(req).map((item) => [item.id, item]));
     const groups = new Map(), out = [];
     ids.forEach((id) => {
       const item = current.get(id);
@@ -385,7 +409,8 @@ module.exports = function mountPending(d) {
       rows.push({ kind: 'cap', id: batch.id, source: 'capture', source_label: SRC_LABEL.capture, title: batch.title, subject: batch.subject, stage: batch.stage, total: cards.length, pending, status: pending ? '待核对' : '已处理', error: '', created_at: batch.created_at });
     });
     db.prepare(`SELECT p.id,p.subject,p.stage,p.status,p.created_at,u.name AS student_name FROM paper_uploads p
-      LEFT JOIN users u ON u.id=p.user_id ORDER BY p.id DESC LIMIT 300`).all().forEach((up) => {
+      LEFT JOIN users u ON u.id=p.user_id${req.user.role === 'branch' ? ' WHERE u.created_by=?' : ''} ORDER BY p.id DESC LIMIT 300`)
+      .all(...(req.user.role === 'branch' ? [req.user.id] : [])).forEach((up) => {
       const pending = ['pending', 'reviewed'].includes(up.status) ? 1 : 0;
       rows.push({ kind: 'scan', id: up.id, source: 'scan', source_label: SRC_LABEL.scan, title: `${up.student_name || '学生'} 扫码上传`, subject: up.subject, stage: up.stage, total: 1, pending, status: pending ? '待核对' : up.status === 'rejected' ? '已拒绝' : '已处理', error: '', created_at: up.created_at });
     });
@@ -400,13 +425,14 @@ module.exports = function mountPending(d) {
     const kw = str(req.query.kw).trim().toLowerCase();
     const page = Math.max(1, int(req.query.page, 1));
     const size = Math.min(100, Math.max(1, int(req.query.size, 20)));
-    const items = allItems();
+    const items = allItems(req);
     const counts = countBy(items);
     let list = items.filter((it) => source === 'all' || it.source === source);
     const batchId = int(req.query.batch_id, 0);
     if (batchId > 0 && source !== 'all') list = list.filter((it) => it.batch_id === batchId);
     if (kw) list = list.filter((it) => [it.stem, it.qno, it.batch_title, it.point, it.answer, it.material].some((t) => str(t).toLowerCase().includes(kw)));
     const missing = {
+      needs_review: (it) => !!(it.content_review_pending || it.type_unconfirmed || it.figure_review_issue || it.ai_legacy_pending || (it.ai_review_pending_fields || []).length),
       no_answer: (it) => !str(it.answer).trim(),
       no_analysis: (it) => !str(it.analysis).trim(),
       no_image: (it) => (it.image_errors || []).length > 0 || (it.figure_missing || []).length > 0 || !!it.figure_review_issue,
@@ -609,6 +635,8 @@ module.exports = function mountPending(d) {
     const b = req.body || {};
     const p = parseId(b.id);
     if (!p) return fail(res, '题目标识不对');
+    const scopeError = scanAccessError(req, [b.id]);
+    if (scopeError) return fail(res, scopeError, 403);
     const patch = b.patch && typeof b.patch === 'object' ? b.patch : {};
     const has = (k) => Object.prototype.hasOwnProperty.call(patch, k);
     const rawOpts = has('options') ? (Array.isArray(patch.options) ? patch.options : []).map((o, k) => ({ label: str(o && o.label) || LETTERS[k] || '', text: str(o && (o.text != null ? o.text : o.content)) })) : null;
@@ -616,14 +644,14 @@ module.exports = function mountPending(d) {
     if (opts && opts.length > 10) return fail(res, '最多支持 10 个选项');
     const type = has('type') && TYPES.includes(patch.type) ? patch.type : null;
     if ((rawOpts && rawOpts.length !== opts.length) || has('match_prompts')) {
-      const old = allItems().find((x) => x.id === str(b.id));
+      const old = allItems(req).find((x) => x.id === str(b.id));
       const subtype = has('question_subtype') ? patch.question_subtype : old && old.question_subtype;
       if (QSubtype.isMatch(subtype) && rawOpts && rawOpts.length !== opts.length) return fail(res, '匹配题的右侧选项不能为空');
       if (QSubtype.isMatch(subtype) && has('match_prompts') && (!Array.isArray(patch.match_prompts) || patch.match_prompts.some((v) => !str(v).trim()))) return fail(res, '匹配题的左侧项目不能为空');
     }
     // AI 建议确认时携带页面所见快照，避免覆盖别人刚修改的题型、难度或归属。
     if (b.expected && typeof b.expected === 'object') {
-      const item = allItems().find((x) => x.id === str(b.id));
+      const item = allItems(req).find((x) => x.id === str(b.id));
       if (!item || ['stem', 'type', 'question_subtype', 'subject', 'stage', 'difficulty', 'difficulty_score_10'].some((key) => str(item[key]) !== str(b.expected[key]))) return fail(res, '题目已更新，请刷新后重新核对 AI 建议');
       if (type && item.question_subtype && !QSubtype.compatible(item.question_subtype, item.subject, type)) return fail(res, '建议题型与原有细分题型不兼容，请先手动核对');
       if (type && ['single', 'multi', 'sort'].includes(type) && (item.options || []).length < 2) return fail(res, '该题选项不足，请先手动核对题型');
@@ -704,11 +732,11 @@ module.exports = function mountPending(d) {
       if (has('audio_play_limit')) draft.audio_play_limit = audioLimitOf(patch.audio_play_limit);
       db.prepare("UPDATE paper_uploads SET draft_json=?, status='reviewed' WHERE id=?").run(jstr(draft), up.id);
       ['point', 'subject', 'stage', 'grade'].forEach((k) => { if (has(k)) db.prepare(`UPDATE paper_uploads SET ${k}=? WHERE id=?`).run(str(patch[k]).trim(), up.id); });
-      return ok(res, scanItems().find((x) => x.id === p.id) || null, '已保存');
+      return ok(res, scanItems(req).find((x) => x.id === p.id) || null, '已保存');
     }
     const existing = db.prepare('SELECT * FROM questions WHERE id=?').get(up.question_id);
     // 历史扫码题已经在正式题库：不能先改题面而继续对外暴露不再匹配的已确认 AI 答案。
-    const currentItem = scanItems().find((item) => item.id === `up:${up.id}`);
+    const currentItem = scanItems(req).find((item) => item.id === `up:${up.id}`);
     if (currentItem) {
       const projected = { ...currentItem };
       ['stem', 'answer', 'analysis', 'material', 'subject', 'stage', 'grade', 'question_subtype', 'match_prompts', 'audio_key'].forEach((key) => { if (has(key)) projected[key] = patch[key]; });
@@ -740,15 +768,17 @@ module.exports = function mountPending(d) {
     if (sets.length) db.prepare(`UPDATE questions SET ${sets.join(', ')} WHERE id=?`).run(...args, up.question_id);
     ['point', 'subject', 'stage', 'grade'].forEach((k) => { if (has(k)) db.prepare(`UPDATE paper_uploads SET ${k}=? WHERE id=?`).run(str(patch[k]).trim(), up.id); });
     if (up.status === 'pending') db.prepare("UPDATE paper_uploads SET status='reviewed' WHERE id=?").run(up.id);
-    return ok(res, scanItems().find((x) => x.id === p.id) || null, '已保存');
+    return ok(res, scanItems(req).find((x) => x.id === p.id) || null, '已保存');
   });
 
   // ------------------------------------------------------------ 入库（逐题 / 批量）
   admin.post('/ext/pending/commit', (req, res) => {
     const b = req.body || {};
+    const scopeError = scanAccessError(req, Array.isArray(b.ids) ? b.ids : []);
+    if (scopeError) return fail(res, scopeError, 403);
     if (b.expected_scope && typeof b.expected_scope === 'object') {
       const ids = Array.isArray(b.ids) ? b.ids : [];
-      const item = ids.length === 1 ? allItems().find((x) => x.id === str(ids[0])) : null;
+      const item = ids.length === 1 ? allItems(req).find((x) => x.id === str(ids[0])) : null;
       if (!item || ['stem', 'subject', 'stage', 'grade', 'edition', 'term'].some((key) => str(item[key]) !== str(b.expected_scope[key]))) return fail(res, '题目或教材范围已更新，请刷新后重新核对 AI 建议');
     }
     const g = groupIds(b.ids);
@@ -881,7 +911,7 @@ module.exports = function mountPending(d) {
     [...new Set(g.up)].forEach((upId) => {
       const up = db.prepare('SELECT * FROM paper_uploads WHERE id=?').get(upId);
       if (!up || !['pending', 'reviewed'].includes(up.status)) return failed.push({ id: `up:${upId}`, msg: '这道题已经不在待审核里了' });
-      const reviewItem = scanItems().find((item) => item.id === `up:${upId}`);
+      const reviewItem = scanItems(req).find((item) => item.id === `up:${upId}`);
       if (reviewItem && AiAnswerReview.reviewedPendingFields({ ...reviewItem, subject: opt.subject || reviewItem.subject, stage: opt.stage || reviewItem.stage, grade: opt.grade || reviewItem.grade }).length) return failed.push({ id: `up:${upId}`, msg: '题目内容或分类已变化，请逐项重新核对已采纳的 AI 答案和解析' });
       const subj = ['数学', '英语', '物理', '化学'].includes(opt.subject) ? opt.subject : up.subject;
       if (!['数学', '英语', '物理', '化学'].includes(str(subj))) return failed.push({ id: `up:${upId}`, msg: '学科没识别出来，请先编辑选好学科再入库' });
@@ -944,6 +974,8 @@ module.exports = function mountPending(d) {
 
   // ------------------------------------------------------------ 删除（批量）
   admin.post('/ext/pending/delete', (req, res) => {
+    const scopeError = scanAccessError(req, Array.isArray((req.body || {}).ids) ? req.body.ids : []);
+    if (scopeError) return fail(res, scopeError, 403);
     const g = groupIds((req.body || {}).ids);
     if (!(g.run.size || g.cap.size || g.up.length)) return fail(res, '请先选择要删除的题目');
     let n = 0, stale = 0;
@@ -1214,7 +1246,7 @@ module.exports = function mountPending(d) {
     const cards = r.list.map((q) => ({
       ...(() => {
         const remap = (value) => str(value).replace(/\[图(\d+)\]/g, (m, n) => { const i = q.imgRefs.indexOf(Number(n)); return i < 0 ? m : `[图${i + 1}]`; });
-        return { qno: q.sub ? `${q.no}(${q.sub})` : String(q.no), questionType: TYPE_FROM_CODE(q.type), question_subtype: q.question_subtype || '', type_unconfirmed: !!q.type_unconfirmed, match_prompts: MatchQ.list(q.match_prompts).map(remap), group_ref: q.group_ref || '', stem: remap(q.stem), material: remap(q.material), options: q.options.map((o) => ({ label: o.label, content: remap(o.content) })), answer: q.answer, analysis: remap(q.analysis) };
+        return { qno: q.sub ? `${q.no}(${q.sub})` : String(q.no), questionType: TYPE_FROM_CODE(q.type), question_subtype: q.question_subtype || '', type_unconfirmed: !!q.type_unconfirmed, match_prompts: MatchQ.list(q.match_prompts).map(remap), group_ref: q.group_ref || '', stem: remap(q.stem), material: remap(q.material), options: q.options.map((o) => ({ label: o.label, content: remap(o.content) })), answer: remap(q.answer), analysis: remap(q.analysis) };
       })(),
       ...(q.difficulty_score_10 != null ? { difficulty_score_10: q.difficulty_score_10 } : {}),
       suggestedTags: [], figures: q.imgRefs.map((n) => figs[n - 1]).filter((f) => f && f.url).map((f) => ({ url: f.url })), checked: true,
@@ -1299,5 +1331,5 @@ module.exports = function mountPending(d) {
       `已创建试卷草稿，${cards.length} 道题已进入待审核；审核入库后会自动加入试卷。`);
   });
 
-  return { counts: () => countBy(allItems()) };
+  return { counts: (req) => countBy(allItems(req)) };
 };

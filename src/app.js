@@ -20,6 +20,10 @@ const { speakToBuffer } = require('./win-speak');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const PUBLIC = path.join(__dirname, '..', 'public');
+const careAudio = require('./care-audio').createCareAudio({ db, dataDir: DATA_DIR, publicDir: PUBLIC, auth });
+// Block every historical public-audio path before routers or static mounts.
+app.use(careAudio.legacyBoundary);
 
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
@@ -293,8 +297,8 @@ app.post('/api/login', (req, res) => {
 
 // ---------------- 学段（小学 / 初中） ----------------
 // 学段决定「专项提升、中考冲刺」两类课程能看到哪些内容（这两类不再按年级和上下册过滤）。
-// 学生账号可以在后台手动指定；没指定时按年级自动推断（三~六年级 = 小学，七~九年级 / 中考冲刺 = 初中）。
-const PRIMARY_GRADES = ['三年级', '四年级', '五年级', '六年级'];
+// 学生账号可以在后台手动指定；没指定时按年级自动推断（一~六年级 = 小学，七~九年级 / 中考冲刺 = 初中）。
+const PRIMARY_GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'];
 const JUNIOR_GRADES = ['七年级', '八年级', '九年级', '中考冲刺'];
 const stageOfGrade = (stage, grade) => {
   const s = String(stage || '').trim().toLowerCase();
@@ -371,6 +375,7 @@ app.get('/api/file', fileAuth, async (req, res) => {
   if (!key || key.includes('..') || key.includes('\\') || !FILE_KEY_RE.test(key)) {
     return res.status(400).send('bad request');
   }
+  if (careAudio.protectFile(store.localPath(key), res)) return;
   const ext = key.slice(key.lastIndexOf('.') + 1).toLowerCase();
   const wantInline = String(req.query.inline || '') === '1';
   // 下载名补真实扩展名：前端传的 name 常是讲义标题（如「打印出来辅助学习」，无后缀），
@@ -719,20 +724,9 @@ admin.get('/grades-roster', (req, res) => {
   ok(res, { role: req.user.role, branches, students });
 });
 
-// ---------- 班主任工作台：录音上传（谈心谈话 / 家校沟通），存 public 静态目录直接播放 ----------
-const AUDIO_EXT_RE = /\.(webm|mp3|m4a|wav|ogg|aac|amr)$/i;
-admin.post('/upload-audio', upload.single('file'), (req, res) => {
-  if (!req.file) return fail(res, '请选择录音文件');
-  const originalName = fixFileName(req.file.originalname || 'rec.webm');
-  if (!AUDIO_EXT_RE.test(originalName)) return fail(res, '仅支持 webm / mp3 / m4a / wav / ogg / aac / amr 录音文件');
-  if (req.file.size > 50 * 1024 * 1024) return fail(res, '录音文件不能超过 50MB');
-  const AUDIO_DIR = path.join(PUBLIC, 'uploads', 'audio');
-  try { fs.mkdirSync(AUDIO_DIR, { recursive: true }); } catch (e) { /* 目录已存在 */ }
-  const ext = (path.extname(originalName).replace('.', '') || 'webm').toLowerCase();
-  const name = 'au_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8) + '.' + ext;
-  fs.writeFileSync(path.join(AUDIO_DIR, name), req.file.buffer);
-  ok(res, { url: '/uploads/audio/' + name, name: originalName, size: req.file.size });
-});
+// ---------- 班主任工作台：私有录音，服务器归属与校区鉴权 ----------
+admin.post('/upload-audio', careAudio.requireHeader, careAudio.uploadMiddleware, careAudio.upload);
+admin.get('/care-audio/:id', careAudio.requireHeader, careAudio.read);
 
 // ---------- 常用网站：管理端收藏夹（settings 表存 JSON，key=common_sites） ----------
 function sitesRead() {
@@ -823,7 +817,7 @@ admin.get('/chapters', (req, res) => {
   if (stage) { sql += " AND IFNULL(c.stage,'')=?"; args.push(stage); }
   if (term === 'none') { sql += " AND IFNULL(c.term,'')=''"; }
   else if (term) { sql += " AND IFNULL(c.term,'')=?"; args.push(term); }
-  sql += " ORDER BY FIELD(c.subject,'数学','英语','物理','化学'), FIELD(IFNULL(c.category,''),'同步基础','同步培优','专项提升','中考冲刺'), FIELD(IFNULL(c.grade,''),'三年级','四年级','五年级','六年级','七年级','八年级','九年级','中考冲刺'), FIELD(IFNULL(c.stage,''),'primary','junior'), FIELD(IFNULL(c.term,''),'上册','下册'), c.sort, c.id";
+  sql += " ORDER BY FIELD(c.subject,'数学','英语','物理','化学'), FIELD(IFNULL(c.category,''),'同步基础','同步培优','专项提升','中考冲刺'), FIELD(IFNULL(c.grade,''),'一年级','二年级','三年级','四年级','五年级','六年级','七年级','八年级','九年级','中考冲刺'), FIELD(IFNULL(c.stage,''),'primary','junior'), FIELD(IFNULL(c.term,''),'上册','下册'), c.sort, c.id";
   // 分类名再兜底规范化一次（老库里可能还留着「专项提升·小学 / ·初中」）
   ok(res, db.prepare(sql).all(...args).map((c) => ({ ...c, category: CATEGORY_RENAME[String(c.category || '').trim()] || c.category || '' })));
 });
@@ -903,7 +897,7 @@ admin.delete('/sections/:id', (req, res) => {
 // ---------- 题库 ----------
 admin.get('/questions', (req, res) => {
   const { chapter_id = '', type = '', kw = '', page = 1, size = 20 } = req.query;
-  let where = ' WHERE 1=1'; const args = [];
+  let where = ' WHERE ' + require('./qmeta').questionScopeSql(req.user, 'q'); const args = [];
   if (chapter_id) { where += ' AND q.chapter_id=?'; args.push(Number(chapter_id)); }
   if (type) { where += ' AND q.type=?'; args.push(type); }
   if (kw) { where += ' AND q.stem LIKE ?'; args.push(`%${kw}%`); }
@@ -922,6 +916,7 @@ admin.post('/questions', (req, res) => {
   ok(res, { id: info.lastInsertRowid }, '已添加');
 });
 admin.put('/questions/:id', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, req.user, [Number(req.params.id)])) return fail(res, '无权访问题目', 403);
   const cur = db.prepare('SELECT difficulty,difficulty_score_10 FROM questions WHERE id=?').get(Number(req.params.id));
   if (!cur) return fail(res, '题目不存在');
   const diff = resolveDifficulty(req.body || {}, cur);
@@ -933,6 +928,7 @@ admin.put('/questions/:id', (req, res) => {
   ok(res, null, '已保存');
 });
 admin.delete('/questions/:id', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, req.user, [Number(req.params.id)])) return fail(res, '无权访问题目', 403);
   db.prepare('DELETE FROM questions WHERE id=?').run(Number(req.params.id));
   ok(res, null, '已删除');
 });
@@ -1465,7 +1461,7 @@ stu.get('/chapters', (req, res) => {
  * 章节可见性（学生的账号决定能看到哪些课）：
  *  · 同步基础 / 同步培优：只看到「本年级或全年级通用」+「本册或上下册通用」的章节（老规则）；
  *  · 专项提升：按「学段」看——小学账号看全部小学专项，初中账号看全部初中专项，
- *              不再按年级和上下册过滤（所以同一学段 3~6 年级 / 7~9 年级都能看到）；
+ *              不再按年级和上下册过滤（所以同一学段 1~6 年级 / 7~9 年级都能看到）；
  *  · 中考冲刺：只要账号是初中（七~九年级 / 中考冲刺），全部中考冲刺课程都能看到；
  *  · 学生的册别为空 = 不限（上下册都看），老账号不会因为没设册别而看不到课。
  */
@@ -1664,7 +1660,7 @@ stu.get('/courses', (req, res) => {
   let sql = `SELECT c.* FROM chapters c WHERE 1=1${W.sql}`; const args = [...W.args];
   if (subject) { sql += ' AND c.subject=?'; args.push(subject); }
   if (category) { sql += " AND IFNULL(c.category,'')=?"; args.push(category); }
-  sql += " ORDER BY FIELD(c.subject,'数学','英语','物理','化学'), FIELD(IFNULL(c.category,''),'同步基础','同步培优','专项提升','中考冲刺'), FIELD(IFNULL(c.grade,''),'三年级','四年级','五年级','六年级','七年级','八年级','九年级','中考冲刺'), FIELD(IFNULL(c.stage,''),'primary','junior'), FIELD(IFNULL(c.term,''),'上册','下册'), c.sort, c.id";
+  sql += " ORDER BY FIELD(c.subject,'数学','英语','物理','化学'), FIELD(IFNULL(c.category,''),'同步基础','同步培优','专项提升','中考冲刺'), FIELD(IFNULL(c.grade,''),'一年级','二年级','三年级','四年级','五年级','六年级','七年级','八年级','九年级','中考冲刺'), FIELD(IFNULL(c.stage,''),'primary','junior'), FIELD(IFNULL(c.term,''),'上册','下册'), c.sort, c.id";
   const chapters = db.prepare(sql).all(...args);
   const qV = db.prepare('SELECT COUNT(*) n FROM videos WHERE chapter_id=?');
   // 讲义 = 关联到本章视频的资料；习题库 = 没有关联视频的资料
@@ -1804,9 +1800,9 @@ stu.get('/practice', (req, res) => {
   const n = Math.min(50, Math.max(1, Number(count) || 10));
   let rows;
   if (mode === 'mistake') {
-    rows = db.prepare(`SELECT q.* FROM mistakes m JOIN questions q ON q.id=m.question_id WHERE m.user_id=? AND m.resolved=0 ORDER BY m.updated_at DESC LIMIT ?`).all(uid, n);
+    rows = db.prepare(`SELECT q.* FROM mistakes m JOIN questions q ON q.id=m.question_id WHERE ${require('./qmeta').questionScopeSql(null, 'q')} AND m.user_id=? AND m.resolved=0 ORDER BY m.updated_at DESC LIMIT ?`).all(uid, n);
   } else {
-    let sql = 'SELECT * FROM questions WHERE 1=1'; const args = [];
+    let sql = 'SELECT * FROM questions q WHERE ' + require('./qmeta').questionScopeSql(null, 'q'); const args = [];
     if (chapter_id) {
       // 越权校验：不允许按别的年级 / 学段的章节 id 取题（题目本身不含答案，但内容属于付费范围）
       const u = db.prepare('SELECT * FROM users WHERE id=?').get(uid);
@@ -1827,6 +1823,7 @@ stu.post('/practice/submit', (req, res) => {
   const uid = req.user.id;
   const me = db.prepare('SELECT * FROM users WHERE id=?').get(uid);
   const { chapter_id = null, answers = [], duration = 0 } = req.body || {};
+  if (!require('./qmeta').questionsAllowed(db, null, (Array.isArray(answers) ? answers : []).map(a => Number(a && a.question_id)))) return fail(res, '题目待老师审核，暂不能练习', 403);
   const results = [];
   let correct = 0;
   const insRec = db.prepare('INSERT INTO records (user_id,question_id,chapter_id,my_answer,is_correct,created_at) VALUES (?,?,?,?,?,?)');
@@ -1869,7 +1866,7 @@ stu.get('/mistakes/export-docx', async (req, res) => {
   try {
     const me = db.prepare("SELECT id, name, username FROM users WHERE id=? AND role='student'").get(req.user.id);
     if (!me) return res.status(403).json({ code: 403, msg: '仅学生账号可导出' });
-    await require('./mistake-docx').sendMistakeDocx(db, res, me, req.query);
+    await require('./mistake-docx').sendMistakeDocx(db, res, me, req.query, { studentOnlyReviewed: true });
   } catch (e) {
     console.error('[mistakes/export-docx]', (e && e.message) || e);
     if (!res.headersSent) res.status(200).json({ code: 1, msg: '导出失败：' + ((e && e.message) || e) });
@@ -1878,6 +1875,7 @@ stu.get('/mistakes/export-docx', async (req, res) => {
 
 // 收藏/标记掌握（前端传 resolved=0 可恢复回错题本）
 stu.post('/mistakes/:qid/resolve', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, null, [Number(req.params.qid)])) return fail(res, '题目待老师审核，暂不能标记掌握', 403);
   const flag = Number((req.body || {}).resolved) === 0 ? 0 : 1;
   if (flag === 1) {
     db.prepare('UPDATE mistakes SET resolved=1, review_stage=0, updated_at=? WHERE user_id=? AND question_id=?').run(now(), req.user.id, Number(req.params.qid));
@@ -1892,7 +1890,7 @@ stu.get('/mistakes', (req, res) => {
   const uid = req.user.id;
   const rows = db.prepare(`SELECT m.*, q.type, q.stem, q.options, q.answer, q.analysis, q.difficulty, c.name AS chapter_name
     FROM mistakes m JOIN questions q ON q.id=m.question_id LEFT JOIN chapters c ON c.id=q.chapter_id
-    WHERE m.user_id=? ORDER BY m.resolved, m.updated_at DESC`).all(uid).map((r) => ({ ...r, options: parseQ(r).options }));
+    WHERE ${require('./qmeta').questionScopeSql(null, 'q')} AND m.user_id=? ORDER BY m.resolved, m.updated_at DESC`).all(uid).map((r) => ({ ...r, options: parseQ(r).options }));
   ok(res, {
     list: rows,
     pending: rows.filter((r) => !r.resolved).length,
@@ -2069,15 +2067,14 @@ app.use((err, req, res, next) => {
 });
 
 // ------------------------------------------------------------------ 静态站点
-const PUBLIC = path.join(__dirname, '..', 'public');
 /** 页面 / 脚本 / 样式一律让浏览器回源校验（ETag 命中自动 304，文件改了立刻生效）。
  *  不这样设的话，浏览器会长时间用缓存里的旧 js / css，
  *  就会出现「后台明明改好了，打开还是老样子」这种假故障。 */
 const noStale = (res, filePath) => {
   if (/\.(html|js|css)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
 };
-app.use('/admin', express.static(path.join(PUBLIC, 'admin'), { setHeaders: noStale }));
-app.use('/', express.static(PUBLIC, { setHeaders: noStale }));
+app.use('/admin', careAudio.protectStatic(path.join(PUBLIC, 'admin')), express.static(path.join(PUBLIC, 'admin'), { setHeaders: noStale }));
+app.use('/', careAudio.protectStatic(PUBLIC), express.static(PUBLIC, { setHeaders: noStale }));
 
 app.use((req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ code: 404, msg: '接口不存在' });

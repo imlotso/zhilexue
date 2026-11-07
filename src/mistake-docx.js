@@ -86,6 +86,9 @@ async function readImageBytes(src) {
 /** 取出要导出的错题。opts: { subject, bucket: 'unresolved'|'all'|'resolved', days, from, to, ids } */
 function collectMistakes(db, userId, opts = {}) {
   let where = ' WHERE m.user_id=?'; const args = [Number(userId)];
+  if (opts.studentOnlyReviewed || Object.hasOwn(opts, 'questionUser')) {
+    where += ' AND ' + require('./qmeta').questionScopeSql(opts.studentOnlyReviewed ? null : opts.questionUser, 'q');
+  }
   if (opts.subject) { where += ' AND q.subject=?'; args.push(String(opts.subject)); }
   const bucket = opts.bucket || 'unresolved';
   if (bucket === 'unresolved') where += ' AND m.resolved=0';
@@ -383,9 +386,11 @@ const nowStr = () => { const d = new Date(); return `${ymd(d)} ${pad2(d.getHours
  * 两个入口共用：把查询参数翻译成筛选条件 → 取错题 → 生成 docx → 作为附件发送。
  * query: subject / bucket(unresolved|all|resolved，默认 unresolved) / days(最近 N 天) / from / to / ids(逗号分隔)
  */
-async function sendMistakeDocx(db, res, student, query = {}) {
+async function sendMistakeDocx(db, res, student, query = {}, access = {}) {
   const q = query || {};
-  const opts = { subject: String(q.subject || '').trim(), bucket: ['all', 'resolved', 'unresolved'].includes(q.bucket) ? q.bucket : 'unresolved' };
+  const opts = { studentOnlyReviewed: access.studentOnlyReviewed === true, subject: String(q.subject || '').trim(), bucket: ['all', 'resolved', 'unresolved'].includes(q.bucket) ? q.bucket : 'unresolved' };
+  // Scope is supplied only by the authenticated route, never by query parameters.
+  if (Object.hasOwn(access, 'questionUser')) opts.questionUser = access.questionUser;
   const days = Math.max(0, Math.min(3650, parseInt(q.days, 10) || 0));
   if (days) { const d = new Date(); d.setDate(d.getDate() - days + 1); opts.from = ymd(d); }
   if (/^\d{4}-\d{2}-\d{2}/.test(String(q.from || ''))) opts.from = String(q.from).slice(0, 10);
@@ -394,6 +399,18 @@ async function sendMistakeDocx(db, res, student, query = {}) {
   const items = collectMistakes(db, student.id, opts);
   if (!items.length) { res.status(200).json({ code: 1, msg: '没有符合条件的错题可以导出' }); return; }
   const buf = await buildMistakeDocx({ student, subject: opts.subject, items, generatedAt: nowStr(), from: opts.from, to: opts.to, includeAnswers: q.include_answers !== '0' });
+  if (opts.questionUser && opts.questionUser.role === 'branch' &&
+      !db.prepare("SELECT id FROM users WHERE id=? AND role='student' AND created_by=?").get(student.id, opts.questionUser.id)) {
+    res.status(403).json({ code: 403, msg: '学生归属已变化，请重新导出' });
+    return;
+  }
+  // Rendering may await image reads. Revalidate the exact rendered questions
+  // before sending bytes, rather than silently replacing the checked item list.
+  if ((opts.studentOnlyReviewed || Object.hasOwn(opts, 'questionUser')) &&
+      !require('./qmeta').questionsAllowed(db, opts.studentOnlyReviewed ? null : opts.questionUser, items.map(item => item.question_id))) {
+    res.status(403).json({ code: 403, msg: '题目审核状态或访问权限已变化，请重新导出' });
+    return;
+  }
   const fname = `${(student.name || student.username || '学生')}-${opts.subject || '全部科目'}-错题集.docx`.replace(/[\\/:*?"<>|]/g, '_');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   res.setHeader('Content-Disposition', `attachment; filename="mistakes.docx"; filename*=UTF-8''${encodeURIComponent(fname)}`);

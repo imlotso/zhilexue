@@ -88,7 +88,7 @@ function navGroupsHTML(cur) {
 
 // ---------- 业务常量：仅 4 门学科；年级 3-9 年级 + 中考冲刺；每科统一 4 大类课程 ----------
 const SUBJECTS = ['数学', '英语', '物理', '化学'];
-const GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
+const GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const CATEGORIES = ['同步基础', '同步培优', '专项提升', '中考冲刺'];
 const CATEGORY_MAP = { '数学': CATEGORIES, '英语': CATEGORIES, '物理': CATEGORIES, '化学': CATEGORIES };
 const gradeOptions = (sel) => [''].concat(GRADES).map((g) => `<option value="${g}" ${sel === g ? 'selected' : ''}>${g || '全部年级'}</option>`).join('');
@@ -881,7 +881,7 @@ function studentForm(s) {
       // 学段只有 小学/初中 两项，且跟年级联动：选年级自动带出学段（进入弹窗时也先同步一次）
       const g = w.querySelector('#fGrade'), st = w.querySelector('#fStage');
       const syncStage = () => {
-        if (/^[三四五六]年级$/.test(g.value)) st.value = 'primary';
+        if (/^[一二三四五六]年级$/.test(g.value)) st.value = 'primary';
         else if (/^[七八九]年级$|^中考冲刺$/.test(g.value)) st.value = 'junior';
       };
       if (g && st) { g.onchange = syncStage; syncStage(); }
@@ -897,7 +897,7 @@ function studentForm(s) {
       const expire = w.querySelector('#fExpire').value.trim();
       if (!grade) return err('请选择年级');
       if (!stage) return err('请选择学段（小学 / 初中）');
-      const isPrimary = ['三年级', '四年级', '五年级', '六年级'].includes(grade);
+      const isPrimary = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'].includes(grade);
       const isJunior = ['七年级', '八年级', '九年级', '中考冲刺'].includes(grade);
       if ((isPrimary && stage !== 'primary') || (isJunior && stage !== 'junior')) {
         return err(`${grade} 属于${isPrimary ? '小学' : '初中'}，与所选学段不一致`);
@@ -927,7 +927,7 @@ function batchForm() {
     title: '批量开通学生',
     wide: true,
     body: `
-      <p style="color:var(--text2);margin-bottom:12px">每行一个学生，格式：<b>姓名,账号,密码,年级,到期时间,册别</b>。其中<b>年级和到期时间必填</b>，密码可省略（默认 123456），册别可省略（填 上册 / 下册；不填 = 上下册都显示）。<b>学段按年级自动识别</b>（三~六年级 = 小学，七~九年级 / 中考冲刺 = 初中），也可以额外写一列 小学 / 初中 手动指定。</p>
+      <p style="color:var(--text2);margin-bottom:12px">每行一个学生，格式：<b>姓名,账号,密码,年级,到期时间,册别</b>。其中<b>年级和到期时间必填</b>，密码可省略（默认 123456），册别可省略（填 上册 / 下册；不填 = 上下册都显示）。<b>学段按年级自动识别</b>（一~六年级 = 小学，七~九年级 / 中考冲刺 = 初中），也可以额外写一列 小学 / 初中 手动指定。</p>
       <textarea class="input" id="bulk" style="height:220px;font-family:ui-monospace,Consolas,monospace" placeholder="张三,13800000001,123456,七年级,${defExp},上册
 李四,13800000002,,七年级,${defExp},下册
 王五,13800000003,,三年级,${defExp},小学"></textarea>

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { DATA_DIR } = require('./db');
+const { db, DATA_DIR } = require('./db');
 
 // 密钥：优先环境变量；未配置则生成一次并持久化到 data/.secret
 let SECRET = process.env.JWT_SECRET;
@@ -29,15 +29,25 @@ function auth(required = true, role = null) {
       if (required) return res.status(401).json({ code: 401, msg: '请先登录' });
       return next();
     }
+    let user;
     try {
-      const user = jwt.verify(token, SECRET);
-      if (role && user.role !== role) return res.status(403).json({ code: 403, msg: '无权限' });
-      req.user = user;
-      next();
+      user = jwt.verify(token, SECRET);
     } catch (e) {
       if (required) return res.status(401).json({ code: 401, msg: '登录已过期，请重新登录' });
-      next();
+      return next();
     }
+    if (role && user.role !== role) return res.status(403).json({ code: 403, msg: '无权限' });
+    // JWT 有效期长于账号状态：每次请求复核真实账号，停用、删除、到期或改角色立即生效。
+    const current = db.prepare('SELECT id,role,status,expire_at,username,name FROM users WHERE id=?').get(user.id);
+    if (!current || current.role !== user.role) return res.status(401).json({ code: 401, msg: '登录已失效，请重新登录' });
+    if (Number(current.status) !== 1) return res.status(403).json({ code: 403, msg: '账号已被停用，请联系管理员' });
+    const d = new Date(), pad = n => String(n).padStart(2, '0');
+    const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    if (['student', 'branch'].includes(current.role) && current.expire_at && String(current.expire_at).slice(0, 10) < today) {
+      return res.status(403).json({ code: 403, msg: `账号已于 ${String(current.expire_at).slice(0, 10)} 到期，请${current.role === 'branch' ? '联系校长' : '联系老师'}续期` });
+    }
+    req.user = { ...user, ...current };
+    next();
   };
 }
 

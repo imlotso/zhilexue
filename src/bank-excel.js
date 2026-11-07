@@ -155,20 +155,26 @@ function parseBankWorkbook(buffer) {
     const rows = withNormKeys(XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }));
     let carry = { material: '' };   // 复合题（完形/阅读/选择填空）：原文只在第一行，后续行沿用
     // 选择填空题：同一题干下的所有小题共用一个词库（客户模板的示例就是这样：干扰项列留空，选项就是各小题的答案）
-    const selAnswers = {};
+    const selAnswers = new Map();
     if (sheet === '选择填空题') {
-      let cm = '';
-      rows.forEach((r) => {
-        const m = pick(r, ['原文', '题干']); if (m) cm = m;
+      let group = '';
+      rows.forEach((r, idx) => {
+        // Identical instructions can begin different exercises; key by the row
+        // where this group starts, never by the material text or its properties.
+        if (pick(r, ['原文', '题干'])) group = `${name}:${Number.isInteger(r.__rowNum__) ? r.__rowNum__ + 1 : idx + 2}`;
         const a = pick(r, ['小题答案']).replace(/^[A-Ja-j][.、．)）]\s*/, '');
-        if (cm && a) (selAnswers[cm] = selAnswers[cm] || []).push(a);
+        if (group && a) {
+          if (!selAnswers.has(group)) selAnswers.set(group, []);
+          selAnswers.get(group).push(a);
+        }
       });
     }
     rows.forEach((r, idx) => {
       activeRow = r;
       rowSubtype = pick(r, ['英语细分题型', '数学细分题型', '细分题型']);
       rowMatch = pick(r, ['匹配左侧项目']);
-      const line = `${name} 第 ${idx + 2} 行`;
+      const rowNumber = Number.isInteger(r.__rowNum__) ? r.__rowNum__ + 1 : idx + 2;
+      const line = `${name} 第 ${rowNumber} 行`;
       const tag = pick(r, ['标签', '知识点', '考点']);
       const analysis = pick(r, ['解析', '试题解析', '小题解析', '答案解析']);
       // 复合题原文：本行有新原文就更新，没有就沿用上一行的
@@ -177,7 +183,7 @@ function parseBankWorkbook(buffer) {
       const headCell = pick(r, ['原文', '题干', '题目']);
       if (headCell) carry.example = /^\s*【例题】/.test(headCell);
       if (carry.example) { if (headCell) examples++; return; }
-      if (matNow) { carry.material = matNow; carry.group = `${name}:${idx + 2}`; }
+      if (matNow) { carry.material = matNow; carry.group = `${name}:${rowNumber}`; }
       const material = carry.material;
       rowGroup = carry.group || '';
 
@@ -273,7 +279,7 @@ function parseBankWorkbook(buffer) {
         if (explicitOptions.length && explicitOptions.length < 2) { errors.push(`${line}：选择题至少需要 2 个完整选项`); return; }
         let pool = explicitOptions.length ? explicitOptions.slice() : [ansText].concat(distractors);
         // 没填干扰项：用同一题干下所有小题的答案做共用选项（至少要有 2 个小题）；填了干扰项就用「本题答案 + 干扰项」
-        if (!explicitOptions.length && !distractors.length) pool = [...new Set((selAnswers[material] || []).concat([ansText]))];
+        if (!explicitOptions.length && !distractors.length) pool = [...new Set((selAnswers.get(rowGroup) || []).concat([ansText]))];
         if (pool.length < 2) { errors.push(`${line}：选择填空只有 1 个小题时，需要至少填 1 个干扰项`); return; }
         if (ansText && pool.filter((value) => value === ansText).length !== 1) { errors.push(`${line}：小题答案必须唯一对应完整选项中的一项`); return; }
         // 明确填写 A–J 的选项必须保持原顺序；仅由答案与干扰项组装的词库使用稳定打乱。

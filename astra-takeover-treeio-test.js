@@ -75,6 +75,7 @@ function runCli(db, files, dry = true) {
     require(name) {
       if (name === 'fs') return vfs;
       if (name === 'path') return path;
+      if (name === '../src/db-connection') return { openReadOnly: () => ({ db, DB_INFO: { database: 'memory-only', host: 'none', port: 0 } }) };
       if (name === '../src/db') return { db, DB_INFO: { database: 'memory-only', host: 'none', port: 0 } };
       if (name === '../src/treeio') return io;
       throw new Error('Unexpected CLI dependency: ' + name);

@@ -97,11 +97,13 @@ function registerPaperDocx(admin, db) {
     if (!paper) return res.status(404).json({ code: 1, msg: '试卷不存在' });
     const ids = list(paper.q_ids).map(Number).filter(id => Number.isInteger(id) && id > 0);
     if (!ids.length) return res.status(400).json({ code: 1, msg: '试卷没有可导出的题目' });
+    if (!require('./qmeta').questionsAllowed(db, req.user, ids)) return res.status(403).json({ code: 403, msg: '无权访问试卷中的题目' });
     const find = db.prepare('SELECT * FROM questions WHERE id=?');
     const questions = ids.map(id => find.get(id));
     if (questions.some(q => !q)) return res.status(400).json({ code: 1, msg: '试卷中的题目已被删除，请先调整试卷' });
     try {
       const buffer = await buildPaperDocx(paper, questions, mode);
+      if (!require('./qmeta').questionsAllowed(db, req.user, ids)) return res.status(403).json({ code: 403, msg: '无权访问试卷中的题目' });
       const filename = `${paper.title}-${modes[mode]}.docx`.replace(/[\\/:*?"<>|]/g, '_');
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `attachment; filename="paper.docx"; filename*=UTF-8''${encodeURIComponent(filename)}`);

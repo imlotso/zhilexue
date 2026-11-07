@@ -39,7 +39,7 @@ function myStage() {
   const s = String(u.stage || '').trim();
   if (s === 'primary' || s === 'junior') return s;
   const g = String(u.grade || '');
-  if (/^[三四五六]年级/.test(g)) return 'primary';
+  if (/^[一二三四五六]年级/.test(g)) return 'primary';
   if (/^[七八九]年级/.test(g) || /中考/.test(g)) return 'junior';
   return '';
 }

@@ -9,8 +9,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-let _localMysql = {};
-try { _localMysql = (require('./config.local').mysql) || {}; } catch (e) { /* 未找到 config.local.js */ }
+const { DB_INFO } = require('./db-connection');
 const { openMysql, splitSql } = require('./mysql-sync');
 const { importIfEmpty } = require('./import-sqlite');
 
@@ -18,14 +17,6 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-const DB_INFO = {
-  host: process.env.MYSQL_HOST || _localMysql.host || '',
-  port: Number(process.env.MYSQL_PORT || _localMysql.port || 3306),
-  user: process.env.MYSQL_USER || _localMysql.user || '',
-  password: process.env.MYSQL_PASSWORD || _localMysql.password || '',
-  database: process.env.MYSQL_DATABASE || _localMysql.database || 'xuexi',
-};
 
 const db = openMysql(DB_INFO);
 
@@ -83,6 +74,9 @@ function runSchema(sql) {
   }
 }
 
+
+// Additive private recording metadata; no historical rows or files are inferred or moved.
+runSchema(require('./care-audio').SCHEMA);
 
 runSchema(`
 CREATE TABLE IF NOT EXISTS users (
@@ -954,5 +948,30 @@ for (const col of ['edition','term','material_type']) { try { db.exec(`ALTER TAB
 
 // 老库是空的时，把原来的 SQLite 文件导入 MySQL（只导入一次）
 importIfEmpty(db, DATA_DIR);
+
+// ISSUE-001：必须在历史导入之后检查，不能让新约束阻断含重复行的旧库迁入。
+// 不删除/改写历史下发记录；重复库暂以事务锁判重，展示按学生去重。
+function ensurePaperAssignmentUniqueness() {
+  const duplicateGroups = () => Number(db.prepare(`SELECT COUNT(*) AS n FROM (
+    SELECT paper_id, user_id FROM paper_assignments GROUP BY paper_id, user_id HAVING COUNT(*)>1
+  ) AS duplicate_pairs`).get().n) || 0;
+  let groups = duplicateGroups();
+  if (groups) return { enforced: false, duplicate_groups: groups };
+  try {
+    runSchema('CREATE UNIQUE INDEX IF NOT EXISTS idx_passign_pair_unique ON paper_assignments(paper_id, user_id)');
+  } catch (e) {
+    // 检查与建索引间若仍有旧进程写入，保全数据并明确报告；其他DDL错误不吞掉。
+    if (e.code === 'ER_DUP_ENTRY' || e.errno === 1062) {
+      groups = duplicateGroups();
+      if (groups) return { enforced: false, duplicate_groups: groups };
+    }
+    throw e;
+  }
+  return { enforced: true, duplicate_groups: 0 };
+}
+const assignmentUniqueness = ensurePaperAssignmentUniqueness();
+if (!assignmentUniqueness.enforced) {
+  console.warn(`[paper_assignments] 检出 ${assignmentUniqueness.duplicate_groups} 组历史重复下发，原行全部保留，唯一索引暂未建立；请先备份并人工核对，勿与旧版写入进程混跑。`);
+}
 
 module.exports = { db, DATA_DIR, UPLOAD_DIR, DB_INFO };

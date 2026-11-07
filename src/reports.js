@@ -168,7 +168,7 @@ admin.get('/exercises/:id/detail', (req, res) => {
   // 主观题单独保存，不计对错；仅在通过分校学生归属校验后返回。
   const subjective = db.prepare(`SELECT r.id, r.question_id, r.kind, r.paper_id, r.try_id, r.my_answer, r.score, r.max_score, r.review_comment, r.reviewed_at, r.created_at,
     CASE WHEN r.drawing_data IS NOT NULL AND r.drawing_data<>'' THEN 1 ELSE 0 END AS has_drawing, q.stem, q.subject, q.question_subtype
-    FROM subjective_responses r LEFT JOIN questions q ON q.id=r.question_id WHERE r.user_id=? ORDER BY r.id DESC LIMIT 100`).all(id);
+    FROM subjective_responses r LEFT JOIN questions q ON q.id=r.question_id WHERE r.user_id=? AND ${require('./qmeta').questionScopeSql(req.user, 'q')} ORDER BY r.id DESC LIMIT 100`).all(id);
   // 学科统计
   const subjects = {};
   for (const r of db.prepare(`
@@ -183,7 +183,7 @@ admin.get('/exercises/:id/detail', (req, res) => {
     SELECT r.question_id, r.my_answer, r.is_correct, r.match_correct, r.match_total, r.created_at,
       q.stem, q.type, q.subject
     FROM records r LEFT JOIN questions q ON q.id = r.question_id
-    WHERE r.user_id = ? ORDER BY r.id DESC LIMIT 100`).all(id);
+    WHERE r.user_id = ? AND ${require('./qmeta').questionScopeSql(req.user, 'q')} ORDER BY r.id DESC LIMIT 100`).all(id);
   // 错题概览
   const mis = db.prepare('SELECT resolved, COUNT(*) n FROM mistakes WHERE user_id=? GROUP BY resolved').all(id);
   const wrong_open = Number((mis.find((m) => Number(m.resolved) !== 1) || {}).n || 0);

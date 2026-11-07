@@ -6,7 +6,7 @@ async function viewIntakeManual() {
     ['single', '单选题'], ['multi', '多选题'], ['judge', '判断题'], ['fill', '填空题'],
     ['sort', '排序题'], ['listen_match', '听力匹配'], ['math_match', '数学连线'], ['translation', '翻译'], ['writing', '书面表达'], ['calculation', '计算题'], ['drawing', '作图题'], ['answer', '问答题'],
   ];
-  const grades = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
+  const grades = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
   const opts = (arr) => arr.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
   const row = () => `<section class="r4m-question">
     <div class="r4m-question-head"><h3 data-question-title>小题</h3><button type="button" class="btn ghost sm" data-question-remove>删除小题</button></div>
@@ -36,12 +36,15 @@ async function viewIntakeManual() {
   </div>`;
   return { html, after: () => {
     const root = document.querySelector('.r4m-page'); if (!root) return;
+    const pageHash = location.hash, active = () => root.isConnected && location.hash === pageHash;
     R4Flow.bind(root, 'manual');
     const scope = R4Flow.scope(root, 'manual', root.querySelector('[data-step="1"] .r4m-grid'), {subject:'r4m-subject',stage:'r4m-stage'});
     const draft = R4Flow.read('manual-draft');
+    const draftSignature = (value) => { if (!value) return ''; const { at, ...fields } = value; return JSON.stringify(fields); };
+    let ownedDraft = draftSignature(draft);
     const $ = (s) => root.querySelector(s);
     const box = $('#r4m-questions');
-    let step = 1, busy = false;
+    let step = 1, busy = false, draftRevision = 0;
     const questionImages = new WeakMap();
     const audio = t7AudioWidget($('#r4m-audio'), draft && draft.audio || {});
     const val = (selector) => $(selector).value.trim();
@@ -132,11 +135,21 @@ async function viewIntakeManual() {
       const error = validate(); if (error) return toast(error, 'err');
       const common = { ...scope(), subject: val('#r4m-subject'), stage: val('#r4m-stage'), grade: val('#r4m-grade'), material: val('#r4m-material'), audio_key: audio.get(), audio_play_limit: audio.getLimit() };
       const group = mode() === 'group'; const questions = dataQuestions();
+      const submittedDraft = ownedDraft, submittedRevision = draftRevision;
       busy = true; $('#r4m-next').disabled = true; $('#r4m-next').textContent = '保存中…';
       try {
-        const saved = await R4Flow.post(`/api/admin/bank/mf/ext/pending/${group ? 'manual-group' : 'manual'}`, group ? 'manual-group' : 'manual', group ? { ...common, questions } : { ...common, ...questions[0] });
-        R4Flow.clear('manual-draft'); if (!root.isConnected) return; pdSelectBatch('manual', saved.run_id || saved.id); toast('已保存到待审核', 'ok'); location.hash = '#/pending';
-      } catch (e) { toast(e.message || '保存失败，请重试', 'err'); busy = false; $('#r4m-next').disabled = false; $('#r4m-next').textContent = '保存到待审核'; }
+        const saved = await R4Flow.post(`/api/admin/bank/mf/ext/pending/${group ? 'manual-group' : 'manual'}`, group ? 'manual-group' : 'manual', group ? { ...common, questions } : { ...common, ...questions[0] }, undefined, { silent: true });
+        if (!active()) return;
+        if (submittedRevision !== draftRevision || draftSignature(R4Flow.read('manual-draft')) !== submittedDraft) {
+          busy = false; $('#r4m-next').disabled = false; show();
+          toast('本次题目已保存到待审核，后续草稿修改已保留，请继续核对。', 'ok'); return;
+        }
+        R4Flow.clear('manual-draft'); pdSelectBatch('manual', saved.run_id || saved.id); toast('已保存到待审核', 'ok'); location.hash = '#/pending';
+      } catch (e) {
+        if (!active()) return;
+        busy = false; $('#r4m-next').disabled = false; show();
+        toast(e.message || '保存失败，请重试', 'err');
+      }
     };
     addQuestion();
     if (draft && Array.isArray(draft.fields)) {
@@ -153,12 +166,12 @@ async function viewIntakeManual() {
         });
       } catch (_) { toast('部分草稿未恢复，请检查后继续', 'err'); }
     }
-    const saveDraft = () => { const stored = R4Flow.save('manual-draft', {
+    const saveDraft = () => { draftRevision++; const value = {
       count: box.children.length, group: mode() === 'group',
       fields: ['subject', 'stage', 'grade', 'material'].map((name) => [`#r4m-${name}`, val(`#r4m-${name}`)]),
       questions: [...box.children].map((q) => Object.assign({ images: questionImages.get(q) || [] }, ...['type', 'subtype', 'stem', 'options', 'match', 'answer', 'analysis'].map((name) => ({ [name]: q.querySelector(`[data-question-${name}]`).value })))),
       audio: { key: audio.get(), limit: audio.getLimit() }
-    }); if (!stored) R4Flow.bind(root, 'manual'); };
+    }; ownedDraft = draftSignature(value); const stored = R4Flow.save('manual-draft', value); if (!stored) R4Flow.bind(root, 'manual'); };
     root.addEventListener('input', saveDraft); root.addEventListener('change', saveDraft);
     box.addEventListener('click', (e) => { if (e.target.closest('[data-question-remove]')) saveDraft(); });
     numberRows(); show();

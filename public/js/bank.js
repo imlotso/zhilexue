@@ -115,6 +115,16 @@ function quizSolutionContent(q, value, solutionImages) {
   (Array.isArray(solutionImages) ? solutionImages : []).forEach((src, i) => { if (src) images[i] = src; });
   return quizMatchContent({ images }, value).replace(/\n/g, '<br>');
 }
+/** R7 只读试卷题面预览：不包含答案、解析或作答控件。 */
+function paperPreviewQuestionHTML(q, index) {
+  const si = stemImagesHTML(q);
+  const content = (value) => quizMatchContent(q, value).replace(/\n/g, '<br>');
+  const material = q.material ? `<div class="qz-material"><div class="qz-mat-t">原文材料</div><div class="qz-mat-b">${content(q.material)}</div></div>` : '';
+  const prompts = (q.match_prompts || []).map((text, i) => `<div class="r7-preview-prompt">${i + 1}. ${content(text)}</div>`).join('');
+  const options = (q.options || []).map((option, i) => `<div class="qz-opt"><span class="qz-l">${QT_LETTERS[i] || i + 1}</span><span class="qz-ot">${content(optText(option))}</span></div>`).join('');
+  return `<div class="pk-preview-q"><span>${index + 1}.</span><div>${material}${si.stem}${prompts}${options ? `<div class="qz-opts">${options}</div>` : ''}${si.rest}</div></div>`;
+}
+
 /** 公式键盘（T8）：只给 数学 / 物理 / 化学 的 填空 / 问答 题；英语等其它科目不出现 */
 const T8_SUBJECTS = ['数学', '物理', '化学'];
 const t8On = (q) => !!q && T8_SUBJECTS.includes(q.subject) && (q.type === 'fill' || q.type === 'answer');
@@ -1056,43 +1066,99 @@ const BK_ICONS = {
 };
 const bkIcon = (name, size = 18) => `<span class="bki" style="width:${size}px;height:${size}px">${BK_ICONS[name] || ''}</span>`;
 
+// Vue reuses the bank host when switching between papers and mistakes.
+// Only the latest page invocation may update it or report a pending error.
+const BK_PAGE_RUNS = new WeakMap();
+const bkPageRun = (host) => {
+  const run = {};
+  BK_PAGE_RUNS.set(host, run);
+  return () => host.isConnected && BK_PAGE_RUNS.get(host) === run;
+};
+
+// R6：截止日期按设备本地时区展示；是否允许提交仍由服务器判断。
+function paperDeadlineInfo(value) {
+  if (!value) return { text: '', expired: false };
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return { text: '截止时间异常，请联系老师', expired: false };
+  const date = new Date(time), pad = (n) => String(n).padStart(2, '0');
+  const offset = -date.getTimezoneOffset();
+  const zone = 'UTC' + (offset >= 0 ? '+' : '-') + pad(Math.floor(Math.abs(offset) / 60)) + ':' + pad(Math.abs(offset) % 60);
+  const local = date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+  const expired = Date.now() > time;
+  return { text: `${expired ? '已截止' : '截止'}：${local}（本地时间 ${zone}，提交以服务器校验为准）`, expired };
+}
+
 const BankPages = {
   /* 学生端「试卷」页：我的任务（老师下发）/ 章节组卷 / 知识点组卷（自己组卷，只在本人名下做题，不能下发给别人）/ 试卷库 */
   async papers(host, currentSubject) {
+    const isCurrent = bkPageRun(host);
+    if (!isCurrent()) return;
     host.innerHTML = '<div class="loading-page">加载中…</div>';
     let tasks = [], lib = [], subjective = [], flt = { subjects: [], grades: [], years: [] };
     const find = { q: '', grade: '', year: '', category: '' };
-    try {
-      const r = await Promise.all([api('/api/stu/bank/tasks'), api('/api/stu/bank/mfpapers'), api('/api/stu/bank/mfpapers/filters').catch(() => flt), api('/api/stu/bank/subjective-responses').catch(() => ({ list: [] }))]);
-      tasks = r[0] || []; lib = r[1] || []; flt = r[2] || flt; subjective = r[3].list || [];
-    } catch (e) { host.innerHTML = `<div class="empty">${esc(e.message || '加载失败')}</div>`; return; }
     let subject = BK_SUBJECTS.includes(currentSubject) ? currentSubject : BK_SUBJECTS[0];
+    let searchVersion = 0, libLoading = false, libError = '';
+    try {
+      // Page-owned error handling must run before toast; api() otherwise reports
+      // stale failures before the page/request guards can discard them.
+      const r = await Promise.all([
+        api('/api/stu/bank/tasks', { silent: true }),
+        api('/api/stu/bank/mfpapers?subject=' + encodeURIComponent(subject), { silent: true }),
+        api('/api/stu/bank/mfpapers/filters', { silent: true }).catch((e) => {
+          if (isCurrent()) toast('筛选条件加载失败：' + (e.message || '请重试'), 'err');
+          return flt;
+        }),
+        api('/api/stu/bank/subjective-responses', { silent: true }).catch((e) => {
+          if (isCurrent()) toast('主观题反馈加载失败：' + (e.message || '请重试'), 'err');
+          return { list: [] };
+        }),
+      ]);
+      tasks = r[0] || []; lib = r[1] || []; flt = r[2] || flt; subjective = r[3].list || [];
+    } catch (e) { if (isCurrent()) host.innerHTML = `<div class="empty">${esc(e.message || '加载失败')}</div>`; return; }
+    if (!isCurrent()) return;
     const searchLib = async () => {
+      if (!isCurrent()) return;
+      const version = ++searchVersion;
       const qs = new URLSearchParams();
+      if (subject) qs.set('subject', subject);
       if (find.q) qs.set('q', find.q);
       if (find.grade) qs.set('grade', find.grade);
       if (find.year) qs.set('year', find.year);
       if (find.category) qs.set('exam_category', find.category);
-      try { lib = await api('/api/stu/bank/mfpapers' + (qs.toString() ? '?' + qs.toString() : '')) || []; }
-      catch (e) { toast(e.message || '搜索失败', 'err'); return; }
-      paint();
+      lib = []; libLoading = true; libError = ''; paint();
+      try {
+        const result = await api('/api/stu/bank/mfpapers' + (qs.toString() ? '?' + qs.toString() : ''), { silent: true });
+        if (!isCurrent() || version !== searchVersion) return;
+        lib = result || [];
+      } catch (e) {
+        if (!isCurrent() || version !== searchVersion) return;
+        libError = e.message || '搜索失败'; toast(libError, 'err');
+      }
+      libLoading = false; paint();
     };
 
     const taskRow = (p) => `
       <div class="pk-task" data-task="${p.id}">
         <div class="pk-t-main"><b>${esc(p.title)}</b>
-          <span class="hint">${p.q_count} 题 · 满分 ${p.total_score}${p.assigned ? '' : ' · 全员卷'}</span></div>
+          <span class="hint">${p.q_count} 题 · 满分 ${p.total_score}${p.assigned ? '' : ' · 全员卷'}</span>${p.due_at ? `<div class="hint r6-task-deadline">${esc(paperDeadlineInfo(p.due_at).text)}</div>` : ''}</div>
         ${p.tried && p.last ? `<span class="tag ok">${esc(quizTryText(p.last))}</span>` : '<span class="tag gray">未完成</span>'}
         <button class="btn primary sm">${p.tried ? '重做' : '开始'}</button>
       </div>`;
 
     const paint = () => {
+      if (!isCurrent()) return;
+      // The input is an unsubmitted draft; find.q is the last applied query.
+      const queryInput = host.querySelector('#pkQ');
+      const queryDraft = queryInput ? queryInput.value : find.q;
+      const querySelection = queryInput && host.ownerDocument.activeElement === queryInput
+        ? [queryInput.selectionStart, queryInput.selectionEnd, queryInput.selectionDirection] : null;
       const ft = subject ? tasks.filter((p) => p.subject === subject) : tasks;
       const fl = subject ? lib.filter((p) => p.subject === subject) : lib;
       host.innerHTML = `
         <div class="bk-tabs">${[''].concat(BK_SUBJECTS).map((s) => {
-          const n = s ? tasks.filter((p) => p.subject === s).length + lib.filter((p) => p.subject === s).length : tasks.length + lib.length;
-          return `<a class="${subject === s ? 'on' : ''}" data-s="${esc(s)}">${s || '全部'}<i>${n}</i></a>`;
+          // Only the selected subject has a complete response for this search.
+          const count = subject === s && !libLoading && !libError ? `<i>${ft.length + fl.length}</i>` : '';
+          return `<a class="${subject === s ? 'on' : ''}" data-s="${esc(s)}">${s || '全部'}${count}</a>`;
         }).join('')}</div>
         <div class="pk-grid">
           <div class="pk-box">
@@ -1116,16 +1182,16 @@ const BankPages = {
         </div>
         ${subjective.length ? `<div class="pk-lib r4-subjective"><div class="pk-h">主观题反馈<span class="pk-sub">每次作答单独评分</span></div><div class="r4-subjective-list">${subjective.filter((x) => !subject || x.subject === subject).slice(0, 20).map((x) => `<details class="r4-subjective-item" ${x.has_drawing ? `data-student-drawing="${Number(x.id)}"` : ''}><summary><span>${esc((x.stem || '题目已删除').slice(0, 60))}</span><b>${x.score === null || x.score === undefined ? '待老师评分' : `${Number(x.score)} / ${x.max_score == null ? 100 : Number(x.max_score)} 分`}</b></summary><div><p>我的作答：${x.has_drawing ? '<span data-drawing-status>打开后加载作图</span><img class="r4-drawing-image" data-drawing-image alt="我的作图">' : (window.mtxAnswerHTML ? mtxAnswerHTML(x.my_answer || '未作答', x.subject) : esc(x.my_answer || '未作答').replace(/\n/g, '<br>'))}</p>${x.reviewed_at ? `<p>老师评语：${esc(x.review_comment || '暂无评语').replace(/\n/g, '<br>')}</p>` : '<p>老师尚未评分。</p>'}<small>${esc((x.created_at || '').slice(0, 16))}</small></div></details>`).join('') || '<p class="hint">当前学科还没有主观题作答</p>'}</div></div>` : ''}
         <div class="pk-lib">
-          <div class="pk-h">${bkIcon('math', 16)} 试卷库<span class="pk-sub">${fl.length} 份试卷</span></div>
+          <div class="pk-h">${bkIcon('math', 16)} 试卷库<span class="pk-sub">${libLoading ? '加载中…' : libError ? '加载失败' : `${fl.length} 份试卷`}</span></div>
           <div class="t10-search">
-            <input id="pkQ" class="t10-q" placeholder="搜索试卷名称 / 年份，如 2024 中考" value="${esc(find.q)}" maxlength="60">
+            <input id="pkQ" class="t10-q" placeholder="搜索试卷名称 / 年份，如 2024 中考" value="${esc(queryDraft)}" maxlength="60">
             <select id="pkGrade"><option value="">全部年级</option>${(flt.grades || []).map((g) => `<option ${find.grade === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
             <select id="pkYear"><option value="">全部年份</option>${(flt.years || []).map((y) => `<option value="${esc(y)}" ${find.year === y ? 'selected' : ''}>${esc(y)} 年</option>`).join('')}</select>
             <button class="btn primary sm" id="pkSearch">搜索</button>
             ${find.q || find.grade || find.year || find.category ? '<button class="btn ghost sm" id="pkClear">清除</button>' : ''}
           </div>
           <div class="pk-categories" aria-label="试卷类型"><span>类型</span>${[['','全部'], ...Object.entries(BK_PAPER_CATEGORIES)].map(([key, label]) => `<button type="button" class="${find.category === key ? 'on' : ''}" data-pk-category="${key}" aria-pressed="${find.category === key}">${label}</button>`).join('')}</div>
-          ${fl.length ? `<div class="pk-lib-grid">${fl.map((p) => `
+          ${libLoading ? '<div class="pk-empty">加载中…</div>' : libError ? `<div class="pk-empty">${esc(libError)}</div>` : fl.length ? `<div class="pk-lib-grid">${fl.map((p) => `
             <div class="pk-libcard">
               <b>${esc(p.title)}</b>
               <span class="hint">${esc(p.subject || '通用')}${p.grade ? ' · ' + esc(p.grade) : ''}${p.year ? ' · ' + esc(p.year) + ' 年' : ''}${p.exam_category ? ' · ' + esc(BK_PAPER_CATEGORIES[p.exam_category] || '未分类') : ''} · ${Number(p.q_count)} 题 · 满分 ${Number(p.total_score) || 0}</span>
@@ -1146,19 +1212,24 @@ const BankPages = {
           image.src = url; details.dataset.loaded = '1'; status.textContent = '';
         } catch (_) { status.textContent = '作图加载失败，请重试'; }
       }; });
-      host.querySelectorAll('.bk-tabs a').forEach((a) => a.onclick = () => { subject = a.dataset.s; paint(); });
+      host.querySelectorAll('.bk-tabs a').forEach((a) => a.onclick = () => { subject = a.dataset.s; searchLib(); });
       const doSearch = () => { find.q = host.querySelector('#pkQ').value.trim(); find.grade = host.querySelector('#pkGrade').value; find.year = host.querySelector('#pkYear').value; searchLib(); };
       host.querySelector('#pkSearch').onclick = doSearch;
       host.querySelector('#pkQ').onkeydown = (e) => { if (e.key === 'Enter') doSearch(); };
       host.querySelector('#pkGrade').onchange = doSearch; host.querySelector('#pkYear').onchange = doSearch;
-      const clr = host.querySelector('#pkClear'); if (clr) clr.onclick = () => { find.q = find.grade = find.year = find.category = ''; searchLib(); };
+      const clr = host.querySelector('#pkClear'); if (clr) clr.onclick = () => { find.q = find.grade = find.year = find.category = ''; host.querySelector('#pkQ').value = ''; searchLib(); };
       host.querySelectorAll('[data-pk-category]').forEach((el) => el.onclick = () => { find.category = el.dataset.pkCategory; searchLib(); });
-      host.querySelectorAll('[data-task]').forEach((el) => el.onclick = () => BankPages.openPaper(Number(el.dataset.task), () => { if (host.isConnected) BankPages.papers(host, subject); }));
+      host.querySelectorAll('[data-task]').forEach((el) => el.onclick = () => BankPages.openPaper(Number(el.dataset.task), () => { if (isCurrent()) BankPages.papers(host, subject); }));
       host.querySelectorAll('[data-lib]').forEach((el) => el.onclick = () => BankPages.openLibPaper(Number(el.dataset.lib)));
       const scanBtn = host.querySelector('#pkScan .btn');
       if (scanBtn) scanBtn.onclick = () => BankPages.scanFlow('textbook', subject, host);
       const spBtn = host.querySelector('#pkSprint .btn');
       if (spBtn) spBtn.onclick = () => BankPages.scanFlow('knowledge', subject, host);
+      if (querySelection && host.isConnected) {
+        const input = host.querySelector('#pkQ');
+        input.focus({ preventScroll: true });
+        input.setSelectionRange(...querySelection);
+      }
     };
     paint();
   },
@@ -1166,16 +1237,11 @@ const BankPages = {
   /** 章节组卷 / 知识点组卷：选范围 → 雷达扫描 → 每个小知识点 1 题 → 做题报告 / 学情报告 */
   async scanFlow(kind, subject, host) {
     if (!subject) { toast('先在上方选择一个学科', 'err'); return; }
-    let t;
-    try { t = await api(`/api/stu/bank/scan-tree?kind=${kind}&subject=${encodeURIComponent(subject)}`); }
-    catch (e) { toast(e.message || '加载失败', 'err'); return; }
-    const nodes = t.nodes || [];
-    if (!nodes.length) { toast(kind === 'knowledge' ? '该学科还没有知识点分类' : '该学科还没有章节分类', 'err'); return; }
-    const byParent = {};
-    nodes.forEach((n) => { (byParent[n.parent_id || 0] = byParent[n.parent_id || 0] || []).push(n); });
+    if (BankPages._closeScan) BankPages._closeScan();
+    let nodes = [], byParent = {}, byId = new Map();
     const kidsOf = (id) => byParent[id] || [];
-    const byId = new Map(nodes.map((n) => [Number(n.id), n]));
-
+    let treeRequest = 0, countRequest = 0, available = 0, composing = false, selectionRevision = 0;
+    const route = location.hash;
     const nodeRow = (n, depth) => {
       const kids = kidsOf(n.id);
       return `<div class="pk-node d${depth}">
@@ -1183,14 +1249,14 @@ const BankPages = {
         ${kids.length ? `<div class="pk-kids ${depth >= 2 ? 'fold' : ''}">${kids.map((k) => nodeRow(k, depth + 1)).join('')}</div>` : ''}
       </div>`;
     };
-    const roots = byParent[0] || nodes.filter((n) => !byParent[n.parent_id] && n.parent_id !== 0 && !nodes.some((x) => x.id === n.parent_id));
     const mask = document.createElement('div');
     mask.className = 'mask pk-sel-mask';
     mask.innerHTML = `
       <div class="pk-sel-box">
-        <div class="pk-sel-h"><b>${kind === 'knowledge' ? '知识点组卷' : '章节组卷'} · ${esc(subject)}${t.edition ? ' · ' + esc(t.edition) : ''}</b><button class="close-x" id="pkSelX">&times;</button></div>
+        <div class="pk-sel-h"><b>${kind === 'knowledge' ? '知识点组卷' : '章节组卷'} · ${esc(subject)}</b><button class="close-x" id="pkSelX">&times;</button></div>
+        <div class="pk-sel-tip"><label for="pkEdition">教材版本</label> <select id="pkEdition" disabled><option>正在加载…</option></select></div>
         <div class="pk-sel-tip">勾选${kind === 'knowledge' ? '知识点' : '单元'}，勾选大项会包含全部下级范围。</div>
-        <div class="pk-tree" id="pkTree">${roots.map((n) => nodeRow(n, 0)).join('')}</div>
+        <div class="pk-tree" id="pkTree">正在加载目录…</div>
         <div class="pk-sel-f">
           <span><label for="pkWant">练习题量</label> <select id="pkWant"><option value="5">5 题</option><option value="10">10 题</option><option value="20">20 题</option></select><br><span class="hint" aria-live="polite">范围内可用 <b id="pkSelQ">0</b> 题 <span id="pkSelShort"></span></span></span>
           <span><button class="btn ghost" id="pkSelCancel">取消</button>
@@ -1198,8 +1264,11 @@ const BankPages = {
         </div>
       </div>`;
     document.body.appendChild(mask);
-    mask.querySelector('#pkSelX').onclick = () => mask.remove();
-    mask.querySelector('#pkSelCancel').onclick = () => mask.remove();
+    const current = () => mask.isConnected && (!host || host.isConnected) && location.hash === route;
+    const close = () => { ++treeRequest; ++countRequest; mask.remove(); if (BankPages._closeScan === close) BankPages._closeScan = null; };
+    BankPages._closeScan = close;
+    mask.querySelector('#pkSelX').onclick = close;
+    mask.querySelector('#pkSelCancel').onclick = close;
 
     // 勾选联动：勾父级 = 勾全部子孙；展开 / 收起
     const setDesc = (id, v) => kidsOf(id).forEach((c) => {
@@ -1219,11 +1288,10 @@ const BankPages = {
         return true;
       });
     };
-    let countRequest = 0, available = 0;
     const updateCountChoice = () => {
       const hasSelection = !!mask.querySelector('.pk-ck:checked');
       const short = available < Number(mask.querySelector('#pkWant').value);
-      mask.querySelector('#pkSelGo').disabled = !hasSelection || short;
+      mask.querySelector('#pkSelGo').disabled = composing || !hasSelection || short;
       mask.querySelector('#pkSelShort').textContent = hasSelection && short ? '，请减少题量或扩大范围' : '';
     };
     const refreshCount = async () => {
@@ -1235,18 +1303,19 @@ const BankPages = {
       if (!ids.length) { countEl.textContent = '0'; return; }
       countEl.textContent = '查询中…';
       try {
-        const data = await api('/api/stu/bank/scan-count', { method: 'POST', body: { kind, node_ids: ids, subject } });
-        if (seq !== countRequest) return;
+        const data = await api('/api/stu/bank/scan-count', { method: 'POST', silent: true, body: { kind, node_ids: ids, subject } });
+        if (!current() || seq !== countRequest) return;
         available = Number(data.total) || 0;
         countEl.textContent = String(available);
         updateCountChoice();
       } catch (err) {
-        if (seq !== countRequest) return;
+        if (!current() || seq !== countRequest) return;
         countEl.textContent = '查询失败';
         toast(err.message || '查询题量失败', 'err');
       }
     };
     mask.addEventListener('change', (e) => {
+      ++selectionRevision;
       const cb = e.target.closest('.pk-ck');
       if (cb) {
         setDesc(Number(cb.dataset.nd), cb.checked);
@@ -1270,16 +1339,50 @@ const BankPages = {
       }
     });
 
-    mask.querySelector('#pkSelGo').onclick = async () => {
-      const ids = selectedRoots();
-      if (!ids.length) { toast('先勾选要测评的范围', 'err'); return; }
-      let d;
+    const loadTree = async (id) => {
+      const seq = ++treeRequest; ++countRequest; composing = false; available = 0;
+      nodes = []; byParent = {}; byId = new Map();
+      mask.querySelector('#pkTree').textContent = '正在加载目录…';
+      mask.querySelector('#pkSelQ').textContent = '0';
+      mask.querySelector('#pkSelShort').textContent = '';
+      mask.querySelector('#pkSelGo').disabled = true;
       try {
-        d = await api('/api/stu/bank/scan-compose', { method: 'POST', body: { kind, node_ids: ids, subject, count: Number(mask.querySelector('#pkWant').value) } });
-      } catch (e) { toast(e.message || '组卷失败', 'err'); return; }
-      mask.remove();
-      BankPages.showRadar(kind, subject, d.items || [], host);
+        const t = await api(`/api/stu/bank/scan-tree?kind=${kind}&subject=${encodeURIComponent(subject)}${id ? '&tree_id=' + encodeURIComponent(id) : ''}`, { silent: true });
+        if (!current() || seq !== treeRequest) return;
+        const select = mask.querySelector('#pkEdition');
+        const choices = t.trees || (t.tree_id ? [{ id: t.tree_id, name: t.tree_name, edition: t.edition }] : []);
+        select.innerHTML = choices.length ? choices.map(x => `<option value="${Number(x.id)}">${esc(x.edition || '通用')} · ${esc(x.name || '')}${x.stage === '' ? '（不限学段）' : ''}</option>`).join('') : '<option value="">暂无可用版本</option>';
+        select.value = String(t.tree_id || ''); select.disabled = !choices.length;
+        nodes = t.nodes || []; byParent = {}; byId = new Map(nodes.map(n => [Number(n.id), n]));
+        nodes.forEach(n => { (byParent[n.parent_id || 0] = byParent[n.parent_id || 0] || []).push(n); });
+        const roots = nodes.filter(n => !n.parent_id || !byId.has(Number(n.parent_id)));
+        mask.querySelector('#pkTree').innerHTML = roots.length ? roots.map(n => nodeRow(n, 0)).join('') : '<div class="empty">当前版本还没有目录，请选择其他版本。</div>';
+      } catch (err) {
+        if (!current() || seq !== treeRequest) return;
+        mask.querySelector('#pkTree').innerHTML = '<div class="empty">目录加载失败，请重试或选择其他版本。<button type="button" class="btn ghost" id="pkTreeRetry">重试</button></div>';
+        mask.querySelector('#pkTreeRetry').onclick = () => loadTree(id);
+        toast(err.message || '加载失败', 'err');
+      }
     };
+    mask.querySelector('#pkEdition').onchange = e => loadTree(e.target.value);
+    mask.querySelector('#pkSelGo').onclick = async () => {
+      if (composing || !current()) return;
+      const ids = selectedRoots();
+      if (!ids.length || available < Number(mask.querySelector('#pkWant').value)) return;
+      const seq = treeRequest, countSeq = countRequest, revision = selectionRevision;
+      composing = true; updateCountChoice();
+      try {
+        const d = await api('/api/stu/bank/scan-compose', { method: 'POST', silent: true, body: { kind, node_ids: ids, subject, count: Number(mask.querySelector('#pkWant').value) } });
+        if (!current() || seq !== treeRequest || countSeq !== countRequest || revision !== selectionRevision) return;
+        close();
+        BankPages.showRadar(kind, subject, d.items || [], host);
+      } catch (e) {
+        if (current() && seq === treeRequest && countSeq === countRequest && revision === selectionRevision) toast(e.message || '组卷失败', 'err');
+      } finally {
+        if (current() && seq === treeRequest) { composing = false; updateCountChoice(); }
+      }
+    };
+    await loadTree();
   },
 
   /** 雷达扫描动画页：小知识点逐个弹出 → 开始做题 → 做题报告 / 学情报告 */
@@ -1350,7 +1453,7 @@ const BankPages = {
     mask.innerHTML = `<div class="pk-sel-box pk-preview" role="dialog" aria-modal="true" aria-label="试卷预览">
       <div class="pk-sel-h"><b>${esc(p.title)}</b><button type="button" class="close-x" aria-label="关闭">&times;</button></div>
       <div class="pk-preview-body"><p class="hint">${[p.subject, p.grade, p.year ? p.year + ' 年' : '', BK_PAPER_CATEGORIES[p.exam_category], p.questions.length + ' 题', '满分 ' + (Number(p.total_score) || 0)].filter(Boolean).map(esc).join(' · ')}</p>
-      <p class="pk-preview-caption">试题预览</p>${p.questions.slice(0, 5).map((q, i) => { const si = stemImagesHTML(q); return `<div class="pk-preview-q"><span>${i + 1}.</span><div>${si.stem}${si.rest}</div></div>`; }).join('')}${p.questions.length > 5 ? '<p class="hint">这里只展示前 5 道题，开始作答后可查看完整试卷。</p>' : ''}</div>
+      <p class="pk-preview-caption">试题预览</p>${p.questions.slice(0, 5).map(paperPreviewQuestionHTML).join('')}${p.questions.length > 5 ? '<p class="hint">这里只展示前 5 道题，开始作答后可查看完整试卷。</p>' : ''}</div>
       <div class="pk-sel-f"><span></span><span><button type="button" class="btn ghost" id="pkPreviewClose">关闭</button> <button type="button" class="btn primary" id="pkPreviewStart">开始作答</button></span></div></div>`;
     document.body.appendChild(mask);
     mask.querySelector('.close-x').onclick = () => mask.remove();
@@ -1371,9 +1474,12 @@ const BankPages = {
     try { p = await api('/api/stu/bank/papers/' + id); }
     catch (e) { toast(e.message || '试卷加载失败', 'err'); return; }
     if (!p.questions || !p.questions.length) { toast('这份试卷还没有题目'); return; }
+    const deadline = paperDeadlineInfo(p.due_at);
+    if (deadline.expired) toast('这份试卷已截止，可以查看题目；提交以服务器校验为准。', 'err');
     BankQuiz.open({
       title: p.title,
-      subtitle: [p.subject, p.duration + ' 分钟', '满分 ' + p.total_score].filter(Boolean).join(' · '),
+      subtitle: [p.subject, p.duration + ' 分钟', '满分 ' + p.total_score, deadline.text].filter(Boolean).join(' · '),
+      notice: deadline.text,
       questions: p.questions,
       scoreTotal: p.total_score,
       submit: (answers, duration) => api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'paper', paper_id: p.id, answers, duration } }),
@@ -1383,22 +1489,27 @@ const BankPages = {
 
   /** 错题本：首页（横幅 + 四大学科卡片）→ 学科内页（时间强化 + 薄弱知识点 + 历史错题 + 上传的错题） */
   async mistakes(host) {
+    const isCurrent = bkPageRun(host);
+    if (!isCurrent()) return;
     host.innerHTML = '<div class="loading-page">加载中…</div>';
     let data;
-    try { data = await api('/api/stu/bank/mistakes'); }
-    catch (e) { host.innerHTML = `<div class="empty">${esc(e.message || '加载失败')}</div>`; return; }
+    try { data = await api('/api/stu/bank/mistakes', { silent: true }); }
+    catch (e) { if (isCurrent()) host.innerHTML = `<div class="empty">${esc(e.message || '加载失败')}</div>`; return; }
+    if (!isCurrent()) return;
 
     const SUBJ_META = { '数学': { icon: 'math', cls: 'smath' }, '英语': { icon: 'eng', cls: 'seng' }, '物理': { icon: 'phy', cls: 'sphy' }, '化学': { icon: 'chem', cls: 'schem' } };
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
     const ageDays = (m) => {
-      const t = new Date(String(m.updated_at || '').slice(0, 10).replace(/-/g, '/') + 'T00:00:00');
+      const t = new Date(String(m.updated_at || '').slice(0, 10) + 'T00:00:00');
       return isNaN(t) ? 0 : Math.max(0, Math.round((dayStart - t) / 86400000));
     };
-    const bucketOf = (m) => { const d = ageDays(m); return d <= 2 ? 'd2' : d <= 7 ? 'd7' : 'd180'; };
+    const bucketOf = (m) => { const d = ageDays(m); return d <= 2 ? 'd2' : d <= 7 ? 'd7' : d <= 180 ? 'd180' : 'history'; };
     const inBucket = (m, b) => !m.resolved && (m.subject || '其他') === subject && bucketOf(m) === b;
 
     /** 把一组错题串成一次重做弹层（答对移出，答错回炉） */
     const quizMistakes = (list, title, subtitle) => {
+      const actionIsCurrent = beginMistakeAction();
+      if (!actionIsCurrent()) return;
       if (!list.length) { toast('这里暂时没有错题'); return; }
       BankQuiz.open({
         title, subtitle: subtitle || '答对的题自动移出错题本',
@@ -1407,7 +1518,7 @@ const BankPages = {
           blanks: m.type === 'fill' ? String(m.answer || '').replace(/\|\|\|/g, '\u0001').split('|').length : 0,
         })),
         submit: (answers, duration) => api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'redo', answers, duration } }),
-        onDone: () => BankPages.mistakes(host),
+        onDone: () => { if (isCurrent()) return BankPages.mistakes(host); },
       });
     };
 
@@ -1440,6 +1551,12 @@ const BankPages = {
         </div>
       </div>`;
     };
+    // Only the newest action in this rendered page may open a popup or report an error.
+    let mistakeActionVersion = 0;
+    const beginMistakeAction = () => {
+      const action = ++mistakeActionVersion, version = paintVersion, hash = location.hash;
+      return () => isCurrent() && version === paintVersion && hash === location.hash && action === mistakeActionVersion;
+    };
     const bindMistCards = (root, arr) => {
       root.querySelectorAll('.qz-material').forEach((m) => { m.querySelector('.qz-mat-t').onclick = () => m.classList.toggle('folded'); });
       bindImageZoom(root);
@@ -1450,9 +1567,13 @@ const BankPages = {
         if (hit) quizMistakes([hit], '错题重做', '答对后自动移出错题本');
       });
       root.querySelectorAll('[data-similar]').forEach((b) => b.onclick = async () => {
+        if (b.disabled) return;
+        const actionIsCurrent = beginMistakeAction();
+        if (!actionIsCurrent()) return;
         b.disabled = true;
         try {
-          const result = await api(`/api/stu/bank/mistakes/${Number(b.dataset.similar)}/similar`);
+          const result = await api(`/api/stu/bank/mistakes/${Number(b.dataset.similar)}/similar`, { silent: true });
+          if (!actionIsCurrent()) return;
           const questions = result.list || [];
           if (!questions.length) return toast('该知识点暂时没有新题', 'err');
           BankQuiz.open({
@@ -1461,9 +1582,9 @@ const BankPages = {
             notice: questions.length < 3 ? `这个知识点目前有 ${questions.length} 道未做过的新题，题目不足 3 道。` : '',
             questions,
             submit: (answers, duration) => api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'self', answers, duration } }),
-            onDone: () => BankPages.mistakes(host),
+            onDone: () => { if (isCurrent()) return BankPages.mistakes(host); },
           });
-        } catch (e) { /* api 已提示 */ }
+        } catch (e) { if (actionIsCurrent()) toast(e.message || '加载失败，请重试', 'err'); }
         finally { b.disabled = false; }
       });
       root.querySelectorAll('[data-resolve]').forEach((b) => b.onclick = async () => {
@@ -1478,10 +1599,13 @@ const BankPages = {
 
     /** 微信扫码上传：弹二维码（长期活码，绑定本学生） */
     const showQR = async () => {
+      const actionIsCurrent = beginMistakeAction(), requestedSubject = subject;
+      if (!actionIsCurrent()) return;
       let r;
-      try { r = await api('/api/stu/bank/upload-token', { method: 'POST' }); }
-      catch (e) { toast(e.message || '获取二维码失败，请重试', 'err'); return; }
-      const url = location.origin + '/upload.html?t=' + r.token + '&subject=' + encodeURIComponent(subject);
+      try { r = await api('/api/stu/bank/upload-token', { method: 'POST', silent: true }); }
+      catch (e) { if (actionIsCurrent()) toast(e.message || '获取二维码失败，请重试', 'err'); return; }
+      if (!actionIsCurrent()) return;
+      const url = location.origin + '/upload.html?t=' + r.token + '&subject=' + encodeURIComponent(requestedSubject);
       const m = document.createElement('div');
       m.className = 'mask';
       m.innerHTML = `<div class="qr-box">
@@ -1500,16 +1624,19 @@ const BankPages = {
 
     /** 复习：今天到期的错题串成一组 */
     const startReview = async () => {
+      const actionIsCurrent = beginMistakeAction();
+      if (!actionIsCurrent()) return;
       let r;
-      try { r = await api('/api/stu/bank/review-queue'); }
-      catch (e) { toast(e.message || '加载失败', 'err'); return; }
+      try { r = await api('/api/stu/bank/review-queue', { silent: true }); }
+      catch (e) { if (actionIsCurrent()) toast(e.message || '加载失败', 'err'); return; }
+      if (!actionIsCurrent()) return;
       if (!r.list || !r.list.length) { toast('今天没有到期的复习题，明天再来吧', 'ok'); return; }
       BankQuiz.open({
         title: '错题复习',
         subtitle: `共 ${r.list.length} 题 · 连续答对 3 次自动掌握`,
         questions: r.list,
         submit: (answers, duration) => api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'review', answers, duration } }),
-        onDone: () => BankPages.mistakes(host),
+        onDone: () => { if (isCurrent()) return BankPages.mistakes(host); },
       });
     };
 
@@ -1517,7 +1644,12 @@ const BankPages = {
     const MIST_ORDER = ['英语', '数学', '物理', '化学'];
     let subject = MIST_ORDER.find((s) => data.list.some((m) => m.subject === s && !m.resolved)) || MIST_ORDER.find((s) => data.counts[s]) || MIST_ORDER[0], sub = '';
     let mistFilter = { source: '', count: '', days: '', point: '' };   // sub: '' | points | history | uploads
-    const paint = () => (sub ? paintSub() : paintSubject());
+    let paintVersion = 0;
+    const paint = () => {
+      if (!isCurrent()) return;
+      const version = ++paintVersion;
+      return sub ? paintSub(version) : paintSubject();
+    };
 
     // ---- 顶部学科 tabs（渲染到顶栏白框的挂载点 #bkTabsMount，含错题数角标） ----
     const tabsHTML = () => `
@@ -1526,6 +1658,7 @@ const BankPages = {
           <span class="bmt-ic">${bkIcon(SUBJ_META[s].icon, 15)}</span>${s}<b>${data.counts[s] || 0}</b>
         </a>`).join('')}</div>`;
     const bindTabs = () => {
+      if (!isCurrent()) return;
       const m = document.getElementById('bkTabsMount');
       if (!m) return;
       m.innerHTML = tabsHTML();
@@ -1541,11 +1674,13 @@ const BankPages = {
 
     /** 导出错题 Word：选范围 → 下载 .docx（可编辑；版式见 src/mistake-docx.js） */
     const exportWord = () => {
+      const actionIsCurrent = beginMistakeAction();
+      if (!actionIsCurrent()) return;
       const RANGES = [
         ['unresolved', '全部未掌握的错题', {}],
         ['d2', '2天内的错题', { from: daysAgo(2) }],
         ['d7', '3-7天内的错题', { from: daysAgo(7), to: daysAgo(3) }],
-        ['d180', '7-180天内的错题', { from: daysAgo(180), to: daysAgo(8) }],
+        ['d180', '8-180天内的错题', { from: daysAgo(180), to: daysAgo(8) }],
         ['resolved', '已掌握的错题', { bucket: 'resolved' }],
         ['all', '全部错题（含已掌握）', { bucket: 'all' }],
       ];
@@ -1619,7 +1754,7 @@ const BankPages = {
           <div class="t9-buckets">
             <button class="t9-bucket c-red" id="bkD2" ${d2 ? '' : 'disabled'}><em>${d2}</em><span>2天内错题</span><i>${d2 ? '去强化 ›' : '暂无'}</i></button>
             <button class="t9-bucket c-orange" id="bkD7" ${d7 ? '' : 'disabled'}><em>${d7}</em><span>3-7天内错题</span><i>${d7 ? '去强化 ›' : '暂无'}</i></button>
-            <button class="t9-bucket c-blue" id="bkD180" ${d180 ? '' : 'disabled'}><em>${d180}</em><span>7-180天内错题</span><i>${d180 ? '去强化 ›' : '暂无'}</i></button>
+            <button class="t9-bucket c-blue" id="bkD180" ${d180 ? '' : 'disabled'}><em>${d180}</em><span>8-180天内错题</span><i>${d180 ? '去强化 ›' : '暂无'}</i></button>
           </div>
           <div class="t9-sec">更多</div>
           <div class="t9-funcs">
@@ -1656,7 +1791,12 @@ const BankPages = {
     };
 
     // ---- 学科子页：薄弱知识点（AI 归类）/ 历史错题 / 上传的错题 ----
-    const paintSub = () => {
+    const paintSub = (version) => {
+      const subIsCurrent = () => isCurrent() && version === paintVersion;
+      const bindBack = () => {
+        const back = host.querySelector('#bkBack');
+        if (back) back.onclick = () => { sub = ''; paint(); };
+      };
       const list = data.list.filter((m) => (m.subject || '其他') === subject);
       const head = (t) => `<div class="bk-shead">
           <button class="btn ghost sm" id="bkBack">‹ 返回</button>
@@ -1670,7 +1810,9 @@ const BankPages = {
             <span>首次识别约需 10~30 秒，识别结果会记住，下次秒开</span>
           </div>`;
         bindTabs();
-        api(`/api/stu/bank/mistake-points?subject=${encodeURIComponent(subject)}`).then((r) => {
+        bindBack();
+        api(`/api/stu/bank/mistake-points?subject=${encodeURIComponent(subject)}`, { silent: true }).then((r) => {
+          if (!subIsCurrent()) return;
           const groups = r.groups || [];
           const cur = host.querySelector('.bk-ai-loading');
           if (!cur) return;   // 用户已切走
@@ -1689,6 +1831,7 @@ const BankPages = {
           const back = host.querySelector('#bkBack');
           if (back) back.onclick = () => { sub = ''; paint(); };
         }).catch((e) => {
+          if (!subIsCurrent()) return;
           host.innerHTML = head('薄弱知识点') + `<div class="empty">${esc(e.message || '加载失败')}</div>`;
           bindTabs();
           const back = host.querySelector('#bkBack');
@@ -1732,7 +1875,9 @@ const BankPages = {
       }
       host.innerHTML = head('上传的错题') + '<div class="loading-page">加载中…</div>';
       bindTabs();
-      api('/api/stu/bank/uploads').then((r) => {
+      bindBack();
+      api('/api/stu/bank/uploads', { silent: true }).then((r) => {
+        if (!subIsCurrent()) return;
         const ups = r.list || [];
         const ST = { pending: ['老师审核中', 'gray'], reviewed: ['老师核对中', ''], approved: ['老师已确认', 'ok'], rejected: ['已移除', 'no'] };
         host.innerHTML = head('上传的错题') + (ups.length ? `<div class="bk-up-list">${ups.map((u) => `
@@ -1752,7 +1897,11 @@ const BankPages = {
         bindImageZoom(host);
         bindTabs();
         host.querySelector('#bkBack').onclick = () => { sub = ''; paint(); };
-      }).catch((e) => { host.innerHTML = head('上传的错题') + `<div class="empty">${esc(e.message || '加载失败')}</div>`; });
+      }).catch((e) => {
+        if (!subIsCurrent()) return;
+        host.innerHTML = head('上传的错题') + `<div class="empty">${esc(e.message || '加载失败')}</div>`;
+        bindBack();
+      });
     };
 
     paint();

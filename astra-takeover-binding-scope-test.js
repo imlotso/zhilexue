@@ -33,6 +33,7 @@ function fixture(t) {
   const db = openMemory(); t.after(() => db.close());
   db.function('FIELD', { varargs: true }, (value, ...items) => items.indexOf(value) + 1);
   db.exec(`
+    CREATE TABLE paper_uploads(id INTEGER PRIMARY KEY,user_id INTEGER,question_id INTEGER,status TEXT);
     CREATE TABLE users(id INTEGER PRIMARY KEY, grade TEXT, term TEXT, stage TEXT);
     CREATE TABLE chapters(id INTEGER PRIMARY KEY,name TEXT,subject TEXT,category TEXT,grade TEXT,term TEXT,book TEXT,code TEXT,stage TEXT,sort INTEGER);
     CREATE TABLE sections(id INTEGER PRIMARY KEY,chapter_id INTEGER,name TEXT,sort INTEGER);
@@ -83,7 +84,7 @@ const submitPreflight = bankSlice('  let section = null;', '  // 知识点校验
 function harness(t) {
   const f = fixture(t), handlers = {};
   f.db.exec('DELETE FROM questions');
-  const box = { db:f.db, accuracy, stu:{get(route, fn) { handlers[route] = fn; }},
+  const box = { require:p=>require(path.join(__dirname,"src",p.replace("./",""))), db:f.db, accuracy, stu:{get(route, fn) { handlers[route] = fn; }},
     serveQ:q => q, ok(res, data) { res.data = data; }, fail(res, error) { res.error = error; } };
   vm.runInNewContext(bankHelpers + '\n' + bankSlice("stu.get('/section-questions',", '\n});'), box);
   return { ...f,

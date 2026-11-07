@@ -23,7 +23,6 @@ if (!targets.length || args.includes('--help') || args.includes('-h')) {
   process.exit(targets.length ? 0 : 2);
 }
 
-const { db, DB_INFO } = require('../src/db');
 const treeIo = require('../src/treeio');
 
 function collect(p, out) {
@@ -41,15 +40,34 @@ for (const t of targets) {
 }
 if (!files.length) { console.error('没有找到 .json 文件'); process.exit(2); }
 
+// Read and validate all file shapes before opening any database connection.
+// Invalid files still follow the existing skip/continue and exit-code contract.
+const inputs = [];
+let bad = 0;
+for (const f of files) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(f, 'utf8').replace(/^\uFEFF/, ''));
+    treeIo.normalizeInput(raw);
+    inputs.push({ f, raw });
+  } catch (e) {
+    bad++;
+    console.error(`  [跳过] ${f}\n         ${e.message}`);
+  }
+}
+if (!inputs.length) {
+  console.log(`${dry ? '预检' : '导入'}完成：0 个文件成功，${bad} 个文件有问题，共新增 0 个节点`);
+  process.exit(1);
+}
+const { db, DB_INFO } = dry ? require('../src/db-connection').openReadOnly() : require('../src/db');
+
 console.log(`目标库：MySQL ${DB_INFO.database} @ ${DB_INFO.host}:${DB_INFO.port}${dry ? '   （dry-run：只统计，不写库）' : ''}`);
-let totalAdded = 0, bad = 0;
+let totalAdded = 0;
 // 同一次 CLI 的有效文件共享虚拟节点，坏文件不提交其预检状态。
 const previewContext = dry ? {} : undefined;
 const STAGE = { primary: '小学', junior: '初中', senior: '高中' };
-for (const f of files) {
+for (const { f, raw } of inputs) {
   let results;
   try {
-    const raw = JSON.parse(fs.readFileSync(f, 'utf8').replace(/^﻿/, ''));
     results = treeIo.importAll(db, raw, { dry, previewContext });
   } catch (e) {
     bad++;

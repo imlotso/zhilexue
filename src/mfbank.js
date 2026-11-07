@@ -307,12 +307,14 @@ admin.delete('/nodes/:id', (req, res) => {
 });
 
 admin.get('/questions/:id/nodes', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, req.user, [int(req.params.id)])) return fail(res, '无权访问题目', 403);
   const qid = int(req.params.id);
   return ok(res, { nodes: db.prepare('SELECT node_id FROM question_nodes WHERE question_id=?').all(qid).map((r) => r.node_id) });
 });
 
 /** 覆盖式设置某题的树节点 */
 admin.post('/questions/:id/nodes', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, req.user, [int(req.params.id)])) return fail(res, '无权访问题目', 403);
   const qid = int(req.params.id);
   const ids = (req.body || {}).node_ids || [];
   db.prepare('DELETE FROM question_nodes WHERE question_id=?').run(qid);
@@ -346,7 +348,7 @@ admin.get('/questions', (req, res) => {
   const q = req.query || {};
   const page = Math.max(1, int(q.page, 1));
   const size = Math.min(100, Math.max(1, int(q.size, 10)));
-  const where = []; const args = [];
+  const where = [require('./qmeta').questionScopeSql(req.user, 'q')]; const args = [];
   const inList = (col, vals) => { if (!vals.length) return; where.push(`${col} IN (${vals.map(() => '?').join(',')})`); args.push(...vals); };
   if (q.subject) { where.push('q.subject=?'); args.push(String(q.subject)); }
   if (q.stage) { where.push('q.stage=?'); args.push(String(q.stage)); }
@@ -454,7 +456,7 @@ admin.get('/questions', (req, res) => {
 /** 筛选项（R3）：某 学段+学科 下题目里实际出现的年份、来源文字，给胶囊筛选用；另附来源分类表 */
 admin.get('/questions-facets', (req, res) => {
   const q = req.query || {};
-  const where = []; const args = [];
+  const where = [require('./qmeta').questionScopeSql(req.user, 'questions')]; const args = [];
   if (q.subject) { where.push('subject=?'); args.push(String(q.subject)); }
   if (q.stage) { where.push('stage=?'); args.push(String(q.stage)); }
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
@@ -475,6 +477,7 @@ function questionGroupKey(sourceType, detail) {
 }
 
 admin.get('/questions/:id/group', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, req.user, [int(req.params.id)])) return fail(res, '无权访问题目', 403);
   const row = db.prepare('SELECT id,subject,stage,source_type,source_detail FROM questions WHERE id=?').get(int(req.params.id));
   if (!row) return fail(res, '题目不存在');
   const key = questionGroupKey(row.source_type, parseObj(row.source_detail));
@@ -483,6 +486,7 @@ admin.get('/questions/:id/group', (req, res) => {
     .all(row.source_type || 'local', '%"question_group"%')
     .filter(q => questionGroupKey(q.source_type, parseObj(q.source_detail)) === key)
     .map(q => ({ ...q, position: Number(parseObj(q.source_detail).question_group.position) }));
+  if (!require('./qmeta').questionsAllowed(db, req.user, list.map(q => q.id))) return fail(res, '无权访问题目', 403);
   if (list.some(q => q.subject !== row.subject || q.stage !== row.stage)) return fail(res, '该组合题的学科或学段不一致，请核对后单独选题');
   if (list.some(q => !Number.isInteger(q.position) || q.position < 1) || new Set(list.map(q => q.position)).size !== list.length)
     return fail(res, '组合题的小题顺序缺失或冲突，请核对后单独选题');
@@ -491,6 +495,7 @@ admin.get('/questions/:id/group', (req, res) => {
 });
 
 admin.get('/questions/:id', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, req.user, [int(req.params.id)])) return fail(res, '无权访问题目', 403);
   const row = db.prepare('SELECT * FROM questions WHERE id=?').get(int(req.params.id));
   if (!row) return fail(res, '题目不存在');
   return ok(res, { question: decorate(row, { tags: true, nodes: true }) });
@@ -583,6 +588,7 @@ admin.post('/questions', (req, res) => {
 });
 
 admin.put('/questions/:id', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, req.user, [int(req.params.id)])) return fail(res, '无权访问题目', 403);
   const id = int(req.params.id);
   const old = db.prepare('SELECT * FROM questions WHERE id=?').get(id);
   if (!old) return fail(res, '题目不存在');
@@ -615,6 +621,7 @@ admin.put('/questions/:id', (req, res) => {
 });
 
 admin.delete('/questions/:id', (req, res) => {
+  if (!require('./qmeta').questionsAllowed(db, req.user, [int(req.params.id)])) return fail(res, '无权访问题目', 403);
   const id = int(req.params.id);
   db.prepare('DELETE FROM question_tags WHERE question_id=?').run(id);
   db.prepare('DELETE FROM question_nodes WHERE question_id=?').run(id);
@@ -628,6 +635,7 @@ admin.post('/questions/batch', (req, res) => {
   const b = req.body || {};
   const ids = (b.ids || []).map(int).filter(Boolean);
   if (!ids.length) return fail(res, '请先勾选题目');
+  if (!require('./qmeta').questionsAllowed(db, req.user, ids)) return fail(res, '无权访问题目', 403);
   const ph = ids.map(() => '?').join(',');
   const op = String(b.op || '');
   if (op === 'delete') {
@@ -698,7 +706,7 @@ admin.get('/tags', (req, res) => {
 /** 导出：JSON（含选项/答案/解析/标签/树节点），可带与列表相同的筛选条件 */
 admin.get('/questions-export', (req, res) => {
   const q = req.query || {};
-  const where = []; const args = [];
+  const where = [require('./qmeta').questionScopeSql(req.user, 'questions')]; const args = [];
   if (q.subject) { where.push('subject=?'); args.push(q.subject); }
   if (q.stage) { where.push('stage=?'); args.push(q.stage); }
   if (q.type) { where.push('type=?'); args.push(q.type); }
@@ -725,6 +733,7 @@ admin.post('/ai-clean', async (req, res) => {
   try {
     const b = req.body || {};
     const id = int(b.id);
+  if (!require('./qmeta').questionsAllowed(db, req.user, [id])) return fail(res, '无权访问题目', 403);
     const row = db.prepare('SELECT * FROM questions WHERE id=?').get(id);
     if (!row) return fail(res, '题目不存在');
     const field = ['stem', 'answer', 'analysis'].includes(b.field) ? b.field : 'stem';
@@ -743,6 +752,7 @@ admin.post('/ai-clean', async (req, res) => {
     const body = fence ? fence[1] : String(text || '');
     const a = body.indexOf('{'), b2 = body.lastIndexOf('}');
     if (a < 0 || b2 <= a) return fail(res, 'AI 返回格式异常，请重试');
+    if (!require('./qmeta').questionsAllowed(db, req.user, [id])) return fail(res, '无权访问题目', 403);
     const j = JSON.parse(body.slice(a, b2 + 1));
     return ok(res, { text: String(j.text || '').trim(), latex: String(j.latex || '').trim() }, 'AI 已清洗');
   } catch (e) {
@@ -879,11 +889,24 @@ admin.post('/capture/parse', (req, res) => {
   }, `解析出 ${qs.length} 题`);
 });
 
+function captureAccount(id, role) {
+  if (!Number.isSafeInteger(Number(id)) || Number(id) <= 0) return null;
+  const user = db.prepare('SELECT id,role,status,expire_at FROM users WHERE id=?').get(Number(id));
+  if (!user || !['admin', 'branch'].includes(user.role) || Number(user.status) !== 1 || (role && user.role !== role)) return null;
+  const d = new Date(), pad = n => String(n).padStart(2, '0');
+  const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  if (user.role === 'branch' && user.expire_at && String(user.expire_at).slice(0, 10) < today) return null;
+  return user;
+}
+
+/** 采集票据必须绑定签发账号及其角色，并随账号状态立即失效。 */
 /** 书签小工具用的上传票据（90 天），脚本在浏览器里带着它回传题目 */
 admin.get('/capture/token', (req, res) => {
   try {
     const secret = require('fs').readFileSync(require('path').join(require('./db').DATA_DIR, '.secret'), 'utf8').trim();
-    const token = jwt.sign({ id: req.user && req.user.id, role: 'mfcapture', name: '采集小工具' }, secret, { expiresIn: '90d' });
+    const account = captureAccount(req.user && req.user.id, req.user && req.user.role);
+    if (!account) return fail(res, '采集账号已失效，请重新登录', 401);
+    const token = jwt.sign({ id: account.id, account_role: account.role, role: 'mfcapture', name: '采集小工具' }, secret, { expiresIn: '90d' });
     return ok(res, { token });
   } catch (e) {
     return fail(res, '票据生成失败：' + e.message);
@@ -966,15 +989,18 @@ cap.use((req, res, next) => {
 cap.use((req, res, next) => {
   const h = req.headers.authorization || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : String(req.query.token || '');
-  if (!token) return fail(res, '缺少采集票据', 401);
+  if (!token) return fail(res.status(401), '缺少采集票据', 401);
   try {
     const secret = require('fs').readFileSync(require('path').join(require('./db').DATA_DIR, '.secret'), 'utf8').trim();
     const u = jwt.verify(token, secret);
-    if (!u || u.role !== 'mfcapture') return fail(res, '采集票据无效', 401);
-    req.user = u;
+    if (!u || u.role !== 'mfcapture') return fail(res.status(401), '采集票据无效', 401);
+    if (!u.id || !u.account_role) return fail(res.status(401), '旧采集票据已失效，请返回后台重新生成', 401);
+    const account = captureAccount(u.id, u.account_role);
+    if (!account) return fail(res.status(401), '采集账号已失效，请返回后台重新生成票据', 401);
+    req.user = { ...u, id: account.id };
     next();
   } catch (e) {
-    return fail(res, '采集票据无效或已过期', 401);
+    return fail(res.status(401), '采集票据无效或已过期', 401);
   }
 });
 cap.post('/push', intakeReceipts.middleware('capture'), intakeReceipts.guard(async (req, res) => {
@@ -1062,7 +1088,7 @@ function commitCaptureItems(batch, picked, b) {
   b = b || {};
   if (picked.some((q) => q && q.type_unconfirmed === true)) throw new Error('题型待老师确认，请在编辑题目中核对并确认题型');
   const nodeIds = [].concat(b.node_id ? [b.node_id] : [], Array.isArray(b.node_ids) ? b.node_ids : []).map((x) => int(x)).filter(Boolean);
-  const existRows = db.prepare("SELECT id, source_detail, source_type FROM questions WHERE source_type='capture'").all();
+  const existRows = db.prepare(`SELECT id, source_detail, source_type FROM questions WHERE source_type='capture' AND ${require('./qmeta').questionScopeSql(null, 'questions')}`).all();
   const map = new Map();
   existRows.forEach((r) => {
     const d = parseObj(r.source_detail);
@@ -1379,6 +1405,7 @@ function defaultLayout() {
 }
 
 admin.get('/papers/:id', (req, res) => {
+  if (!require('./qmeta').paperQuestionsAllowed(db, req.user, int(req.params.id))) return fail(res, '无权访问试卷中的题目', 403);
   const id = int(req.params.id);
   const p = db.prepare('SELECT * FROM mf_papers WHERE id=?').get(id);
   if (!p) return fail(res, '试卷不存在');
@@ -1403,6 +1430,8 @@ admin.put('/papers/:id', (req, res) => {
   if (b.exam_category !== undefined && !EXAM_CATEGORIES.includes(String(b.exam_category || ''))) return fail(res, '请选择有效的试卷类型');
   if (b.term !== undefined && !['', '上册', '下册', '全一册'].includes(String(b.term || ''))) return fail(res, '请选择有效的册别');
   const wantsPublish = b.published === true || Number(b.published) === 1;
+  const targetPublished = !['basket', 'composing', 'archived', 'trashed'].includes(b.status) && (b.published === undefined ? Number(p.published) === 1 : wantsPublish);
+  if (targetPublished && !require('./qmeta').paperQuestionsAllowed(db, null, id)) return fail(res, '扫码题尚未审核，不能发布', 403);
   if (wantsPublish && ['basket', 'composing', 'archived', 'trashed'].includes(b.status)) return fail(res, '请先将试卷设为可发布状态');
   if (b.published === true || Number(b.published) === 1) {
     const awaiting = db.prepare("SELECT drafts FROM mf_recog_runs WHERE status<>'done' AND source_kind='paper'").all()
@@ -1442,6 +1471,7 @@ admin.post('/papers/:id/questions', (req, res) => {
   const pid = int(req.params.id);
   const ids = [...new Set(((req.body || {}).question_ids || []).map(int).filter(Boolean))];
   if (!ids.length) return fail(res, '请先勾选题目');
+  if (!require('./qmeta').questionsAllowed(db, null, ids)) return fail(res, '无权访问题目', 403);
   const added = db.transaction(() => {
     // 锁试卷行以串行处理相同试卷的并发加题；旧卷中已有重复行不自动删除。
     const paper = db.prepare('SELECT id FROM mf_papers WHERE id=? FOR UPDATE').get(pid);
@@ -1509,6 +1539,7 @@ admin.delete('/papers/:id/rows/:rowId', (req, res) => {
 
 /** 试卷排版 → 完整 HTML（服务端渲染，前端直接塞 iframe 或新窗打印） */
 admin.get('/papers/:id/preview', (req, res) => {
+  if (!require('./qmeta').paperQuestionsAllowed(db, req.user, int(req.params.id))) return fail(res, '无权访问试卷中的题目', 403);
   const id = int(req.params.id);
   const p = db.prepare('SELECT * FROM mf_papers WHERE id=?').get(id);
   if (!p) return fail(res, '试卷不存在');
@@ -1519,6 +1550,7 @@ admin.get('/papers/:id/preview', (req, res) => {
 
 /** 导出：html 打印页 / doc（Word 可直接打开的 HTML） / 归档到对象存储 */
 admin.get('/papers/:id/export', (req, res) => {
+  if (!require('./qmeta').paperQuestionsAllowed(db, req.user, int(req.params.id))) return fail(res, '无权访问试卷中的题目', 403);
   const id = int(req.params.id);
   const p = db.prepare('SELECT * FROM mf_papers WHERE id=?').get(id);
   if (!p) return fail(res, '试卷不存在');
@@ -1527,13 +1559,18 @@ admin.get('/papers/:id/export', (req, res) => {
 });
 
 admin.post('/papers/:id/archive', async (req, res) => {
+  if (!require('./qmeta').paperQuestionsAllowed(db, req.user, int(req.params.id))) return fail(res, '无权访问试卷中的题目', 403);
   const id = int(req.params.id);
   const p = db.prepare('SELECT * FROM mf_papers WHERE id=?').get(id);
   if (!p) return fail(res, '试卷不存在');
   try {
+    const exportedIds = db.prepare('SELECT question_id, kind FROM mf_paper_questions WHERE paper_id=?').all(id)
+      .filter(r => !(r.kind === 'text' && r.question_id == null)).map(r => r.question_id);
     const html = renderPaperHtml(p, 'teacher');
     const saved = await store.saveFile(Buffer.from(html, 'utf8'), `${p.title}.html`, `${bankFolder()}/paper`);
+    if (!require('./qmeta').questionsAllowed(db, req.user, exportedIds)) return fail(res, '无权访问试卷中的题目', 403);
     const url = await store.getUrl(saved.key, `${p.title}.html`);
+    if (!require('./qmeta').questionsAllowed(db, req.user, exportedIds)) return fail(res, '无权访问试卷中的题目', 403);
     return ok(res, { key: saved.key, url }, '已归档到对象存储');
   } catch (e) {
     return fail(res, '归档失败：' + e.message);
@@ -2264,7 +2301,7 @@ function mfMapStage(label) {
   const t = String(label || '');
   if (['primary', 'junior', 'senior'].includes(t)) return t;
   for (const [k, v] of MF_STAGE_MAP) if (t.includes(k)) return v;
-  if (/[三四五六]/.test(t) && t.includes('年级')) return 'primary';
+  if (/[一二三四五六]/.test(t) && t.includes('年级')) return 'primary';
   if (/[七八九]/.test(t) && t.includes('年级')) return 'junior';
   if (t.includes('高一') || t.includes('高二') || t.includes('高三')) return 'senior';
   return '';
@@ -2382,7 +2419,7 @@ admin.post('/import-pack', upBig.single('file'), intakeReceipts.middleware('skil
         });
         // 去重：同一转写包 + 同一 recordKey 已导入过则跳过（source_detail 精确匹配）；
         // 但若本次带来图片（ZIP 资产）而库里题目没图，则给旧题补图后计为「补图」
-        const dup = rk ? db.prepare('SELECT id, images FROM questions WHERE source_detail = ? LIMIT 1').get(jstr(detail)) : null;
+        const dup = rk ? db.prepare(`SELECT id, images FROM questions WHERE source_detail = ? AND ${require('./qmeta').questionScopeSql(null, 'questions')} LIMIT 1`).get(jstr(detail)) : null;
         if (dup) {
           const exImgs = (() => { try { return JSON.parse(dup.images || '[]'); } catch (_) { return []; } })();
           if (urls.length && !exImgs.length && !imageErrors.length) {
@@ -2544,8 +2581,9 @@ admin.get('/ext/badge-counts', (req, res) => {
     WHERE NOT EXISTS (SELECT 1 FROM question_nodes qn JOIN bank_tree_nodes bn ON bn.id=qn.node_id JOIN bank_trees bt ON bt.id=bn.tree_id WHERE qn.question_id=q.id AND bt.kind='textbook')
     AND NOT EXISTS (SELECT 1 FROM question_nodes qn2 JOIN bank_tree_nodes bn2 ON bn2.id=qn2.node_id JOIN bank_trees bt2 ON bt2.id=bn2.tree_id WHERE qn2.question_id=q.id AND bt2.kind='knowledge')
     AND NOT EXISTS (SELECT 1 FROM paper_uploads pu WHERE pu.question_id=q.id AND pu.status IN ('pending','reviewed'))`).get().n) || 0;
-  const review = Number(db.prepare("SELECT COUNT(*) n FROM paper_uploads WHERE status IN ('pending','reviewed') AND question_id>0").get().n) || 0;
-  const pending = pendingApi ? pendingApi.counts() : { all: 0 };   // 各入口入库前的题目总数（待审核题目页角标）
+  const review = Number(db.prepare(`SELECT COUNT(*) n FROM paper_uploads p WHERE p.status IN ('pending','reviewed') AND p.question_id>0${req.user.role === 'branch' ? ' AND EXISTS (SELECT 1 FROM users u WHERE u.id=p.user_id AND u.created_by=?)' : ''}`)
+    .get(...(req.user.role === 'branch' ? [req.user.id] : [])).n) || 0;
+  const pending = pendingApi ? pendingApi.counts(req) : { all: 0 };   // 各入口入库前的题目总数（待审核题目页角标）
   return ok(res, { uncat, review, pending: pending.all, pending_by: pending });
 });
 
@@ -2555,6 +2593,8 @@ admin.get('/ext/review-list', (req, res) => {
   const size = Math.min(50, Math.max(1, Number(req.query.size) || 20));
   const kw = String(req.query.kw || '').trim();
   let where = " WHERE pu.status IN ('pending','reviewed') AND pu.question_id>0"; const args = [];
+  where += ' AND (' + require('./qmeta').questionScopeSql(req.user, 'q') + ')';
+  if (req.user.role === 'branch') { where += ' AND u.created_by=?'; args.push(req.user.id); }
   if (kw) { where += ' AND (q.stem LIKE ? OR u.name LIKE ? OR pu.point LIKE ?)'; args.push(`%${kw}%`, `%${kw}%`, `%${kw}%`); }
   const total = Number(db.prepare(`SELECT COUNT(*) n FROM paper_uploads pu JOIN questions q ON q.id=pu.question_id JOIN users u ON u.id=pu.user_id${where}`).get(...args).n) || 0;
   const rows = db.prepare(`SELECT pu.id AS up_id, pu.status AS up_status, pu.images AS up_images, pu.point AS pu_point,

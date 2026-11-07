@@ -130,6 +130,9 @@ function parseWordQuestions(paras) {
     if (!cur) return;
     const c = cur; cur = null;
     const emit = (item) => {
+      // Answers (including drawing/fill answers) can contain their own figures.
+      // Preserve existing reference order, then include every emitted text field.
+      item.imgRefs = [...new Set([...(item.imgRefs || []), ...figRefs(item.material), ...figRefs(item.stem), ...figRefs(item.answer), ...figRefs(item.analysis)])];
       if (sharedMaterial && !item.material) {
         item.material = sharedMaterial; item.group_ref = materialRef;
         item.imgRefs = [...new Set([...(item.imgRefs || []), ...figRefs(sharedMaterial)])];

@@ -22,30 +22,37 @@ async function viewIntakeTeacher() {
       </main><aside class="rt-history"><div class="rt-history-head"><div><h3>最近手机录题</h3><p>显示最近的手机扫码批次</p></div><button type="button" class="btn ghost sm" id="rtRefresh">刷新</button></div><div id="rtHistory" aria-live="polite"></div></aside></div>
     </div>`,
     after: () => {
-      const $ = (id) => document.getElementById(id);
-      const root = document.querySelector('.rt-page'); R4Flow.bind(root, 'teacher');
+      const root = document.querySelector('.rt-page'); if (!root) return;
+      const $ = (id) => root.querySelector('#' + id);
+      const pageHash = location.hash, active = () => root.isConnected && location.hash === pageHash;
+      R4Flow.bind(root, 'teacher');
       const scope = R4Flow.scope(root, 'teacher', $('rtPrepare'), {subject:'rtSubject'});
-      let step = 1, url = '', expiresAt = 0, timer = null, busy = false;
+      let step = 1, url = '', expiresAt = 0, timer = null, busy = false, generation = 0, historyRequest = 0;
       const parseDrafts = (v) => { try { const a = Array.isArray(v) ? v : JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
       const openReview = (batchId) => { pdSelectBatch('teacher_scan', batchId); location.hash = '#/pending'; };
       const drawHistory = () => {
-        const el = $('rtHistory'); if (!el) return;
+        const el = $('rtHistory'); if (!active() || !el) return;
         if (historyError) { el.innerHTML = `<p class="rt-error">${esc(historyError)}</p>`; return; }
         if (!history.length) { el.innerHTML = '<div class="rt-empty">暂无手机录题记录</div>'; return; }
         el.innerHTML = `<div class="rt-history-list">${history.map((r) => { const cards = parseDrafts(r.drafts); const left = cards.filter((c) => c && !c.committed).length; const processed = r.status === 'done' || (cards.length && !left); const bad = r.status === 'error'; return `<div class="rt-history-row"><div><strong>${esc(r.subject || '未指定学科')}${r.grade ? ' · ' + esc(r.grade) : ''}</strong><small>${esc(r.created_at || '')} · ${Number(r.draft_count) || cards.length || 0} 题</small>${bad && r.error ? `<small class="rt-error">${esc(r.error)}</small>` : ''}</div><span class="rt-history-status ${bad ? 'error' : processed ? 'done' : ''}">${r.processing ? '正在识别' : bad ? '处理异常' : processed ? '已处理' : '待审核'}</span>${processed ? '' : `<button type="button" class="btn ghost sm" data-rt-history="${Number(r.id)}">核对</button>`}</div>`; }).join('')}</div>`;
       };
       const refreshHistory = async () => {
+        if (!active()) return;
+        const request = ++historyRequest, current = () => active() && request === historyRequest;
         $('rtRefresh').disabled = true;
-        try { const data = await api('/api/admin/bank/mf/intake/runs', { silent: true }); history = (data.list || []).filter((r) => r.source_kind === 'teacher_scan').slice(0, 12); historyError = ''; }
-        catch (e) { historyError = e.message || '无法读取录题记录，请稍后重试'; }
-        finally { if (root.isConnected) { $('rtRefresh').disabled = false; drawHistory(); } }
+        try { const data = await api('/api/admin/bank/mf/intake/runs', { silent: true }); if (!current()) return; history = (data.list || []).filter((r) => r.source_kind === 'teacher_scan').slice(0, 12); historyError = ''; }
+        catch (e) { if (current()) historyError = e.message || '无法读取录题记录，请稍后重试'; }
+        finally { if (current()) { $('rtRefresh').disabled = false; drawHistory(); } }
       };
       const showStep = (n) => {
+        if (!active()) return;
+        // Returning or moving on cancels display ownership, not the server request.
+        generation++; busy = false; $('rtCreate').disabled = $('rtRenew').disabled = false;
         step = n; $('rtPrepare').hidden = n !== 1; $('rtScan').hidden = n !== 2; $('rtReview').hidden = n !== 3;
         root.querySelectorAll('[data-rt-step]').forEach((el) => { const i = Number(el.dataset.rtStep); el.classList.toggle('active', i === n); el.classList.toggle('complete', i < n); if (i === n) el.setAttribute('aria-current', 'step'); else el.removeAttribute('aria-current'); });
       };
       const tick = () => {
-        if (!root.isConnected) { clearInterval(timer); timer = null; return; }
+        if (!active()) { clearInterval(timer); timer = null; return; }
         const seconds = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
         $('rtTimer').textContent = seconds ? `二维码有效期 ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : '二维码已过期，请重新生成';
         $('rtCopy').disabled = $('rtOpen').disabled = !seconds || !url;
@@ -53,23 +60,26 @@ async function viewIntakeTeacher() {
         if (!seconds && timer) { clearInterval(timer); timer = null; }
       };
       const generate = async () => {
-        if (busy) return; busy = true;
+        if (busy || !active()) return; busy = true;
+        const request = ++generation, current = () => active() && request === generation;
         const btn = step === 1 ? $('rtCreate') : $('rtRenew'), error = step === 1 ? $('rtCreateError') : $('rtScanError');
         btn.disabled = true; error.hidden = true;
         try {
-          const data = await api('/api/admin/bank/teacher-upload-token', { method: 'POST', body:scope(), silent: true });
+          const submittedScope = scope();
+          const data = await api('/api/admin/bank/teacher-upload-token', { method: 'POST', body:submittedScope, silent: true });
+          if (!current()) return;
           if (!data || !data.token || !/^\/(?!\/)/.test(String(data.url || ''))) throw new Error('无法生成录题链接，请重试');
           const link = new URL(data.url, location.origin);
           if (link.origin !== location.origin) throw new Error('录题链接地址无效，请重试');
-          link.searchParams.set('t', data.token); if ($('rtSubject').value) link.searchParams.set('subject', $('rtSubject').value);
+          link.searchParams.set('t', data.token); if (submittedScope.subject) link.searchParams.set('subject', submittedScope.subject);
           const ttl = Number(data.expires_in); url = link.href; expiresAt = Date.now() + (Number.isFinite(ttl) ? Math.max(0, ttl) : 1800) * 1000;
           const code = $('rtCode'); code.innerHTML = '';
           if (window.QRCode) new QRCode(code, { text: url, width: 204, height: 204, correctLevel: QRCode.CorrectLevel.M });
           else code.textContent = '二维码未能加载，请使用录题链接。';
           $('rtLocalWarning').hidden = !/^(localhost|127(?:\.\d+){3}|\[::1\])$/i.test(location.hostname);
           if (timer) clearInterval(timer); showStep(2); tick(); timer = setInterval(tick, 1000);
-        } catch (e) { error.textContent = e.message || '生成二维码失败，请重试'; error.hidden = false; }
-        finally { busy = false; if (root.isConnected) btn.disabled = false; }
+        } catch (e) { if (current()) { error.textContent = e.message || '生成二维码失败，请重试'; error.hidden = false; } }
+        finally { if (current()) { busy = false; btn.disabled = false; } }
       };
       $('rtBack').onclick = () => { location.hash = '#/intake'; };
       $('rtCreate').onclick = generate; $('rtRenew').onclick = generate;
@@ -78,9 +88,11 @@ async function viewIntakeTeacher() {
       $('rtPending').onclick = () => openReview(0); $('rtRefresh').onclick = refreshHistory;
       $('rtHistory').onclick = (event) => { const button = event.target.closest('[data-rt-history]'); if (button) openReview(button.dataset.rtHistory); };
       $('rtCopy').onclick = async () => {
+        if (!active()) return;
         if (!url || Date.now() >= expiresAt) return tick();
-        try { await navigator.clipboard.writeText(url); toast('录题链接已复制', 'ok'); }
-        catch (_) { $('rtScanError').textContent = '复制失败，请使用二维码或在本设备打开。'; $('rtScanError').hidden = false; }
+        const request = generation, copiedUrl = url, current = () => active() && request === generation && url === copiedUrl;
+        try { await navigator.clipboard.writeText(copiedUrl); if (current()) toast('录题链接已复制', 'ok'); }
+        catch (_) { if (current()) { $('rtScanError').textContent = '复制失败，请使用二维码或在本设备打开。'; $('rtScanError').hidden = false; } }
       };
       $('rtOpen').onclick = () => { if (url && Date.now() < expiresAt) window.open(url, '_blank', 'noopener,noreferrer'); else tick(); };
       R4Flow.prepare(root, 'teacher', ['rtSubject']); drawHistory(); showStep(1);

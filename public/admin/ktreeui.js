@@ -20,7 +20,7 @@ const KT_API = '/api/admin/bank/mf';
 const KT_KINDS = [['knowledge', '知识点树'], ['textbook', '章节树']];
 const KT_STAGES = [['primary', '小学'], ['junior', '初中'], ['senior', '高中']];
 const KT_SUBJECTS = ['数学', '英语', '物理', '化学', '语文'];
-const KT_GRADES = { primary: ['三年级', '四年级', '五年级', '六年级'], junior: ['七年级', '八年级', '九年级', '中考冲刺'] };
+const KT_GRADES = { primary: ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'], junior: ['七年级', '八年级', '九年级', '中考冲刺'] };
 // 能用「AI 拆解教材单元知识点」的 学科 → 学段（与 bank.js 的 KB_EDITIONS 一致：有对应江苏教材版本才能拆）
 const KT_AI_STAGES = { 数学: ['primary', 'junior'], 英语: ['primary', 'junior'], 物理: ['junior'], 化学: ['junior'] };
 

@@ -14,7 +14,7 @@ const BK_TYPES = [
 const BK_TYPE_NAME = Object.fromEntries(BK_TYPES);
 const BK_LETTERS = 'ABCDEFGHIJ';
 const BK_STAGES = [['', '全部学段'], ['primary', '小学'], ['junior', '初中']];
-const BK_GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
+const BK_GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const BK_QTNAME = { single: '单选题', multi: '多选题', judge: '判断题', fill: '填空题', sort: '排序题', answer: '解答题' };
 
 const bkStageName = (s) => (s === 'primary' ? '小学' : s === 'junior' ? '初中' : '');
@@ -490,16 +490,32 @@ function bkImportForm() {
    ================================================================ */
 /** 下发试卷给学生：单选 / 多选，确认后出现在这些学生的「试卷 → 我的任务」，只有被选中的学生能看到 */
 async function ppAssignDialog(pid, title) {
-  const students = await api('/api/admin/bank/students-options', { silent: true }).catch(() => []);
+  let students, assignees, paper;
+  try {
+    [students, assignees, paper] = await Promise.all([
+      api('/api/admin/bank/students-options', { silent: true }),
+      api(`/api/admin/bank/papers/${pid}/assignees`, { silent: true }),
+      api(`/api/admin/bank/papers/${pid}`, { silent: true }),
+    ]);
+  } catch (e) { toast('下发信息加载失败：' + (e.message || '请重试'), 'err'); return; }
   if (!students.length) return toast('还没有学生账号，先去组织管理 → 学生管理开通', 'err');
-  let assigned = [];
-  try { assigned = (await api(`/api/admin/bank/papers/${pid}/assignees`, { silent: true })).map((r) => r.user_id); } catch (e) { assigned = []; }
+  const existing = new Set(assignees.map((r) => Number(r.user_id)));
+  const selectable = new Set(students.map((s) => Number(s.id)));
+  let assigned = [...existing].filter((id) => selectable.has(id));
+  const unavailableCount = existing.size - assigned.length;
+  let initialDue = '';
+  if (paper.due_at) {
+    const date = new Date(paper.due_at);
+    if (!Number.isFinite(date.getTime())) { toast('已有截止时间异常，请先检查试卷设置', 'err'); return; }
+    const pad = (n) => String(n).padStart(2, '0');
+    initialDue = date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
+  }
   let kw = '', grade = '', campus = '', classId = '';
   const campuses = new Map(students.filter(s=>s.created_by).map(s=>[String(s.created_by),s.branch_name || `账号 #${s.created_by}`]));
   const classes = new Map(students.filter(s=>s.class_id).map(s=>[String(s.class_id),s.class_name || `班级 #${s.class_id}`]));
   const paint = (w) => {
     const shown = students.filter((s) => (!kw || (s.name || '').includes(kw) || (s.username || '').includes(kw) || (s.grade || '').includes(kw)) && (!grade || s.grade === grade) && (!campus || String(s.created_by || '') === campus) && (!classId || String(s.class_id || '') === classId));
-    w.querySelector('#asList').innerHTML = shown.map((s) => `<label class="mf-pickitem"><input type="checkbox" class="as-uid" value="${s.id}" ${assigned.includes(s.id) ? 'checked' : ''}><span>${esc(s.name || s.username)} <i class="hint">${esc([s.grade, s.class_name, s.branch_name].filter(Boolean).join(' · '))}</i></span></label>`).join('') || '<span class="hint">没有符合的学生</span>';
+    w.querySelector('#asList').innerHTML = shown.map((s) => `<label class="mf-pickitem"><input type="checkbox" class="as-uid" value="${s.id}" ${assigned.includes(s.id) ? 'checked' : ''} ${existing.has(s.id) ? 'disabled' : ''}><span>${esc(s.name || s.username)} <i class="hint">${esc([s.grade, s.class_name, s.branch_name].filter(Boolean).join(' · '))}</i></span></label>`).join('') || '<span class="hint">没有符合的学生</span>';
     countSel(w);
   };
   const countSel = (w) => { w.querySelector('#asCount').textContent = assigned.length; const boxes=[...w.querySelectorAll('.as-uid')];const selected=boxes.filter(c=>c.checked).length;const all=w.querySelector('#asAll');all.checked=!!boxes.length&&selected===boxes.length;all.indeterminate=selected>0&&selected<boxes.length; };
@@ -514,23 +530,30 @@ async function ppAssignDialog(pid, title) {
         <label>年级 <select id="asGrade"><option value="">全部年级</option>${[...new Set(students.map(s => s.grade).filter(Boolean))].map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}</select></label>
         <label>分校 <select id="asCampus"><option value="">全部分校</option>${[...campuses].map(([v,name]) => `<option value="${esc(v)}">${esc(name)}</option>`).join('')}</select></label>
         <label>班级 <select id="asClass"><option value="">全部班级</option>${[...classes].map(([v,name]) => `<option value="${esc(v)}">${esc(name)}</option>`).join('')}</select></label>
-        <label>截止时间 <input id="asDue" type="datetime-local"></label>
+        <label>截止时间（本地时间，清空可取消） <input id="asDue" type="datetime-local" step="1" value="${esc(initialDue)}"></label>
       </div>
-      <div class="hint" style="margin-top:6px">下发的试卷出现在学生端「试卷 → 我的任务」，<b>只有勾选的学生能看到</b>（可单选 / 多选）。</div>`,
+      <div class="hint" style="margin-top:6px">下发的试卷出现在学生端「试卷 → 我的任务」，<b>已下发名单会保留，可追加学生</b>，取消新勾选不会取消已有下发。调整截止时间无需撤回。${unavailableCount ? `另有 ${unavailableCount} 名历史收件人当前不可选，保留原下发记录，不重新下发。` : ''}</div>`,
     onMount: (w) => {
       paint(w); countSel(w);
       w.querySelector('#asKw').oninput = (e) => { kw = e.target.value.trim(); paint(w); };
       w.querySelector('#asGrade').onchange = (e) => { grade = e.target.value; paint(w); };
       w.querySelector('#asCampus').onchange = (e) => { campus = e.target.value; paint(w); };
       w.querySelector('#asClass').onchange = (e) => { classId = e.target.value; paint(w); };
-      w.querySelector('#asList').onchange = (e) => { const c=e.target.closest('.as-uid'); if (!c) return; const id=Number(c.value); assigned = c.checked ? [...new Set([...assigned,id])] : assigned.filter(x=>x!==id); countSel(w); };
-      w.querySelector('#asAll').onchange = (e) => { w.querySelectorAll('.as-uid').forEach((c) => { c.checked = e.target.checked; const id=Number(c.value); assigned = c.checked ? [...new Set([...assigned,id])] : assigned.filter(x=>x!==id); }); countSel(w); };
+      w.querySelector('#asList').onchange = (e) => { const c=e.target.closest('.as-uid'); if (!c) return; const id=Number(c.value); if (existing.has(id)) { c.checked = true; return; } assigned = c.checked ? [...new Set([...assigned,id])] : assigned.filter(x=>x!==id); countSel(w); };
+      w.querySelector('#asAll').onchange = (e) => { w.querySelectorAll('.as-uid').forEach((c) => { if (existing.has(Number(c.value))) { c.checked = true; return; } c.checked = e.target.checked; const id=Number(c.value); assigned = c.checked ? [...new Set([...assigned,id])] : assigned.filter(x=>x!==id); }); countSel(w); };
     },
     onOk: async (w) => {
       const ids = assigned;
       if (!ids.length) { toast('请至少选择一名学生', 'err'); return false; }
       const due = w.querySelector('#asDue').value;
-      await api(`/api/admin/bank/papers/${pid}/assign`, { method: 'POST', body: Object.assign({ user_ids: ids }, due ? { due_at: new Date(due).toISOString() } : {}) });
+      const body = { user_ids: ids };
+      // datetime-local 会省略为 00 的秒；这种浏览器规范化不是老师修改截止。
+      const normalizeDue = (value) => value.replace(/(T\d{2}:\d{2}):00$/, '$1');
+      if (normalizeDue(due) !== normalizeDue(initialDue)) {
+        if (due && !Number.isFinite(new Date(due).getTime())) { toast('请选择有效的截止时间', 'err'); return false; }
+        body.due_at = due ? new Date(due).toISOString() : '';
+      }
+      await api(`/api/admin/bank/papers/${pid}/assign`, { method: 'POST', body });
       toast(`已下发给 ${ids.length} 名学生，他们的「我的任务」里可见`, 'ok'); render();
     },
   });
@@ -592,7 +615,7 @@ async function viewPaper() {
         <td class="bk-ops">
           <button class="link-btn" data-prev="${p.id}">预览</button>
           ${p.status === 'published'
-            ? `<button class="link-btn" data-unpub="${p.id}">撤回</button>`
+            ? `<button class="link-btn" data-pub="${p.id}">追加下发 / 截止</button><button class="link-btn" data-unpub="${p.id}">撤回</button>`
             : `<button class="link-btn" data-pub="${p.id}">下发</button>`}
           <button class="link-btn" data-edit="${p.id}">编辑</button>
           <button class="link-btn danger" data-del="${p.id}">删除</button>
@@ -796,6 +819,7 @@ async function viewPaper() {
         ppAssignDialog(pid, (papers.find((x) => x.id === pid) || {}).title || '');
       });
       document.querySelectorAll('[data-unpub]').forEach((b) => b.onclick = async () => {
+        if (!(await elConfirm({ title: '撤回试卷', message: '撤回会清空本卷下发名单，已有作答记录保留。若只想追加学生或修改截止，请使用「追加下发 / 截止」。确定撤回？', okText: '确认撤回', danger: true }))) return;
         await api(`/api/admin/bank/papers/${b.dataset.unpub}/publish`, { method: 'POST', body: { publish: 0 } });
         toast('已撤回', 'ok'); render();
       });
@@ -832,12 +856,9 @@ function bkPaperPreview(p) {
           ${[p.subject, bkStageName(p.stage), p.grade, p.term].filter(Boolean).join(' · ')} ｜ 共 ${p.questions.length} 题 ｜ 满分 ${p.total_score} 分 ｜ 建议 ${p.duration} 分钟</p>
         ${groups.filter(([, , arr]) => arr.length).map(([k, t, arr], gi) => `
           <div style="font-weight:700;margin:12px 0 6px">${['一', '二', '三', '四', '五'][gi] || gi + 1}、${esc(t)}</div>
-          ${arr.map((q, qi) => `<div style="margin:10px 0;line-height:1.8">
-            ${q.material ? `<div style="background:#f6f9ff;border:1px solid #e3ecff;border-radius:8px;padding:8px 12px;margin-bottom:6px;white-space:pre-wrap;font-size:12.5px;color:#445">${esc(q.material)}</div>` : ''}
-            <b>${qi + 1}.</b> ${esc(q.stem)}
-            ${(q.options || []).length && q.type !== 'sort' ? `<div style="padding-left:22px;color:#333">${q.options.map((o, i) => `<div>${BK_LETTERS[i]}. ${esc(optText(o))}</div>`).join('')}</div>` : ''}
+          ${arr.map((q, qi) => `<div class="r6-paper-question" style="margin:10px 0;line-height:1.8">
+            ${bkQRich(q, qi, { showAnswers: showAns })}
             ${q.type === 'fill' || q.type === 'sort' || q.type === 'answer' ? '<div style="height:44px;border-bottom:1px dashed #ccc"></div>' : ''}
-            ${showAns ? `<div style="padding-left:22px;font-size:12.5px"><b style="color:#12b76a">答案：</b>${esc(bkAnswerText(q))}${q.analysis ? ` <b style="color:#2f6bff">解析：</b>${esc(q.analysis)}` : ''}</div>` : ''}
           </div>`).join('')}`).join('')}
       </div>`;
   };
@@ -852,14 +873,14 @@ function bkPaperPreview(p) {
       <div id="ppPrevBody">${paint(false)}</div>`,
     onMount: (w) => {
       let show = false;
-      if (window.mtxTypeset) mtxTypeset(w.querySelector('#ppPrevBody'));
+      bkBindRich(w.querySelector('#ppPrevBody'));
       w.querySelector('#ppAnsToggle').onclick = (e) => {
         show = !show;
         e.target.textContent = show ? '隐藏答案解析' : '显示答案解析';
         w.querySelector('#ppPrevBody').innerHTML = paint(show);
-        if (window.mtxTypeset) mtxTypeset(w.querySelector('#ppPrevBody'));
+        bkBindRich(w.querySelector('#ppPrevBody'));
       };
-      w.querySelector('#ppPrint').onclick = () => bkPrintWindow(p.title, paint(true));
+      w.querySelector('#ppPrint').onclick = () => bkPrintWindow(p.title, paint(show));
       w.querySelector('#ppDocx').onclick = async (e) => {
         const btn = e.currentTarget, mode = w.querySelector('#ppDocxMode').value;
         btn.disabled = true;
@@ -904,7 +925,7 @@ function bkPaperEdit(p) {
     onMount: (w) => {
       const paint = () => {
         w.querySelector('#peList').innerHTML = picked.map((q, i) => `
-          <div class="pp-q"><div class="pp-q-main"><b>${i + 1}.</b> [${BK_QTNAME[q.type]}] ${esc(bkTrunc(q.stem, 60))}${q.type === 'multi' ? ` <label>少选分 <input type="number" min="0" step="0.01" placeholder="未设置" style="width:80px" data-partial="${q.id}" value="${partial[q.id] == null ? '' : Number(partial[q.id])}"></label>` : ''}</div>
+          <div class="pp-q"><div class="pp-q-main">${bkQRich(q, i)}${q.type === 'multi' ? ` <label>少选分 <input type="number" min="0" step="0.01" placeholder="未设置" style="width:80px" data-partial="${q.id}" value="${partial[q.id] == null ? '' : Number(partial[q.id])}"></label>` : ''}</div>
           <button class="link-btn danger" data-rm="${q.id}">×</button></div>`).join('') || '<div class="empty">卷面已空</div>';
         w.querySelectorAll('[data-partial]').forEach((inp) => { inp.onchange = () => { if (inp.value === '') delete partial[inp.dataset.partial]; else partial[inp.dataset.partial] = Number(inp.value); }; });
         w.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => {
@@ -912,6 +933,7 @@ function bkPaperEdit(p) {
           if (at >= 0) picked.splice(at, 1);
           paint();
         });
+        bkBindRich(w.querySelector('#peList'));
       };
       paint();
     },
@@ -1019,20 +1041,37 @@ async function viewLessonQ() {
   };
 }
 
+function bkBindRich(root) {
+  if (window.mtxTypeset) mtxTypeset(root);
+  root.querySelectorAll('[data-zoom]').forEach((im) => {
+    im.onclick = () => { if (typeof mfImgView === 'function') mfImgView(im.dataset.zoom); else window.open(im.dataset.zoom); };
+  });
+}
+
 /** R8：题目列表里的题干（[图N] 换成缩略图）、选项、答案、解析；渲染后由 mtxTypeset 排公式 */
-function bkQRich(q, i) {
+function bkQRich(q, i, options = {}) {
+  const showAnswers = options.showAnswers !== false;
   const imgs = Array.isArray(q.images) ? q.images : [];
   const used = new Set();
   const img = (src, alt) => `<img class="r8-vq-img" src="${esc(src)}" alt="${esc(alt)}" loading="lazy" data-zoom="${esc(src)}">`;
-  const stem = esc(String(q.stem || '')).replace(/\[图(\d+)\]/g, (m, n) => { const s = imgs[Number(n) - 1]; if (!s) return m; used.add(Number(n) - 1); return img(s, '图' + n); }).replace(/\n/g, '<br>');
-  const rest = imgs.filter((_, k) => !used.has(k)).map((s) => img(s, '题图')).join('');
+  const rich = (text) => esc(String(text || '')).replace(/\[图(\d+)\]/g, (m, n) => {
+    const src = imgs[Number(n) - 1]; if (!src) return m;
+    used.add(Number(n) - 1); return img(src, '图' + n);
+  }).replace(/\n/g, '<br>');
+  const stem = rich(q.stem), material = rich(q.material);
+  const prompts = (q.match_prompts || []).map((text, n) => `<div>${n + 1}. ${rich(text)}</div>`).join('');
   const opts = (q.type === 'single' || q.type === 'multi' || q.type === 'sort') && Array.isArray(q.options) && q.options.length
-    ? `<div class="r8-vq-opts">${q.options.map((o, k) => `<span><b>${BK_LETTERS[k]}.</b> ${esc(optText(o))}</span>`).join('')}</div>` : '';
+    ? `<div class="r8-vq-opts">${q.options.map((o, k) => `<span><b>${BK_LETTERS[k]}.</b> ${rich(optText(o))}</span>`).join('')}</div>` : '';
+  const answer = showAnswers ? rich(bkAnswerText(q)) : '', analysis = showAnswers ? rich(q.analysis) : '';
+  // 无答案预览不得把答案/解析专用图当作未引用题图重新显示。
+  const solutionRefs = new Set([...String(q.answer || '').matchAll(/\[图(\d+)\]/g), ...String(q.analysis || '').matchAll(/\[图(\d+)\]/g)].map((m) => Number(m[1]) - 1));
+  const rest = imgs.filter((src, k) => src && !used.has(k) && (showAnswers || !solutionRefs.has(k))).map((src) => img(src, '题图')).join('');
   return `<div class="r8-vq-q">
     <div class="r8-vq-top"><span class="r8-vq-no">${i + 1}</span><span class="tag">${BK_QTNAME[q.type] || '题目'}</span>${q.point ? `<span class="tag gray">${esc(q.point)}</span>` : ''}<span class="r8-vq-id">#${String(q.id).padStart(5, '0')}</span></div>
-    <div class="r8-vq-stem">${stem}</div>${rest ? `<div class="r8-vq-imgs">${rest}</div>` : ''}${opts}
-    <div class="r8-vq-ans"><span>答案</span>${esc(bkAnswerText(q))}</div>
-    ${q.analysis ? `<div class="r8-vq-ana"><span>解析</span>${esc(q.analysis)}</div>` : ''}
+    ${material ? `<div class="r8-vq-material"><b>原文材料</b><div>${material}</div></div>` : ''}
+    <div class="r8-vq-stem">${stem}</div>${prompts ? `<div class="r8-vq-prompts">${prompts}</div>` : ''}${opts}${rest ? `<div class="r8-vq-imgs">${rest}</div>` : ''}
+    ${showAnswers ? `<div class="r8-vq-ans"><span>答案</span>${answer}</div>` : ''}
+    ${analysis ? `<div class="r8-vq-ana"><span>解析</span>${analysis}</div>` : ''}
   </div>`;
 }
 
@@ -1398,10 +1437,22 @@ function bkPrintMistakes(list) {
 function bkPrintWindow(title, innerHtml) {
   const w = window.open('', '_blank');
   if (!w) { toast('浏览器拦截了新窗口，请允许弹窗后重试', 'err'); return; }
+  const hasMath = /\\\(|\\\[|\$/.test(innerHtml);
+  const mathSrc = new URL('../vendor/mathjax-tex-svg.js', document.baseURI).href;
+  const mathHelperSrc = new URL('../js/mathlib.js', document.baseURI).href;
   w.document.write(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>${esc(title)}</title>
-  <style>@page{size:A4;margin:18mm}body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;color:#111;font-size:13.5px;line-height:1.9;max-width:800px;margin:0 auto;padding:24px}</style>
-  </head><body>${innerHtml}
-  <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`);
+  <style>@page{size:A4;margin:18mm}body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;color:#111;font-size:13.5px;line-height:1.9;max-width:800px;margin:0 auto;padding:24px}
+  .r8-vq-img{display:inline-block;max-width:100%;max-height:360px;object-fit:contain;vertical-align:middle}.r8-vq-top{display:flex;gap:8px}.r8-vq-id{margin-left:auto;color:#777}.r8-vq-material{padding:8px;border:1px solid #ddd;margin:6px 0}.r8-vq-opts>span{display:block}.r8-vq-ans,.r8-vq-ana{margin-top:6px}.r8-vq-ans>span,.r8-vq-ana>span{font-weight:bold;margin-right:8px}.r6-paper-question{break-inside:avoid}@media print{.r6-print-controls{display:none}}</style>
+  ${hasMath ? `<script>window.MathJax={tex:{inlineMath:[['\\\\(','\\\\)'],['$','$']],displayMath:[['\\\\[','\\\\]'],['$$','$$']]},svg:{fontCache:'local'},startup:{typeset:false}};<\/script><script defer src="${esc(mathSrc)}"><\/script><script defer src="${esc(mathHelperSrc)}"><\/script>` : ''}
+  </head><body><div class="r6-print-controls"><p id="r6PrintNotice">正在准备公式和图片…</p><button type="button" onclick="window.print()">打印</button></div>${innerHtml.replace(/\sloading="lazy"/g, ' loading="eager"')}
+  <script>window.onload=async function(){
+    var notice=document.getElementById('r6PrintNotice');
+    try {
+      if(${hasMath}){if(!window.MathJax||!MathJax.startup||!MathJax.startup.promise||!window.mtxPrepareFormulaBreaks)throw new Error('公式加载失败');await MathJax.startup.promise;window.mtxPrepareFormulaBreaks(document.body);await MathJax.typesetPromise([document.body]);}
+      await Promise.all(Array.from(document.images).map(function(im){if(im.decode)return im.decode();if(!im.complete||!im.naturalWidth)throw new Error('图片加载失败');}));
+      notice.textContent='已准备好，可打印。';window.print();
+    } catch(e){notice.textContent='公式或图片尚未完整加载，请关闭此窗口后重试，或确认内容后手动打印。';}
+  };<\/script></body></html>`);
   w.document.close();
 }
 

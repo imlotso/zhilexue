@@ -28,8 +28,17 @@ jobs:
       - run: node bank-test.js
       - run: node ci-isolation-test.js
       - run: npm run test:takeover # 目录/正确率/权限/下发事务、响应式组件契约及 Word 排序；不依赖服务或浏览器
+      - name: Check word component geometry
+        run: node astra-takeover-word-responsive-test.js --browser
+        env:
+          WORD_UI_EVIDENCE_DIR: word-component-evidence
+        if: ${{ !cancelled() }}
+      - name: Check admin component geometry
+        run: node astra-takeover-admin-responsive-test.js --browser
+        if: ${{ !cancelled() }}
       - run: node wordq-test.js    # Word 规则解析（T3，客户样例文档在 docs/原始需求，不需要数据库）
       - run: node excel-test.js    # Excel 模板解析（T3，同上）
+      - run: node --test astra-word-import-integrity-test.js astra-excel-import-integrity-test.js # 合成文件的文本、题组和图号保真
       - run: node choices-ten-test.js
       - run: node matching-test.js
       - run: node multi-partial-test.js
@@ -53,6 +62,12 @@ jobs:
       - run: node match-export-test.js
       - run: node docx-solution-images-test.js
       - run: node group-basket-test.js   # 组合题篮顺序、已有分值与去重
+      - name: Upload word geometry evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: word-component-evidence
+          path: word-component-evidence
 
   api:
     runs-on: ubuntu-24.04

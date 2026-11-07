@@ -466,11 +466,24 @@ admin.put('/prefs', (req, res) => {
   return ok(res, null, '已保存');
 });
 
+function captureAccount(id, role) {
+  if (!Number.isSafeInteger(Number(id)) || Number(id) <= 0) return null;
+  const user = db.prepare('SELECT id,role,status,expire_at FROM users WHERE id=?').get(Number(id));
+  if (!user || !['admin', 'branch'].includes(user.role) || Number(user.status) !== 1 || (role && user.role !== role)) return null;
+  const d = new Date(), pad = n => String(n).padStart(2, '0');
+  const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  if (user.role === 'branch' && user.expire_at && String(user.expire_at).slice(0, 10) < today) return null;
+  return user;
+}
+
+/** 采集票据必须绑定签发账号及其角色，并随账号状态立即失效。 */
 // ==================================================================== 代理票据（iframe 没法带 Authorization，用短票据）
 const TICKETS = new Map(); // k -> { uid, exp }
 function issueTicket(uid) {
+  const account = captureAccount(uid);
+  if (!account) throw new Error('采集账号已失效，请重新登录');
   const k = crypto.randomBytes(18).toString('base64url');
-  TICKETS.set(k, { uid, exp: Date.now() + 12 * 3600 * 1000 });
+  TICKETS.set(k, { uid: account.id, account_role: account.role, exp: Date.now() + 12 * 3600 * 1000 });
   // 顺手清过期
   for (const [key, v] of TICKETS) if (v.exp < Date.now()) TICKETS.delete(key);
   return k;
@@ -478,18 +491,24 @@ function issueTicket(uid) {
 admin.post('/proxy-ticket', (req, res) => {
   if (!proxyEnabled()) return res.status(403).json({ code: 403, msg: '辅助代理默认关闭，请使用浏览器书签采集。' });
   const uid = req.user ? req.user.id : 0;
-  return ok(res, { k: issueTicket(uid), capture: issueCaptureToken() });
+  if (!captureAccount(uid, req.user && req.user.role)) return fail(res, '采集账号已失效，请重新登录', 401);
+  return ok(res, { k: issueTicket(uid), capture: issueCaptureToken(uid) });
 });
 
-function issueCaptureToken() {
+function issueCaptureToken(uid) {
+  const account = captureAccount(uid);
+  if (!account) throw new Error('采集账号已失效，请重新登录');
   const secret = require('fs').readFileSync(require('path').join(DATA_DIR, '.secret'), 'utf8').trim();
-  return jwt.sign({ role: 'mfcapture' }, secret, { expiresIn: '7d' });
+  return jwt.sign({ id: account.id, account_role: account.role, role: 'mfcapture' }, secret, { expiresIn: '7d' });
 }
 
 function checkTicket(req) {
   const k = String(req.query.k || req.headers['x-mf-ticket'] || '');
   const t = TICKETS.get(k);
-  if (!t || t.exp < Date.now()) return null;
+  if (!t || t.exp <= Date.now() || !t.account_role || !captureAccount(t.uid, t.account_role)) {
+    TICKETS.delete(k);
+    return null;
+  }
   return t;
 }
 
@@ -751,7 +770,7 @@ function handleProxy(req, res) {
       body = /json/i.test(ct) ? JSON.stringify(req.body) : new URLSearchParams(req.body).toString();
     }
   }
-  const captureToken = t.capture || issueCaptureToken();
+  const captureToken = issueCaptureToken(uid);
   fetchPageAuto(target, { method: req.method === 'POST' ? 'POST' : 'GET', headers, body, uid })
     .then((r) => {
       const ct = String(r.headers['content-type'] || 'application/octet-stream');
@@ -796,13 +815,17 @@ proxy.use((req, res) => fail(res, '未知代理路径', 404));
 cap.use((req, res, next) => {
   const h = req.headers.authorization || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : String(req.query.token || '');
-  if (!token) return fail(res, '缺少采集票据', 401);
+  if (!token) return fail(res.status(401), '缺少采集票据', 401);
   try {
     const secret = require('fs').readFileSync(require('path').join(DATA_DIR, '.secret'), 'utf8').trim();
     const u = jwt.verify(token, secret);
-    if (!u || u.role !== 'mfcapture') return fail(res, '采集票据无效', 401);
+    if (!u || u.role !== 'mfcapture') return fail(res.status(401), '采集票据无效', 401);
+    if (!u.id || !u.account_role) return fail(res.status(401), '旧采集票据已失效，请返回后台重新生成', 401);
+    const account = captureAccount(u.id, u.account_role);
+    if (!account) return fail(res.status(401), '采集账号已失效，请返回后台重新生成票据', 401);
+    req.user = { ...u, id: account.id };
     next();
-  } catch (e) { return fail(res, '采集票据无效或已过期', 401); }
+  } catch (e) { return fail(res.status(401), '采集票据无效或已过期', 401); }
 });
 
 /** 注入脚本采集知识树后回传（幂等导入，与管理端 /collect-tree 同一核心实现） */

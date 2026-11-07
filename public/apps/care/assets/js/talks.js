@@ -101,7 +101,7 @@
   function view(id) {
     var t = store.talks.get(id);
     if (!t) return;
-    ui.modal({
+    var detail = ui.modal({
       title: '谈话记录详情',
       wide: true,
       bodyHTML:
@@ -113,12 +113,16 @@
         '<div class="detail-row"><div class="detail-k">谈话内容</div><div class="detail-v" style="white-space:pre-wrap">' + esc(t.content || '—') + '</div></div>' +
         (t.audioUrl
           ? '<div class="detail-row"><div class="detail-k">谈话录音</div><div class="detail-v">' +
-            '<audio controls style="width:100%" src="' + esc(t.audioUrl) + '"></audio></div></div>'
+            '<button class="btn" id="detailAudio" type="button">安全收听录音</button></div></div>'
           : '') +
         '<div class="detail-row"><div class="detail-k">跟进日期</div><div class="detail-v">' +
         esc(t.followDate ? ui.fmtCN(t.followDate) : '未设置') + (t.followDate ? ' ' + followChip(t) : '') + '</div></div>' +
         '<div class="detail-row"><div class="detail-k">跟进事项</div><div class="detail-v">' + esc(t.followNote || '—') + '</div></div>',
       buttons: [{ text: '关闭', cls: 'btn btn-primary' }]
+    });
+    var audioButton = $('#detailAudio', detail.el);
+    if (audioButton) audioButton.addEventListener('click', function () {
+      ui.playAudio(t.audioUrl, '谈话录音 · ' + (t.studentName || ''));
     });
   }
 
