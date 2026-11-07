@@ -674,3 +674,12 @@
 - 新增真实本地 HTTP + Chromium 的合成主观提交和错答交卷 × 返回测试；两条路径在基线即通过，本轮补完成证据而未臆改提交逻辑。
 - CI 的 local/mock 设置提升到全局，覆盖直接导入存储/AI模块的测试进程；新增隔离断言。旧 CI api 的具体日志返回403未取得，不冒充确认全部失败原因。
 - 本轮73个CI脚本全部退出0，新增真实浏览器3/3、原浏览器验收18/18；独立只读审查无Important问题。逐源码根因、处理、测试和未验边界见 `astra-followup-20261106.md` 与 `test-results-astra-followup-20261106.json`。下一轮独立Astra仍由父会话在隔离电脑执行。
+
+## T14 修复采集树来源 ID 别名与通用导入冲突检查（2026-11-07）
+
+- 修复 CI smoke B7：采集树重复导入时，同路径节点的外站 `site_node_id` 不同，被通用树导入的非空 `code` 冲突检查错误拦截。
+- 只在采集器内部显式启用 `preserveSourceCode`。同路径保留已有非空 code 和首次来源映射，空 code 可补填；新路径新增。通用 JSON / CLI 和默认 `importDoc` 仍严格拒绝 code / note 冲突，不根据可伪造的 source 标签放宽检查。未改表结构、现有来源映射主键或生产配置。
+- 新增 5 项内存库回归：B7 跨批次来源别名、批内同路径别名、JSON source 标签不能绕过冲突、note 仍冲突、来源映射写入失败时原子回滚；覆盖预览只读、正式结果一致、节点 ID / 层级 / 顺序 / 题目关联及幂等。smoke B7 增加 HTTP 预览和重复采集断言。
+- 先在未修复代码上看到 2 项回归按 CI 相同原因失败；修复后 `node --test astra-takeover-treeio-test.js` 27/27 通过，独立复核未发现阻断问题。
+- 本轮 Node 24 离线检查累计 150 项通过，变更 JavaScript 语法、`node ci-isolation-test.js` 和 `git diff --check` 通过。`npm run test:takeover` 退出 1，因缺失 `docx` 在排序导入测试停止，其余无此依赖的组已分别运行通过。
+- 验证边界：使用 `node:sqlite` 内存库，未运行真实 MySQL / 完整 HTTP smoke / 浏览器 / 完整 CI。当前本地依赖及隔离测试服务不全，不使用真实数据库替代。待手动推送后检查该新提交的 CI；本轮不推送、合并或部署。

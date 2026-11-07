@@ -578,7 +578,13 @@ const fileForm = (fields, fileName, content) => {
       { site_node_id: 'r0b-3', name: 'R0点' + uniq, parent_site_node_id: 'r0b-2', sort: 0 },
       { site_node_id: 'r0b-4', name: 'R0新点' + uniq, parent_site_node_id: 'r0b-2', sort: 1 },
     ];
-    const imp2 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0-other', root_name: '另一个根' + uniq, stage: 'senior', subject: '生物', kind: 'knowledge', edition_selected: true, nodes: nodesB } });
+    const repeatBody = { site: 'zujuan', root_id: 'r0-other', root_name: '另一个根' + uniq, stage: 'senior', subject: '生物', kind: 'knowledge', edition_selected: true, nodes: nodesB };
+    const preview2 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { ...repeatBody, dry: true } });
+    const previewNodesResponse = await req(MF + `/trees/${imp1.data.tree_id}/nodes`, { token: AT });
+    const afterPreview = (previewNodesResponse.data || {}).list || [];
+    log(preview2.code === 0 && previewNodesResponse.code === 0 && preview2.data.created === 1 && preview2.data.merged === 3 && !afterPreview.some((n) => n.name === 'R0新点' + uniq),
+      'B7 不同来源 ID 的同路径预览只统计，不提前新增节点', preview2.msg);
+    const imp2 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: repeatBody });
     log(imp2.code === 0 && imp2.data.tree_id === imp1.data.tree_id && imp2.data.created === 1, 'B7 同学段学科再导入（站点节点 id 不同、名字相同）：并入同一棵树，同父同名不重复建，只新增 1 个', imp2.msg);
     const trees1 = ((await req(MF + '/trees', { token: AT })).data || {}).list || [];
     log(trees1.filter((t) => t.kind === 'knowledge' && t.stage === 'senior' && t.subject === '生物' && !t.edition).length === 1 && trees1.filter((t) => !t.stage || !t.subject).length === orphan0,
@@ -586,6 +592,10 @@ const fileForm = (fields, fileName, content) => {
     const impNodes = ((await req(MF + `/trees/${imp1.data.tree_id}/nodes`, { token: AT })).data || {}).list || [];
     const rootN = impNodes.find((n) => n.name === 'R0根章' + uniq), midN = impNodes.find((n) => n.name === 'R0节' + uniq), leafN = impNodes.find((n) => n.name === 'R0点' + uniq);
     log(rootN && midN && leafN && !rootN.parent_id && midN.parent_id === rootN.id && leafN.parent_id === midN.id, 'B7 导入后层级正确（根 → 节 → 点）');
+    const imp3 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: repeatBody });
+    const repeatedNodes = ((await req(MF + `/trees/${imp1.data.tree_id}/nodes`, { token: AT })).data || {}).list || [];
+    log(imp3.code === 0 && imp3.data.created === 0 && JSON.stringify(repeatedNodes) === JSON.stringify(impNodes),
+      'B7 重复采集新增 0，已有节点 ID、顺序和层级保持不变', imp3.msg);
 
     // —— B10：节点题数 = 自身 + 所有子孙节点上的题目去重数 ——
     const mkQ = async (stem, nodes, extra = {}) => (await req(MF + '/questions', { method: 'POST', token: AT, body: Object.assign({ type: 'single', stem: stem + uniq, options: ['甲', '乙'], answer: 'A', subject: '生物', stage: 'senior', nodes }, extra) })).data.id;

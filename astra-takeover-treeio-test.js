@@ -274,3 +274,107 @@ test('CLI previews preserve alias state across file snapshots and discard failed
   assert.equal(actual.exitCode, 1); assert.match(actual.text, /共新增 2 个节点/);
   assert.deepEqual(counts(db), [1, 2]);
 });
+
+// Run the real collection core without loading its routers, live DB, credentials or network clients.
+function collectionCore(db) {
+  db.sqlite.exec(`CREATE TABLE mf_dict_entries (kind TEXT, site TEXT, code TEXT, label TEXT, active INTEGER);
+    CREATE TABLE mf_tree_source_map (node_id INTEGER PRIMARY KEY, site TEXT, site_node_id TEXT, site_node_name TEXT);`);
+  const source = fs.readFileSync(path.join(__dirname, 'src/mfcollect.js'), 'utf8');
+  const start = source.indexOf('function normStage(raw) {');
+  const end = source.indexOf('// admin /collect-tree', start);
+  assert.ok(start >= 0 && end > start, 'Collection core must be available for isolated execution');
+  return vm.runInNewContext(source.slice(start, end) + '\nimportTreeCore;', {
+    db, require(name) { if (name === './treeio') return io; throw new Error('Unexpected collection dependency: ' + name); },
+  }, { filename: 'src/mfcollect.js' });
+}
+const capture = (nodes, extra = {}) => ({ site: 'synthetic', root_id: 'first', root_name: '合成采集树',
+  kind: 'knowledge', stage: 'senior', subject: '生物', edition_selected: true, nodes, ...extra });
+const sourceRows = (db) => JSON.stringify(db.sqlite.prepare('SELECT * FROM mf_tree_source_map ORDER BY node_id').all());
+
+test('B7 collection merges changed source IDs by path without changing existing metadata or question links', (t) => {
+  const db = memoryDb(t), collect = collectionCore(db);
+  const first = collect(capture([
+    { site_node_id: 'a1', name: '合成根', parent_site_node_id: null, sort: 0 },
+    { site_node_id: 'a2', name: '合成节', parent_site_node_id: 'a1', sort: 0 },
+    { site_node_id: 'a3', name: '合成点', parent_site_node_id: 'a2', sort: 0 },
+  ]));
+  assert.equal(first.code, 0, first.msg); assert.equal(first.created, 3);
+  const original = db.sqlite.prepare('SELECT id,parent_id,name,sort,code FROM bank_tree_nodes ORDER BY id').all();
+  db.sqlite.prepare('INSERT INTO question_nodes VALUES (?,?)').run(81, original[2].id);
+  const second = capture([
+    { site_node_id: 'b1', name: '合成根', parent_site_node_id: null, sort: 0 },
+    { site_node_id: 'b2', name: '合成节', parent_site_node_id: 'b1', sort: 0 },
+    { site_node_id: 'b3', name: '合成点', parent_site_node_id: 'b2', sort: 0 },
+    { site_node_id: 'b4', name: '合成新点', parent_site_node_id: 'b2', sort: 1 },
+  ], { root_id: 'second' });
+  const before = snapshot(db), maps = sourceRows(db); db.writes.length = 0; db.readOnly = true;
+  const preview = collect({ ...second, dry: true });
+  assert.equal(preview.code, 0, preview.msg);
+  assert.equal(preview.created, 1); assert.equal(preview.merged, 3); assert.equal(preview.tree_id, first.tree_id);
+  assert.equal(db.writes.length, 0); assert.equal(snapshot(db), before); assert.equal(sourceRows(db), maps);
+  db.readOnly = false;
+  const actual = collect(second);
+  assert.equal(actual.code, 0, actual.msg); assert.equal(actual.created, 1); assert.equal(actual.merged, 3);
+  assert.equal(actual.tree_id, first.tree_id); assert.deepEqual(counts(db), [1, 4]);
+  assert.deepEqual(db.sqlite.prepare('SELECT id,parent_id,name,sort,code FROM bank_tree_nodes WHERE id<=? ORDER BY id').all(original[2].id), original);
+  const added = db.sqlite.prepare("SELECT parent_id,sort,code FROM bank_tree_nodes WHERE name='合成新点'").get();
+  assert.deepEqual({ ...added }, { parent_id: original[1].id, sort: 1, code: 'b4' });
+  assert.equal(db.sqlite.prepare('SELECT node_id FROM question_nodes WHERE question_id=81').get().node_id, original[2].id);
+  assert.deepEqual(db.sqlite.prepare('SELECT site_node_id FROM mf_tree_source_map ORDER BY node_id').all().map(r => r.site_node_id), ['a1', 'a2', 'a3', 'b4']);
+  const repeated = collect(second);
+  assert.equal(repeated.code, 0, repeated.msg); assert.equal(repeated.created, 0); assert.equal(repeated.merged, 4);
+  assert.deepEqual(counts(db), [1, 4]);
+});
+
+test('collection aliases within one batch merge their children while retaining the first source code', (t) => {
+  const db = memoryDb(t), collect = collectionCore(db);
+  const input = capture([
+    { site_node_id: 'root-a', name: '合成根', parent_site_node_id: null },
+    { site_node_id: 'root-b', name: '合成根', parent_site_node_id: null },
+    { site_node_id: 'leaf-a', name: '甲', parent_site_node_id: 'root-a' },
+    { site_node_id: 'leaf-b', name: '乙', parent_site_node_id: 'root-b' },
+  ]);
+  const preview = collect({ ...input, dry: true });
+  assert.equal(preview.code, 0, preview.msg); assert.equal(preview.created, 3); assert.equal(preview.merged, 1);
+  const actual = collect(input);
+  assert.equal(actual.code, 0, actual.msg); assert.equal(actual.created, 3); assert.equal(actual.merged, 1);
+  const exported = io.exportTree(db, actual.tree_id);
+  assert.equal(exported.nodes.length, 1); assert.equal(exported.nodes[0].code, 'root-a');
+  assert.deepEqual(exported.nodes[0].children.map(n => n.name), ['甲', '乙']);
+});
+
+test('a collection-looking source label cannot bypass ordinary JSON code conflict protection', (t) => {
+  const db = memoryDb(t), source = 'collect:synthetic:root';
+  io.importAll(db, doc([{ name: '合成节点', code: 'first' }], { source }));
+  const before = snapshot(db); db.writes.length = 0;
+  const conflicting = doc([{ name: '合成节点', code: 'other' }], { source });
+  assert.throws(() => io.importAll(db, conflicting, { dry: true }), /code.*冲突/);
+  assert.throws(() => io.importAll(db, conflicting), /code.*冲突/);
+  assert.equal(db.writes.length, 0); assert.equal(snapshot(db), before);
+});
+
+test('collection code aliases never waive conflicting notes', (t) => {
+  const db = memoryDb(t);
+  const first = io.importAll(db, doc([{ name: '合成节点', code: 'first', note: '原备注' }]))[0];
+  const conflicting = io.normalizeInput(doc([{ name: '合成节点', code: 'alias', note: '不同备注' }]))[0];
+  const before = snapshot(db); db.writes.length = 0;
+  for (const dry of [true, false]) {
+    assert.throws(() => io.importDoc(db, conflicting, { dry, treeId: first.tree_id, preserveSourceCode: true }), /note.*冲突/);
+  }
+  assert.equal(db.writes.length, 0); assert.equal(snapshot(db), before);
+});
+
+test('collection alias merge rolls back new nodes and source mappings when a later write fails', (t) => {
+  const db = memoryDb(t), collect = collectionCore(db);
+  const first = collect(capture([{ site_node_id: 'first', name: '合成根' }]));
+  assert.equal(first.code, 0, first.msg);
+  const before = snapshot(db), maps = sourceRows(db);
+  db.sqlite.exec("CREATE TRIGGER fail_capture BEFORE INSERT ON mf_tree_source_map WHEN NEW.site_node_id='fail-map' BEGIN SELECT RAISE(ABORT, 'synthetic mapping failure'); END;");
+  const result = collect(capture([
+    { site_node_id: 'alias', name: '合成根' },
+    { site_node_id: 'new-map', name: '先新增', parent_site_node_id: 'alias' },
+    { site_node_id: 'fail-map', name: '后失败', parent_site_node_id: 'alias' },
+  ]));
+  assert.equal(result.code, 1); assert.match(result.msg, /synthetic mapping failure/);
+  assert.equal(snapshot(db), before); assert.equal(sourceRows(db), maps);
+});

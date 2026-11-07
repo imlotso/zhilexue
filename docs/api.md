@@ -161,7 +161,7 @@ AI 老师浮层 · 流式讲解（R8，`bank.js` + `ai-client.js`）：
   - `POST /profiles/models` `{format, base_url, api_key}`：按格式走各自的模型列表接口。
   - `POST /profiles/test-draft` `{role, format, base_url, model, api_key, id?}`：测试一份**还没保存**的配置（新增表单里的"测试连接"），不落库；编辑已有档案时 `api_key` 留空 = 用库里的密钥。错误地址 / 密钥 / 模型会给出明确原因。
   - `POST /profiles/:id/test`：测已保存档案并记录 `last_test_ok`；`/enable` 要求测通，同角色排他。
-- 其他：`POST /ai-suggest`；`POST /collect-tree` 与 `POST /api/mfcap/tree-push` 共用导入逻辑，须指定 `stage`、`subject`、`kind` 和 `edition`；知识点通用树通过 `edition_selected=true` 显式选择。可用 `tree_id` 指定相同学科、学段、类型和版本的目标树，`dry:true` 只预览；正式导入按节点路径合并，拒绝循环、重复 ID 和缺失父节点。`GET/PUT /prefs`；`POST /proxy-ticket`；`/api/mfproxy`：`GET /inject.js`、`GET /ck`、`GET|POST /r`（辅助代理默认关闭；开启时跨域响应不带凭据）。
+- 其他：`POST /ai-suggest`；`POST /collect-tree` 与 `POST /api/mfcap/tree-push` 共用导入逻辑，须指定 `stage`、`subject`、`kind` 和 `edition`；知识点通用树通过 `edition_selected=true` 显式选择。可用 `tree_id` 指定相同学科、学段、类型和版本的目标树，`dry:true` 只预览；正式导入按节点路径合并；外站节点 ID 变化不改变同路径节点身份，保留已有非空 `code` 和首次来源映射，空 `code` 才补填，新路径仍新增。预览遵循相同规则且不写库；通用 JSON / CLI 树导入仍拒绝非空 `code` / `note` 冲突。采集拒绝循环、重复 ID 和缺失父节点。`GET/PUT /prefs`；`POST /proxy-ticket`；`/api/mfproxy`：`GET /inject.js`、`GET /ck`、`GET|POST /r`（辅助代理默认关闭；开启时跨域响应不带凭据）。
 
 ## 错题重组（`wrong.js`，前缀 `/api/admin/wrong`）
 

@@ -871,7 +871,8 @@ function importTreeCore(input) {
     const [doc] = treeio.normalizeInput({ format: 'zhilexue-tree', version: 1, kind, subject: subjectName, stage: stageCode, edition: version,
       name: String(root_name || `${version}${subjectName}·采集树`), source: `collect:${String(site || 'unknown')}:${String(root_id || '')}`, nodes: roots });
     const work = () => {
-      const result = treeio.importDoc(db, doc, { dry: dry === true, treeId: selectedId });
+      // 站点 ID 只是采集来源，不是目录节点身份；同路径仍合并并保留首次 code / 来源映射。
+      const result = treeio.importDoc(db, doc, { dry: dry === true, treeId: selectedId, preserveSourceCode: true });
       if (dry !== true && result.tree_id) {
         const insertMap = db.prepare('INSERT OR IGNORE INTO mf_tree_source_map (node_id, site, site_node_id, site_node_name) VALUES (?,?,?,?)');
         db.prepare('SELECT id, code, name FROM bank_tree_nodes WHERE tree_id=?').all(result.tree_id).forEach((n) => {

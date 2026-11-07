@@ -143,7 +143,7 @@ function treeState(db, doc, treeId, context) {
 }
 
 /** 内部合并器；写入前由调用方完成整批只读冲突检查。 */
-function mergeDoc(db, doc, { dry, treeId = 0, context }) {
+function mergeDoc(db, doc, { dry, treeId = 0, context, preserveSourceCode = false }) {
   const state = treeState(db, doc, treeId, context);
   const createdTree = !state.present;
   if (createdTree) {
@@ -171,6 +171,8 @@ function mergeDoc(db, doc, { dry, treeId = 0, context }) {
       if (row) {
         st.existing++;
         for (const field of ['code', 'note']) {
+          // 采集来源 ID 允许同路径别名，保留首次 code；文件导入和 note 仍严格检查。
+          if (field === 'code' && preserveSourceCode) continue;
           if (clean(row[field]) && clean(n[field]) && clean(row[field]) !== clean(n[field])) {
             throw new Error(`节点「${names.join(' / ')}」的 ${field} 冲突，请核对后再导入`);
           }
@@ -207,19 +209,19 @@ function mergeDocs(db, docs, options) {
   });
 }
 
-function previewDocs(db, docs, { previewContext, treeId = 0 } = {}) {
+function previewDocs(db, docs, { previewContext, treeId = 0, preserveSourceCode = false } = {}) {
   const context = copyPreview(db, previewContext);
-  const results = mergeDocs(db, docs, { dry: true, treeId, context });
+  const results = mergeDocs(db, docs, { dry: true, treeId, context, preserveSourceCode });
   // 所有文档通过后才提交虚拟状态；被跳过的坏文件不会留下半份预检结果。
   if (previewContext) { previewContext.db = db; previewContext.trees = context.trees; }
   return results;
 }
 
-/** 导入一棵已整理过的树；保留采集器的 treeId 选树及外层事务契约。 */
-function importDoc(db, doc, { dry = false, treeId = 0, previewContext } = {}) {
-  if (dry) return previewDocs(db, [doc], { treeId, previewContext })[0];
-  previewDocs(db, [doc], { treeId });
-  return mergeDoc(db, doc, { dry: false, treeId, context: copyPreview(db) });
+/** 导入一棵已整理过的树；采集器可保留首次来源 code，默认仍严格检查冲突。 */
+function importDoc(db, doc, { dry = false, treeId = 0, previewContext, preserveSourceCode = false } = {}) {
+  if (dry) return previewDocs(db, [doc], { treeId, previewContext, preserveSourceCode })[0];
+  previewDocs(db, [doc], { treeId, preserveSourceCode });
+  return mergeDoc(db, doc, { dry: false, treeId, context: copyPreview(db), preserveSourceCode });
 }
 
 /** 整个文件先检查冲突再写入；非 dry 仍处于一个事务，SQL 失败整体回滚。 */
