@@ -328,12 +328,16 @@ async function r1DownloadMistakes(stu, opts, btn) {
   btn.disabled = false; btn.innerHTML = old;
 }
 
-/** ② 课程 → 小分组 → 视频 树。closed：被折叠的节点 key；onlyWeak：只留未掌握（正确率 < 80%）的视频及其上级 */
+/** ② 课程 → 小分组 → 视频/分组习题。onlyWeak保留正确率低于80%的视频、独立分组习题及其上级。 */
 function r1TreeHTML(courses, onlyWeak, closed) {
   const caret = (key) => `aria-expanded="${closed.has(key) ? 'false' : 'true'}" data-tog="${key}"`;
   const out = [];
   courses.forEach((c) => {
-    const groups = c.groups.map((g) => ({ ...g, videos: onlyWeak ? g.videos.filter((v) => r1Weak(v.acc)) : g.videos })).filter((g) => g.videos.length);
+    const groups = c.groups.map((g) => ({
+      ...g,
+      videos: onlyWeak ? g.videos.filter((v) => r1Weak(v.acc)) : g.videos,
+      showOwn: !!g.own_acc && g.own_acc.total > 0 && (!onlyWeak || r1Weak(g.own_acc)),
+    })).filter((g) => g.videos.length || g.showOwn);
     if (!groups.length) return;
     const ck = 'c' + c.id;
     out.push(`<div class="r1-course">
@@ -342,7 +346,7 @@ function r1TreeHTML(courses, onlyWeak, closed) {
     const gk = `g${c.id}-${g.id}`;
     return `<div class="r1-group">
         <button type="button" class="r1-row r1-lv2" ${caret(gk)}><i class="r1-caret"></i><span class="r1-name">${esc(g.name)}</span><span class="r1-rate">${r1RateHTML(g.acc)}</span></button>
-        <div class="r1-kids" ${closed.has(gk) ? 'hidden' : ''}>${g.videos.map((v) => `<div class="r1-row r1-lv3" data-vid="${v.id}"><span class="r1-name">${ic('video')}${esc(v.title)}</span><span class="r1-rate">${r1RateHTML(v.acc)}</span></div>`).join('')}</div>
+        <div class="r1-kids" ${closed.has(gk) ? 'hidden' : ''}>${g.videos.map((v) => `<div class="r1-row r1-lv3" data-vid="${v.id}"><span class="r1-name">${ic('video')}${esc(v.title)}</span><span class="r1-rate">${r1RateHTML(v.acc)}</span></div>`).join('')}${g.showOwn ? `<div class="r1-row r1-lv3 r1-own"><span class="r1-name">${ic('doc')}分组习题</span><span class="r1-rate">${r1RateHTML(g.own_acc)}</span></div>` : ''}</div>
       </div>`;
   }).join('')}</div>
     </div>`);
@@ -480,7 +484,7 @@ async function r1OpenDrawer(uid) {
   const draw = () => {
     const only = body.querySelector('#r1Weak').checked;
     const html = r1TreeHTML(acc.courses || [], only, closed);
-    tree.innerHTML = html || `<div class="empty">${only ? `没有正确率低于 ${R1_WEAK}% 的视频，继续保持` : '还没有给任何视频绑定习题（课文习题里绑定后这里才有数据）'}</div>`;
+    tree.innerHTML = html || `<div class="empty">${only ? `没有正确率低于 ${R1_WEAK}% 的视频或分组习题，继续保持` : '还没有给视频或小分组绑定习题（课文习题里绑定后这里才有数据）'}</div>`;
   };
   tree.onclick = (e) => {
     const t = e.target.closest('[data-tog]'); if (!t) return;

@@ -537,7 +537,9 @@ const paperHasAssignees = (pid) => !!db.prepare('SELECT 1 FROM paper_assignments
 // ---------- 试卷定向下发：老师单选 / 多选学生，学生端「我的任务」展示 ----------
 admin.get('/papers/:id/assignees', (req, res) => {
   const pid = Number(req.params.id);
-  const rows = db.prepare(`SELECT a.user_id, u.name, u.grade FROM paper_assignments a JOIN users u ON u.id=a.user_id WHERE a.paper_id=?`).all(pid);
+  const scope = req.user.role === 'branch' ? ' AND u.created_by=?' : '';
+  const rows = db.prepare(`SELECT a.user_id, u.name, u.grade FROM paper_assignments a JOIN users u ON u.id=a.user_id WHERE a.paper_id=?${scope}`)
+    .all(pid, ...(req.user.role === 'branch' ? [req.user.id] : []));
   ok(res, rows);
 });
 
@@ -557,9 +559,9 @@ admin.post('/papers/:id/assign', (req, res) => {
   let added = 0;
   const tx = db.transaction(() => {
     ids.forEach((uid) => { const r = ins.run(pid, uid, req.user.id, now()); if (r.changes) added++; });
+    db.prepare('UPDATE papers SET status=?, due_at=?, published_at=CASE WHEN published_at IS NULL THEN ? ELSE published_at END WHERE id=?').run('published', due, now(), pid);
   });
   tx();
-  db.prepare('UPDATE papers SET status=?, due_at=?, published_at=CASE WHEN published_at IS NULL THEN ? ELSE published_at END WHERE id=?').run('published', due, now(), pid);
   ok(res, { added, total: ids.length }, `已下发给 ${ids.length} 名学生（新增 ${added}）`);
 });
 
@@ -698,21 +700,35 @@ admin.get('/accuracy', (req, res) => {
     ORDER BY v.chapter_id, v.sort, v.id`).all();
   const stats = accuracy.videoStats(db, uid, videos.map((v) => v.id));
   const chapters = new Map(db.prepare('SELECT id, name, subject, grade, term FROM chapters').all().map((c) => [c.id, c]));
-  const secName = new Map(db.prepare('SELECT id, name, sort FROM sections').all().map((x) => [x.id, x]));
+  const sections = db.prepare('SELECT id, chapter_id, name, sort FROM sections').all();
+  const secName = new Map(sections.map((x) => [x.id, x]));
+  const ownStats = accuracy.sectionOwnStats(db, uid, sections.map((x) => x.id));
   const byCh = new Map();
   videos.forEach((v) => {
     const c = chapters.get(v.chapter_id); if (!c) return;
     if (!byCh.has(c.id)) byCh.set(c.id, { chapter: c, groups: new Map() });
     const g = byCh.get(c.id).groups;
-    const sid = secName.has(Number(v.sid)) ? Number(v.sid) : 0;
+    const sec = secName.get(Number(v.sid));
+    const sid = sec && Number(sec.chapter_id) === Number(c.id) ? Number(sec.id) : 0;
     if (!g.has(sid)) g.set(sid, []);
     g.get(sid).push({ id: v.id, title: v.title, acc: accuracy.ofVideo(stats, v.id) });
   });
+  // 小分组可直接挂题，不要求有视频；与学生端合并同一组的独立题统计。
+  sections.forEach((s) => {
+    if (!accuracy.ofVideo(ownStats, s.id).total) return;
+    const c = chapters.get(Number(s.chapter_id)); if (!c) return;
+    if (!byCh.has(c.id)) byCh.set(c.id, { chapter: c, groups: new Map() });
+    const g = byCh.get(c.id).groups;
+    if (!g.has(s.id)) g.set(s.id, []);
+  });
   const courses = [...byCh.values()].map(({ chapter, groups }) => {
-    const gl = [...groups.entries()].map(([sid, vs]) => ({
-      id: sid, name: sid ? secName.get(sid).name : '未分组', sort: sid ? secName.get(sid).sort : 9999,
-      videos: vs, acc: accuracy.sum(vs.map((x) => x.acc)),
-    })).sort((a, b) => (a.sort - b.sort) || (a.id - b.id));
+    const gl = [...groups.entries()].map(([sid, vs]) => {
+      const own = accuracy.ofVideo(ownStats, sid);
+      return {
+        id: sid, name: sid ? secName.get(sid).name : '未分组', sort: sid ? secName.get(sid).sort : 9999,
+        videos: vs, own_acc: own, acc: accuracy.sum(vs.map((x) => x.acc).concat([own])),
+      };
+    }).sort((a, b) => (a.sort - b.sort) || (a.id - b.id));
     return { id: chapter.id, name: chapter.name, subject: chapter.subject || '', grade: chapter.grade || '', term: chapter.term || '',
       groups: gl, acc: accuracy.sum(gl.map((x) => x.acc)) };
   });
@@ -1170,9 +1186,11 @@ const stu = express.Router();
 stu.use((req, res, next) => {
   if (!req.user || req.user.role !== 'student') return res.status(403).json({ code: 403, msg: '无权限' });
   // 账号已被删除的旧登录态：直接判失效，避免后续接口读 undefined 崩 500
-  if (!db.prepare('SELECT id FROM users WHERE id=?').get(req.user.id)) {
+  const currentUser = db.prepare('SELECT id,status FROM users WHERE id=?').get(req.user.id);
+  if (!currentUser) {
     return res.status(401).json({ code: 401, msg: '登录已失效，请重新登录' });
   }
+  if (Number(currentUser.status) !== 1) return res.status(403).json({ code: 403, msg: '账号已停用，请联系老师' });
   next();
 });
 
@@ -1242,8 +1260,9 @@ function stuSeesChapter(uid, chapterId) {
 /** R8：小分组练习的题 = 小分组自己的题 + 组内视频的题（视频顺序在前，小分组自己的题在后） */
 function sectionPracticeQs(sec) {
   return db.prepare(`SELECT q.* FROM questions q LEFT JOIN videos v ON v.id=q.video_id
-    WHERE q.section_id=? OR (q.video_id IS NOT NULL AND v.chapter_id=? AND ${accuracy.SEC_EXPR}=?)
-    ORDER BY CASE WHEN q.section_id=? THEN 1 ELSE 0 END, v.sort, v.id, q.id LIMIT 60`).all(sec.id, sec.chapter_id, sec.id, sec.id);
+    WHERE ((q.video_id IS NULL OR q.video_id=0) AND q.section_id=?)
+      OR (q.video_id IS NOT NULL AND q.video_id<>0 AND v.chapter_id=? AND ${accuracy.SEC_EXPR}=?)
+    ORDER BY CASE WHEN (q.video_id IS NULL OR q.video_id=0) AND q.section_id=? THEN 1 ELSE 0 END, v.sort, v.id, q.id LIMIT 60`).all(sec.id, sec.chapter_id, sec.id, sec.id);
 }
 /** R8：小分组练习取题（不含答案） */
 stu.get('/section-questions', (req, res) => {

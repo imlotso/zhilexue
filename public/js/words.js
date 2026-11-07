@@ -672,6 +672,7 @@ function wtStageOn() {
       wtFsSet(b.dataset.fs);
       document.body.classList.remove('wt-fs-big', 'wt-fs-mid', 'wt-fs-small');
       document.body.classList.add('wt-fs-' + b.dataset.fs);
+      wtQuickRevealCurrent();
     });
     WT_STAGE_BAR.querySelector('.wt-stage-exit').onclick = () => {
       wtStageOff();
@@ -703,8 +704,10 @@ function wtStageOn() {
     }
   }
   document.body.appendChild(WT_STAGE_BAR);
+  window.addEventListener('resize', wtQuickRevealCurrent);
 }
 function wtStageOff() {
+  window.removeEventListener('resize', wtQuickRevealCurrent);
   document.body.classList.remove('wt-stage', 'wt-fs-big', 'wt-fs-mid', 'wt-fs-small');
   if (WT_STAGE_BAR && WT_STAGE_BAR.parentNode) WT_STAGE_BAR.parentNode.removeChild(WT_STAGE_BAR);
   // 兜底：万一有重复创建的浮条残留（快速连点退出/进入时），一并清掉
@@ -2097,12 +2100,29 @@ function wtBindDone(next) {
 /* ---------------- ① 单词学习（听 + 跟读 + 抄写） ----------------
  * 系统把整词读一遍；孩子跟着读 3 遍，然后抄写英文 3 遍、抄写中文 1 遍；
  * 完成后点「写好了，下一个」。纸笔任务由孩子自己完成，不做勾选打卡，只保留一个前进按钮。 */
+/** 读词/记忆开始、换词、调整视口或字号后显示当前内容，避免分组换行或旧滚动把新词留在屏外。
+ * 只移动学习舞台滚动位置，不改变固定卡片尺寸或训练状态。 */
+function wtQuickRevealCurrent() {
+  if (!WT.quick || (WT.quick.step !== 'read' && WT.quick.step !== 'memorize')) return;
+  const box = document.getElementById('wtQuickBox');
+  if (box) wtQuickReveal(box);
+}
+function wtQuickReveal(box) {
+  if (!document.body.classList.contains('wt-stage')) return;
+  const root = box.closest('.wt-root');
+  if (!root) return;
+  const rootTop = root.getBoundingClientRect().top;
+  const toolbarBottom = WT_STAGE_BAR ? WT_STAGE_BAR.getBoundingClientRect().bottom : rootTop;
+  const inset = Math.max(16, toolbarBottom - rootTop + 12);
+  root.scrollTop = Math.max(0, root.scrollTop + box.getBoundingClientRect().top - rootTop - inset);
+}
 function wtQuickRead() {
   const q = WT.quick, r = q.read, box = document.getElementById('wtQuickBox');
   const list = q.words;
   if (r.i >= list.length) {
     box.innerHTML = wtDoneHTML(wtIc('check'), '跟读抄写完成', `共 ${list.length} 个${wtNoun()}`, 'memorize', '进入记忆学习 →');
     wtBindDone('memorize');
+    wtQuickReveal(box);
     return;
   }
   const w = list[r.i];
@@ -2110,16 +2130,17 @@ function wtQuickRead() {
     ${wtProg(r.i, list.length)}
     <div class="wt-card center t13-card">
       <div class="wt-tag">${wtIc('edit')} ${WT_STEPS[0].t.replace('单词', wtNoun())}</div>
-      <div class="wq-word big">${esc(w.word)}
+      <div class="wq-word big"><span class="t13-word-text">${esc(w.word)}</span>
         <button class="wq-spk" id="wqSpk" title="读一遍">${wtIc('volume')}</button>
       </div>
       ${w.phonetic ? `<div class="wq-phon">${esc(w.phonetic)}</div>` : ''}
       ${w.meaning ? `<div class="wq-mean">${esc(w.meaning)}</div>` : ''}
       <div class="wq-read-tip">跟读3遍，抄写3遍英语1遍汉语，写好后点击下面按钮</div>
     </div>
-    <div class="wt-acts"><button class="btn" id="wqNext">写好了，下一个 →</button></div>`;
+    <div class="wt-acts t13-read-actions"><div class="t13-read-controls"><button class="btn" id="wqNext">写好了，下一个 →</button></div></div>`;
   document.getElementById('wqSpk').onclick = () => speak(w.word);
   document.getElementById('wqNext').onclick = () => { r.i++; wtQuickRead(); };
+  wtQuickReveal(box);
   // 进入本词自动示范一遍：整词读一遍
   if (r.spoke !== w.id) {
     r.spoke = w.id;
@@ -2135,6 +2156,7 @@ function wtQuickMem() {
     const isQuick = (WT.curSub || 'quick') === 'quick';
     box.innerHTML = wtDoneHTML(wtIc('check'), '记忆学习完成', `本轮 ${list.length} 个${wtNoun()}`, 'match', isQuick ? '进入听音拼写 →' : '进入听音选词 →');
     wtBindDone('match');
+    wtQuickReveal(box);
     return;
   }
   const w = list[m.i];
@@ -2145,7 +2167,7 @@ function wtQuickMem() {
     ${wtProg(m.i, list.length)}
     <div class="wt-card center t13-card">
       <div class="wt-tag">🧠 记忆学习</div>
-      <div class="wq-word big" id="wqEn">${esc(w.word)} <button class="wq-spk" id="wqSpk">${wtIc('volume')}</button></div>
+      <div class="wq-word big" id="wqEn"><span class="t13-word-text">${esc(w.word)}</span> <button class="wq-spk" id="wqSpk">${wtIc('volume')}</button></div>
       ${w.phonetic ? `<div class="wq-phon">${esc(w.phonetic)}</div>` : ''}
       <div class="wq-mean ${m.revealed ? 'big' : 'hide'}" id="wqCn">${esc(cn)}</div>
       ${m.phase === 'ask' ? `
@@ -2164,6 +2186,8 @@ function wtQuickMem() {
         <div class="wq-feedback" id="wqFb"><span class="o">跟着读两遍：先读英文，再读中文，边读边记</span></div>
         <div class="wt-acts"><button class="btn primary-sm" id="wqNext">记住了，下一个 →</button></div>` : ''}
     </div>`;
+  // 分组列表与上一张卡片的滚动不应把当前记忆内容留在屏外；保留大卡片和训练状态。
+  wtQuickReveal(box);
   document.getElementById('wqSpk').onclick = () => speak(w.word);
   const no = document.getElementById('wqNo');
   // 不认识 / 选错 → 这个词排到队列最后，反复出现直到在「测一测」里选对为止

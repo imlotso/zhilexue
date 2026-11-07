@@ -854,7 +854,7 @@ function studentForm(s) {
       <div class="grid g2" style="gap:0 16px">
         <div class="field"><label>姓名 *</label><input class="input" id="fName" value="${esc(s ? s.name : '')}"></div>
         <div class="field"><label>登录账号 *（手机号 / 学号）</label><input class="input" id="fUser" value="${esc(s ? s.username : '')}"></div>
-        ${s ? '' : `<div class="field"><label>初始密码（默认 123456）</label><input class="input" id="fPwd" value="123456"></div>`}
+        ${s ? '' : `<div class="field"><label for="fPwd">初始密码</label><div style="display:flex;align-items:center;gap:8px"><input class="input" id="fPwd" type="password" autocomplete="new-password" style="min-width:0;flex:1" value="123456"><button type="button" class="btn ghost sm" id="fPwdToggle" aria-label="显示初始密码" aria-controls="fPwd" aria-pressed="false" style="width:auto;flex:none">显示</button></div></div>`}
         <div class="field" style="grid-column:1/-1"><label>学段 *<span style="color:var(--text3);font-weight:400">（决定「专项提升 / 中考冲刺」能看到哪些课）</span></label>
           <select class="input" id="fStage">
             ${STAGE_OPTS.map(([v, t]) => `<option value="${v}" ${(s ? s.stage || '' : '') === v ? 'selected' : ''}>${t}</option>`).join('')}
@@ -871,6 +871,13 @@ function studentForm(s) {
       </div>`,
     onMount: (w) => {
       mountElDate(w.querySelector('#fExpire'));
+      const pwdField = w.querySelector('#fPwd'), pwdToggle = w.querySelector('#fPwdToggle');
+      if (pwdField && pwdToggle) pwdToggle.onclick = () => {
+        const visible = pwdField.type === 'password';
+        pwdField.type = visible ? 'text' : 'password';
+        pwdToggle.setAttribute('aria-pressed', String(visible));
+        pwdToggle.classList.toggle('ghost', !visible);
+      };
       // 学段只有 小学/初中 两项，且跟年级联动：选年级自动带出学段（进入弹窗时也先同步一次）
       const g = w.querySelector('#fGrade'), st = w.querySelector('#fStage');
       const syncStage = () => {

@@ -63,7 +63,7 @@
 - `POST /papers/pool`：`{subject, stage, grade, difficulty, point, node_ids}` → `{total, single, multi, judge, fill, sort}`，范围内各题型有多少题（老师选好范围后看一眼）。
 - `POST /papers/auto`：条件同上 + `counts:{single:10,…}`；`node_ids` 是章节树 / 知识点树里选中的节点，**含全部后代**，且和学科/学段/年级/难度/知识点文字同时生效；选了节点但节点不存在 → 范围为 0 题（不会退化成全库）。题库不够时照样返回能抽的并在 `missing` 里列缺口。
 - `POST /papers/auto` 还可设置 `difficulty_ratios:{easy,medium,hard}`（整数百分比，总和 100）；`POST /papers/auto-by-node` 使用 `node_ids` 和 `per_node_count` 按知识点分别抽题，重叠范围跨节点去重，并返回不足的知识点；`POST /papers/replace` 在原范围内换同题型、同难度档的题。
-- `POST /papers/:id/assign`：下发给指定学生并置为已下发。**有下发名单的试卷只对名单里的学生可见**（`GET /tasks`、`GET /papers`、`GET /papers/:id`、`POST /submit kind=paper` 都按此判断）；没有名单的才按年级/学段/册别广播。`POST /papers/:id/publish {publish:0}` 撤回时清空名单。
+- `POST /papers/:id/assign`：下发给指定学生并置为已下发。接收名单写入、发布状态和截止时间更新在同一事务内完成，任一步失败全部回滚；重试仍按学生去重。**有下发名单的试卷只对名单里的学生可见**（`GET /tasks`、`GET /papers`、`GET /papers/:id`、`POST /submit kind=paper` 都按此判断）；没有名单的才按年级/学段/册别广播。`POST /papers/:id/publish {publish:0}` 撤回时清空名单。
 - `GET /papers/:id/export-docx?mode=student|answers|teacher`：按试卷题序和分值导出学生版、附答案版或教师版 Word；常见公式转为可编辑公式，暂不支持的公式保留原文。
 - 学生端 `POST /scan-count`：`{kind, subject, node_ids}` 返回所选节点及后代的去重题量；`POST /scan-compose` 增加 `count:5|10|20` 时抽取指定数量的不同题目，题量不足返回提示。旧客户端不传 `count` 时仍按最小有题节点抽题。
 | 课文习题 | `GET /chapters`；`GET /chapters/:id/lessons`；`GET /videos/:id/questions`；`POST /videos/:id/bind`；`POST /videos/:id/import-docx`；`GET /sections/:id/questions`；`POST /sections/:id/bind`；`POST /sections/:id/import-docx`；`GET/POST /videos/:id/nodes`。视频和小分组 Word 导入均先进入待审核，审核入库后自动回挂。 |
@@ -73,7 +73,8 @@
 | 扫码上传池 | `GET /uploads`；`POST /uploads/:id/review`；`POST /uploads/import-all`；`DELETE /uploads/:id` |
 
 课文习题正确率（T6）：
-- `GET /api/admin/bank/accuracy?user_id=`（后台，分校只能看自己校区的学生）：`{student, courses:[{id,name,groups:[{id,name,videos:[{id,title,acc}],acc}],acc}], acc}`；`acc = {total, answered, correct, rate}`，`rate` 为百分整数，没做过为 `null`。
+- `GET /api/admin/bank/accuracy?user_id=`（后台，分校只能看自己校区的学生）：`{student, courses:[{id,name,groups:[{id,name,videos:[{id,title,acc}],own_acc,acc}],acc}], acc}`；`acc = {total, answered, correct, rate}`，`rate` 为百分整数，没做过为 `null`。
+- 后台分组的 `own_acc` 统计直接绑定小分组、未绑定视频的客观题；`acc` 合并视频题和直接分组题。没有视频但有直接题目的分组及课程仍返回。每题按该学生最新作答计数，未作答时 `rate:null`；旧数据若同时绑定视频和分组只计入视频，避免重复统计。
 - 学生端 `GET /api/stu/course-detail`：每个 `lessons[]`、`groups[]` 和整门课都带 `acc`（同上结构）。
 - 学生端 `POST /api/stu/bank/submit` 的返回多了 `by_point:[{point,total,correct}]`（本次各知识点）和 `mastery:{video:{…,rate}, section:{…,rate}|null}`（仅 `kind=practice`：该视频和所属小分组**现在**的正确率）。
 - 试卷交卷（`kind=paper` / `kind=mfpaper`）按完整试卷题单计分：客户端未提交的题视为未作答；客观题按错题处理，主观题保留待评分。重复提交同一题只计一次。
@@ -112,6 +113,8 @@
 - 后台 `GET /api/admin/bank/videos/:id/nodes` → `{video, subject, stage, nodes:[{id,name,tree_id}], trees:[知识点树，学科 + 学段对应的排第一], tree_id}`；`POST /videos/:id/nodes {node_ids}`：**整体替换**（最多 30 个，不存在的节点 id 忽略，传空数组 = 清空），返回 `{count}`。
 - `GET /chapters/:id/lessons`：`sections[]` 多了 `question_count`（小分组自己的题数），`videos[]` 多了 `nodes:[{id,name}]`；`GET /videos/:id/questions` 多了 `nodes`；`GET /chapters` 的 `question_count` 含小分组的题。
 - 学生端 `GET /api/stu/course-detail`：`groups[]` 多了 `own_qcount`、`own_acc`（小分组自己的题）、`practice_count`（小分组练习题数 = 组内视频题 + 自己的题），`acc` 改为两者合并；`lessons[]` 多了 `nodes:[{id,name}]`；整门课的 `acc` 含小分组的题；新增 `next:{video_id,title,group_id,group_name}|null`（「继续学习」）。`GET /api/stu/courses` 每门课多了 `acc`（课程卡片底部的正确率）。
+- 学生端 `GET /api/stu/courses` 每门课返回 `question_count`：按实际绑定归属统计本课程视频题和无视频的小分组直接题，每道题只计一次，包含问答题；不等于正确率的 `acc.total`（问答题不参与自动判分）。只有有效分组题、没有视频或讲义的课程也会列出，并允许 `GET /api/stu/course-detail` 进入。
+- 学生端课程题目归属统一遵循**非零 `video_id` 优先**：题目绑定视频时，按该视频实际课程及小分组（含既有讲义分组回退）归属，不再把残留的题目 `section_id` 当作直接题；只有 `video_id IS NULL` 或 `video_id=0` 的题才按 `section_id` 归属。冗余的 `questions.chapter_id` 为 NULL、0 或陈旧值不改变有效绑定归属。非零孤立视频不回退为直接组题。该规则用于课程 `question_count`、分组 `own_qcount`/`practice_count`、分组取题及 `kind=section` 提交题目白名单；课程/分组的年级与学段可见性检查仍保留。
 - 学生端 `GET /api/stu/bank/section-questions?section_id=` → `{title, section_id, list}`（小分组练习：组内视频的题在前、小分组自己的题在后，最多 60 题，不含答案；按年级 / 学段做可见性校验）。
 - 学生端 `POST /api/stu/bank/submit` 新增 `kind=section` + `section_id`：只计这个小分组练习范围内的题，返回的 `mastery.section` 是该小分组现在的正确率；所有 `submit` 结果的 `list[]` 每题多了 `point`。
 - 学生端 `GET /api/stu/bank/node-mastery?node_id=&course_id=` → `{node, total, answered, correct, rate, list:[做过的题 {id,type,stem,is_correct,at,my_answer}], videos:[本课程里关联了该知识点的视频]}`；题目范围 = 挂在该节点及其子孙上的题（`question_nodes`）∪ 绑在「关联了这些节点的视频」上的题（`video_nodes`）。
@@ -285,3 +288,8 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 - `GET /api/admin/bank/mf/intake/runs` 的每个批次以及 `GET .../runs/:id` 的 `run` 增加 `processing:null | {action,page,started_at}`，包含工作台与教师扫码当前在途操作，时间为毫秒。同批次相同在途请求复用结果，不同操作返回业务码 409；关闭客户端不取消服务器已发出的当前页。这里只反映现有单进程内状态，不是重启可恢复的持久任务队列。
 - `POST .../intake/runs/:id/pages` 支持相同恢复头；PDF 页另传 `source_document_key/source_page` 作为输入的一部分。每页保存去重凭据，重新选择同来源同页可复用；不同页即使图片相同仍是独立页。后台不是文件字节续传服务。
 - 书签 CORS 额外放行 `X-Intake-Key`。书签转到后台接收时沿用同一凭据，避免直连已成功但响应丢失造成二次录入。
+
+### 2026-11-06 接收名单与停用会话边界
+
+- `GET /api/admin/bank/papers/:id/assignees`：分校仅返回 `users.created_by=req.user.id` 的接收学生；总校可查看全部接收者。保留本校已停用接收者供历史管理查看。
+- `/api/stu/bank/*` 的学生中间件在验证角色后复查账户是否存在且 `status=1`。不存在401，已停用403；不能凭保留的旧会话绕过。此变更只覆盖bank路由，不代表其他模块全局会话策略变化。

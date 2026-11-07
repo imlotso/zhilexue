@@ -27,6 +27,7 @@ jobs:
           node -p "'CHROMIUM_PATH=' + require('playwright').chromium.executablePath()" >> "$GITHUB_ENV"
       - run: node bank-test.js
       - run: node ci-isolation-test.js
+      - run: npm run test:takeover # 目录/正确率/权限/下发事务、响应式组件契约及 Word 排序；不依赖服务或浏览器
       - run: node wordq-test.js    # Word 规则解析（T3，客户样例文档在 docs/原始需求，不需要数据库）
       - run: node excel-test.js    # Excel 模板解析（T3，同上）
       - run: node choices-ten-test.js

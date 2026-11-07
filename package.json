@@ -15,7 +15,8 @@
     "test:ui": "node ui-test.js",
     "test:audit": "node browser-audit-test.js",
     "test:astra": "node astra-retest-test.js",
-    "make-template": "node src/excel.js"
+    "make-template": "node src/excel.js",
+    "test:takeover": "node --test astra-takeover-treeio-test.js && node astra-takeover-accuracy-test.js && node astra-takeover-word-layout-test.js && node astra-takeover-password-safety-test.js && node --test astra-takeover-sort-import-test.js && node --test astra-takeover-course-cache-test.js && node --test astra-takeover-course-entry-test.js && node --test astra-takeover-binding-scope-test.js && node --test astra-takeover-role-scope-test.js && node --test astra-takeover-paper-transaction-test.js && node astra-takeover-word-responsive-test.js && node astra-takeover-admin-responsive-test.js"
   },
   "dependencies": {
     "@resvg/resvg-js": "2.6.2",

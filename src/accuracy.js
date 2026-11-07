@@ -40,7 +40,7 @@ function sectionOwnStats(db, userId, sectionIds) {
       SUM(CASE WHEN r.is_correct=1 THEN 1 ELSE 0 END) AS correct
     FROM questions q
     LEFT JOIN records r ON r.id = (SELECT MAX(r2.id) FROM records r2 WHERE r2.user_id=? AND r2.question_id=q.id)
-    WHERE q.section_id IN (${ph}) AND q.type<>'answer'
+    WHERE q.section_id IN (${ph}) AND q.type<>'answer' AND (q.video_id IS NULL OR q.video_id=0)
     GROUP BY q.section_id`).all(Number(userId), ...ids);
   rows.forEach((r) => out.set(Number(r.sid), { total: Number(r.total) || 0, answered: Number(r.answered) || 0, correct: Number(r.correct) || 0 }));
   return out;

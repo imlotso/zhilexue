@@ -43,12 +43,14 @@ if (!files.length) { console.error('没有找到 .json 文件'); process.exit(2)
 
 console.log(`目标库：MySQL ${DB_INFO.database} @ ${DB_INFO.host}:${DB_INFO.port}${dry ? '   （dry-run：只统计，不写库）' : ''}`);
 let totalAdded = 0, bad = 0;
+// 同一次 CLI 的有效文件共享虚拟节点，坏文件不提交其预检状态。
+const previewContext = dry ? {} : undefined;
 const STAGE = { primary: '小学', junior: '初中', senior: '高中' };
 for (const f of files) {
   let results;
   try {
     const raw = JSON.parse(fs.readFileSync(f, 'utf8').replace(/^﻿/, ''));
-    results = treeIo.importAll(db, raw, { dry });
+    results = treeIo.importAll(db, raw, { dry, previewContext });
   } catch (e) {
     bad++;
     console.error(`  [跳过] ${f}\n         ${e.message}`);

@@ -3945,6 +3945,9 @@ body.wt-stage .t13-card{--t13-word:var(--fs-hero);--t13-mean:var(--fs-mean);--t1
 .t13-card .wt-tag{align-self:center;margin-bottom:6px}
 /* 单词：一行，固定高度；太长由 t13-fit.js 缩字号 */
 .t13-card .wq-word{display:flex;align-items:center;justify-content:center;width:100%;height:calc(var(--t13-word)*1.25);white-space:nowrap;overflow:hidden;line-height:1.15}
+/* 读词/记忆：词文本可在原固定区域内换行，给独立喇叭保留宽度；仍由 t13-fit 按区域缩字。
+ * 窄屏下匿名文本原先不能收缩，达到最小字号后会连同发音按钮一起被裁掉。 */
+.t13-card .t13-word-text{min-width:0;white-space:normal;overflow-wrap:anywhere}
 /* 音标：一行固定高度；没有音标时在单词下面空出同样高的位置（:has 不支持的老浏览器只是少了这个保险） */
 .t13-card .wq-phon{width:100%;height:calc(var(--t13-mean)*.9);line-height:calc(var(--t13-mean)*.9);margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .t13-card .wq-word:not(:has(+ .wq-phon)){margin-bottom:calc(var(--t13-mean)*.9)}
@@ -3964,7 +3967,8 @@ body.wt-stage .t13-card{--t13-word:var(--fs-hero);--t13-mean:var(--fs-mean);--t1
 .t13-card .wq-cdline{height:calc(1.4em + 6px);margin:2px 0 6px;white-space:nowrap}
 /* 选项：2×2 固定行高，文字多时缩字号 */
 .t13-card .wt-options{width:100%;max-width:640px;grid-auto-rows:calc(var(--t13-mean)*2);margin:10px auto 0}
-.t13-card .wt-opt{display:flex;align-items:center;justify-content:center;overflow:hidden;line-height:1.25;padding:6px 10px;min-height:0}
+/* fit 每次量测会先还原字号；字号不能参与过渡，否则倒计时重测读到动画旧值，下一帧放大裁字。 */
+.t13-card .wt-opt{display:flex;align-items:center;justify-content:center;overflow:hidden;line-height:1.25;padding:6px 10px;min-height:0;transition-property:background-color,border-color,color,box-shadow}
 /* 听音拼选 / 听音选词：格子和音节块各占固定高度 */
 .t13-card .wq-ls-slots,.t13-card .wq-ls-tiles{min-height:calc(var(--t13-mean)*1.9);width:100%}
 /* 默写：输入框 */
@@ -3996,6 +4000,27 @@ body.wt-stage.wt-fs-small .t13-card{--t13-fixed:195px}
   .t13-card:has(.wq-ls-slots) .wq-ls-slots{min-height:calc(var(--t13-mean)*5.9)}
 }
 @media (max-width:640px){.t13-card:has(.wq-ls-slots) .wq-ls-tiles{min-height:calc(var(--t13-mean)*5.9)}}
+
+/* T13 读词主操作：原操作行留在文档流中占位，只有其内部控制区固定在底部。
+ * 不改变固定卡片高度，也不影响记忆/听音/默写步骤的其它 wt-acts。 */
+body.wt-stage .wt-root .t13-read-actions{
+  --t13-read-controls-height:calc(var(--fs-btn,24px)*2.8 + 32px);
+  min-height:calc(var(--t13-read-controls-height) + env(safe-area-inset-bottom,0px));
+}
+body.wt-stage .wt-root .t13-read-controls{
+  position:fixed;left:0;right:0;bottom:0;z-index:2;box-sizing:border-box;
+  min-height:calc(var(--t13-read-controls-height) + env(safe-area-inset-bottom,0px));
+  display:flex;align-items:center;justify-content:center;
+  padding:12px max(16px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
+  background:var(--card,#fff);border-top:1px solid var(--line,#dbe5dc);
+  box-shadow:0 -4px 18px rgba(20,40,30,.08);
+}
+body.wt-stage .wt-root .t13-read-controls .btn{
+  min-width:0;max-width:100%;height:auto;min-height:44px;white-space:normal;line-height:1.4;
+}
+body.wt-stage .wt-root .t13-read-controls .btn:focus-visible{
+  outline:3px solid var(--brand,#2f6bff);outline-offset:3px;
+}
 
 /* ===== T7 听力题：题目上方的音频播放条 ===== */
 .t7-audio{margin:6px 0 12px;padding:10px 14px;border:1.5px solid #cfe0ff;border-radius:14px;background:linear-gradient(180deg,#f4f8ff,#eef4ff)}

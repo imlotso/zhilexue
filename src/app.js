@@ -679,12 +679,13 @@ admin.delete('/students/:id', (req, res) => {
 // 学段按年级自动识别，也可以额外写一列 小学 / 初中 手动指定
 admin.post('/students/batch', (req, res) => {
   const list = (req.body && req.body.list) || [];
-  let n = 0; const errs = [];
+  let n = 0, row = 0; const errs = [];
   const ins = db.prepare(`INSERT INTO users (role,username,password,name,grade,stage,term,allow_seek,avatar,expire_at,level,created_by,created_at) VALUES ('student',?,?,?,?,?,?,1,?,?,?,?,?)`);
   for (const it of list) {
+    row++;
     const username = String(it.username || '').trim();
     const name = String(it.name || '').trim();
-    if (!username || !name) { errs.push(`缺少姓名或账号：${JSON.stringify(it)}`); continue; }
+    if (!username || !name) { errs.push(`第 ${row} 行：姓名和账号必填`); continue; }
     const bad = checkStudentFields(it.grade, it.expire_at);
     if (bad) { errs.push(`${name || username}：${bad}`); continue; }
     if (req.user.role === 'branch') {
@@ -1587,7 +1588,7 @@ function groupsOf(chapterId, lessons, userId) {
   // R8：直接挂在小分组上的题（题数 + 本人正确率）；小分组的正确率 = 组内视频的题 + 小分组自己的题 合并计算
   const ownN = new Map();
   const sph = secs.map(() => '?').join(',');
-  db.prepare(`SELECT section_id AS sid, COUNT(*) n FROM questions WHERE section_id IN (${sph}) GROUP BY section_id`).all(...secs.map((x) => x.id))
+  db.prepare(`SELECT section_id AS sid, COUNT(*) n FROM questions WHERE section_id IN (${sph}) AND (video_id IS NULL OR video_id=0) GROUP BY section_id`).all(...secs.map((x) => x.id))
     .forEach((r) => ownN.set(Number(r.sid), Number(r.n) || 0));
   const ownStats = userId ? accuracy.sectionOwnStats(db, userId, secs.map((x) => x.id)) : new Map();
   const bucket = new Map(secs.map((s) => [s.id, []]));
@@ -1646,6 +1647,15 @@ function setProgress(userId, videoId, patch = {}) {
   return { video_id: v.id, video_done: videoDone ? 1 : 0, handout_done: handoutDone ? 1 : 0 };
 }
 
+/** 可进入课程的题：按视频/直接分组的实际归属计数（含问答题），不依赖冗余 questions.chapter_id。 */
+function courseQuestionCountOf(chapterId) {
+  const id = Number(chapterId);
+  return db.prepare(`SELECT COUNT(*) n FROM questions q WHERE (
+    q.video_id IN (SELECT id FROM videos WHERE chapter_id=?)
+    OR ((q.video_id IS NULL OR q.video_id=0)
+      AND q.section_id IN (SELECT id FROM sections WHERE chapter_id=?)))`).get(id, id).n;
+}
+
 // 课程列表：一门课程 = 一条目录（章节），卡片上直接带「知识点学习进度」
 stu.get('/courses', (req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
@@ -1671,11 +1681,12 @@ stu.get('/courses', (req, res) => {
       grade: c.grade || '', term: c.term || '', book: c.book || '', code: c.code || '',
       stage: c.stage || '',
       video_count: total, handout_count: qH.get(c.id, c.id).n, exercise_count: qE.get(c.id, c.id).n,
+      question_count: courseQuestionCountOf(c.id),
       kp_total: total, kp_done: done,
       percent: total ? Math.round(done / total * 100) : 0,
       acc: courseAccOf(c.id, req.user.id),   // R8：课程卡片底部显示习题正确率
     };
-  }).filter((c) => c.video_count > 0 || c.handout_count > 0 || c.exercise_count > 0);
+  }).filter((c) => c.video_count > 0 || c.handout_count > 0 || c.exercise_count > 0 || c.question_count > 0);
   ok(res, list);
 });
 
@@ -1694,7 +1705,7 @@ stu.get('/course-detail', (req, res) => {
   const { lessons, library } = lessonsOf(c.id, u.id);
   const { grouped, groups, own } = groupsOf(c.id, lessons, u.id);
   const exercises = library.map((x) => ({ ...x, ext: x.ext || '' }));
-  if (!lessons.length && !exercises.length) return fail(res, '该课程暂无可学习内容');
+  if (!lessons.length && !exercises.length && !courseQuestionCountOf(c.id)) return fail(res, '该课程暂无可学习内容');
   const kpDone = lessons.filter((l) => l.done).length;
   ok(res, {
     id: c.id, name: c.name, subject: c.subject || '', category: c.category || '同步基础',

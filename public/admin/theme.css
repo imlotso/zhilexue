@@ -193,11 +193,14 @@ body.t11 .admin-app .mf-treebox{border-radius:var(--t11-r);border-color:var(--t1
 
 /* ================= 弹窗（Element Dialog） ================= */
 body.t11 .el-dialog.modal{border-radius:var(--t11-r-lg)!important;box-shadow:var(--t11-shadow-lg)!important;overflow:hidden auto}
-body.t11 .el-dialog__header.modal-h{padding:14px 20px!important;border-bottom:1px solid var(--t11-line2);border-radius:var(--t11-r-lg) var(--t11-r-lg) 0 0}
-body.t11 .el-dialog__title{font-size:16px;font-weight:600;color:var(--t11-text)}
+/* 长标题给右侧关闭按钮留出独立空间，按钮保持标准控件的点击面积。 */
+body.t11 .el-dialog__header.modal-h{padding:14px 56px 14px 20px!important;border-bottom:1px solid var(--t11-line2);border-radius:var(--t11-r-lg) var(--t11-r-lg) 0 0}
+body.t11 .el-dialog__title{font-size:16px;font-weight:600;color:var(--t11-text);min-width:0;overflow-wrap:anywhere}
+body.t11 .el-dialog__headerbtn.close-x{top:9px;right:10px;width:var(--t11-h);height:var(--t11-h);padding:0;display:inline-flex;align-items:center;justify-content:center}
 body.t11 .el-dialog__body.modal-b{padding:18px 20px!important;color:var(--t11-text)}
 body.t11 .el-dialog__footer.modal-f{padding:12px 20px!important;border-top:1px solid var(--t11-line2);gap:10px;border-radius:0 0 var(--t11-r-lg) var(--t11-r-lg)}
-body.t11 .el-dialog__footer.modal-f .btn{min-width:84px}
+/* 通用 .btn 的 width:100% 会把同排取消按钮挤出弹窗，底部操作按内容宽度排列。 */
+body.t11 .el-dialog__footer.modal-f .btn{min-width:84px;width:auto}
 body.t11 .el-message.toast{border-radius:var(--t11-r-lg);box-shadow:var(--t11-shadow-lg)}
 
 /* ================= 首页：数据概览 ================= */
@@ -229,9 +232,10 @@ body.t11 .t11-scrim{display:none}
     width:248px!important;transform:translateX(-100%);transition:transform .22s ease;z-index:3000;box-shadow:none;
   }
   body.t11 .admin-app.t11-drawer .side{transform:none;box-shadow:6px 0 24px rgba(0,0,0,.28)}
-  /* 抽屉里恢复文字（旧规则在窄屏会把它们藏成纯图标） */
+  /* 抽屉里恢复文字；桌面保存的 side-fold 使用 !important，窄屏也必须覆盖它。 */
   body.t11 .admin-app .nav a .txt,body.t11 .admin-app .brand b,body.t11 .admin-app .side-foot,
-  body.t11 .admin-app .txt,body.t11 .admin-app .zx-txt,body.t11 .admin-app .ng-arrow{display:revert}
+  body.t11 .admin-app .txt,body.t11 .admin-app .zx-txt,body.t11 .admin-app .ng-arrow{display:revert!important}
+  body.t11 .admin-app.side-fold .t11-badge:not([hidden]){display:inline-block}
   body.t11 .admin-app .nav-group .ng-t{display:flex}
   body.t11 .admin-app .nav-group .ng-sub{display:none!important}
   body.t11 .admin-app .nav-group.open .ng-sub{display:block!important}
@@ -332,6 +336,9 @@ body.t11 .r8-vn-row em{margin-left:auto;font-style:normal;font-size:12px;color:#
   body.t11 .r8-lq-video{grid-template-columns:1fr;grid-template-areas:"info" "nodes" "btn"}
   body.t11 .r8-vq-opts{grid-template-columns:1fr}
   body.t11 .r8-lq-secbar{flex-direction:column;align-items:flex-start}
+  /* 树名称较长时不能把搜索框挤成小方块；窄屏各占一行。 */
+  body.t11 .r8-vn-bar{flex-wrap:wrap}
+  body.t11 .r8-vn-bar select,body.t11 .r8-vn-bar .input{flex:1 1 100%;min-width:0;max-width:100%}
 }
 
 /* ============================================================================

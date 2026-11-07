@@ -27,9 +27,10 @@ const SECTION_NAMES = {
   多选题: 'multi', 多项选择题: 'multi',
   判断题: 'judge',
   填空题: 'fill',
+  排序题: 'sort',
   问答题: 'answer', 解答题: 'answer', 简答题: 'answer', 计算题: 'answer', 论述题: 'answer', 应用题: 'answer',
 };
-const TYPE_HINT = { 单选: 'single', 多选: 'multi', 判断: 'judge', 填空: 'fill', 问答: 'answer', 解答: 'answer', 简答: 'answer', 计算: 'answer' };
+const TYPE_HINT = { 单选: 'single', 多选: 'multi', 判断: 'judge', 填空: 'fill', 排序: 'sort', 问答: 'answer', 解答: 'answer', 简答: 'answer', 计算: 'answer' };
 // 排序题保留选项及明确的答案序列；匹配题使用显式「匹配项」标记。
 QSubtype.list.forEach((x) => {
   [x.label, ...(x.aliases || [])].forEach((label) => {

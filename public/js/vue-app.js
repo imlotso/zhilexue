@@ -407,6 +407,9 @@ const App = {
         watchText: '去看视频',
         submit: async (answers, duration) => {
           const r = await api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'section', section_id: g.id, answers, duration } });
+          // 交卷成功后使课程卡正确率缓存失效，返回列表时重新读取。
+          this.courses = null;
+          this.cachedSubject = '';
           this.loadCourse().catch(() => {});
           return r;
         },
@@ -466,6 +469,9 @@ const App = {
         // 交卷成功就刷新课程数据：视频 / 小分组的正确率马上变化（弹层关掉后看到的已是新数字）
         submit: async (answers, duration) => {
           const r = await api('/api/stu/bank/submit', { method: 'POST', body: { kind: 'practice', video_id: lesson.video_id, answers, duration } });
+          // 交卷成功后使课程卡正确率缓存失效，返回列表时重新读取。
+          this.courses = null;
+          this.cachedSubject = '';
           this.loadCourse().catch(() => {});
           return r;
         },
@@ -886,7 +892,7 @@ const App = {
             <div><b>{{ course.kp_done }}<small> / {{ course.kp_total }}</small></b><span>知识点掌握</span></div>
           </div>
           <div class="r8-hero-stats">
-            <div class="r8-hs" :class="accCls(course.acc)"><span>习题正确率</span><b>{{ course.acc && course.acc.total ? (course.acc.rate === null ? '未做' : course.acc.rate + '%') : '—' }}</b><em>{{ course.acc && course.acc.total ? '已做 ' + course.acc.answered + ' / ' + course.acc.total + ' 题' : '本课程暂无习题' }}</em></div>
+            <div class="r8-hs" :class="accCls(course.acc)"><span>习题正确率</span><b>{{ course.acc && course.acc.total ? (course.acc.rate === null ? '未做' : course.acc.rate + '%') : '—' }}</b><em>{{ course.acc && course.acc.total ? '已做 ' + course.acc.answered + ' / ' + course.acc.total + ' 题' : '暂无可自动判分的习题' }}</em></div>
             <div class="r8-hs"><span>学习进度</span><b>{{ course.percent || 0 }}%</b><em>已学 {{ course.kp_done }} / {{ course.kp_total }} 个视频</em></div>
           </div>
           <div class="r8-hero-go">
