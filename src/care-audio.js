@@ -200,8 +200,8 @@ function createCareAudio({ db, dataDir, publicDir, auth }) {
     const mime = mediaType(item.legacy_name, bytes); if (!mime) throw new Error('旧录音格式无效，保留原文件待核对');
     return insert(bytes, { owner_id: owner.id, owner_role: owner.role, branch_id: branch ? branch.id : null, legacy_name: item.legacy_name, review_ref: String(item.review_ref).trim() }, path.extname(item.legacy_name).slice(1).toLowerCase(), mime);
   }
-  // Multer/busboy emits its limit event at the exact parser threshold. Allow one
-  // sentinel byte here; mediaType still rejects every file larger than MAX_SIZE.
-  return { requireHeader, uploadMiddleware: multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_SIZE + 1, files: 1 } }).single('file'), upload, read, legacyBoundary, protectStatic, protectFile, importReviewed };
+  // Retain the historical parser sentinel byte. Multer 2.5 makes its limit
+  // inclusive; mediaType still rejects every file larger than MAX_SIZE before writes.
+  return { requireHeader, uploadMiddleware: multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: MAX_SIZE + 1, files: 1 } }).single('file'), upload, read, legacyBoundary, protectStatic, protectFile, importReviewed };
 }
 module.exports = { SCHEMA, createCareAudio, normalizedPath, mediaType };

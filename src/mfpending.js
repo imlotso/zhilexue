@@ -31,7 +31,7 @@ module.exports = function mountPending(d) {
   const receipts = require('./intake-receipts')(db, ok, fail);
   admin.get('/ext/import-status/:key', receipts.status);
   const stagedPost = (route, kind, ...handlers) => admin.post(route, ...handlers.slice(0, -1), receipts.middleware(kind), receipts.guard(handlers[handlers.length - 1]));
-  const upFile = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024 } });
+  const upFile = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 40 * 1024 * 1024 } });
   const str = (v) => (v == null ? '' : String(v));
   const score10 = (v) => v == null || v === '' || !Number.isInteger(Number(v)) || Number(v) < 1 || Number(v) > 10 ? null : Number(v);
   // 听力音频（T7）：只认题库音频目录下的 key；条目里同时带 audio_key（存什么）和 audio_url（给后台播放预览）

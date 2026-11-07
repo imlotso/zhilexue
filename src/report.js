@@ -21,7 +21,7 @@ const store = require('./storage');
 const ai = require('./ai');
 
 const admin = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 15 * 1024 * 1024 } });
 
 const now = () => {
   const d = new Date();
@@ -192,7 +192,13 @@ admin.post('/scan-token', (req, res) => {
 
 /** 免登录上传（家长手机）：POST /api/report-scan?token=xxx，multipart images + 学生信息字段 */
 const scan = express.Router();
-scan.post('/', upload.array('images', 6), async (req, res) => {
+function requireScanToken(req, res, next) {
+  const hit = scanTokens.get(String(req.query.token || ''));
+  if (!hit || hit.exp < Date.now()) return fail(res, '二维码已过期，请让老师在电脑端刷新二维码后重新扫码');
+  next();
+}
+// Reject unauthorised callers before parsing bytes; recheck expiry below after upload.
+scan.post('/', requireScanToken, upload.array('images', 6), async (req, res) => {
   try {
     const token = String(req.query.token || '');
     const hit = scanTokens.get(token);

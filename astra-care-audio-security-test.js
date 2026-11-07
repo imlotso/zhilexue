@@ -210,4 +210,6 @@ test('exactly 50 MiB audio is accepted while one byte over remains rejected', as
   const over = Buffer.alloc(max + 1); bytes.copy(over); over.writeUInt32LE(max - 7, 4); over.writeUInt32LE(max - 43, 40);
   assert.notEqual((await f.upload(10, 'synthetic-over-boundary.wav', over)).body.code, 0);
   assert.equal(f.raw.prepare('SELECT COUNT(*) n FROM care_audio').get().n, 1, 'oversized upload never writes metadata');
+  assert.deepEqual(fs.readdirSync(path.join(f.dataDir, 'private-care-audio')), [row.storage_name], 'oversized upload leaves no private file residue');
+  assert.equal(fs.statSync(path.join(f.dataDir, 'private-care-audio', row.storage_name)).size, max, 'accepted boundary file remains intact');
 });

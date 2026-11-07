@@ -31,7 +31,7 @@ const compose = require('./compose');
 const { pickTree } = require('./treepick');   // R2：按 学段+学科+默认版本 取树
 const accuracy = require('./accuracy');   // T5：管理端一键组卷 / 学生端自组卷共用的抽题核心   // T4：知识树统一，旧 kb_* 并入 bank_trees
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 20 * 1024 * 1024 } });
 
 const now = () => {
   const d = new Date();
@@ -871,7 +871,7 @@ admin.post('/videos/:id/nodes', (req, res) => {
 });
 
 // ---------- 课文习题：Word 批量上传（题号.（题型）题干→选项→答案：→解析： 一键解析入库，插图自动提取） ----------
-const upDocx = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024 } });
+const upDocx = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 40 * 1024 * 1024 } });
 const store = require('./storage');
 const bankImgFolder = () => {
   try {
@@ -2130,7 +2130,7 @@ stu.get('/uploads', (req, res) => {
 // ================================================================== 微信扫码上传（开放接口，短时 token 鉴权）
 const up = express.Router();
 const UP_IMG_MB = 10;
-const upUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: UP_IMG_MB * 1024 * 1024, files: 4 } });
+const upUpload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: UP_IMG_MB * 1024 * 1024, files: 4 } });
 const UP_DIR = path.join(__dirname, '..', 'public', 'pu');
 if (!fs.existsSync(UP_DIR)) fs.mkdirSync(UP_DIR, { recursive: true });
 let UP_SECRET_CACHE = '';

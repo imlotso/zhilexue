@@ -27,7 +27,7 @@ const AiAnswerReview = require('./ai-answer-review');
 const { choiceOptionsError } = require('./choice-options');
 
 const admin = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 25 * 1024 * 1024 } });
 
 const now = () => {
   const d = new Date();
@@ -1935,7 +1935,7 @@ admin.post('/intake/runs/:id/structure', singleIntakeJob('structure'), async (re
   }
 });
 
-const upWord = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024 } });
+const upWord = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 40 * 1024 * 1024 } });
 
 /** Word 导入（.docx）：解出正文文本 + 内嵌插图 → 走半自动文本结构化同一条 AI 链路出题卡 */
 admin.post('/intake/runs/:id/word', upWord.single('file'), singleIntakeJob('word'), async (req, res) => {
@@ -2275,7 +2275,7 @@ admin.delete('/intake/runs/:id', (req, res) => {
 // ==================================================================== 转写包导入（魔方录题转写 skill 产物：mofang-question-pack v1）
 const path = require('path');
 const { ZipReader } = require('./mfzip');
-const upBig = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } });
+const upBig = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 60 * 1024 * 1024 } });
 const SKILL_ZIP = path.join(__dirname, '..', 'data', 'zhilexue-question-transcribe.zip');
 
 /** 技能包下载（导入弹窗里的「获取转写skill」） */

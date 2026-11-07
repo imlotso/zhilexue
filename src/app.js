@@ -42,7 +42,7 @@ app.use((req, res, next) => {
 });
 
 // 小文件（表格 / 图片 / 讲义）走内存：体积可控、处理链路简单
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 100 * 1024 * 1024 } });
 
 // 视频走磁盘暂存：上传过程完全不占内存（2G 内存的服务器也能安全收几百 MB 的视频），
 // 落盘后交给存储层直接搬走（本地驱动 rename、云端驱动流式上传），处理完立刻删掉临时文件。
@@ -53,7 +53,7 @@ const videoUpload = multer({
     destination: (req, file, cb) => cb(null, TMP_DIR),
     filename: (req, file, cb) => cb(null, 'v' + Date.now() + '-' + Math.random().toString(16).slice(2, 10)),
   }),
-  limits: { fileSize: 4 * 1024 * 1024 * 1024 },
+  limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 4 * 1024 * 1024 * 1024 },
 });
 
 /** 收完视频后清掉磁盘暂存的临时文件（本地驱动可能已 rename 走，删不到就忽略） */
