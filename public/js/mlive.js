@@ -88,7 +88,12 @@
     var ok = mask.querySelector('.t8-ok');
     ok.onclick = function () {
       var latex = mf ? String(mf.getValue('latex') || '').trim() : '';
-      if (!latex) { mask.querySelector('.t8-tip').textContent = '还没有输入公式'; return; }
+      if (!latex) {
+        mask.querySelector('.t8-tip').textContent = '还没有输入公式';
+        // 点击插入会移走焦点；空输入时归还给公式框，让屏幕键盘可以继续输入。
+        if (mf) mf.focus();
+        return;
+      }
       close();
       if (opt.onOk) opt.onOk(opt.delimit === false ? latex : '\\(' + latex + '\\)', latex);
     };

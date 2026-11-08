@@ -25,6 +25,11 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           node -p "'CHROMIUM_PATH=' + require('playwright').chromium.executablePath()" >> "$GITHUB_ENV"
+      - name: Check formula keyboard recovery
+        run: npm run test:formula:browser
+        env:
+          FORMULA_EVIDENCE_DIR: formula-component-evidence
+        if: ${{ !cancelled() }}
       - run: node bank-test.js
       - run: node ci-isolation-test.js
       - run: npm run test:takeover # 目录/正确率/权限/下发事务、响应式组件契约及 Word 排序；不依赖服务或浏览器
@@ -68,6 +73,13 @@ jobs:
         with:
           name: word-component-evidence
           path: word-component-evidence
+
+      - name: Upload formula keyboard evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formula-component-evidence
+          path: formula-component-evidence
 
   api:
     runs-on: ubuntu-24.04
