@@ -1,0 +1,31 @@
+// Synthetic offline browser fixture ONLY. Never referenced by the deployed app.
+window.STORAGE_PREFIX='zhilexue_learning_ui_fixture';
+window.fixtureErrors=[];window.fixtureRequests=[];window.fixtureMode='populated';
+window.addEventListener('error',e=>window.fixtureErrors.push(String(e.message)));
+window.addEventListener('unhandledrejection',e=>window.fixtureErrors.push(String(e.reason)));
+const syntheticUser={id:990071,name:'测试同学',role:'student',username:'synthetic-ui-only',grade:'三年级',term:'上册',stage:'primary',avatar:'/img/av/1.svg'};
+localStorage.setItem(window.STORAGE_PREFIX+'_token','synthetic-offline-only');localStorage.setItem(window.STORAGE_PREFIX+'_user',JSON.stringify(syntheticUser));
+sessionStorage.setItem(window.STORAGE_PREFIX+'_seen','1');localStorage.setItem('xuexi_theme:990071','day');
+location.hash='#/home';
+const syntheticCourse={id:990012,name:'混合运算与数量关系',subject:'数学',category:'同步基础',grade:'三年级',term:'上册',book:'苏教版',stage:'primary',kp_total:5,kp_done:3,percent:60,video_count:5,handout_count:0,exercise_count:0,question_count:10,acc:{total:10,answered:4,correct:3,rate:75}};
+const syntheticDetail={...syntheticCourse,grouped:false,groups:[],lessons:[{video_id:990011,title:'含小括号的混合运算',done:false,handouts:[],qcount:2,nodes:[],acc:{total:2,answered:0,correct:0,rate:null}}],next:{video_id:990011,title:'含小括号的混合运算'},exercises:[]};
+const syntheticTasks=[{id:990020,title:'混合运算巩固练习',subject:'数学',q_count:10,total_score:100,assigned:true,tried:false},{id:990021,title:'单元综合练习',subject:'数学',q_count:20,total_score:100,assigned:true,tried:true,last:{total:20,correct:15,score:75}}];
+const syntheticQuestion={id:990001,type:'single',subject:'数学',stem:'计算 6 × (4 + 5) 的结果。',options:['54','29','45','60'],quiz_ticket:'synthetic-offline-question',answer:'',analysis:''};
+window.fetch=async (path,opts={})=>{
+ const u=new URL(String(path),'https://synthetic.invalid');window.fixtureRequests.push(u.pathname+u.search);
+ let data;
+ if(window.fixtureMode==='error'&&(u.pathname==='/api/stu/courses'||u.pathname==='/api/stu/bank/tasks'))return {ok:false,status:503,json:async()=>({code:503,msg:'合成离线错误'})};
+ if(u.pathname==='/api/me')data=syntheticUser;
+ else if(u.pathname==='/api/stu/courses')data=window.fixtureMode==='empty'?[]:(!u.searchParams.get('subject')||u.searchParams.get('subject')==='数学'?[syntheticCourse]:[]);
+ else if(u.pathname==='/api/stu/course-detail')data=syntheticDetail;
+ else if(u.pathname==='/api/stu/bank/tasks')data=window.fixtureMode==='empty'?[]:syntheticTasks;
+ else if(u.pathname==='/api/stu/bank/mistake-count')data={pending:0};
+ else if(u.pathname==='/api/stu/bank/mfpapers')data=[];
+ else if(u.pathname==='/api/stu/bank/mfpapers/filters')data={subjects:['数学'],grades:['三年级'],years:[]};
+ else if(u.pathname==='/api/stu/bank/subjective-responses')data={list:[]};
+ else if(u.pathname==='/api/stu/bank/papers/990020')data={id:990020,title:syntheticTasks[0].title,subject:'数学',duration:20,total_score:100,questions:[syntheticQuestion]};
+ else if(u.pathname==='/api/stu/bank/scan-tree')data={tree_id:990030,tree_name:'合成教材目录',trees:[{id:990030,name:'合成教材目录',edition:'苏教版'}],list:[{id:990031,name:'混合运算',parent_id:0}]};
+ else if(u.pathname==='/api/stu/bank/mistakes')data=[];
+ else throw Error('Unconfigured synthetic request: '+u.pathname);
+ return {ok:true,status:200,json:async()=>({code:0,data:JSON.parse(JSON.stringify(data))})};
+};

@@ -10,9 +10,9 @@ try { ({chromium}=require('playwright')); } catch (_) { try { ({chromium}=requir
   window.render=async()=>{const v=await viewPending();document.body.innerHTML=v.html;v.after();};
  });
  await p.addScriptTag({path:path.join(__dirname,'public/admin/pendingui.js')});await p.evaluate(()=>render());
- await p.locator('[data-act="merge-pin"]').click();await p.waitForFunction(()=>ADM.page.pd.mergePins.length===1);
- await p.evaluate(()=>{ADM.page.pdPage=2;return render()});await p.locator('[data-act="merge-pin"]').click();await p.waitForFunction(()=>ADM.page.pd.mergePins.length===2);
- await p.locator('#pd-bmerge').click();await p.waitForFunction(()=>window.mergeBody);
+ await p.locator('.pd-item-tools summary').click();await p.locator('[data-act="merge-pin"]').click();await p.waitForFunction(()=>ADM.page.pd.mergePins.length===1);
+ await p.evaluate(()=>{ADM.page.pdPage=2;return render()});await p.locator('.pd-item-tools summary').click();await p.locator('[data-act="merge-pin"]').click();await p.waitForFunction(()=>ADM.page.pd.mergePins.length===2);
+ await p.locator('.pd-advanced summary').click();await p.locator('#pd-bmerge').click();await p.waitForFunction(()=>window.mergeBody);
  const result=await p.evaluate(()=>window.mergeBody);assert.equal(result.target_id,'run:7:0:fp1');assert.equal(result.fragment_id,'run:7:1:fp2');assert.equal(result.target_expected,'sig1');assert.equal(result.fragment_expected,'sig2');
  console.log('跨分页暂存同批次片段、顺序和审核快照通过');
  }finally{await b.close()}})().catch(e=>{console.error(e);process.exitCode=1});

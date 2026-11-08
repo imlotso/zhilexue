@@ -81,7 +81,7 @@ function themeApply() {
   if (meta) meta.content = THEME_META[k] || THEME_META.day;
 }
 function parseHash() {
-  const raw = location.hash || '#/courses';
+  const raw = location.hash || '#/home';
   const [key, arg] = raw.replace(/^#\/?/, '').split('?')[0].split('/');
   return { key: key || 'courses', arg: arg ? decodeURIComponent(arg) : '', raw };
 }
@@ -151,10 +151,36 @@ const App = {
       subjects: SUBJECTS,
       catIcon: CAT_ICON,
       mistCount: 0,
+      homeCourses: [],
+      homeTasks: [],
+      homeDetail: null,
+      homeCourseError: '',
+      homeTaskError: '',
+      homeRequest: 0,
+      loadRequest: 0,
+      pendingSelfPractice: '',
+      mobileNavOpen: false,
     };
   },
   computed: {
     cats() { return catsForStudent(); },
+    homeCourse() {
+      const all = this.homeCourses || [];
+      return all.find((c) => c.kp_done > 0 && c.kp_done < c.kp_total)
+        || all.find((c) => c.kp_total > 0 && c.kp_done < c.kp_total) || all[0] || null;
+    },
+    homeSubtitle() {
+      const c = this.homeCourse;
+      return c ? [c.grade, c.subject, c.book].filter(Boolean).join(' · ') : [this.gradeText, '从今天开始，慢慢积累'].filter(Boolean).join(' · ');
+    },
+    homeProgress() {
+      const c = this.homeCourse;
+      return c && c.kp_total > 0 ? Math.max(0, Math.min(100, Math.round(c.kp_done / c.kp_total * 100))) : 0;
+    },
+    homeAccuracy() {
+      const a = this.homeCourse && this.homeCourse.acc;
+      return a && a.total && a.rate !== null && a.rate !== undefined ? a.rate + '%' : (a && a.total ? '未做' : '暂无可自动判分的习题');
+    },
     counts() {
       const m = {};
       (this.courses || []).forEach((c) => { m[c.category] = (m[c.category] || 0) + 1; });
@@ -223,8 +249,8 @@ const App = {
     const P = window.STORAGE_PREFIX || 'xuexi';
     const fresh = !sessionStorage.getItem(P + '_seen');
     sessionStorage.setItem(P + '_seen', '1');
-    if (fresh && String(location.hash || '').startsWith('#/words')) location.hash = '#/courses';
-    if (!location.hash || location.hash === '#/' || location.hash === '#') location.hash = '#/courses';
+    if (fresh && String(location.hash || '').startsWith('#/words')) location.hash = '#/home';
+    if (!location.hash || location.hash === '#/' || location.hash === '#') location.hash = '#/home';
     this.theme = themeGet();
     themeApply();
     await this.load();
@@ -243,7 +269,8 @@ const App = {
     },
     syncRoute() {
       const r = parseHash();
-      if (!Auth.token || r.key === 'login') { this.page = 'login'; return; }
+      if (!Auth.token || r.key === 'login') { this.page = 'login'; this.resetLearningHome(); return; }
+      if (r.key === 'home') { this.page = 'home'; return; }
       if (r.key === 'course' && r.arg) { this.page = 'course'; this.courseId = r.arg; return; }
       if (r.key === 'words') { this.page = 'words'; this.wordSub = r.arg || 'quick'; return; }
       if (r.key === 'timer') { this.page = 'tool'; return; }
@@ -253,6 +280,9 @@ const App = {
     },
     async load() {
       this.syncRoute();
+      const request = this.loadRequest = (this.loadRequest || 0) + 1;
+      this.mobileNavOpen = false;
+      if (this.page !== 'papers') this.pendingSelfPractice = '';
       this.error = '';
       if (this.page === 'login') { themeApply(); return; }
       themeApply();
@@ -275,20 +305,88 @@ const App = {
         this.error = '';
         this.$nextTick(() => {
           const host = document.getElementById(this.page + 'Host');
-          if (host && window.BankPages) BankPages[this.page](host, this.subject);
+          if (host && window.BankPages) {
+            const kind = this.pendingSelfPractice;
+            this.pendingSelfPractice = '';
+            Promise.resolve(BankPages[this.page](host, this.subject)).then(() => {
+              if (kind && request === this.loadRequest && this.page === 'papers' && host.isConnected) BankPages.scanFlow(kind, this.subject, host);
+            });
+          }
         });
         return;
       }
       this.loading = true;
       try {
-        if (this.page === 'courses') await this.loadCourses();
+        if (this.page === 'home') await this.loadHome();
+        else if (this.page === 'courses') await this.loadCourses();
         else if (this.page === 'course') await this.loadCourse();
       } catch (e) {
-        this.error = e.message || '加载失败';
+        if (request === this.loadRequest) this.error = e.message || '加载失败';
       } finally {
-        this.loading = false;
-        window.scrollTo(0, 0);
+        if (request === this.loadRequest) { this.loading = false; window.scrollTo(0, 0); }
       }
+    },
+    resetLearningHome() {
+      this.homeRequest = (this.homeRequest || 0) + 1;
+      this.homeCourses = [];
+      this.homeTasks = [];
+      this.homeDetail = null;
+      this.homeCourseError = '';
+      this.homeTaskError = '';
+      this.pendingSelfPractice = '';
+    },
+    async loadHome() {
+      this.resetLearningHome();
+      const request = this.homeRequest, token = Auth.token, account = (Auth.user || {}).id;
+      const current = () => request === this.homeRequest && this.page === 'home' && Auth.token === token && (Auth.user || {}).id === account;
+      await Promise.all([
+        (async () => {
+          try {
+            const courses = await api('/api/stu/courses', { silent: true });
+            if (!current()) return;
+            this.homeCourses = Array.isArray(courses) ? courses : [];
+            const c = this.homeCourse;
+            if (c) {
+              try {
+                const detail = await api('/api/stu/course-detail?id=' + encodeURIComponent(c.id), { silent: true });
+                if (current()) this.homeDetail = detail;
+              } catch (e) { /* 列表数据仍有效；详情可在进入课程后重试。 */ }
+            }
+          } catch (e) { if (current()) this.homeCourseError = e.message || '课程加载失败'; }
+        })(),
+        (async () => {
+          try {
+            const tasks = await api('/api/stu/bank/tasks', { silent: true });
+            if (current()) this.homeTasks = Array.isArray(tasks) ? tasks : [];
+          } catch (e) { if (current()) this.homeTaskError = e.message || '任务加载失败'; }
+        })(),
+      ]);
+    },
+    goHome() { if (this.page === 'home') this.load(); else location.hash = '#/home'; },
+    goHomeTasks() {
+      // The existing paper page filters by subject. Enter a subject that is
+      // actually represented on the home page rather than the login default.
+      const task = (this.homeTasks || []).find((item) => SUBJECTS.includes(item.subject));
+      if (task) this.subject = task.subject;
+      this.goBank('papers');
+    },
+    openHomeTask(task) {
+      if (!task || !window.BankPages) return;
+      const token = Auth.token;
+      BankPages.openPaper(Number(task.id), () => { if (this.page === 'home' && Auth.token === token) return this.load(); });
+    },
+    goSelfPractice(kind) {
+      if (kind !== 'textbook' && kind !== 'knowledge') return;
+      if (this.homeCourse && this.homeCourse.subject) this.subject = this.homeCourse.subject;
+      this.pendingSelfPractice = kind;
+      location.hash = '#/papers';
+    },
+    homeTaskStatus(task) {
+      if (!task.tried) return '未完成';
+      return task.last && typeof quizTryText === 'function' ? quizTryText(task.last) : '已提交';
+    },
+    homeTaskDeadline(task) {
+      return task.due_at && typeof paperDeadlineInfo === 'function' ? paperDeadlineInfo(task.due_at).text : '';
     },
     async loadCourses() {
       const subject = this.subject || SUBJECTS[0];
@@ -317,12 +415,15 @@ const App = {
         Auth.token = d.token;
         Auth.user = d.user;
         this.user = d.user;
+        this.resetLearningHome();
+        this.course = null;
+        this.mistCount = 0;
         this.courses = null;
         this.cachedSubject = '';
         this.subject = SUBJECTS[0];
         this.category = '';
         if (typeof FX !== 'undefined') FX.pop();
-        location.hash = '#/courses';
+        location.hash = '#/home';
       } catch (e) {
         this.loginErr = e.message || '登录失败';
       } finally {
@@ -504,6 +605,8 @@ const App = {
         if (typeof wtStopSpeech === 'function') wtStopSpeech();
         if (typeof wtStageOff === 'function') wtStageOff();
         Auth.clear();
+        this.resetLearningHome();
+        this.courses = null; this.course = null; this.cachedSubject = ''; this.mistCount = 0;
         this.user = {};
         location.hash = '#/login';
       }
@@ -810,25 +913,32 @@ const App = {
       </div>
     </section>
   </div>
-  <div v-else class="st-layout st-biz st-rail">
+  <div v-else class="st-layout st-biz st-rail learn-shell" :class="{ 'learn-nav-open': mobileNavOpen, 'learn-is-home': page==='home' }">
+    <button v-if="mobileNavOpen" class="learn-nav-shade" @click="mobileNavOpen=false" aria-label="关闭导航"></button>
     <aside class="st-side">
-      <a class="sbrand" @click.prevent="goCourses" title="智学课堂"><img src="/img/logo.jpg" alt="智学课堂"></a>
-      <nav class="st-subj">
-        <a :class="{ on: inWords }" @click.prevent="goWords('quick')"><span class="ic"><img v-if="railImg['训练']" class="st-rail-ic" :src="railImg['训练']" alt=""><i v-else class="ai ai-flash"></i></span><span class="nt">训练</span></a>
-        <a v-for="s in subjects" :key="s" :class="{ on: !inWords && page!=='tool' && page!=='papers' && page!=='mistakes' && subject===s }" @click.prevent="pickSubject(s)">
-          <span class="ic" :class="'ic-'+s"><img v-if="railImg[s]" class="st-rail-ic" :src="railImg[s]" alt=""><i v-else class="ai" :class="'ai-'+(subjIcon[s]||'book')"></i></span><span class="nt">{{ s }}</span>
+      <a class="sbrand" href="#/home" @click.prevent="goHome" title="智乐学学习空间"><img src="/img/ui-brand-20261108.png" alt=""><span class="learn-brand-text"><b>智乐学</b><em>学生端</em></span></a>
+      <nav class="st-subj" aria-label="学习导航">
+        <a href="#/home" :class="{ on: page==='home' }" :aria-current="page==='home' ? 'page' : null" @click.prevent="goHome"><span class="ic"><i class="ai ai-home"></i></span><span class="nt">学习空间</span></a>
+        <a v-for="s in ['数学','英语','物理','化学']" :key="s" href="#/courses" :class="{ on: (page==='courses' || page==='course') && subject===s }" @click.prevent="pickSubject(s)">
+          <span class="ic"><i class="ai" :class="'ai-'+(subjIcon[s]||'book')"></i></span><span class="nt">{{ s }}</span>
         </a>
-        <a :class="{ on: page==='papers' }" @click.prevent="goBank('papers')"><span class="ic"><img class="st-rail-ic" src="/img/wt/g_paper.png" alt=""></span><span class="nt">试卷</span></a>
+        <a class="learn-nav-divider" href="#/papers" :class="{ on: page==='papers' }" @click.prevent="goBank('papers')"><span class="ic"><i class="ai ai-doc"></i></span><span class="nt">试卷</span></a>
+        <a href="#/mistakes" :class="{ on: page==='mistakes' }" @click.prevent="goBank('mistakes')"><span class="ic"><i class="ai ai-list"></i></span><span class="nt">错题本</span><small v-if="mistCount" class="learn-mist-count">{{ mistCount }}</small></a>
+      </nav>
+      <nav class="learn-tools" aria-label="学习工具">
+        <a href="#/words/quick" :class="{ on: inWords }" @click.prevent="goWords('quick')"><i class="ai ai-flash"></i>速记训练</a>
+        <a href="#/timer" :class="{ on: page==='tool' }" @click.prevent="goTool"><i class="ai ai-clock"></i>专注计时</a>
       </nav>
       <div class="st-me" :title="user.name">
-        <img class="avatar av-face" :src="avatar.src" alt="">
-        <b class="st-me-name">{{ user.name }}</b>
+        <span class="st-me-name">{{ user.name }}</span>
         <button class="st-out" title="退出登录" @click="logout"><i class="ai ai-logout"></i><span>退出</span></button>
       </div>
     </aside>
     <div class="st-main">
     <header class="st-top">
-      <div class="st-tabs">
+      <button class="learn-menu" aria-label="打开学习导航" :aria-expanded="mobileNavOpen" @click="mobileNavOpen=!mobileNavOpen"><i class="ai ai-list"></i></button>
+      <h1 v-if="page==='home'" class="learn-page-title">学习空间</h1>
+      <div v-else class="st-tabs">
         <template v-if="inWords">
           <a v-for="g in wordGroups" :key="g.k" :class="{ on: curWordGroup && curWordGroup.k===g.k }" @click.prevent="goWords(g.subs[0])"><img v-if="g.img" class="wt-tab-ic" :src="g.img" alt=""><i v-else class="ai" :class="'ai-'+g.i"></i>{{ g.t }}</a>
         </template>
@@ -842,17 +952,60 @@ const App = {
         </template>
       </div>
       <div class="st-top-r">
-        <button v-if="inWords" class="st-report" @click="toggleAccent" title="切换发音口音：美音(女声) / 英音(男声)"><i class="ai ai-volume"></i><span>{{ wtAccent==='uk' ? '英音' : '美音' }}</span></button>
-        <button class="st-report" @click="goTool" title="专注计时"><i class="ai ai-clock"></i><span>计时</span></button>
-        <button class="st-report st-theme-btn" ref="themeBtn" :class="{ on: themeOpen }" @click="toggleTheme">
+        <button v-if="inWords" class="st-report learn-accent-btn" @click="toggleAccent" title="切换发音口音：美音(女声) / 英音(男声)"><i class="ai ai-volume"></i><span>{{ wtAccent==='uk' ? '英音' : '美音' }}</span></button>
+        <button v-if="page!=='home'" class="st-report" @click="goTool" title="专注计时"><i class="ai ai-clock"></i><span>计时</span></button>
+        <button class="st-report st-theme-btn" ref="themeBtn" title="切换显示主题" aria-label="切换显示主题" :class="{ on: themeOpen }" :aria-expanded="themeOpen" @click="toggleTheme">
           <i class="ai" :class="'ai-'+curTheme.ic"></i><span>{{ curTheme.t }}</span>
         </button>
-        <button class="st-mist-btn" :class="{ on: page==='mistakes' }" @click="goBank('mistakes')" title="错题本：做错的题都在这里，可重做和复习"><img src="/img/wt/g_mistake.png" alt=""><span>错题本</span><i v-if="mistCount" class="st-mist-n">{{ mistCount }}</i></button>
+        <button v-if="page!=='home'" class="st-mist-btn" :class="{ on: page==='mistakes' }" @click="goBank('mistakes')" title="错题本：做错的题都在这里，可重做和复习"><img src="/img/wt/g_mistake.png" alt=""><span>错题本</span><i v-if="mistCount" class="st-mist-n">{{ mistCount }}</i></button>
+        <img class="learn-account" :src="avatar.src" :alt="avatar.name" :title="avatar.name">
       </div>
     </header>
     <div class="st-content wt-root" id="view" :class="{ 'wt-fluid': inWords, 'tool-full': page==='tool' }">
       <div v-if="loading" class="loading-page">加载中…</div>
       <div v-else-if="error" class="empty">{{ error }}</div>
+      <section v-else-if="page==='home'" class="learn-home">
+        <div class="learn-greeting"><h2>把今天的一小步，学扎实</h2><p>{{ homeSubtitle }}</p></div>
+        <section class="learn-hero" aria-labelledby="learnHeroTitle">
+          <div class="learn-hero-copy">
+            <div class="learn-eyebrow"><i class="ai ai-book"></i>{{ homeCourse && homeCourse.kp_done ? '继续学习' : '开始学习' }}</div>
+            <template v-if="homeCourse">
+              <h2 id="learnHeroTitle">{{ homeCourse.name }}</h2>
+              <p class="learn-next">{{ homeDetail && homeDetail.next ? homeDetail.next.title : (homeCourse.kp_total ? (homeCourse.kp_done >= homeCourse.kp_total ? '已学完本课程，可以继续练习巩固' : courseSub(homeCourse)) : '查看课程资料与配套练习') }}</p>
+              <div class="learn-progress-row">
+                <template v-if="homeCourse.kp_total"><span>已完成 <b>{{ homeCourse.kp_done }}</b> / {{ homeCourse.kp_total }} 课</span><progress :value="homeProgress" max="100" :aria-label="'课程完成 ' + homeProgress + '%'"></progress></template>
+                <span v-else>暂无视频课程</span>
+                <span class="learn-accuracy">练习正确率 <b :class="{ 'learn-no-rate': !(homeCourse.acc && homeCourse.acc.total && homeCourse.acc.rate !== null) }">{{ homeAccuracy }}</b></span>
+              </div>
+              <button class="learn-primary" @click="openCourse(homeCourse.id)"><i class="ai ai-play"></i>{{ homeCourse.kp_done ? '继续学习' : '进入课程' }}</button>
+            </template>
+            <template v-else>
+              <h2 id="learnHeroTitle">{{ homeCourseError ? '课程暂时未能加载' : '准备好开始学习了吗' }}</h2>
+              <p class="learn-next">{{ homeCourseError || '暂无可学习课程，开通后会显示在这里。' }}</p>
+              <button class="learn-primary" @click="homeCourseError ? load() : pickSubject(subject)"><i class="ai" :class="homeCourseError ? 'ai-refresh' : 'ai-book'"></i>{{ homeCourseError ? '重新加载' : '查看课程' }}</button>
+            </template>
+          </div>
+          <img class="learn-hero-art" src="/img/ui-learning-hero-20261108.png" alt="" aria-hidden="true">
+        </section>
+        <div class="learn-lower">
+          <section class="learn-tasks" aria-labelledby="learnTaskTitle">
+            <div class="learn-section-heading"><h2 id="learnTaskTitle"><i class="ai ai-doc"></i>我的任务</h2><a href="#/papers" @click.prevent="goBank('papers')">去试卷库找一份练习<i class="ai ai-arrow-right"></i></a></div>
+            <div v-if="homeTaskError" class="learn-empty">{{ homeTaskError }}<button @click="load">重新加载</button></div>
+            <div v-else-if="!homeTasks.length" class="learn-empty">暂无学习任务<span>老师布置的练习会显示在这里，也可以试试自主练习。</span></div>
+            <article v-for="task in homeTasks.slice(0,3)" v-else :key="task.id" class="learn-task-row">
+              <div class="learn-task-name"><h3>{{ task.title }}</h3><p>{{ [task.subject, task.q_count + ' 题'].filter(Boolean).join(' · ') }}</p><small v-if="task.due_at">{{ homeTaskDeadline(task) }}</small></div>
+              <span class="learn-task-status" :class="{ done: task.tried }">{{ homeTaskStatus(task) }}</span>
+              <button :class="task.tried ? 'learn-task-again' : 'learn-task-start'" @click="openHomeTask(task)">{{ task.tried ? '重新练习' : '开始练习' }}<i v-if="task.tried" class="ai ai-arrow-right"></i></button>
+            </article>
+            <a v-if="homeTasks.length>3" class="learn-all-tasks" href="#/papers" @click.prevent="goHomeTasks">按学科查看任务<i class="ai ai-arrow-right"></i></a>
+          </section>
+          <section class="learn-practice" aria-labelledby="learnPracticeTitle">
+            <div class="learn-section-heading"><h2 id="learnPracticeTitle"><i class="ai ai-edit"></i>自主练习</h2></div>
+            <button class="learn-practice-row" @click="goSelfPractice('textbook')"><i class="ai ai-folder"></i><span><b>章节组卷</b><small>按教材单元练习</small></span><i class="ai ai-arrow-right"></i></button>
+            <button class="learn-practice-row" @click="goSelfPractice('knowledge')"><i class="ai ai-puzzle"></i><span><b>知识点组卷</b><small>针对薄弱点练习</small></span><i class="ai ai-arrow-right"></i></button>
+          </section>
+        </div>
+      </section>
       <template v-else-if="page==='courses'">
         <div v-if="courseList.length" class="st-cards">
           <div v-for="c in courseList" :key="c.id" class="st-card" :class="['st-'+c.subject, 'cat-'+c.category]" @click="openCourse(c.id)">

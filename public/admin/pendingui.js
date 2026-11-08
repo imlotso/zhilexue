@@ -56,6 +56,46 @@ const PD_WORD_RULES = `
     <p><b>数学作图</b>：标题写「作图题」，题干按原有题号规则填写；参考答案和解析可留空。学生在系统内画布作答，由老师人工评分。</p>
   </div>`;
 
+// These hints reflect server review flags, never create a local "confirmed" state.
+// The existing commit dialog/API remains the authority for all validations.
+function pdReviewBlocker(it) {
+  if (it.content_review_pending || it.type_unconfirmed) return '请先对照原页核对内容';
+  if ((it.figure_missing || []).length || (it.image_errors || []).length) return '请先补齐题目图片';
+  if (it.figure_review_required && it.figure_review_issue) return '请先确认图文归属';
+  if (it.ai_legacy_pending || (it.ai_review_pending_fields || []).length) return '请先核对 AI 内容';
+  return '';
+}
+function pdClassificationChanged(it, patch) {
+  return ['subject', 'stage', 'grade', 'point'].some((key) => String(it[key] || '').trim() !== String(patch[key] || '').trim());
+}
+// Imported or legacy classifications can be outside the current choices. Keep
+// their exact persisted value selected instead of turning an untouched form dirty.
+function pdClassOpts(list, current) {
+  const value = current == null ? '' : String(current);
+  const choices = value && !list.some((entry) => String(Array.isArray(entry) ? entry[0] : entry) === value) ? [...list, [value, value]] : list;
+  return pdOpts(choices, value, '未识别');
+}
+function pdClassificationHTML(it) {
+  const chapter = (ADM.chapters || []).find((c) => String(c.id) === String(it.chapter_id));
+  return `<aside class="pd-classification" aria-label="分类与核对">
+    <h3>分类与核对</h3>
+    <div class="pd-class-fields">
+      <label for="pd-class-sub">学科</label><select id="pd-class-sub" class="input" data-class-field="subject">${pdClassOpts(PD_SUBJECTS, it.subject)}</select>
+      <label for="pd-class-stage">学段</label><select id="pd-class-stage" class="input" data-class-field="stage">${pdClassOpts(PD_STAGES.slice(1), it.stage)}</select>
+      <label for="pd-class-grade">年级</label><select id="pd-class-grade" class="input" data-class-field="grade">${pdClassOpts(PD_GRADES, it.grade)}</select>
+      <span>教材</span><span class="pd-class-value">${esc(it.edition || '未记录')}</span>
+    </div>
+    <div class="pd-class-fields pd-class-detail">
+      <span>章节</span><span class="pd-class-value">${esc(chapter ? chapter.name : '未关联章节')}</span>
+      <label for="pd-class-point">知识点</label><input id="pd-class-point" class="input" data-class-field="point" value="${esc(it.point || '')}" placeholder="填写知识点">
+    </div>
+    ${it.ai_point_suggestion ? `<div class="pd-class-notice"><strong>${ic('help')} AI 分类建议 · 待老师核对</strong><p>${esc(it.ai_point_suggestion)}</p><small>建议不等于已确认分类，请核对后填写。</small></div>` : `<p class="pd-class-help">分类修改保存到待审核题目。章节 / 知识点树节点在入库前统一核对。</p>`}
+    <button type="button" class="btn primary pd-class-save" data-act="save-classification">保存分类</button>
+    <button type="button" class="btn ghost pd-class-discard" data-act="discard-classification" hidden>撤销修改</button>
+    <p class="pd-class-help">保存不代表入库；最终归属请在「核对并入库」中确认。</p>
+  </aside>`;
+}
+
 async function viewPending() {
   const st = ADM.page.pd = ADM.page.pd || { source: 'all', kw: '', sel: {} };
   st.mergePins = Array.isArray(st.mergePins) ? st.mergePins : [];
@@ -90,7 +130,9 @@ async function viewPending() {
     return `<div class="pd-item" data-id="${esc(it.id)}">
       <label class="pd-chk"><input type="checkbox" data-sel="${esc(it.id)}" ${st.sel[it.id] ? 'checked' : ''}></label>
       <div class="pd-main">
-        <div class="pd-meta">
+        <header class="pd-preview-heading"><h3>题目预览 <small>${it.qno ? '原题号 ' + esc(it.qno) : esc(it.type_name)}</small></h3><div><span class="pd-preview-source">${esc(it.source_label)}${it.original_page ? ' · 第 ' + Number(it.original_page) + ' 页' : ''}</span>${sourcePages.length ? `<button type="button" class="link-btn" data-act="original" data-page="${sourcePages[0]}">查看原页 ${ic('link')}</button>` : ''}</div></header>
+        <div class="pd-question-body">
+        <details class="pd-provenance"><summary>来源、标签与审核详情</summary><div class="pd-meta">
           <span class="pd-tag pd-src-${esc(it.source)}">${esc(it.source_label)}</span>
           <span class="pd-type">${it.type_unconfirmed ? `暂按${esc(it.type_name)}` : esc(it.type_name)}</span>
           ${it.qno ? `<span class="pd-cls">原题号 ${esc(it.qno)}</span>` : ''}
@@ -105,47 +147,55 @@ async function viewPending() {
           ${(it.tags || []).slice(0, 4).map((t) => `<span class="pd-cls">#${esc(t)}</span>`).join('')}
           ${miss.map((m) => `<span class="pd-warn">${esc(m)}</span>`).join('')}
           <span class="pd-batch" title="来自哪个批次">${esc(it.batch_title || '')}</span>
-        </div>
+        </div></details>
         ${it.material ? `<div class="pd-mat">${preview.material}</div>` : ''}
         ${it.upload_note ? `<div class="pd-upload-note"><b>上传备注：</b>${pdBr(it.upload_note)}</div>` : ''}
-        ${it.content_review_required ? `<div class="pd-upload-note"><b>${it.content_review_pending ? '请对照原页核对题型、题干、选项、公式、共同材料和小问' : '老师已核对当前题目内容'}</b>${it.content_review_pending ? '<p>AI 识别内容可能包含推断、漏字或串题，请以原页为准。</p>' : ''}${it.cross_page_review_required ? '<p>此题涉及跨页内容，请逐页核对并补全关联。</p>' : ''}${(it.recognition_notes || []).map((note) => `<p>AI 提示（可能包含推断，请对照原页核对）：${esc(note)}</p>`).join('')}${it.content_review_pending ? ' <button type="button" class="btn ghost sm" data-act="content-review">确认已对照原页</button>' : ''}</div>` : ''}
+
         ${(it.image_errors || []).map((e) => `<div class="pd-upload-note"><b>图${Number(e.index) + 1} 转存失败：</b>${esc(e.message)}。请从原网页保存图片后补传。 <label class="btn ghost sm">选择图片<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-replace-image="${Number(e.index)}" style="display:none"></label></div>`).join('')}
         ${(it.figure_missing || []).filter((n) => n > 0 && n <= 30).map((n) => `<div class="pd-upload-note"><b>图${Number(n)} 尚未补充。</b> 可从原页框选，或上传对应图像。 <label class="btn ghost sm">上传图${Number(n)}<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-supply-figure="${Number(n) - 1}" style="display:none"></label></div>`).join('')}
         ${(it.figure_missing || []).includes('未编号') ? '<div class="pd-upload-note"><b>题目含图片或表格占位标记。</b>请点击编辑，将 [图]、[图N]、[表1] 等改为对应的 [图1]、[图2] 等唯一图号，再从原页裁取并补充实际图片或表格。</div>' : ''}
-        <div class="pd-stem">${preview.html || '<span class="pd-warn">题干缺失，请对照原页补录后再入库。</span>'}</div>
+        <div class="pd-stem">${preview.html || '<span class="pd-warn">题干缺失，待补录。请对照原页补录后再入库。</span>'}</div>
         ${preview.prompts.length ? `<div><b>匹配项目</b><ol>${preview.prompts.map((v) => `<li>${v}</li>`).join('')}</ol></div>` : ''}
         ${(it.options || []).length ? `<ol class="pd-opts">${it.options.map((o, i) => `<li><b>${esc(optLabel(o, i))}.</b> ${preview.options[i]}</li>`).join('')}</ol>` : ''}
         ${preview.rest ? `<div class="pd-imgs">${preview.rest}</div>` : ''}
-        <div class="pd-ans"><b>答案：</b>${it.answer ? pdBr(it.answer) : '<span class="pd-warn">未填</span>'}${it.analysis ? `<div class="pd-ana"><b>解析：</b>${preview.analysis}</div>` : ''}</div>
+        <div class="pd-ans"><div class="pd-answer-line"><b>参考答案</b><span>${it.answer ? pdBr(it.answer) : '<span class="pd-warn">未填</span>'}</span></div>${it.analysis ? `<div class="pd-ana"><b>解析</b><div>${preview.analysis}</div></div>` : ''}</div>
+        ${it.content_review_required ? `<div class="pd-upload-note pd-content-review"><b>${it.content_review_pending ? '请对照原页核对题型、题干、选项、公式、共同材料和小问' : '老师已核对当前题目内容'}</b>${it.content_review_pending ? '<p>AI 识别内容可能包含推断、漏字或串题，请以原页为准。</p>' : ''}${it.cross_page_review_required ? '<p>此题涉及跨页内容，请逐页核对并补全关联。</p>' : ''}${(it.recognition_notes || []).map((note) => `<p>AI 提示（可能包含推断，请对照原页核对）：${esc(note)}</p>`).join('')}</div>` : ''}
         ${it.ai_legacy_pending ? `<div class="pd-upload-note"><b>历史 AI 补全内容待核对：</b>来源无法确定，请对照原文逐项确认。 ${(it.ai_legacy_pending_fields || []).includes('answer') ? '<button type="button" class="btn ghost sm" data-act="legacy-answer">确认答案</button>' : ''} ${(it.ai_legacy_pending_fields || []).includes('analysis') ? '<button type="button" class="btn ghost sm" data-act="legacy-analysis">确认解析</button>' : ''} ${(it.ai_legacy_pending_fields || []).includes('classification') ? '<button type="button" class="btn ghost sm" data-act="legacy-classification">确认分类</button>' : ''}</div>` : ''}
         ${(it.ai_review_pending_fields || []).length ? `<div class="pd-upload-note"><b>题目内容已变化：</b>已采纳的 AI 内容须对照当前题目逐项重新核对。 ${(it.ai_review_pending_fields || []).includes('answer') ? '<button type="button" class="btn ghost sm" data-act="recheck-answer">重新确认答案</button>' : ''} ${(it.ai_review_pending_fields || []).includes('analysis') ? '<button type="button" class="btn ghost sm" data-act="recheck-analysis">重新确认解析</button>' : ''}</div>` : ''}
         ${it.ai_answer_suggestion ? `<div class="pd-upload-note"><b>${it.ai_answer_suggestion.source === 'recognition' ? 'AI 转写内容（请对照原文核对，未经确认不会入库）' : 'AI 建议（未经确认，不会入库）'}</b>${it.ai_answer_suggestion.source !== 'recognition' ? '<p class="pd-warn">建议仅依据题目文字生成，未读取题图；答案和解析可能不一致，请分别核对。</p>' : ''}${it.ai_answer_suggestion.stale ? '<p class="pd-warn">题目已修改，请重新生成建议。</p>' : ''}${it.ai_answer_suggestion.answer ? `<div><b>答案建议：</b>${pdBr(it.ai_answer_suggestion.answer)} ${!it.ai_answer_suggestion.stale && !it.answer ? '<button type="button" class="btn ghost sm" data-act="ai-answer">采纳答案</button>' : ''}</div>` : ''}${it.ai_answer_suggestion.analysis ? `<div><b>解析建议：</b>${pdBr(it.ai_answer_suggestion.analysis)} ${!it.ai_answer_suggestion.stale && !it.analysis ? '<button type="button" class="btn ghost sm" data-act="ai-analysis">采纳解析</button>' : ''}</div>` : ''}<button type="button" class="btn ghost sm" data-act="discard-ai">舍弃未采纳建议</button></div>` : ''}
         ${(it.ai_answer_discard_history || []).length ? `<details class="pd-upload-note"><summary>查看已舍弃 AI 内容（${it.ai_answer_discard_history.length}）</summary>${it.ai_answer_discard_history.map((h) => `<div><b>操作人：</b>${esc(String(h.discarded_by || ''))} <b>时间：</b>${esc(h.discarded_at || '')}${h.answer ? `<p><b>答案：</b>${pdBr(h.answer)}</p>` : ''}${h.analysis ? `<p><b>解析：</b>${pdBr(h.analysis)}</p>` : ''}</div>`).join('')}</details>` : ''}
-      </div>
-      <div class="pd-acts">
+      <details class="pd-item-tools"><summary>原页、图片与更多操作</summary><div class="pd-acts">
         ${sourcePages.map((page) => `<button type="button" class="btn sm ghost" data-act="original" data-page="${page}">查看原页 · 第 ${page} 页</button>`).join('')}
         ${it.original_page ? `<button type="button" class="btn sm ghost" data-act="crop-figure">从原页补图</button>` : ''}
         ${it.figure_review_required && it.figure_review_issue ? `<button type="button" class="btn sm ghost" data-act="confirm-figure">确认图文归属</button>` : ''}
         ${it.kind === 'run' ? `<button type="button" class="btn sm ghost" data-act="merge-pin">${st.mergePins.some(p => p.id === it.id) ? '取消暂存片段' : '暂存为合并片段'}</button>` : ''}
-        <button type="button" class="btn sm primary" data-act="commit">入库</button>
-        <button type="button" class="btn sm ghost" data-act="edit">编辑</button>
         <button type="button" class="btn sm ghost danger" data-act="del">删除</button>
+      </div></details>
       </div>
+        <div class="pd-edit-row">${it.content_review_required ? `<div class="pd-content-action">${it.content_review_pending ? '<button type="button" class="btn ghost" data-act="content-review">确认已对照原页</button>' : `<span>${ic('check')} 老师已核对当前题目内容</span>`}</div>` : ''}<button type="button" class="btn ghost" data-act="edit">${ic('edit')} 编辑题目</button></div>
+      </div>
+      ${pdClassificationHTML(it)}
     </div>`;
   };
 
   const html = `
-  <div class="card">
-    <div class="card-h"><h3>${ic('doc')} 待审核题目</h3><div class="card-h-r"><button type="button" class="btn ghost sm" id="pd-batches">按批次查看</button></div></div>
-    <p class="pd-tip">Excel、Word、拍照识别、技能包、网络采集、手机扫码——各种方式录入的题目都先到这里，每道题标着来源。逐题看过、改好再点「入库」，入库后才会出现在题库管理里。</p>
-    <div class="pd-bar">
-      <button type="button" class="btn sm" id="pd-excel">${ic('upload')} 导入 Excel</button>
-      <button type="button" class="btn sm" id="pd-word">${ic('upload')} 导入 Word</button>
-      <span class="sp"></span>
-      <input class="input pd-kw" id="pd-kw" placeholder="搜索题干 / 批次 / 知识点" value="${esc(st.kw)}">
-    </div>
-    <div class="pd-tabs">${PD_SRC.map(([k, t]) => `<button type="button" class="pd-tab ${st.source === k ? 'on' : ''}" data-src="${k}">${esc(t)}<em>${counts[k] || 0}</em></button>`).join('')}</div>
-    <div class="pd-tabs pd-review-tabs" aria-label="按题目完整度筛选">${PD_REVIEW.map(([k, t]) => `<button type="button" class="pd-tab ${(!st.review ? 'all' : st.review) === k ? 'on' : ''}" data-review="${k}">${esc(t)}<em>${reviewCounts[k] || 0}</em></button>`).join('')}</div>
+  <section class="pd-workspace">
+    <header class="pd-workspace-heading"><div><h2>待审核题目</h2><p>先核对，再入库，让每道题都有清晰来源</p></div>
+      <ol class="pd-workflow" aria-label="录题进度"><li class="done"><span>${ic('check')}</span>上传资料</li><li class="current" aria-current="step"><span>2</span>逐题核对</li><li><span>3</span>确认入库</li></ol>
+    </header>
+    <div class="pd-filter-area">
+      <div class="pd-filter-row">
+        <button type="button" class="btn ghost pd-batch-picker" id="pd-batches">${esc(st.batch_id && list[0] ? list[0].batch_title || '所选批次' : '全部批次')} · ${Number(data.total) || 0} 题 ${ic('folder')}</button>
+        <label class="pd-source-label"><span class="sr-only">题目来源</span><select id="pd-source" class="input">${PD_SRC.map(([k,t])=>`<option value="${k}" ${st.source === k ? 'selected' : ''}>${esc(t)} · ${Number(counts[k]) || 0}</option>`).join('')}</select></label>
+        <div class="pd-tabs pd-review-tabs" aria-label="按题目完整度筛选">${PD_REVIEW.map(([k,t])=>`<button type="button" class="pd-tab ${(!st.review ? 'all' : st.review) === k ? 'on' : ''}" data-review="${k}" aria-pressed="${(!st.review ? 'all' : st.review) === k}">${esc(k === 'all' ? '全部' : t)}<em>${Number(reviewCounts[k]) || 0}</em></button>`).join('')}</div>
+      </div>
+      <details class="pd-advanced"><summary>${ic('setting')} 搜索、导入与批量操作 <span id="pd-tool-selection"></span></summary>
+      <p class="pd-tip">各种方式录入的题目均先进入待审核；核对、修改后再入库。</p>
+      <div class="pd-bar">
+        <button type="button" class="btn sm" id="pd-excel">${ic('upload')} 导入 Excel</button>
+        <button type="button" class="btn sm" id="pd-word">${ic('upload')} 导入 Word</button>
+        <input class="input pd-kw" id="pd-kw" aria-label="搜索待审核题目" placeholder="搜索题干 / 批次 / 知识点" value="${esc(st.kw)}">
+      </div>
     <div class="pd-batchbar">
       <label><input type="checkbox" id="pd-all"> 全选本页</label>
       <span class="pd-selcnt" id="pd-selcnt">已选 0 题</span>
@@ -157,10 +207,11 @@ async function viewPending() {
       <button type="button" class="btn sm ghost danger" id="pd-bdel">批量删除</button>
     </div>
     ${st.batch_id ? `<p class="pd-tip">正在查看所选批次 <button type="button" class="btn ghost xs" id="pd-clear-batch">查看全部批次</button></p>` : ''}
-    ${list.length ? `<div class="r4-review-nav"><span>使用 ↑ / ↓ 切换本页题目，输入时不会切换</span><div><button type="button" class="btn ghost xs" id="pd-prev">上一题</button> <span id="pd-position" aria-live="polite"></span> <button type="button" class="btn ghost xs" id="pd-next">下一题</button></div></div>` : ''}
-    <div class="pd-list r4-review-layout" id="pd-list">${list.length ? `<div class="r4-review-list" aria-label="待审核题目列表">${list.map((it, i) => `<div class="r4-review-row ${it.id === st.active ? 'on' : ''}" data-review-row="${esc(it.id)}"><label><input type="checkbox" data-sel="${esc(it.id)}" ${st.sel[it.id] ? 'checked' : ''} aria-label="选择第 ${i + 1} 题"></label><button type="button" data-select-item="${esc(it.id)}"><span>第 ${i + 1} 题 · ${esc(it.type_name)}</span><strong>${esc((it.stem || '').slice(0, 70) || `题干缺失${it.qno ? ' · 原题号 ' + it.qno : ''}`)}</strong><small>${!it.answer ? '缺答案 ' : ''}${!it.analysis ? '缺解析 ' : ''}${!it.subject || !it.stage ? '缺分类' : ''}</small></button></div>`).join('')}</div><div class="r4-review-preview" id="pd-preview">${itemHTML(byId[st.active])}</div>` : `<div class="empty">${st.kw ? '没有符合搜索条件的题目' : '没有待审核的题目'}<div style="margin-top:8px;color:#97a3b8">可从录题中心导入或录入题目</div></div>`}</div>
-    ${pagerHTML(data.page, data.size, data.total, 'pdPage')}
-  </div>`;
+      </details>
+    </div>
+    <div class="pd-list r4-review-layout" id="pd-list">${list.length ? `<aside class="r4-review-list" aria-label="待审核题目列表"><div class="pd-list-heading"><h3>${st.batch_id ? '本批题目' : '待审题目'}</h3><span>${data.total} 题</span></div><div class="pd-list-rows">${list.map((it, i) => `<div class="r4-review-row ${it.id === st.active ? 'on' : ''}" data-review-row="${esc(it.id)}"><label><input type="checkbox" data-sel="${esc(it.id)}" ${st.sel[it.id] ? 'checked' : ''} aria-label="选择第 ${i + 1} 题"></label><button type="button" data-select-item="${esc(it.id)}"><span class="pd-row-number">${String((data.page-1)*data.size+i+1).padStart(2,'0')}</span><strong>${esc((it.stem || '').slice(0, 70) || `题干缺失${it.qno ? ' · 原题号 ' + it.qno : ''}`)}</strong><small class="${!it.answer || (it.figure_missing || []).length ? 'warn' : ''}">${!it.answer ? '缺答案' : (it.figure_missing || []).length || (it.image_errors || []).length ? '待补图' : pdReviewBlocker(it) ? '待核对' : !it.subject || !it.stage || !it.point ? '缺分类' : '待入库'}</small></button></div>`).join('')}</div>${pagerHTML(data.page, data.size, data.total, 'pdPage')}</aside><div class="r4-review-preview" id="pd-preview">${itemHTML(byId[st.active])}</div>` : `<div class="empty">${st.kw ? '没有符合搜索条件的题目' : '没有待审核的题目'}<div style="margin-top:8px;color:#97a3b8">可从录题中心导入或录入题目</div></div>`}</div>
+    ${list.length ? `<footer class="pd-review-footer"><div class="pd-review-navigation"><button type="button" class="btn ghost" id="pd-prev">${ic('arrow-left')} 上一题</button><span id="pd-position" aria-live="polite"></span><button type="button" class="btn ghost" id="pd-next">下一题 ${ic('arrow-right')}</button></div><div class="pd-review-commit"><span id="pd-commit-hint"></span><button type="button" class="btn primary" id="pd-current-commit">核对并入库</button></div></footer>` : ''}
+  </section>`;
 
   return {
     html,
@@ -169,16 +220,51 @@ async function viewPending() {
       const paintSel = () => {
         const n = selIds().length;
         $('pd-selcnt').textContent = `已选 ${n} 题`;
+        if ($('pd-tool-selection')) $('pd-tool-selection').textContent = n ? `已选 ${n} 题` : '';
         $('pd-all').checked = list.length > 0 && n === list.length;
       };
       paintSel();
       mtxTypeset($('pd-list'));
       bindPager('pdPage');
       $('pd-batches').onclick = () => { st.mode = 'batches'; st.batch_id = 0; st.sel = {}; render(); };
+      let classificationSaving = false;
+      const classificationPatch = () => Object.fromEntries([...document.querySelectorAll('#pd-preview [data-class-field]')].map((field) => [field.dataset.classField, field.value.trim()]));
+      const canLeaveClassification = () => {
+        const item = byId[st.active];
+        if (classificationSaving || (item && pdClassificationChanged(item, classificationPatch()))) {
+          toast(classificationSaving ? '分类正在保存，请稍候' : '分类尚未保存，请先保存或撤销修改', 'err'); return false;
+        }
+        return true;
+      };
+      // Central guard covers batch actions, filters, pagination and navigation,
+      // including future callers of existing handlers. Viewing original pages is safe.
+      const workspace = $('pd-list').closest('.ui-review-shell') || $('pd-list').closest('.pd-workspace');
+      workspace.addEventListener('click', (event) => {
+        const button = event.target.closest('button,a'); if (!button) return;
+        const changesView = button.dataset.act !== 'original' && button.matches('#pd-bcommit,#pd-bmerge,#pd-merge-clear,#pd-bclassify,#pd-bai,#pd-bdel,#pd-batches,#pd-clear-batch,#pd-excel,#pd-word,[data-page],[data-src],[data-review],.nav [data-go],#btnOut');
+        const changesItem = button.dataset.act && !['save-classification', 'discard-classification', 'original'].includes(button.dataset.act);
+        const selectsOther = button.dataset.selectItem && button.dataset.selectItem !== st.active;
+        if ((changesView || changesItem || selectsOther) && !canLeaveClassification()) { event.preventDefault(); event.stopImmediatePropagation(); }
+      }, true);
+      workspace.addEventListener('change', (event) => {
+        const field = event.target;
+        if (!field.matches('#pd-source,[data-psize="pdPage"],[data-replace-image],[data-supply-figure]') || canLeaveClassification()) return;
+        field.value = field.id === 'pd-source' ? st.source : field.hasAttribute('data-psize') ? String(data.size) : '';
+        event.preventDefault(); event.stopImmediatePropagation();
+      }, true);
+      const updateCommitState = () => {
+        const item = byId[st.active]; if (!item || !$('pd-current-commit')) return;
+        const dirty = pdClassificationChanged(item, classificationPatch());
+        const blocker = dirty ? '分类已修改，请先保存' : pdReviewBlocker(item);
+        $('pd-current-commit').disabled = !!blocker || classificationSaving;
+        const discard = document.querySelector('#pd-preview [data-act="discard-classification"]'); if (discard) discard.hidden = !dirty;
+        $('pd-commit-hint').textContent = blocker || '入库前将再次核对分类';
+      };
       const selectItem = (id, scroll) => {
-        if (!byId[id]) return;
+        if (!byId[id] || (id !== st.active && !canLeaveClassification())) return;
         st.active = id;
         const preview = $('pd-preview'); preview.innerHTML = itemHTML(byId[id]);
+        updateCommitState();
         document.querySelectorAll('[data-review-row]').forEach((row) => { const active = row.dataset.reviewRow === id; row.classList.toggle('on', active); const b = row.querySelector('[data-select-item]'); if (b) b.setAttribute('aria-current', active ? 'true' : 'false'); });
         const index = list.findIndex((item) => item.id === id);
         if ($('pd-position')) $('pd-position').textContent = `${index + 1} / ${list.length}`;
@@ -191,6 +277,7 @@ async function viewPending() {
       if (list.length) {
         selectItem(st.active, false);
         $('pd-prev').onclick = () => move(-1); $('pd-next').onclick = () => move(1);
+        $('pd-current-commit').onclick = () => { const item = byId[st.active]; if (!item || classificationSaving || pdReviewBlocker(item) || pdClassificationChanged(item, classificationPatch())) return; pdBatchCommit([item.id], byId); };
         const listElement = $('pd-list');
         window.__pdReviewKey = (event) => {
           if (!document.body.contains(listElement) || document.querySelector('.mask') || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing) return;
@@ -201,13 +288,16 @@ async function viewPending() {
         };
         document.addEventListener('keydown', window.__pdReviewKey);
       }
+      $('pd-source').onchange = (e) => { st.source = e.target.value; st.batch_id = 0; st.sel = {}; st.active = ''; st.mergePins = []; ADM.page.pdPage = 1; render(); };
       document.querySelectorAll('[data-src]').forEach((a) => a.onclick = () => { st.source = a.dataset.src; st.batch_id = 0; st.sel = {}; ADM.page.pdPage = 1; render(); });
       if ($('pd-clear-batch')) $('pd-clear-batch').onclick = () => { st.batch_id = 0; st.sel = {}; ADM.page.pdPage = 1; render(); };
-      document.querySelectorAll('[data-review]').forEach((b) => b.onclick = () => { st.review = b.dataset.review; st.sel = {}; ADM.page.pdPage = 1; render(); });
+      document.querySelectorAll('[data-review]').forEach((b) => b.onclick = () => { st.review = b.dataset.review; st.sel = {}; st.active = ''; ADM.page.pdPage = 1; render(); });
       let kwTimer = 0;
-      $('pd-kw').oninput = (e) => { clearTimeout(kwTimer); kwTimer = setTimeout(() => { st.kw = e.target.value.trim(); ADM.page.pdPage = 1; render(); }, 500); };
+      $('pd-kw').oninput = (e) => { clearTimeout(kwTimer); if (!canLeaveClassification()) { e.target.value = st.kw || ''; return; } kwTimer = setTimeout(() => { if (!canLeaveClassification()) { e.target.value = st.kw || ''; return; } st.kw = e.target.value.trim(); st.sel = {}; st.active = ''; ADM.page.pdPage = 1; render(); }, 500); };
       $('pd-all').onchange = (e) => { list.forEach((it) => { st.sel[it.id] = e.target.checked; }); document.querySelectorAll('[data-sel]').forEach((c) => { c.checked = e.target.checked; }); paintSel(); };
+      $('pd-list').oninput = (e) => { if (e.target.matches('[data-class-field]')) updateCommitState(); };
       $('pd-list').onchange = async (e) => {
+        if (e.target.matches('[data-class-field]')) { updateCommitState(); return; }
         const c = e.target.closest('[data-sel]'); if (c) { st.sel[c.dataset.sel] = c.checked; paintSel(); return; }
         const input = e.target.closest('[data-replace-image], [data-supply-figure]');
         if (!input || !input.files[0]) return;
@@ -227,6 +317,7 @@ async function viewPending() {
       $('pd-list').onclick = async (e) => {
         const pick = e.target.closest('[data-select-item]');
         if (pick) {
+          if (pick.dataset.selectItem === st.active) return;
           selectItem(pick.dataset.selectItem, false);
           return;
         }
@@ -234,6 +325,26 @@ async function viewPending() {
         if (!b) return;
         const it = byId[b.closest('.pd-item').dataset.id];
         if (!it) return;
+        if (b.dataset.act === 'discard-classification') {
+          if (classificationSaving) return;
+          document.querySelectorAll('#pd-preview [data-class-field]').forEach((field) => { field.value = it[field.dataset.classField] || ''; });
+          updateCommitState(); return;
+        }
+        if (b.dataset.act === 'save-classification') {
+          if (b.disabled) return;
+          const card = b.closest('.pd-item');
+          const patch = Object.fromEntries([...card.querySelectorAll('[data-class-field]')].map((field) => [field.dataset.classField, field.value.trim()]));
+          if (!patch.subject || !patch.stage) return toast('请先选择学科和学段', 'err');
+          const expected = Object.fromEntries(['stem', 'type', 'question_subtype', 'subject', 'stage', 'difficulty', 'difficulty_score_10'].map((key) => [key, it[key] == null ? '' : it[key]]));
+          classificationSaving = true;
+          const fields = [...card.querySelectorAll('[data-class-field], [data-act="discard-classification"]')]; fields.forEach((field) => { field.disabled = true; });
+          b.disabled = true; b.textContent = '保存中…'; updateCommitState();
+          try {
+            await api(`${PD_API}/ext/pending/item`, { method: 'PUT', body: { id: it.id, patch, expected } });
+            toast('分类已保存，题目仍在待审核', 'ok'); render();
+          } catch (err) { classificationSaving = false; fields.forEach((field) => { field.disabled = false; }); b.disabled = false; b.textContent = '保存分类'; updateCommitState(); }
+          return;
+        }
         if (b.dataset.act === 'merge-pin') {
           const pos = st.mergePins.findIndex(p => p.id === it.id);
           if (pos >= 0) st.mergePins.splice(pos, 1);
@@ -520,9 +631,9 @@ function pdEdit(it) {
     body: `<div class="pd-grid">
         <div class="field"><label>题型</label><select id="pdE-type" class="input">${pdOpts(PD_TYPES, it.type)}</select>${it.type_unconfirmed ? '<label><input type="checkbox" id="pdE-type-confirm"> 已对照原题确认题型</label>' : ''}</div>
         <div class="field"><label>细分题型（选填）</label><select id="pdE-subtype" class="input"><option value="">不细分</option></select></div>
-        <div class="field"><label>学科</label><select id="pdE-sub" class="input">${pdOpts(PD_SUBJECTS, it.subject, '未识别')}</select></div>
-        <div class="field"><label>学段</label><select id="pdE-stage" class="input">${pdOpts(PD_STAGES.slice(1), it.stage, '未识别')}</select></div>
-        <div class="field"><label>年级</label><select id="pdE-grade" class="input">${pdOpts(PD_GRADES, it.grade, '未识别')}</select></div>
+        <div class="field"><label>学科</label><select id="pdE-sub" class="input">${pdClassOpts(PD_SUBJECTS, it.subject)}</select></div>
+        <div class="field"><label>学段</label><select id="pdE-stage" class="input">${pdClassOpts(PD_STAGES.slice(1), it.stage)}</select></div>
+        <div class="field"><label>年级</label><select id="pdE-grade" class="input">${pdClassOpts(PD_GRADES, it.grade)}</select></div>
         <div class="field"><label>难度（五星）</label><select id="pdE-diff" class="input">${pdOpts([1, 2, 3, 4, 5], it.difficulty || 3)}</select></div>
         <div class="field"><label>十级难度（选填）</label><select id="pdE-diff10" class="input">${pdOpts([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], it.difficulty_score_10, '未记录')}</select><small class="hint">选择十级后自动同步五星；旧题没有十级值时保持空白。</small></div>
       </div>

@@ -80,7 +80,7 @@ function navGroupsHTML(cur) {
       <div class="ng-sub">${items.map((n) => {
         const on = cur === n.k || cur.startsWith(n.k + '-');
         const badge = n.k === 'pending' ? '<em class="t11-badge" id="t11BadgePending" hidden></em>' : '';
-        return `<a data-go="${n.k}" class="${on ? 'on' : ''}" title="${n.t}"><span class="ico">${ic(n.i)}</span><span class="txt">${n.t}</span>${badge}</a>`;
+        return `<a data-go="${n.k}" class="${on ? 'on' : ''}" title="${n.t}"><span class="ico">${ic(n.i)}</span><span class="txt">${cur === 'pending' && n.k === 'pending' ? '待审核' : n.t}</span>${badge}</a>`;
       }).join('')}</div>
     </div>`;
   }).join('');
@@ -640,10 +640,10 @@ function shell(inner) {
   const title = TITLE[cur] || '首页';
   const folded = sideFoldGet();
   return `
-  <div class="layout admin-app ${folded ? 'side-fold' : ''}">
+  <div class="layout admin-app ${cur === 'pending' ? 'ui-review-shell' : ''} ${folded ? 'side-fold' : ''}">
     <div class="t11-scrim" id="t11Scrim"></div>
     <aside class="side">
-      <div class="brand">${brandHTML('管理端')}</div>
+      <div class="brand">${cur === 'pending' ? '<div class="zx-logo"><img class="zx-mark" src="/img/ui-brand-20261108.png" alt="智乐学" width="52" height="52"><span class="zx-txt"><b>智乐学</b><em>管理端</em></span></div>' : brandHTML('管理端')}</div>
       <nav class="nav">${navGroupsHTML(cur)}</nav>
       <div class="side-foot">${u.role === 'branch' ? '分校管理端' : '系统管理端'}</div>
     </aside>

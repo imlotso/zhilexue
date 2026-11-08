@@ -254,7 +254,7 @@ const BankQuiz = {
     const qs = (opt.questions || []).slice();
     if (!qs.length) { toast('这里还没有题目'); return; }
     const mask = document.createElement('div');
-    mask.className = 'mask quiz-mask r8-qmask';
+    mask.className = 'mask quiz-mask r8-qmask ui-quiz-workbench';
     document.body.appendChild(mask);
 
     const st = {
@@ -286,16 +286,16 @@ const BankQuiz = {
     const stopTimer = () => { if (timerId) { clearInterval(timerId); timerId = null; } };
 
     mask.innerHTML = `
-      <div class="quiz-box r8-qz fs-md ${isStep ? 'quiz-step' : ''}">
+      <div class="quiz-box r8-qz fs-md ${isStep ? 'quiz-step' : ''}" role="dialog" aria-modal="true" aria-label="${esc(opt.title || '在线做题')}">
         <div class="quiz-h r8-qz-h">
+          <div class="ui-quiz-brand"><img src="/img/ui-brand-20261108.png" alt=""><b>智乐学</b></div>
+          <button type="button" class="close-x ui-quiz-exit" id="qzClose" title="退出练习"><i class="ai ai-logout" aria-hidden="true"></i><span>退出练习</span></button>
           <div class="quiz-h-t"><b title="${esc(opt.title || '在线做题')}">${esc(opt.title || '在线做题')}</b>${opt.subtitle ? `<span>${esc(opt.subtitle)}</span>` : ''}</div>
           <div class="quiz-h-r">
-            <span class="quiz-prog" id="qzProg"></span>
             <span class="qz-fs" id="qzFs" title="字体大小"><button data-fs="sm">小</button><button class="on" data-fs="md">中</button><button data-fs="lg">大</button></span>
-            <button class="close-x" id="qzClose" title="退出">&times;</button>
           </div>
         </div>
-        <div class="quiz-bar"><i id="qzBarFill"></i></div>
+        <div class="ui-quiz-progress"><span class="quiz-prog" id="qzProg" aria-live="polite"></span><div class="quiz-bar"><i id="qzBarFill"></i></div></div>
         <div class="r8-qz-main">
           <div class="r8-qz-left">
             <div class="quiz-body" id="qzBody"></div>
@@ -305,9 +305,10 @@ const BankQuiz = {
           </div>
           <aside class="r8-qz-side" id="qzSide">
             <div class="r8-side-timer">${r8Ic('clock')}<span>已用时间</span><b class="qz-timer" id="qzTimer">00 : 00</b></div>
-            <div class="r8-side-t">题号<em>（${total} 题）</em></div>
+            <div class="r8-side-t">答题卡<em>（${total} 题）</em></div>
             <div class="quiz-dots r8-dots" id="qzDots"></div>
             <div class="r8-legend"><span><i class="u"></i>未做</span><span><i class="d"></i>已做</span><span><i class="ok"></i>答对</span><span><i class="no"></i>答错</span></div>
+            <div class="ui-quiz-ai-dock" id="qzAiDock"></div>
           </aside>
         </div>
       </div>`;
@@ -322,7 +323,11 @@ const BankQuiz = {
     });
     startTimer();
 
-    const onMathResize = () => drawMathConnections();
+    const onMathResize = () => {
+      drawMathConnections();
+      // Crossing into desktop must not lose the mobile launcher's only AI entry.
+      if (window.matchMedia('(min-width: 900px)').matches && st.phase === 'answer' && !ai.open) aiOpenFor(qs[st.idx], false);
+    };
     window.addEventListener('resize', onMathResize);
     let lastSubmitted = null, completionNotified = false;
     const notifyDone = () => { if (lastSubmitted && !completionNotified) { completionNotified = true; if (opt.onDone) opt.onDone(lastSubmitted); } };
@@ -351,7 +356,8 @@ const BankQuiz = {
       dotsEl.innerHTML = qs.map((q, i) => {
         const s = dotState(q, i);
         const cls = { u: '', d: 'done', ok: 'ok', no: 'no' }[s];
-        return `<button type="button" class="qz-dot r8-dot ${cls} ${st.phase !== 'result' && i === st.idx ? 'on cur' : ''}" data-i="${i}" title="第 ${i + 1} 题">${i + 1}</button>`;
+        const status = { u: '未做', d: '已作答，待评分', ok: '答对', no: '答错' }[s];
+        return `<button type="button" class="qz-dot r8-dot ${cls} ${st.phase !== 'result' && i === st.idx ? 'on cur' : ''}" data-i="${i}" title="第 ${i + 1} 题 · ${status}" aria-label="第 ${i + 1} 题，${status}" ${st.phase !== 'result' && i === st.idx ? 'aria-current="step"' : ''}>${i + 1}${s === 'ok' || s === 'no' ? r8Ic(s, 'ui-dot-status') : ''}</button>`;
       }).join('');
       dotsEl.querySelectorAll('.qz-dot').forEach((b) => b.onclick = () => {
         const i = Number(b.dataset.i);
@@ -359,7 +365,7 @@ const BankQuiz = {
         st.idx = i; paint();
       });
       const checkedN = Object.keys(st.checked).length;
-      $('#qzProg').textContent = st.phase === 'result' ? '已完成' : `已核对 ${checkedN} / ${total}`;
+      $('#qzProg').innerHTML = st.phase === 'result' ? '已完成' : `已核对 <b>${checkedN}</b> / ${total} 题`;
       $('#qzBarFill').style.width = Math.round((st.phase === 'result' ? total : checkedN) / total * 100) + '%';
       const cur = dotsEl.querySelector('.cur');
       if (cur && dotsEl.scrollWidth > dotsEl.clientWidth) dotsEl.scrollLeft = Math.max(0, cur.offsetLeft - dotsEl.offsetLeft - dotsEl.clientWidth / 2 + cur.offsetWidth / 2);
@@ -378,8 +384,8 @@ const BankQuiz = {
           let cls = sel ? 'on' : '';
           let mark = '';
           if (ck && !ck.ungraded) {
-            if (right.has(L)) { cls += ' r8-right'; mark = r8Ic('ok', 'r8-om ok'); }
-            else if (sel) { cls += ' r8-wrong'; mark = r8Ic('no', 'r8-om no'); }
+            if (right.has(L)) { cls += ' r8-right'; mark = `<span class="ui-option-status">${r8Ic('ok', 'r8-om ok')}<small>正确答案</small></span>`; }
+            else if (sel) { cls += ' r8-wrong'; mark = `<span class="ui-option-status">${r8Ic('no', 'r8-om no')}<small>你的选择</small></span>`; }
           }
           return `<button type="button" class="qz-opt ${cls}" data-i="${i}" ${ck ? 'disabled' : ''}>
             <span class="qz-l">${L}</span><span class="qz-ot">${quizMatchContent(q, t)}</span>${mark}</button>`;
@@ -617,31 +623,32 @@ const BankQuiz = {
     const aiEnsure = () => {
       if (ai.el) return;
       const el = document.createElement('div');
-      el.className = 'r8-ai';
-      el.setAttribute('role', 'dialog');
+      el.className = 'r8-ai ui-quiz-ai';
+      el.setAttribute('role', 'region');
       el.setAttribute('aria-label', 'AI 老师');
       el.innerHTML = `
         <div class="r8-ai-h">
           <b class="r8-ai-tt">${r8Ic('ai')}AI 老师</b>
           <div class="r8-ai-modes" role="tablist"><button type="button" data-m="explain" class="on">直接讲解</button><button type="button" data-m="guide">一步步引导</button></div>
-          <button type="button" class="r8-ai-btn" data-act="min" title="最小化">${R8_ICON.min}</button>
-          <button type="button" class="r8-ai-btn" data-act="close" title="关闭">${R8_ICON.x}</button>
+          <button type="button" class="r8-ai-btn" data-act="min" title="收起 AI 老师" aria-label="收起 AI 老师">${R8_ICON.min}</button>
+          <button type="button" class="r8-ai-btn" data-act="close" title="关闭 AI 老师" aria-label="关闭 AI 老师">${R8_ICON.x}</button>
         </div>
         <div class="r8-ai-q" id="r8AiQ"></div>
         <div class="r8-ai-body" id="r8AiBody"></div>
         <div class="r8-ai-f">
           <div class="r8-ai-chips"><button type="button" data-ask="再讲细一点">再讲细一点</button><button type="button" data-ask="出一道同类题考考我">出一道同类题考考我</button></div>
-          <form class="r8-ai-in" autocomplete="off"><textarea rows="1" maxlength="500" placeholder="有不懂的地方，直接问 AI 老师…"></textarea><button type="submit" title="发送">${R8_ICON.send}</button></form>
+          <div class="ui-ai-answer-gate" id="qzAiGate"></div>
+          <form class="r8-ai-in" autocomplete="off"><textarea rows="1" maxlength="500" aria-label="向 AI 老师提问" placeholder="说说你的想法…"></textarea><button type="submit" title="发送" aria-label="发送提问">${R8_ICON.send}</button></form>
         </div>`;
-      document.body.appendChild(el);
+      $('#qzAiDock').appendChild(el);
       const pill = document.createElement('button');
       pill.type = 'button'; pill.className = 'r8-ai-pill'; pill.hidden = true;
       pill.innerHTML = `${r8Ic('ai')}<span>AI 老师</span><em>展开</em>`;
-      document.body.appendChild(pill);
+      $('#qzAiDock').appendChild(pill);
       ai.el = el; ai.pill = pill;
       el.querySelector('[data-act="min"]').onclick = () => { ai.min = true; el.classList.add('r8-hide'); pill.hidden = false; mask.classList.remove('r8-ai-on'); };
       el.querySelector('[data-act="close"]').onclick = () => aiClose();
-      pill.onclick = () => { ai.min = false; el.classList.remove('r8-hide'); pill.hidden = true; mask.classList.add('r8-ai-on'); aiPaint(true); };
+      pill.onclick = () => { const q = curQ(); if (q) aiOpenFor(q, false); };
       el.querySelectorAll('[data-m]').forEach((b) => b.onclick = () => { if (ai.mode === b.dataset.m) return; ai.mode = b.dataset.m; aiShow(true); });
       el.querySelectorAll('[data-ask]').forEach((b) => b.onclick = () => aiAsk(b.dataset.ask));
       const form = el.querySelector('.r8-ai-in'); const ta = form.querySelector('textarea');
@@ -693,6 +700,7 @@ const BankQuiz = {
         if (window.mtxTypeset) mtxTypeset(body.querySelectorAll('.r8-msg.bot:not(.streaming) .r8-bub'));
       }
       const busy = c.busy || !judged;
+      ai.el.querySelector('#qzAiGate').textContent = judged ? '本题已提交，可继续追问' : '先提交本题，再请 AI 老师讲解';
       ai.el.querySelectorAll('[data-ask], .r8-ai-in button, .r8-ai-in textarea, [data-m]').forEach((x) => { x.disabled = (x.dataset && x.dataset.m) ? c.busy : busy; });
       if (scroll) body.scrollTop = body.scrollHeight;
     };
@@ -774,8 +782,10 @@ const BankQuiz = {
     const aiClose = () => {
       if (!ai.el) return;
       Object.values(ai.convs).forEach((c) => { if (c.ctrl) c.ctrl.abort(); });
-      ai.open = false; ai.min = false;
-      ai.el.classList.remove('show'); ai.pill.hidden = true;
+      // Desktop has no floating launcher: retain a compact, keyboard-accessible reopen action.
+      const docked = window.matchMedia('(min-width: 900px)').matches;
+      ai.open = docked; ai.min = docked;
+      ai.el.classList.remove('show'); ai.pill.hidden = !docked;
       mask.classList.remove('r8-ai-on');
     };
     const aiDestroy = () => {
@@ -832,8 +842,10 @@ const BankQuiz = {
     const stepJudgeHTML = (q, ck) => `
       <div class="qz-judge-box r8-fb ${ck.ungraded ? 'ung' : ck.ok ? 'ok' : 'no'}">
         <div class="r8-fb-tag">${ck.ungraded ? `${r8Ic('steps')}已提交，本题不自动判分` : ck.match_total ? `${ck.ok ? r8Ic('ok') : r8Ic('no')}连对 ${Number(ck.match_correct)} / ${Number(ck.match_total)} 项` : ck.ok ? `${r8Ic('ok')}答对了` : `${r8Ic('no')}答错了`}</div>
+        <details class="ui-quiz-answer-details"><summary>查看作答与${ck.ungraded ? '参考' : '正确'}答案</summary>
         <div class="qz-jb-r"><span>你的答案</span><em class="${ck.ungraded ? '' : ck.ok ? 'ok' : 'no'}">${window.mtxAnswerHTML ? mtxAnswerHTML(ck.my || '未作答', q.subject) : esc(ck.my || '未作答')}</em></div>
         ${(ck.ok && !ck.ungraded) || (ck.ungraded && !String(ck.raw || '').trim() && !(ck.solution_images || []).length) ? '' : `<div class="qz-jb-r"><span>${ck.ungraded ? '参考答案' : '正确答案'}</span><em class="ok">${quizSolutionContent(q, ck.answer, ck.solution_images)}</em></div>`}
+        </details>
         ${ck.analysis ? `<div class="qz-jb-ana"><span>解析</span><div class="r8-ana-t">${quizSolutionContent(q, ck.analysis, ck.solution_images)}</div></div>` : ''}
         <div class="r8-fb-acts"><button type="button" class="r8-link" data-fb="1">对题目有反馈？</button></div>
       </div>`;
@@ -848,7 +860,7 @@ const BankQuiz = {
       bodyEl.innerHTML = `
         <div class="r8-qcard">
           ${opt.notice ? `<div class="r9-sim-notice" role="status">${esc(opt.notice)}</div>` : ''}
-          <div class="qz-qhead"><span class="qz-qno">第 ${st.idx + 1} / ${total} 题</span>
+          <div class="qz-qhead"><span class="qz-qno">第 ${st.idx + 1} 题</span>
             <span class="qz-qtype">${(typeof QSubtype !== 'undefined' && QSubtype.find(q.question_subtype) || {}).label || ({ listen_match: '听力匹配', math_match: '连线题', drawing: '作图题', translation: '翻译', writing: '书面表达', calculation: '计算题' })[q.question_subtype] || QT_NAME[q.type] || (q.type === 'answer' ? '问答题' : '')}</span>
             ${q.type === 'multi' ? '<span class="qz-qtip">可多选</span>' : ''}
             ${q.point ? `<span class="r8-qpoint">${esc(q.point)}</span>` : ''}
@@ -884,21 +896,23 @@ const BankQuiz = {
       const nextUnchecked = () => { for (let k = 1; k <= total; k++) { const j = (st.idx + k) % total; if (!st.checked[j]) return j; } return -1; };
       if (ck) {
         const nx = nextUnchecked();
-        footEl.innerHTML = allDone
+        footEl.innerHTML = `<button type="button" class="btn ghost" id="qzPrev" ${st.idx === 0 ? 'disabled' : ''}><i class="el-icon-arrow-left" aria-hidden="true"></i> 上一题</button>` + (allDone
           ? `<button type="button" class="btn primary" id="qzFinishCheck"><i class="ai ai-check"></i> 查看报告</button>`
-          : `<button type="button" class="btn primary" id="qzGoNext">下一题 ›</button>`;
+          : `<button type="button" class="btn primary" id="qzGoNext">下一题 <i class="el-icon-arrow-right" aria-hidden="true"></i></button>`);
+        $('#qzPrev').onclick = () => { if (st.idx > 0) { st.idx--; paint(); } };
         const go = $(allDone ? '#qzFinishCheck' : '#qzGoNext');
         go.onclick = async () => { if (allDone) { await doSubmit(); return; } st.idx = nx; paint(); };
       } else {
         footEl.innerHTML = `
-          ${st.idx > 0 ? '<button type="button" class="btn ghost" id="qzPrev">上一题</button>' : ''}
-          <button type="button" class="btn primary" id="qzCheckOne"><i class="ai ai-check"></i> 提交本题</button>`;
+          <button type="button" class="btn ghost" id="qzPrev" ${st.idx === 0 ? 'disabled' : ''}><i class="el-icon-arrow-left" aria-hidden="true"></i> 上一题</button>
+          <button type="button" class="btn primary" id="qzCheckOne" ${st.busy ? 'disabled' : ''}><i class="ai ai-check"></i> 提交本题</button>`;
         const prevBtn = $('#qzPrev');
         if (prevBtn) prevBtn.onclick = () => { if (st.idx > 0) { st.idx--; paint(); } };
         $('#qzCheckOne').onclick = checkOne;
       }
       renderDots();
       aiFollow(q);
+      if (ai.open && !ai.min && ai.qid === q.id) aiPaint(false);
     };
 
     /* ---------------- 做完后的报告：得分环 / 用时 / 题号红绿方块 / 各知识点掌握 / 薄弱知识点 / 错题已进错题本 ---------------- */
@@ -1011,7 +1025,8 @@ const BankQuiz = {
     /* ---- 提交本题 → 立即核对（不落库），显示对错 / 答案 / 解析，出现 AI 老师 ---- */
     const checkOne = async () => {
       if (st.busy) return;
-      const q = qs[st.idx];
+      const checkedIndex = st.idx;
+      const q = qs[checkedIndex];
       const my = quizAnswerText(q, st.answers[q.id]);
       if (my === '') { toast('先作答，再提交'); return; }
       st.busy = true;
@@ -1019,11 +1034,13 @@ const BankQuiz = {
       try {
         const r = await api('/api/stu/bank/check', { method: 'POST', body: { items: [{ question_id: q.id, quiz_ticket: q.quiz_ticket, my_answer: my }] } });
         const x = (r.list || [])[0] || {};
-        st.checked[st.idx] = { ok: !!x.is_correct, ungraded: !!x.ungraded, raw: x.answer || '', answer: quizAnswerDisplay(q, x.answer, q.options), analysis: x.analysis || '', solution_images: x.solution_images || [], my: q.question_subtype === 'drawing' ? '已提交作图' : quizAnswerDisplay(q, my, q.options), myRaw: q.question_subtype === 'drawing' ? '已作图' : my, blanks: x.blanks || null, match_correct: x.match_correct, match_total: x.match_total };
+        if (!mask.isConnected) return;
+        st.checked[checkedIndex] = { ok: !!x.is_correct, ungraded: !!x.ungraded, raw: x.answer || '', answer: quizAnswerDisplay(q, x.answer, q.options), analysis: x.analysis || '', solution_images: x.solution_images || [], my: q.question_subtype === 'drawing' ? '已提交作图' : quizAnswerDisplay(q, my, q.options), myRaw: q.question_subtype === 'drawing' ? '已作图' : my, blanks: x.blanks || null, match_correct: x.match_correct, match_total: x.match_total };
         if (typeof FX !== 'undefined') FX.pop();
         paint();
       } catch (e) { toast(e.message || '核对失败，请重试', 'err'); if (btn) btn.disabled = false; }
       st.busy = false;
+      const currentCheck = $('#qzCheckOne'); if (currentCheck) currentCheck.disabled = false;
     };
 
     const doSubmit = async () => {
@@ -1045,6 +1062,8 @@ const BankQuiz = {
     };
 
     paint();
+    // The desktop panel starts in a locked state. Opening it never requests AI.
+    if (window.matchMedia('(min-width: 900px)').matches) aiOpenFor(qs[st.idx], false);
     return { close: destroy };
   },
 };

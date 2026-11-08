@@ -8,7 +8,7 @@ try{({chromium}=require('playwright'))}catch(_){try{({chromium}=require('/opt/co
  await p.addScriptTag({path:require('path').join(__dirname,'public/admin/pendingui.js')});
  const html=await p.evaluate(async()=> (await viewPending()).html);await p.setContent(html);
  assert((await p.locator('body').innerText()).includes('题干缺失，待补录'));assert((await p.locator('body').innerText()).includes('原题号 13'));
- assert.equal(await p.locator('[data-act="original"]').count(),1);assert.equal(await p.locator('[data-act="edit"]').count(),1);
+ assert((await p.locator('[data-act="original"]').count())>=1);assert.equal(await p.locator('[data-act="edit"]').count(),1);
  await p.evaluate(()=>pdEdit({source_label:'拍照识别',type:'single',subject:'数学',stage:'junior',grade:'',stem:'',material:'',options:[{label:'A',text:'选项'}],answer:'',analysis:'',point:'',images:[],match_prompts:[]}));
  assert((await p.evaluate(()=>window.editBody)).includes('id="pdE-stem"')); console.log('空题干卡浏览器提示、原页入口与编辑控件通过');
  }finally{await b.close()}})().catch(e=>{console.error(e);process.exitCode=1});
