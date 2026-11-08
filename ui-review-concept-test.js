@@ -224,6 +224,38 @@ if(require.main===module && process.argv.includes('--browser')) {
   });
 }
 
+if(require.main===module && process.argv.includes('--browser')) {
+ test('review navigation settles closed on fresh mobile and desktop-to-mobile resize',async()=>{
+  fs.mkdirSync(path.join(ROOT,'docs/ui-evidence-20261108/review'),{recursive:true});
+  const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',args:['--no-sandbox']});
+  try{
+   for(const width of [390,1487,1440]){
+    const page=await browser.newPage({viewport:{width,height:1058}});
+    try{
+     await page.route('**/*',route=>route.abort());
+     await page.setContent(buildFixture());await page.waitForFunction(()=>window.fixtureReady);
+     if(width!==390)await page.setViewportSize({width:390,height:844});
+     await page.waitForFunction(()=>document.querySelector('.side').getBoundingClientRect().right<=1);
+     assert.equal(await page.locator('.t11-drawer').count(),0,'desktop sidebar does not persist as an open mobile drawer');
+     await page.locator('#btnFold').click({timeout:1500});
+     await page.waitForFunction(()=>document.querySelector('.side').getBoundingClientRect().left>=-1);
+     await page.locator('#t11Scrim').click({position:{x:380,y:400},timeout:1500});
+     await page.waitForFunction(()=>document.querySelector('.side').getBoundingClientRect().right<=1);
+     await page.screenshot({path:path.join(ROOT,'docs/ui-evidence-20261108/review','review-stable-'+width+'-390.png')});
+     await page.locator('#pd-next').click({timeout:1500});
+     assert.equal(await page.locator('.pd-item').getAttribute('data-id'),'fixture-2');
+     await page.setViewportSize({width:1487,height:1058});
+     await page.waitForFunction(()=>document.querySelector('.side').getBoundingClientRect().left>=-1);
+     await page.setViewportSize({width:390,height:844});
+     await page.waitForFunction(()=>document.querySelector('.side').getBoundingClientRect().right<=1);
+     await page.locator('#pd-prev').click({timeout:1500});
+     assert.equal(await page.locator('.pd-item').getAttribute('data-id'),'fixture-1');
+    }finally{await page.close();}
+   }
+  }finally{await browser.close();}
+ });
+}
+
 if(require.main===module && !process.argv.includes('--browser') && !process.argv.includes('--write-fixture')) {
   test('review renderer exposes independent classification panel and bottom guarded controls', async()=>{
     const context={ADM:{page:{},chapters:[]},window:{},document:{removeEventListener(){}},api:async()=>({list:[{id:'safe-fixture',stem:'真实函数的合成测试',type_name:'单选题',source:'word',source_label:'Word',options:[],tags:[],content_review_required:true,content_review_pending:true}],counts:{all:1},status_counts:{all:1},page:1,size:20,total:1}),esc:s=>String(s??''),ic:()=>'',pagerHTML:()=>'',optText:s=>s,optLabel:(o,i)=>'A'};

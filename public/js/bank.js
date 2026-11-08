@@ -323,10 +323,19 @@ const BankQuiz = {
     });
     startTimer();
 
+    let aiDesktop = window.matchMedia('(min-width: 900px)').matches;
     const onMathResize = () => {
       drawMathConnections();
+      const desktop = window.matchMedia('(min-width: 900px)').matches;
+      if (desktop === aiDesktop) return;
+      aiDesktop = desktop;
+      // A desktop dock must not turn into an unsolicited overlay on the question.
+      if (!desktop && ai.open && !ai.min) {
+        ai.min = true; ai.el.classList.add('r8-hide'); ai.pill.hidden = false;
+        mask.classList.remove('r8-ai-on');
+      }
       // Crossing into desktop must not lose the mobile launcher's only AI entry.
-      if (window.matchMedia('(min-width: 900px)').matches && st.phase === 'answer' && !ai.open) aiOpenFor(qs[st.idx], false);
+      if (desktop && st.phase === 'answer' && !ai.open) aiOpenFor(qs[st.idx], false);
     };
     window.addEventListener('resize', onMathResize);
     let lastSubmitted = null, completionNotified = false;

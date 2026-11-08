@@ -46,3 +46,26 @@ test('more mathematics tasks survive navigation from the login-default English s
  assert.equal(await page.evaluate(()=>window.__stuVm.subject),'数学');
  await page.close();
 });
+
+test('learning navigation settles closed on fresh mobile and desktop-to-mobile resize',async()=>{
+ for(const width of [390,1487,1440]){
+  const page=await browser.newPage({viewport:{width,height:1058}});
+  try{
+   await page.goto(origin+'/fixtures/learning-live.html');await page.locator('#learnHeroTitle').waitFor();
+   if(width!==390)await page.setViewportSize({width:390,height:844});
+   await page.waitForFunction(()=>document.querySelector('.st-side').getBoundingClientRect().right<=1);
+   assert.equal(await page.locator('.learn-nav-shade').count(),0,'no navigation backdrop without a user request');
+   await page.locator('.learn-menu').click({timeout:1500});
+   await page.waitForFunction(()=>document.querySelector('.st-side').getBoundingClientRect().left>=-1);
+   await page.locator('.learn-nav-shade').click({position:{x:380,y:400},timeout:1500});
+   await page.waitForFunction(()=>document.querySelector('.st-side').getBoundingClientRect().right<=1);
+   await page.locator('#learnHeroTitle').scrollIntoViewIfNeeded();
+   await page.screenshot({path:path.join(OUT,'learning-stable-'+width+'-390.png')});
+   await page.setViewportSize({width:1487,height:1058});
+   await page.waitForFunction(()=>document.querySelector('.st-side').getBoundingClientRect().left>=-1);
+   await page.setViewportSize({width:390,height:844});
+   await page.waitForFunction(()=>document.querySelector('.st-side').getBoundingClientRect().right<=1);
+   await page.locator('.learn-menu').click({trial:true,timeout:1500});
+  }finally{await page.close();}
+ }
+});

@@ -139,3 +139,35 @@ test('completion notifies once, redo clears checked answers and close destroys d
     await page.evaluate(()=>{quizHandle.close();quizHandle.close();});assert.equal(await page.evaluate(()=>testDone),1);assert.equal(await page.locator('.r8-ai').count(),0);assert.deepEqual(errors,[]);
   }finally{await page.close();}
 });
+
+for (const width of [1487,1440]) test('desktop '+width+'px to mobile collapses AI and preserves accessible question controls',async()=>{
+  const {page,errors}=await open(width,1058);
+  try{
+    await page.locator('.qz-opt').nth(1).click();
+    await page.setViewportSize({width:390,height:844});
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    assert.equal(await page.locator('.r8-ai').isVisible(),false,'desktop dock must not become an unrequested mobile overlay');
+    assert.equal(await page.locator('.r8-ai-pill').isVisible(),true,'collapsed AI remains recoverable before checking');
+    assert.equal(await page.locator('.qz-opt').nth(1).evaluate(el=>el.classList.contains('on')),true,'resize preserves selected answer');
+    await page.locator('.qz-opt').nth(2).click({timeout:1500});
+    await page.locator('#qzCheckOne').click({trial:true,timeout:1500});
+    await page.screenshot({path:path.join(evidence,'quiz-resized-'+width+'-390.png')});
+    await page.locator('.qz-dot[data-i="1"]').click();
+    await page.locator('.r8-ai-pill').click();
+    assert.match(await page.locator('#r8AiQ').innerText(),/第 2 题/);
+    assert.equal(await page.locator('.r8-ai-in textarea').isDisabled(),true);
+    assert.equal(aiCalls.length,0,'reopening locked AI does not request a service');
+    await page.setViewportSize({width:390,height:720});
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    assert.equal(await page.locator('.r8-ai').isVisible(),true,'mobile height changes must not dismiss a deliberately opened drawer');
+    await page.locator('.r8-ai [data-act="min"]').click();
+    await page.locator('.r8-ai-pill').click();
+    await page.locator('.r8-ai [data-act="close"]').click();
+    assert.equal(await page.locator('.r8-ai').isVisible(),false);
+    await page.locator('.qz-opt').nth(2).click({timeout:1500});
+    await page.setViewportSize({width,height:1058});
+    await page.locator('.r8-ai.show').waitFor();
+    assert.equal(await page.locator('.r8-ai-in textarea').isDisabled(),true);
+    assert.equal(aiCalls.length,0); assert.deepEqual(errors,[]);
+  }finally{await page.close();}
+});
