@@ -384,19 +384,21 @@ app.get('/api/file', fileAuth, async (req, res) => {
   if (dlName && ext && !dlName.toLowerCase().endsWith('.' + ext)) dlName += '.' + ext;
   // 弹窗里用 iframe 预览 PDF / 图片时，不能 302 到云存储：浏览器的 PDF 查看器跟不过跨域跳转，窗口会是一片白。
   if (wantInline && INLINE_MIME[ext]) {
-    const buf = await store.readBuffer(key);
+    let buf;
+    try { buf = await store.readBuffer(key); }
+    catch (_) { return res.status(500).send('文件读取失败'); }
     if (!buf) return res.status(404).send('文件不存在');
     res.setHeader('Content-Type', INLINE_MIME[ext]);
     res.setHeader('Content-Disposition', 'inline');
     res.setHeader('Content-Length', buf.length);
     return res.end(buf);
   }
-  if (store.isCloudKey(key)) return res.redirect(await store.getUrl(key, wantInline ? undefined : (dlName || undefined)));
-  const abs = store.localPath(key);
-  // 二次防线：解析后的绝对路径必须仍落在上传目录内（防符号链接 / 异常键绕过上面的字符集校验）
-  const root = path.resolve(store.localPath(''));
-  if (!path.resolve(abs).startsWith(root + path.sep)) return res.status(400).send('bad request');
-  if (!fs.existsSync(abs)) return res.status(404).send('文件不存在');
+  let abs;
+  try {
+    if (store.isCloudKey(key)) return res.redirect(await store.getUrl(key, wantInline ? undefined : (dlName || undefined)));
+    abs = store.localFilePath(key);
+  } catch (_) { return res.status(500).send('文件读取失败'); }
+  if (!abs) return res.status(404).send('文件不存在');
   if (wantInline) {
     // 在线预览（学生端「打印讲义 / 打印习题」用浏览器自带打印）：样式与排版照常，脚本一律禁止
     res.setHeader('Content-Disposition', 'inline');
@@ -1010,7 +1012,9 @@ admin.post('/handouts', upload.single('file'), async (req, res) => {
     const v = db.prepare('SELECT section_id FROM videos WHERE id=?').get(vid);
     sid = (v && v.section_id) || null;
   }
-  const saved = await store.saveFile(req.file.buffer, originalName, 'handouts');
+  let saved;
+  try { saved = await store.saveFile(req.file.buffer, originalName, 'handouts'); }
+  catch (e) { if (e.code === 'STORAGE_CLOUD_READ_ONLY') return fail(res, e.message); throw e; }
   const ext = path.extname(originalName).replace('.', '').toLowerCase();
   const info = db.prepare(`INSERT INTO handouts (chapter_id,video_id,section_id,kind,subject,grade,title,file_path,file_name,ext,size,level,created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
@@ -1054,7 +1058,8 @@ admin.put('/handouts/:id', upload.single('file'), async (req, res) => {
       return fail(res, '资料上传失败：' + (e.message || '存储服务拒绝'));
     }
   } else if (String(b.clear_file || '') === '1') {
-    await dropStored(filePath);
+    try { await dropStored(filePath); }
+    catch (e) { if (e.code === 'STORAGE_CLOUD_READ_ONLY') return fail(res, e.message); throw e; }
     filePath = '';
     fileName = '';
     ext = '';
@@ -1069,6 +1074,14 @@ admin.delete('/handouts/batch', async (req, res) => {
   if (!delPwdOk(req)) return fail(res, '删除密码错误');
   const ids = (Array.isArray(req.body && req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean);
   if (!ids.length) return fail(res, '请选择要删除的资料');
+  if (store.CLOUD_READ_ONLY) {
+    try {
+      for (const id of ids) {
+        const row = db.prepare('SELECT * FROM handouts WHERE id=?').get(id);
+        if (row) store.assertDeleteAllowed(row.file_path);
+      }
+    } catch (e) { if (e.code === 'STORAGE_CLOUD_READ_ONLY') return fail(res, e.message); throw e; }
+  }
   let n = 0;
   for (const id of ids) {
     const h = db.prepare('SELECT * FROM handouts WHERE id=?').get(id);
@@ -1079,7 +1092,11 @@ admin.delete('/handouts/batch', async (req, res) => {
 admin.delete('/handouts/:id', async (req, res) => {
   if (!delPwdOk(req)) return fail(res, '删除密码错误');
   const h = db.prepare('SELECT * FROM handouts WHERE id=?').get(Number(req.params.id));
-  if (h) { await store.deleteFile(h.file_path); db.prepare('DELETE FROM handouts WHERE id=?').run(h.id); }
+  if (h) {
+    try { await store.deleteFile(h.file_path); }
+    catch (e) { if (e.code === 'STORAGE_CLOUD_READ_ONLY') return fail(res, e.message); throw e; }
+    db.prepare('DELETE FROM handouts WHERE id=?').run(h.id);
+  }
   ok(res, null, '已删除');
 });
 admin.get('/handouts/:id/download', (req, res) => res.redirect(`/api/file?key=${encodeURIComponent((db.prepare('SELECT file_path FROM handouts WHERE id=?').get(Number(req.params.id)) || {}).file_path || '')}`));
@@ -1132,7 +1149,8 @@ admin.post('/videos/direct/complete', async (req, res) => {
 });
 admin.post('/videos/direct/abort', async (req, res) => {
   const b = req.body || {};
-  await store.abortVideoUpload(b.key, b.uploadId);
+  try { await store.abortVideoUpload(b.key, b.uploadId); }
+  catch (e) { if (e.code === 'STORAGE_CLOUD_READ_ONLY') return fail(res, e.message); throw e; }
   ok(res, null);
 });
 
@@ -1187,6 +1205,14 @@ admin.delete('/videos/batch', async (req, res) => {
   if (!delPwdOk(req)) return fail(res, '删除密码错误');
   const ids = (Array.isArray(req.body && req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean);
   if (!ids.length) return fail(res, '请选择要删除的视频');
+  if (store.CLOUD_READ_ONLY) {
+    try {
+      for (const id of ids) {
+        const row = db.prepare('SELECT * FROM videos WHERE id=?').get(id);
+        if (row) store.assertDeleteAllowed(row.file_path);
+      }
+    } catch (e) { if (e.code === 'STORAGE_CLOUD_READ_ONLY') return fail(res, e.message); throw e; }
+  }
   let n = 0;
   for (const id of ids) {
     const v = db.prepare('SELECT * FROM videos WHERE id=?').get(id);
@@ -1204,7 +1230,7 @@ admin.delete('/videos/batch', async (req, res) => {
 admin.delete('/videos/:id', async (req, res) => {
   if (!delPwdOk(req)) return fail(res, '删除密码错误');
   const v = db.prepare('SELECT * FROM videos WHERE id=?').get(Number(req.params.id));
-  if (v && v.file_path) { try { await store.deleteFile(v.file_path); } catch (e) { /* 文件可能已不存在，不影响删除记录 */ } }
+  if (v && v.file_path) { try { await store.deleteFile(v.file_path); } catch (e) { if (e.code === 'STORAGE_CLOUD_READ_ONLY') return fail(res, e.message); /* 文件可能已不存在，不影响删除记录 */ } }
   db.prepare('DELETE FROM videos WHERE id=?').run(Number(req.params.id));
   // 题库与视频只靠绑定关系关联（T12）：删视频只解绑，题目（含图片 / 音频）原样保留，可重新绑定其他视频
   if (v) db.prepare('UPDATE questions SET video_id=NULL WHERE video_id=?').run(v.id);
@@ -1214,6 +1240,7 @@ admin.delete('/videos/:id', async (req, res) => {
 /** 删掉一条视频文件：云端对象和切换 OSS 之前留在磁盘上的旧文件都清掉 */
 async function dropStored(key) {
   if (!key) return;
+  if (store.CLOUD_READ_ONLY) store.assertDeleteAllowed(key);
   try { await store.deleteFile(key); } catch (e) { /* 云端没有这份文件时忽略 */ }
   try {
     const abs = store.localPath(key);
@@ -1233,6 +1260,10 @@ admin.put('/videos/:id', videoUpload.single('file'), async (req, res) => {
   let filePath = v.file_path || '';
   let url = b.url === undefined ? (v.url || '') : String(b.url || '').trim();
   const wantClear = String(b.clear_file || '') === '1';
+  if (store.CLOUD_READ_ONLY && filePath && ((b.file_key && filePath !== String(b.file_key)) || req.file || wantClear)) {
+    try { store.assertDeleteAllowed(filePath); }
+    catch (e) { if (e.code === 'STORAGE_CLOUD_READ_ONLY') { dropTmp(req.file); return fail(res, e.message); } throw e; }
+  }
   if (b.file_key) {
     const key = String(b.file_key);
     if (!store.isVideoKey(key) || !(await store.videoExists(key))) {
@@ -1278,6 +1309,13 @@ admin.post('/videos/batch', videoUpload.array('files', 30), async (req, res) => 
     const originalName = fixFileName(f.originalname);
     let saved;
     try { saved = await store.saveFile(f.path, originalName, 'videos'); }
+    catch (e) {
+      if (e.code === 'STORAGE_CLOUD_READ_ONLY') {
+        files.forEach(dropTmp); // Multer has already received every file in this request.
+        return fail(res, e.message);
+      }
+      throw e;
+    }
     finally { dropTmp(f); }
     const base = path.basename(originalName, path.extname(originalName)).trim() || originalName;
     const title = (String(prefix || '').trim() ? String(prefix).trim() + ' ' : '') + base;

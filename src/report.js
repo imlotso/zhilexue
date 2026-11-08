@@ -170,9 +170,13 @@ admin.post('/:id/retry', async (req, res) => {
 admin.delete('/:id', (req, res) => {
   const row = reportGet(req.user, req.params.id);
   if (!row) return fail(res, '报告不存在');
-  db.prepare('DELETE FROM ai_reports WHERE id=?').run(row.id);
   let keys = [];
   try { keys = JSON.parse(row.paper_keys || '[]'); } catch (e) { keys = []; }
+  if (store.CLOUD_READ_ONLY) {
+    try { for (const key of keys) store.assertDeleteAllowed(key); }
+    catch (e) { if (e.code === 'STORAGE_CLOUD_READ_ONLY') return fail(res, e.message); throw e; }
+  }
+  db.prepare('DELETE FROM ai_reports WHERE id=?').run(row.id);
   Promise.all(keys.map((k) => store.deleteFile(k).catch(() => {}))).finally(() => ok(res, null, '已删除'));
 });
 

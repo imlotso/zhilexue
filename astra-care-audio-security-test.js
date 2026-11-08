@@ -21,7 +21,7 @@ async function fixture(t) {
   const box = { exports: {} };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'src/auth.js'), 'utf8'), {
     module: box, process: { env: { JWT_SECRET: 'synthetic-test-secret-never-production' } }, Buffer, Date,
-    require(n) { return n === './db' ? { db: raw, DATA_DIR: root } : require(n); }
+    require(n) { return n === './db' ? { db: raw, DATA_DIR: root } : (n === './ticket-epoch' ? require('./src/ticket-epoch').createPolicy('') : require(n)); }
   });
   const auth = box.exports;
   const dataDir = path.join(root, 'data'), publicDir = path.join(root, 'public');

@@ -31,6 +31,7 @@ function fixture(t) {
     process: { env: { JWT_SECRET: 'synthetic-offline-test-only-not-a-production-secret' } },
     require(name) {
       if (name === './db') return { db, DATA_DIR: '/nonexistent-offline-test' };
+      if (name === './ticket-epoch') return require('./src/ticket-epoch').createPolicy('');
       if (name === 'jsonwebtoken') return { verify() { if (decodeError) throw new Error('bad signature'); return { ...claims }; } };
       if (name === 'bcryptjs') return {};
       if (['crypto', 'fs', 'path'].includes(name)) return require(name);

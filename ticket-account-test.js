@@ -15,7 +15,7 @@ function harness(name) {
   function set(user) { account=user; db.exec('DELETE FROM users'); if(user) db.prepare('INSERT INTO users VALUES (?,?,?,?)').run(user.id,user.role,user.status,user.expire_at); }
   set(account);
   const ctx = { Date: class extends Date { constructor(...a) { super(...(a.length ? a : ['2026-11-07T12:00:00'])); } static now() { return new Date('2026-11-07T12:00:00').getTime(); } },
-    db,
+    db, ticketEpoch:require('./src/ticket-epoch').createPolicy(''),
     jwt:{verify: t=>JSON.parse(t),sign:p=>JSON.stringify(p)},
     require: n=> n==='fs' ? {readFileSync:()=> 'synthetic-secret'} : n==='path' ? require('node:path') : n==='./intake-scope' ? ()=>({}) : {DATA_DIR:'/synthetic'},
     DATA_DIR:'/synthetic',crypto:require('node:crypto'),proxyEnabled:()=>true,

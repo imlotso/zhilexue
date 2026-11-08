@@ -28,7 +28,7 @@
 ## 公共（`app.js`）
 
 - `POST /api/login` 登录；`GET /api/me` 当前用户；`POST /api/change-password` 改密码
-- `GET /api/file` 文件代理（参数 key、name、inline、token；云存储时 302 到签名链接）。**题图只读票据 `ft`（R0-B9）**：本地存储时 `<img>` 带不了登录头，所以 `/api/admin`、`/api/stu` 的 JSON 响应里凡是 `/api/file?key=bank/…` 的图片地址（png/jpg/jpeg/gif/webp），服务端会补上 `&ft=<过期秒>.<签名>`；`ft` 只对这一个 key 有效、6 小时过期、只对 `bank/` 目录的图片放行，不是登录令牌；没有有效 `ft` 时仍然要登录。题目库里存的地址即使带着旧的 `ft`，读出来时也会换成新的
+- `GET /api/file` 文件代理（参数 key、name、inline、token；OSS 模式下已有安全本地文件直接返回字节，缺失则 302 到原 key 的签名链接；PDF/图片 `inline=1` 同源读取）。本地视频保留 Range/Content-Type，权限或 I/O 异常返回 500，真正缺失不生成替代内容。**题图只读票据 `ft`（R0-B9）**：本地存储时 `<img>` 带不了登录头，所以 `/api/admin`、`/api/stu` 的 JSON 响应里凡是 `/api/file?key=bank/…` 的图片地址（png/jpg/jpeg/gif/webp），服务端会补上 `&ft=<过期秒>.<签名>`；`ft` 只对这一个 key 有效、6 小时过期、只对 `bank/` 目录的图片放行，不是登录令牌；没有有效 `ft` 时仍然要登录。题目库里存的地址即使带着旧的 `ft`，读出来时也会换成新的
 - `GET /api/speak` TTS 发音（`app.js`，调用 `win-speak.js`）
 
 ## 管理端基础（`/api/admin`，`app.js`）
@@ -293,3 +293,8 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 
 - `GET /api/admin/bank/papers/:id/assignees`：分校仅返回 `users.created_by=req.user.id` 的接收学生；总校可查看全部接收者。保留本校已停用接收者供历史管理查看。
 - `/api/stu/bank/*` 的学生中间件在验证角色后复查账户是否存在且 `status=1`。不存在401，已停用403；不能凭保留的旧会话绕过。此变更只覆盖bank路由，不代表其他模块全局会话策略变化。
+
+
+### 原桶只读保护（显式启用）
+
+`STORAGE_CLOUD_READ_ONLY=1` 时，媒体云端上传、分片上传签名/完成/取消、删除等在 SDK 写请求前被拒绝。讲义/视频的单删、批量删、清文件/替换及报告删除遇到该拒绝，不先删除数据库记录或保留的本地副本，返回明确的云端只读错误。仅改标题等元数据不受此保护拦截。未设置或设为 `0` 时保持原写入行为；本补丁不修改部署配置。

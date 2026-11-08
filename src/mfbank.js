@@ -16,6 +16,7 @@ const express = require('express');
 const crypto = require('crypto');
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
+const ticketEpoch = require('./ticket-epoch');
 const { db } = require('./db');
 const { resolveDifficulty } = require('./difficulty');
 const store = require('./storage');
@@ -906,7 +907,7 @@ admin.get('/capture/token', (req, res) => {
     const secret = require('fs').readFileSync(require('path').join(require('./db').DATA_DIR, '.secret'), 'utf8').trim();
     const account = captureAccount(req.user && req.user.id, req.user && req.user.role);
     if (!account) return fail(res, '采集账号已失效，请重新登录', 401);
-    const token = jwt.sign({ id: account.id, account_role: account.role, role: 'mfcapture', name: '采集小工具' }, secret, { expiresIn: '90d' });
+    const token = jwt.sign(ticketEpoch.issueClaims({ id: account.id, account_role: account.role, role: 'mfcapture', name: '采集小工具' }), secret, { expiresIn: '90d' });
     return ok(res, { token });
   } catch (e) {
     return fail(res, '票据生成失败：' + e.message);
@@ -993,6 +994,7 @@ cap.use((req, res, next) => {
   try {
     const secret = require('fs').readFileSync(require('path').join(require('./db').DATA_DIR, '.secret'), 'utf8').trim();
     const u = jwt.verify(token, secret);
+    if (!ticketEpoch.acceptJwt(u)) return fail(res.status(401), '采集票据已失效，请重新生成', 401);
     if (!u || u.role !== 'mfcapture') return fail(res.status(401), '采集票据无效', 401);
     if (!u.id || !u.account_role) return fail(res.status(401), '旧采集票据已失效，请返回后台重新生成', 401);
     const account = captureAccount(u.id, u.account_role);

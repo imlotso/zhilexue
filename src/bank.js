@@ -16,6 +16,7 @@ const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
+const ticketEpoch = require('./ticket-epoch');
 const { db, DATA_DIR } = require('./db');
 const { signQuestionTicket, verifyQuestionTicket } = require('./auth');
 const { resolveDifficulty } = require('./difficulty');
@@ -2142,16 +2143,17 @@ const upSecret = () => {
   }
   return UP_SECRET_CACHE;
 };
-const upSign = (payload, expires) => jwt.sign({ role: 'up', ...payload }, upSecret(), { expiresIn: expires || '4h' });
+const upSign = (payload, expires) => jwt.sign(ticketEpoch.issueClaims({ role: 'up', ...payload }), upSecret(), { expiresIn: expires || '4h' });
 // 教师扫码票据仅允许上传到待审核，短时有效，不能作为后台登录凭证。
 admin.post('/teacher-upload-token', (req, res) => {
   let defaults; try { defaults = require('./intake-scope')(db,req.body); } catch(e) {return fail(res,e.message);}
-  const token = jwt.sign({ role: 'upteacher', uid: req.user.id, account_role: req.user.role, defaults }, upSecret(), { expiresIn: '30m' });
+  const token = jwt.sign(ticketEpoch.issueClaims({ role: 'upteacher', uid: req.user.id, account_role: req.user.role, defaults }), upSecret(), { expiresIn: '30m' });
   return ok(res, { token, url: '/upload.html', expires_in: 1800 });
 });
 const upAuth = (req, res, next) => {
   try {
     const p = jwt.verify(String(req.query.token || req.query.t || ''), upSecret());
+    if (!ticketEpoch.acceptJwt(p)) throw new Error('ticket epoch mismatch');
     if (!['up', 'upteacher'].includes(p.role) || !p.uid) throw new Error('bad token');
     const user = db.prepare('SELECT role, status, expire_at FROM users WHERE id=?').get(Number(p.uid));
     if (!user || Number(user.status) !== 1 || (p.role === 'upteacher' ? !['admin', 'branch'].includes(user.role) : user.role !== 'student')) throw new Error('bad user');

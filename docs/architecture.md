@@ -4,7 +4,7 @@
 
 - 后端：Node.js + Express，入口 `src/app.js`，端口 3000（`PORT` 可改），生产用 pm2（`ecosystem.config.js`，单实例 fork）。
 - 数据库：MySQL（`src/config.local.js` 指向 `127.0.0.1:3306`，库名 `xuexi`）。`src/mysql-sync.js` 提供与 better-sqlite3 同接口的同步封装（查询在 `mysql-worker.js` 的独立线程里执行），业务代码不用 async。库为空时 `import-sqlite.js` 会从 `data/xuexi.db`（SQLite）导入旧数据。
-- 存储：`src/storage.js`，阿里云 OSS / 七牛 / 本地磁盘三选一（环境变量 `STORAGE_DRIVER`）。视频走前端分片直传 OSS（单个上限 4GB），可配 `CDN_DOMAIN`。`LOCAL_FOLDERS` 默认 `wrong,guidedocs` 留在本地。题库资源（题目图 / 听力音频 / 录题页图 / 导出试卷）统一在 `bank/` 目录，视频在 `videos/`，二者通过 key 前缀和 `video_id` 绑定关系隔离，不要求独立存储桶。题图使用稳定的 `/api/file?key=…` 地址；读取时短票据和云存储 URL 重新签发，兼容当前存储域名下可识别的历史签名图。
+- 存储：`src/storage.js`，写入驱动由 `STORAGE_DRIVER` 选择阿里云 OSS / 七牛 / 本地磁盘。OSS 读取先用上传根目录下已有的普通本地文件，否则按原 key 读取原桶，不下载全桶或改数据库 key；上传根目录可为部署链接，根目录以下的符号链接不作为本地媒体。`STORAGE_CLOUD_READ_ONLY=1` 显式禁止云端写入、删除和上传授权，默认关闭，不影响读取或原有本地写入策略。视频走前端分片直传 OSS（单个上限 4GB），可配 `CDN_DOMAIN`。`LOCAL_FOLDERS` 默认 `wrong,guidedocs` 留在本地。题库资源（题目图 / 听力音频 / 录题页图 / 导出试卷）统一在 `bank/` 目录，视频在 `videos/`，二者通过 key 前缀和 `video_id` 绑定关系隔离，不要求独立存储桶。题图使用稳定的 `/api/file?key=…` 地址；读取时短票据和云存储 URL 重新签发，兼容当前存储域名下可识别的历史签名图。
 - 前端：原生 JS，无构建。
 
 ## 数据库如何选择（MySQL / SQLite）

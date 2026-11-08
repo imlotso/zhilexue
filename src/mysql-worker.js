@@ -26,12 +26,16 @@ function assertDbName(name) {
 async function connect(config) {
   cfg = config;
   const database = assertDbName(config.database);
+  const restored = process.env.RESTORED_DB_MODE === '1';
+  if (restored && config.socketPath !== undefined && config.socketPath !== '/run/db/mysql.sock') throw new Error('RESTORED_DB_SOCKET_MISMATCH');
+  if (restored && (config.host !== '127.0.0.1' || Number(config.port) !== 13307 || config.user !== 'zx_restore_20261108' || database !== 'zhilexue_original_restore_20261108')) throw new Error('RESTORED_DB_TARGET_MISMATCH');
   if (conn) {
     try { await conn.end(); } catch (e) { /* 旧连接已断开 */ }
     conn = null;
   }
   const next = await mysql.createConnection({
-    ...(readOnly ? { database } : {}),
+    ...(readOnly || restored ? { database } : {}),
+    ...(restored && config.socketPath ? { socketPath: config.socketPath } : {}),
     host: config.host,
     port: config.port,
     user: config.user,
@@ -53,11 +57,15 @@ async function connect(config) {
     },
   });
   try {
+    if (restored) {
+      const [rows] = await next.query('SELECT DATABASE() AS db, CURRENT_USER() AS account, @@server_uuid AS server_uuid');
+      if (rows.length !== 1 || rows[0].db !== database || rows[0].account !== 'zx_restore_20261108@172.17.0.1' || rows[0].server_uuid !== 'c2460962-da9c-11f1-a7bd-0afb9d5ba49c') throw new Error('RESTORED_DB_IDENTITY_MISMATCH');
+    }
     if (readOnly) {
       // Applies to every transaction, including autocommit and reconnects.
       // Failure is fatal: never fall back to the initializing connection path.
       await next.query('SET SESSION TRANSACTION READ ONLY');
-    } else {
+    } else if (!restored) {
       await next.query('CREATE DATABASE IF NOT EXISTS `' + database + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
       await next.query('USE `' + database + '`');
       await next.query('ALTER DATABASE `' + database + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');

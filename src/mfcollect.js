@@ -18,6 +18,7 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const vm = require('vm');
 const jwt = require('jsonwebtoken');
+const ticketEpoch = require('./ticket-epoch');
 const { db, DATA_DIR } = require('./db');
 
 const admin = express.Router();
@@ -499,7 +500,7 @@ function issueCaptureToken(uid) {
   const account = captureAccount(uid);
   if (!account) throw new Error('采集账号已失效，请重新登录');
   const secret = require('fs').readFileSync(require('path').join(DATA_DIR, '.secret'), 'utf8').trim();
-  return jwt.sign({ id: account.id, account_role: account.role, role: 'mfcapture' }, secret, { expiresIn: '7d' });
+  return jwt.sign(ticketEpoch.issueClaims({ id: account.id, account_role: account.role, role: 'mfcapture' }), secret, { expiresIn: '7d' });
 }
 
 function checkTicket(req) {
@@ -819,6 +820,7 @@ cap.use((req, res, next) => {
   try {
     const secret = require('fs').readFileSync(require('path').join(DATA_DIR, '.secret'), 'utf8').trim();
     const u = jwt.verify(token, secret);
+    if (!ticketEpoch.acceptJwt(u)) return fail(res.status(401), '采集票据已失效，请重新生成', 401);
     if (!u || u.role !== 'mfcapture') return fail(res.status(401), '采集票据无效', 401);
     if (!u.id || !u.account_role) return fail(res.status(401), '旧采集票据已失效，请返回后台重新生成', 401);
     const account = captureAccount(u.id, u.account_role);
