@@ -472,7 +472,7 @@ async function browserChecks(html) {
         verify(width + 'px backdrop closes drawer', await page.locator('.t11-drawer').count() === 0);
         await page.locator('#btnFold').click();
         await page.locator('.nav-leaf[data-go=dash]').click();
-        await page.waitForFunction(() => document.querySelector('.tb-crumb b').textContent === '首页');
+        await page.waitForFunction(() => document.querySelector('.tb-crumb b').textContent === TITLE.dash);
         verify(width + 'px menu navigation closes drawer', await page.locator('.t11-drawer').count() === 0);
       } else {
         await page.locator('#btnFold').click();

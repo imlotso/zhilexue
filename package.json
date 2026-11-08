@@ -22,7 +22,9 @@
     "test:multer": "node --test astra-multer-security-test.js",
     "dev": "node scripts/ui-concept-preview.js",
     "test:ui-concepts:unit": "node --test astra-ui-learning-space-test.js ui-review-concept-test.js",
-    "test:ui-concepts:browser": "node --test astra-ui-learning-browser-test.js astra-ui-quiz-workbench-test.js && node ui-review-concept-test.js --browser"
+    "test:ui-concepts:browser": "node --test astra-ui-learning-browser-test.js astra-ui-quiz-workbench-test.js && node ui-review-concept-test.js --browser",
+    "test:ui-rounded:unit": "node --test astra-ui-rounded-student-test.js rounded-shell-test.js rounded-quiz-test.js ui-rounded-admin-pages-test.js",
+    "test:ui-rounded:browser": "node --test astra-ui-rounded-student-browser-test.js rounded-shell-browser-test.js astra-ui-quiz-workbench-test.js ui-rounded-admin-pages-browser-test.js ui-rounded-admin-review-height-test.js && node ui-review-concept-test.js --browser"
   },
   "dependencies": {
     "@resvg/resvg-js": "2.6.2",

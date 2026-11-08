@@ -1,0 +1,238 @@
+/* Approved rounded UI, shared admin shell. Business behavior stays in existing modules. */
+body.t11{
+ --t11-primary:#0c5947;--t11-primary-d:#083f35;--t11-primary-l:#e7f3eb;--t11-primary-line:#bfd8cc;
+ --t11-text:#143b33;--t11-text2:#5e6a64;--t11-text3:#7b8680;--t11-line:#dfe5df;--t11-line2:#edf0eb;
+ --t11-bg:#f7f5ef;--t11-card:#fff;--t11-head:#edf5ee;--t11-side:#e6f1e9;
+ --t11-r:14px;--t11-r-lg:26px;--t11-h:40px;--t11-h-sm:32px;--t11-gap:18px;--t11-pad:22px;--t11-fs:15px;
+ --t11-shadow:none;--t11-shadow-lg:0 18px 48px rgba(26,66,50,.12);
+ font-family:"Noto Sans CJK SC","Microsoft YaHei","PingFang SC",Arial,sans-serif;
+}
+body.t11 .admin-app.ui-rounded-shell{--ry-side:var(--t11-side);color:var(--t11-text);background:var(--t11-bg)!important}
+body.t11 .admin-app.ui-rounded-shell .side{width:246px;background:var(--t11-side)!important;border-right:0;box-shadow:none}
+body.t11 .admin-app.ui-rounded-shell .main{margin-left:246px;width:calc(100% - 246px);background:var(--t11-bg)!important}
+body.t11 .admin-app.ui-rounded-shell .brand{height:110px;min-height:110px;padding:18px 26px;border-bottom:0;background:transparent}
+body.t11 .admin-app.ui-rounded-shell .zx-logo{gap:11px}
+body.t11 .admin-app.ui-rounded-shell .zx-mark{width:52px;height:52px;padding:0;background:none;box-shadow:none;border-radius:0}
+body.t11 .admin-app.ui-rounded-shell .zx-txt b{color:#073c32;font-size:28px;letter-spacing:0;font-weight:800}
+body.t11 .admin-app.ui-rounded-shell .zx-txt em{display:block;font-style:normal;color:#53665d;font-size:16px;margin-top:5px;letter-spacing:1px}
+body.t11 .admin-app.ui-rounded-shell .nav{padding:8px 14px 20px;overflow-x:hidden}
+body.t11 .admin-app.ui-rounded-shell .nav a,
+body.t11 .admin-app.ui-rounded-shell .nav .ng-t{min-height:50px;height:auto;border-radius:27px;margin:5px 0;color:#183e34!important;padding:12px 20px!important;font-size:17px;font-weight:600;gap:14px;background:transparent;line-height:1.35;border:0;box-shadow:none}
+body.t11 .admin-app.ui-rounded-shell .nav a .ico,
+body.t11 .admin-app.ui-rounded-shell .nav .ng-t .ico{color:#0c5947;display:flex;align-items:center;justify-content:center;width:25px;flex:none}
+body.t11 .admin-app.ui-rounded-shell .nav .ai{width:23px;height:23px}
+body.t11 .admin-app.ui-rounded-shell .nav a.on{background:#0c5947!important;color:#fff!important;box-shadow:none}
+body.t11 .admin-app.ui-rounded-shell .nav a.on .ico{color:#fff}
+body.t11 .admin-app.ui-rounded-shell .nav .ng-t:hover,
+body.t11 .admin-app.ui-rounded-shell .nav a:not(.on):hover{background:#d7eadd!important;color:#0b493d!important}
+body.t11 .admin-app.ui-rounded-shell .nav .nav-group.open{background:#f1f8f2;border-radius:22px;padding-bottom:8px}
+body.t11 .admin-app.ui-rounded-shell .nav .nav-group.open>.ng-t{background:#dceee2}
+body.t11 .admin-app.ui-rounded-shell .nav .nav-group .ng-sub{background:transparent;padding:0 7px}
+body.t11 .admin-app.ui-rounded-shell .nav .nav-group .ng-sub a{font-size:15px;font-weight:500!important;min-height:43px;padding:10px 17px!important;gap:12px;border-radius:22px}
+body.t11 .admin-app.ui-rounded-shell .nav .ng-arrow{color:inherit;font-size:14px}
+body.t11 .admin-app.ui-rounded-shell .side-foot{margin:12px 18px 20px;padding:11px;border:1px solid #c6dfd0;border-radius:24px;color:#4c675a;text-align:center;background:transparent}
+body.t11 .admin-app.ui-rounded-shell .topbar{height:66px!important;min-height:66px!important;background:#fff;border-bottom:1px solid #e6ebe4;box-shadow:none;padding:0 28px;gap:16px}
+body.t11 .admin-app.ui-rounded-shell .tb-title{gap:20px;min-width:0}
+body.t11 .admin-app.ui-rounded-shell .tb-crumb{color:#193e35;font-size:16px;gap:14px;min-width:0}
+body.t11 .admin-app.ui-rounded-shell .tb-crumb b{font-weight:500;white-space:nowrap}
+body.t11 .admin-app.ui-rounded-shell .tb-crumb>.ai{color:#0c5947}
+body.t11 .admin-app.ui-rounded-shell .ry-fold{width:30px;height:36px;padding:7px 4px;border-radius:10px;color:#0c5947}
+body.t11 .admin-app.ui-rounded-shell .ry-fold i{background:#0c5947;width:20px;height:2px}
+body.t11 .admin-app.ui-rounded-shell .who{gap:18px;color:#163c32;min-width:0}
+body.t11 .admin-app.ui-rounded-shell .who .link-btn{color:#265b48;gap:6px;font-size:14px;white-space:nowrap}
+body.t11 .admin-app.ui-rounded-shell #btnStu{padding:7px 17px;background:#eff8f0;border:1px solid #badac7;border-radius:24px}
+body.t11 .admin-app.ui-rounded-shell .avatar{width:38px;height:38px;border-radius:50%;background:#e3f3e8;color:#0c5947;box-shadow:none}
+body.t11 .admin-app.ui-rounded-shell .content{padding:28px 28px 34px!important;max-width:none;width:100%;min-width:0}
+body.t11 .admin-app.ui-rounded-shell.side-fold .side{width:74px}
+body.t11 .admin-app.ui-rounded-shell.side-fold .main{margin-left:74px;width:calc(100% - 74px)}
+body.t11 .admin-app.ui-rounded-shell.side-fold .brand{padding:16px 10px}
+body.t11 .admin-app.ui-rounded-shell.side-fold .zx-txt,
+body.t11 .admin-app.ui-rounded-shell.side-fold .side-foot{display:none}
+body.t11 .admin-app.ui-rounded-shell.side-fold .nav{padding:8px}
+body.t11 .admin-app.ui-rounded-shell.side-fold .nav .ng-t,
+body.t11 .admin-app.ui-rounded-shell.side-fold .nav a{padding:13px 16px!important;justify-content:center}
+body.t11 .admin-app.ui-rounded-shell .card{box-shadow:none;border:1px solid #e3e7df}
+body.t11 .admin-app.ui-rounded-shell .card-h h3{font-size:20px}
+body.t11 .admin-app.ui-rounded-shell .btn{border-radius:24px;min-height:38px}
+body.t11 .admin-app.ui-rounded-shell .input,
+body.t11 .admin-app.ui-rounded-shell input:not([type=checkbox]):not([type=radio]):not([type=file]),
+body.t11 .admin-app.ui-rounded-shell select,
+body.t11 .admin-app.ui-rounded-shell textarea{border-radius:13px}
+body.t11 .admin-app.ui-rounded-shell button:focus-visible,
+body.t11 .admin-app.ui-rounded-shell a:focus-visible,
+body.t11 .admin-app.ui-rounded-shell input:focus-visible,
+body.t11 .admin-app.ui-rounded-shell select:focus-visible,
+body.t11 .admin-app.ui-rounded-shell textarea:focus-visible{outline:3px solid #bb8b22;outline-offset:3px}
+body.t11 .rounded-dash{gap:22px}
+body.t11 .rounded-dash-heading{padding:0 10px}
+body.t11 .rounded-dash-heading h1{font-size:46px;line-height:1.25;letter-spacing:1px;font-weight:800;margin:0 0 7px;color:#0d3f35}
+body.t11 .rounded-dash-heading p{margin:0;color:#626a64;font-size:18px}
+body.t11 .rounded-dash-top{display:grid;grid-template-columns:minmax(0,2fr) minmax(275px,1fr);gap:20px}
+body.t11 .rounded-dash-hero{position:relative;min-height:244px;border-radius:27px;background:#104e43;padding:22px 34px;display:flex;align-items:center;overflow:hidden;color:white}
+body.t11 .rounded-hero-copy{position:relative;z-index:1;max-width:74%}
+body.t11 .rounded-hero-copy .rounded-eyebrow{font-size:20px;font-weight:650;letter-spacing:1px;margin:0 0 12px}
+body.t11 .rounded-eyebrow span{padding:0 6px}
+body.t11 .rounded-hero-copy h2{font-size:36px;line-height:1.3;color:#fff;margin:0 0 7px;font-weight:800}
+body.t11 .rounded-hero-copy>p:not(.rounded-eyebrow){font-size:16px;line-height:1.6;margin:0 0 18px;color:#e4f1e9}
+body.t11 .rounded-amber{display:inline-flex;align-items:center;justify-content:center;gap:22px;border:0;min-height:50px;padding:10px 28px;border-radius:28px;background:#ffc354;color:#103d32;font:inherit;font-size:22px;font-weight:750;cursor:pointer}
+body.t11 .rounded-amber:hover{background:#ffd274}
+body.t11 .rounded-amber .ai{width:26px;height:26px}
+body.t11 .rounded-admin-art{position:absolute;width:240px;height:240px;object-fit:contain;right:6px;bottom:-8px;pointer-events:none}
+body.t11 .rounded-quick-card{border-radius:26px;border:1px solid #e1e6df;background:white;padding:20px 23px}
+body.t11 .rounded-dash h2{display:flex;align-items:center;gap:12px}
+body.t11 .rounded-quick-card h2,
+body.t11 .rounded-work-section>h2,
+body.t11 .rounded-learning-summary h2,
+body.t11 .rounded-tree-card h2{font-size:24px;line-height:1.3;font-weight:750;margin:0 0 14px;color:#103e34}
+body.t11 .rounded-dash h2>.ai{width:29px;height:29px;color:#0c5947;flex:none}
+body.t11 .rounded-quick-card button{display:flex;align-items:center;gap:14px;width:100%;padding:17px 0;border:0;border-bottom:1px solid #e4e8e1;background:transparent;font:inherit;font-size:19px;font-weight:600;color:#153e34;cursor:pointer;text-align:left}
+body.t11 .rounded-quick-card button:last-child{border-bottom:0}
+body.t11 .rounded-quick-card button>.ai:first-child{width:26px;height:26px;color:#0c5947}
+body.t11 .rounded-quick-card button>.ai:last-child{margin-left:auto;width:18px;height:18px}
+body.t11 .rounded-quick-card button:hover span{color:#067458}
+body.t11 .rounded-work-section>h2{margin:0 0 12px;padding:0 10px}
+body.t11 .rounded-work-list{border:1px solid #e3e7df;background:white;border-radius:25px;padding:3px 20px}
+body.t11 .rounded-work-list>button{display:grid;grid-template-columns:58px 175px minmax(0,1fr) 140px;align-items:center;gap:15px;width:100%;padding:13px 8px;border:0;border-bottom:1px solid #e3e7df;background:none;color:#164036;text-align:left;cursor:pointer;font:inherit}
+body.t11 .rounded-work-list>button:last-child{border-bottom:0}
+body.t11 .rounded-work-icon{display:grid;place-items:center;width:54px;height:42px;border-radius:17px;background:#e2f2e7;color:#0c5947}
+body.t11 .rounded-work-icon .ai{width:27px;height:27px}
+body.t11 .rounded-work-list strong{font-size:21px;border-left:1px solid #bdc9bf;padding-left:20px}
+body.t11 .rounded-work-hint{font-size:15px;color:#687269}
+body.t11 .rounded-work-action{display:flex;justify-content:center;align-items:center;gap:17px;font-size:16px;font-weight:650;background:#e4f2e9;border-radius:24px;padding:7px 13px;white-space:nowrap}
+body.t11 .rounded-work-list button:hover .rounded-work-action{background:#cee7d8}
+body.t11 .rounded-dash-bottom{display:grid;grid-template-columns:1.12fr 1fr;gap:20px}
+body.t11 .rounded-dash-bottom>.card{margin:0;padding:22px;min-width:0}
+body.t11 .rounded-summary-caption{font-size:13px;color:#758077;margin:0 0 15px}
+body.t11 .rounded-learning-summary .r10-panel-head{margin-bottom:5px}
+body.t11 .rounded-learning-summary h2{margin:0}
+body.t11 .rounded-learning-summary .r10-metrics{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:12px 0 18px}
+body.t11 .rounded-learning-summary .r10-metric{padding:10px 8px;border:0;background:#f1f7f0;border-radius:15px;gap:7px}
+body.t11 .rounded-learning-summary .r10-metric strong{font-size:26px;color:#11533e}
+body.t11 .rounded-learning-summary .r10-metric span{font-size:12px;color:#65756a}
+body.t11 .rounded-learning-summary .r10-metric small{font-size:10px;line-height:1.4;color:#758279}
+body.t11 .rounded-outline{display:flex;align-items:center;justify-content:center;gap:16px;min-height:42px;border-radius:24px;border:1px solid #1c6a50;padding:8px 22px;background:#fff;color:#154d3b;font:inherit;font-weight:650;cursor:pointer}
+body.t11 .rounded-learning-summary>.rounded-outline{margin:0 auto}
+body.t11 .rounded-tree-card>button{display:flex;align-items:center;gap:18px;width:100%;padding:12px 18px;border:1px solid #e0e5de;border-radius:18px;background:#fff;margin:10px 0;color:#164737;text-align:left;font:inherit;cursor:pointer}
+body.t11 .rounded-tree-card>button:hover{background:#f0f7ef}
+body.t11 .rounded-tree-card>button>.ai:first-child{width:32px;height:32px;color:#10563f}
+body.t11 .rounded-tree-card>button>.ai:last-child{margin-left:auto;width:19px;height:19px}
+body.t11 .rounded-tree-card strong{font-size:20px;display:block}
+body.t11 .rounded-tree-card small{font-size:14px;color:#687268;display:block;margin-top:4px}
+body.t11 .rounded-tree-card>p{font-size:14px;color:#7b8178;margin:14px 4px 0}
+body.t11 .rounded-dash .r10-period{background:#eef5eb;border-radius:22px;padding:3px}
+body.t11 .rounded-dash .r10-period button{border-radius:20px;padding:6px 12px;color:#4f6d58}
+body.t11 .rounded-dash .r10-period button.active{background:#0c5947;color:#fff;box-shadow:none}
+body.t11 .rounded-detail-grid .r10-panel{margin:0;border-radius:25px}
+body.t11 .rounded-dash .r10-panel h3{color:#174635;font-size:20px}
+body.t11 .rounded-dash .r10-bar{background:#76ae8a;border-radius:7px 7px 0 0}
+body.t11 .rounded-dash .r10-todos b{color:#0c5947}
+body.t11 .rounded-dash .r10-quick button{background:#f3f7ef;border-radius:16px;color:#2b5944}
+body.t11 .rounded-all-actions{margin:0!important}
+@media(min-width:821px) and (max-width:1160px){
+ body.t11 .admin-app.ui-rounded-shell:not(.side-fold) .side{width:220px}
+ body.t11 .admin-app.ui-rounded-shell:not(.side-fold) .main{margin-left:220px;width:calc(100% - 220px)}
+ body.t11 .admin-app.ui-rounded-shell .content{padding:22px 20px!important}
+ body.t11 .rounded-dash-top{grid-template-columns:minmax(0,1.6fr) minmax(225px,1fr)}
+ body.t11 .rounded-dash-hero{padding:24px}
+ body.t11 .rounded-hero-copy{max-width:84%}
+ body.t11 .rounded-hero-copy h2{font-size:29px}
+ body.t11 .rounded-admin-art{width:175px;height:175px;right:-24px;bottom:-8px;opacity:.7}
+ body.t11 .rounded-work-list>button{grid-template-columns:45px 145px 1fr;gap:9px}
+ body.t11 .rounded-work-list strong{font-size:18px;padding-left:10px}
+ body.t11 .rounded-work-hint{display:none}
+ body.t11 .rounded-dash-bottom{grid-template-columns:1fr 1fr}
+ body.t11 .rounded-learning-summary .r10-panel-head{flex-wrap:wrap}
+}
+@media(max-width:820px){
+ body.t11 .admin-app.ui-rounded-shell .side,
+ body.t11 .admin-app.ui-rounded-shell.side-fold .side{width:246px;transform:translateX(-100%);position:fixed;z-index:220;height:100dvh;left:0;top:0}
+ body.t11 .admin-app.ui-rounded-shell.t11-drawer .side{transform:translateX(0)}
+ body.t11 .admin-app.ui-rounded-shell .main,
+ body.t11 .admin-app.ui-rounded-shell.side-fold .main{width:100%;margin-left:0}
+ body.t11 .admin-app.ui-rounded-shell .topbar{padding:0 16px;height:60px!important;min-height:60px!important}
+ body.t11 .admin-app.ui-rounded-shell .content{padding:22px 16px 30px!important}
+ body.t11 .admin-app.ui-rounded-shell .who{gap:9px}
+ body.t11 .admin-app.ui-rounded-shell .who-user span,
+ body.t11 .admin-app.ui-rounded-shell #btnPwd{display:none}
+ body.t11 .admin-app.ui-rounded-shell #btnStu{padding:6px 10px;font-size:12px}
+ body.t11 .admin-app.ui-rounded-shell .tb-crumb{font-size:14px;gap:9px}
+ body.t11 .rounded-dash-heading{padding:0}
+ body.t11 .rounded-dash-heading h1{font-size:34px}
+ body.t11 .rounded-dash-heading p{font-size:15px}
+ body.t11 .rounded-dash-top{grid-template-columns:1fr}
+ body.t11 .rounded-dash-hero{min-height:230px;padding:24px}
+ body.t11 .rounded-hero-copy{max-width:70%}
+ body.t11 .rounded-hero-copy h2{font-size:30px}
+ body.t11 .rounded-admin-art{width:210px;height:210px;right:2px}
+ body.t11 .rounded-quick-card{padding:19px 22px}
+ body.t11 .rounded-quick-card>div{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+ body.t11 .rounded-quick-card button{font-size:15px;flex-direction:column;gap:7px;padding:12px 3px;border:0}
+ body.t11 .rounded-quick-card button>.ai:last-child{display:none}
+ body.t11 .rounded-work-list{padding:4px 14px}
+ body.t11 .rounded-work-list>button{grid-template-columns:43px minmax(0,1fr) 105px;gap:9px;padding:13px 0}
+ body.t11 .rounded-work-icon{width:40px;height:40px}
+ body.t11 .rounded-work-list strong{font-size:17px;border:0;padding:0}
+ body.t11 .rounded-work-hint{display:none}
+ body.t11 .rounded-work-action{font-size:14px;gap:6px;padding:8px 10px}
+ body.t11 .rounded-dash-bottom{grid-template-columns:1fr}
+ body.t11 .rounded-dash h2{font-size:22px}
+ body.t11 .rounded-detail-grid{grid-template-columns:1fr}
+ body.t11 .rounded-dash .r10-quick{grid-template-columns:repeat(3,minmax(0,1fr))}
+ body.t11 .rounded-dash .r10-quick button{font-size:12px;padding:12px 7px}
+}
+@media(max-width:460px){
+ body.t11 .admin-app.ui-rounded-shell .who .avatar{display:none}
+ body.t11 .admin-app.ui-rounded-shell #btnOut{font-size:12px}
+ body.t11 .admin-app.ui-rounded-shell .tb-title{gap:9px}
+ body.t11 .rounded-dash-hero{padding:22px;min-height:258px;align-items:flex-start}
+ body.t11 .rounded-hero-copy{max-width:100%}
+ body.t11 .rounded-hero-copy h2{font-size:29px}
+ body.t11 .rounded-hero-copy>p:not(.rounded-eyebrow){max-width:76%;font-size:14px}
+ body.t11 .rounded-hero-copy .rounded-eyebrow{font-size:17px}
+ body.t11 .rounded-admin-art{width:139px;height:139px;right:0;bottom:-3px}
+ body.t11 .rounded-amber{font-size:18px;padding:10px 22px;gap:15px}
+ body.t11 .rounded-dash-bottom>.card{padding:20px}
+ body.t11 .rounded-learning-summary .r10-panel-head{gap:8px}
+ body.t11 .rounded-dash .r10-period button{padding:6px 9px;font-size:12px}
+}
+@media(prefers-reduced-motion:reduce){body.t11 .admin-app.ui-rounded-shell *{scroll-behavior:auto!important;transition:none!important}}
+@media print{body.t11 .admin-app.ui-rounded-shell .side,body.t11 .admin-app.ui-rounded-shell .topbar{display:none}body.t11 .admin-app.ui-rounded-shell .main{margin:0;width:100%}}
+
+/* Supersede the previous standalone blue review-shell theme. */
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell{--t11-primary:#0c5947;--t11-primary-d:#083f35;--t11-primary-l:#e7f3eb;--t11-primary-line:#bfd8cc;--t11-side:#e6f1e9;--t11-text:#143b33;--t11-text2:#5e6a64;--t11-line:#dfe5df;--t11-bg:#f7f5ef;--t11-r:14px;font-family:"Noto Sans CJK SC","Microsoft YaHei","PingFang SC",Arial,sans-serif}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell .side{width:246px!important}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell .main{margin-left:246px!important;width:calc(100% - 246px)}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell .nav a{border-radius:27px!important}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell .nav a.on{background:#0c5947!important}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell .brand .zx-mark{width:52px;height:52px}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell .brand b{color:#073c32;font-size:28px!important}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell .brand em{color:#53665d}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell .content{padding:0!important}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell .topbar{height:66px!important;min-height:66px!important}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell .pd-workspace{height:calc(100dvh - 66px)}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell.side-fold .side{width:74px!important}
+body.t11 .admin-app.ui-rounded-shell.ui-review-shell.side-fold .main{margin-left:74px!important;width:calc(100% - 74px)}
+@media(max-width:820px){body.t11 .admin-app.ui-rounded-shell.ui-review-shell .side,body.t11 .admin-app.ui-rounded-shell.ui-review-shell.side-fold .side{width:246px!important}body.t11 .admin-app.ui-rounded-shell.ui-review-shell .main,body.t11 .admin-app.ui-rounded-shell.ui-review-shell.side-fold .main{margin-left:0!important;width:100%}body.t11 .admin-app.ui-rounded-shell.ui-review-shell .topbar{height:60px!important;min-height:60px!important;padding:0 16px!important}body.t11 .admin-app.ui-rounded-shell.ui-review-shell .pd-workspace{height:calc(100dvh - 60px)}}
+
+/* Legacy RuoYi declarations use !important, so reset their shell geometry explicitly. */
+body.t11 .admin-app.ui-rounded-shell .side{width:246px!important}
+body.t11 .admin-app.ui-rounded-shell .main{margin-left:246px!important;width:calc(100% - 246px)}
+body.t11 .admin-app.ui-rounded-shell .brand{background:transparent!important;padding:18px 26px!important}
+body.t11 .admin-app.ui-rounded-shell .brand .zx-mark{width:52px;height:52px;border-radius:0}
+body.t11 .admin-app.ui-rounded-shell .brand .zx-txt b{color:#073c32!important;font-size:28px!important;font-weight:800}
+body.t11 .admin-app.ui-rounded-shell .nav{padding:8px 14px 20px!important}
+body.t11 .admin-app.ui-rounded-shell .nav a{border-radius:27px!important;margin:5px 0!important;border-left:0;font-weight:600!important}
+body.t11 .admin-app.ui-rounded-shell .nav .ng-t{width:100%;margin:5px 0!important}
+body.t11 .admin-app.ui-rounded-shell .side-foot{color:#4c675a!important;border-top:1px solid #c6dfd0!important}
+body.t11 .admin-app.ui-rounded-shell.side-fold .side{width:74px!important}
+body.t11 .admin-app.ui-rounded-shell.side-fold .main{margin-left:74px!important;width:calc(100% - 74px)}
+body.t11 .admin-app.ui-rounded-shell.side-fold .brand{padding:16px 10px!important}
+body.t11 .admin-app.ui-rounded-shell.side-fold .nav{padding:8px!important}
+@media(min-width:821px) and (max-width:1160px){body.t11 .admin-app.ui-rounded-shell:not(.side-fold) .side{width:220px!important}body.t11 .admin-app.ui-rounded-shell:not(.side-fold) .main{margin-left:220px!important;width:calc(100% - 220px)}}
+@media(max-width:820px){body.t11 .admin-app.ui-rounded-shell .side,body.t11 .admin-app.ui-rounded-shell.side-fold .side{width:246px!important}body.t11 .admin-app.ui-rounded-shell .main,body.t11 .admin-app.ui-rounded-shell.side-fold .main{margin-left:0!important;width:100%}body.t11 .admin-app.ui-rounded-shell .nav .ng-t{display:flex}body.t11 .admin-app.ui-rounded-shell .txt,body.t11 .admin-app.ui-rounded-shell .zx-txt,body.t11 .admin-app.ui-rounded-shell .brand b,body.t11 .admin-app.ui-rounded-shell .ng-arrow{display:initial!important}body.t11 .admin-app.ui-rounded-shell .nav a{justify-content:flex-start}body.t11 .admin-app.ui-rounded-shell .nav .nav-group:not(.open) .ng-sub{display:none!important}body.t11 .admin-app.ui-rounded-shell #btnStu{width:auto;min-width:70px;display:inline-flex}body.t11 .admin-app.ui-rounded-shell #btnOut{width:auto;min-width:42px}}
+/* Match the approved first-screen vertical rhythm without dropping real metrics. */
+body.t11 .rounded-quick-card button{padding:10px 0;line-height:1.5}
+body.t11 .rounded-work-list>button{padding:9px 8px}
+@media(min-width:1161px){body.t11 .rounded-learning-summary .r10-metrics{grid-template-columns:repeat(5,minmax(0,1fr));margin:22px 0}body.t11 .rounded-learning-summary .r10-metric{padding:16px 8px}body.t11 .rounded-learning-summary .r10-metric small{display:none}}
+@media(max-width:820px){body.t11 .rounded-work-list>button{padding:13px 0}body.t11 .rounded-quick-card button{padding:12px 3px}}
+@media(max-width:820px){body.t11 .admin-app.ui-rounded-shell .side,body.t11 .admin-app.ui-rounded-shell.side-fold .side{z-index:3000}body.t11 .admin-app.ui-rounded-shell.t11-drawer .t11-scrim{z-index:2990}}

@@ -45,7 +45,7 @@ const XREP_TABS = [
 let XREP_TAB = 'w';
 /** 旧「知识点正确率」（#/acc[?user_id=]）并入习题学习报告：切到该页签，有 user_id 时直接打开该学生的详情 */
 function xrepOpenExercise(uid) { XREP_TAB = 'e'; EREP.openUid = Number(uid) || 0; }
-const xrepTabs = () => `<div class="toolbar" style="gap:6px;margin-bottom:14px">
+const xrepTabs = () => `<div class="toolbar r1-report-tabs" aria-label="学习报告类型">
   ${XREP_TABS.map((t) => `<button class="btn ${XREP_TAB === t.k ? 'primary-sm' : 'ghost'}" data-xrep="${t.k}">${ic(t.i)} ${t.t}</button>`).join('')}</div>`;
 
 async function viewXReport() {
@@ -58,7 +58,7 @@ async function viewXReport() {
   }
   const map = { w: viewWReport, v: viewVReport, e: viewEReport, m: viewMistakeLog };
   const out = await (map[XREP_TAB] || viewWReport)();
-  out.html = xrepTabs() + out.html;
+  out.html = '<section class="r1-rounded-report"><header class="r1-report-heading"><h2>学习报告</h2><p>从视频学习、练习表现到错题，看到完整学习过程。</p></header>' + xrepTabs() + out.html + '</section>';
   const oldAfter = out.after;
   out.after = () => {
     document.querySelectorAll('[data-xrep]').forEach((b) => b.onclick = () => { XREP_TAB = b.dataset.xrep; render(); });
@@ -255,6 +255,8 @@ async function viewEReport() {
         <button class="btn ghost" id="erReset">重置</button>
       </div>
       <p class="w-tip" style="margin:0 0 12px">统计学生端「做练习 / 试卷」的作答数据：做题数与正确率来自练习作答，错题按错题本（含复习进度）统计，试卷取自智能组卷的交卷记录。点「详情」看试卷成绩和最近的作答明细。</p>
+      <div class="r1-student-cards">${list.length ? list.map(s => `<article class="r1-student-card"><header><span class="r1-student-avatar" aria-hidden="true">${ic('user')}</span><div><h3>${esc(s.name || s.username)}</h3><p>${esc([s.grade,s.branch || '总校'].filter(Boolean).join(' · '))}</p></div><button type="button" class="btn ghost sm" data-edetail="${s.id}">查看报告 ${ic('arrow-right')}</button></header><div class="r1-student-metrics"><div><span>已做习题</span><strong>${Number(s.answered) || 0}</strong><small>作答记录</small></div><div><span>习题正确率</span><strong>${s.rate == null ? '—' : esc(s.rate) + '%'}</strong><small>${s.rate == null ? '暂无可统计作答' : '已评分的有效作答'}</small></div><div><span>待复习错题</span><strong>${Number(s.wrong_open) || 0}</strong><small>已掌握 ${Number(s.mastered) || 0} 题</small></div></div><footer><span>${s.last_at ? '最近练习 ' + esc(s.last_at.slice(0,16)) : '暂无可统计的客观题或试卷记录'}</span><button type="button" class="link-btn" data-edocx="${s.id}">导出错题 Word</button></footer></article>`).join('') : '<div class="r1-report-empty"><span class="r1-empty-book" aria-hidden="true">'+ic('book')+'</span><h3>完成练习后生成报告</h3><p>暂未产生可统计的练习记录，或当前筛选下没有学生。</p><small>暂无数据不代表正确率为 0%。</small></div>'}</div>
+      <details class="r1-all-fields"><summary>查看全部统计字段</summary>
       ${list.length ? `<div style="overflow-x:auto"><table>
         <thead><tr><th>姓名</th><th>账号</th><th>年级</th><th>校区</th><th>学科做题（对/总）</th><th>做题数</th><th>正确率</th><th>待复习错题</th><th>已掌握</th><th>试卷</th><th>平均分</th><th>最高分</th><th>最近做题</th><th>到期</th><th>状态</th><th class="r1-act-cell">操作</th></tr></thead>
         <tbody>${list.map((s) => `<tr>
@@ -274,7 +276,7 @@ async function viewEReport() {
           <td>${s.status ? '<span class="tag ok">正常</span>' : '<span class="tag gray">停用</span>'}</td>
           <td class="r1-act-cell"><div class="r1-acts"><button class="link-btn" data-edetail="${s.id}">详情</button><button class="link-btn" data-edocx="${s.id}" title="导出该学生未掌握的错题（可编辑的 Word）">导出错题 Word</button></div></td>
         </tr>`).join('')}</tbody></table></div>`
-      : '<div class="empty">暂无记录</div>'}
+      : '<div class="empty">暂无记录</div>'}</details>
     </div>`,
     after: () => {
       reportBranchBind('erBranch', st);
@@ -360,8 +362,8 @@ function r1Esc(e) { if (e.key === 'Escape') r1Close(); }
 async function r1OpenDrawer(uid) {
   r1Close();
   const wrap = document.createElement('div');
-  wrap.className = 'r1-mask';
-  wrap.innerHTML = `<aside class="r1-drawer" role="dialog" aria-label="习题学习报告详情">
+  wrap.className = 'r1-mask r1-rounded-mask';
+  wrap.innerHTML = `<aside class="r1-drawer r1-rounded-drawer" role="dialog" aria-label="习题学习报告详情">
     <header class="r1-dh"><div class="r1-dt"><h3>习题学习报告</h3><p class="r1-sub">加载中…</p></div>
       <button type="button" class="r1-x" aria-label="关闭"><i class="el-icon-close"></i></button></header>
     <div class="r1-body"><div class="loading-page">加载中…</div></div>
@@ -388,6 +390,8 @@ async function r1OpenDrawer(uid) {
   // ① 学科总览
   const subs = det.subjects || [];
   const totalN = subs.reduce((t, x) => t + x.n, 0); const totalC = subs.reduce((t, x) => t + x.correct, 0);
+  const hasPractice = totalN > 0 || (det.rows || []).length > 0 || (det.subjective || []).length > 0 || (det.papers || []).length > 0;
+  const hasPendingGrading = (det.subjective || []).some(r => r.score == null) || (det.papers || []).some(p => Number(p.ungraded_count) > 0);
   const subCards = subs.map((x) => {
     const rate = x.n ? Math.round(x.correct / x.n * 100) : null;
     return `<div class="r1-subj ${x.n ? '' : 'empty'}" data-subj="${esc(x.subject)}">
@@ -431,13 +435,13 @@ async function r1OpenDrawer(uid) {
       <button type="button" class="btn sm" id="r1Docx">${ic('download')} 导出错题 Word</button>
     </div>
     <section class="r1-sec"><h4><span class="r1-n">1</span>学科总览</h4>${sum}<div class="r1-subjs">${subCards}</div></section>
-    <section class="r1-sec"><h4><span class="r1-n">2</span>课程 → 小分组 → 视频 正确率
+    <div class="r1-report-grid"><section class="r1-sec r1-knowledge-panel"><h4><span class="r1-n">2</span>知识点与小分组
         <span class="r1-tools"><label class="r1-chk"><input type="checkbox" id="r1Weak"> 只看未掌握（&lt; ${R1_WEAK}%）</label>
         <button type="button" class="link-btn" id="r1Open">全部展开</button><button type="button" class="link-btn" id="r1Fold">全部收起</button></span></h4>
       <p class="r1-note">每道题取学生<b>最近一次</b>作答的对错；小分组 = 组内所有视频的题合在一起算。问答题不自动判分，不计入。</p>
       ${acc ? `<div class="r1-accsum">全部课程合计 ${r1RateHTML(acc.acc)}</div>` : ''}
       <div class="r1-tree" id="r1Tree">${accErr ? `<div class="empty">${esc(accErr)}</div>` : ''}</div>
-    </section>
+    </section><aside class="r1-feedback"><h4>${ic('chat')} 学习反馈</h4><div class="r1-empty-book" aria-hidden="true">${ic('book')}</div><h3>${hasPractice ? (hasPendingGrading && !totalN ? '已有作答，等待人工评分' : '每一步练习，都看得见') : '完成练习后生成报告'}</h3><p>${hasPractice ? (hasPendingGrading && !totalN ? '已收到主观题或试卷作答，人工评分完成后可查看相应结果。' : '结合知识点正确率与最近作答，了解需要巩固的内容。') : '这里会呈现题目结果、知识点掌握情况和需要复习的内容。'}</p><div class="r1-feedback-note">${hasPendingGrading ? '有作答待人工评分，请在下方试卷与作答记录中单独查看。' : '暂无可统计数据不代表正确率为 0%。'}<br>正确率与学习进度分别呈现。</div></aside></div>
     <section class="r1-sec"><h4><span class="r1-n">3</span>试卷成绩</h4>
       ${paperRows ? `<div class="r1-scroll"><table><thead><tr><th>试卷</th><th>得分</th><th>答对</th><th>得分率</th><th>交卷时间</th></tr></thead><tbody>${paperRows}</tbody></table></div>` : '<p class="r1-note">还没有参加过试卷</p>'}
       <h4 class="r1-h4b">最近作答（最近 100 条）</h4>

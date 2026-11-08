@@ -295,7 +295,7 @@ const BankQuiz = {
             <span class="qz-fs" id="qzFs" title="字体大小"><button data-fs="sm">小</button><button class="on" data-fs="md">中</button><button data-fs="lg">大</button></span>
           </div>
         </div>
-        <div class="ui-quiz-progress"><span class="quiz-prog" id="qzProg" aria-live="polite"></span><div class="quiz-bar"><i id="qzBarFill"></i></div></div>
+        <div class="ui-quiz-progress"><strong class="rounded-quiz-focus"><i class="ai ai-doc" aria-hidden="true"></i>专注这一题</strong><span class="quiz-prog" id="qzProg" aria-live="polite"></span><div class="quiz-bar"><i id="qzBarFill"></i></div></div>
         <div class="r8-qz-main">
           <div class="r8-qz-left">
             <div class="quiz-body" id="qzBody"></div>
@@ -308,7 +308,7 @@ const BankQuiz = {
             <div class="r8-side-t">答题卡<em>（${total} 题）</em></div>
             <div class="quiz-dots r8-dots" id="qzDots"></div>
             <div class="r8-legend"><span><i class="u"></i>未做</span><span><i class="d"></i>已做</span><span><i class="ok"></i>答对</span><span><i class="no"></i>答错</span></div>
-            <div class="ui-quiz-ai-dock" id="qzAiDock"></div>
+            <div class="rounded-quiz-tip"><strong><i class="ai ai-help" aria-hidden="true"></i>作答提示</strong><p>请先独立完成，再查看讲解。</p></div><div class="ui-quiz-ai-dock" id="qzAiDock"></div>
           </aside>
         </div>
       </div>`;
@@ -708,6 +708,7 @@ const BankQuiz = {
         body.querySelectorAll('[data-retry]').forEach((b) => b.onclick = () => aiRetry(Number(b.dataset.retry)));
         if (window.mtxTypeset) mtxTypeset(body.querySelectorAll('.r8-msg.bot:not(.streaming) .r8-bub'));
       }
+      ai.el.classList.toggle('rounded-awaiting-answer', !judged);
       const busy = c.busy || !judged;
       ai.el.querySelector('#qzAiGate').textContent = judged ? '本题已提交，可继续追问' : '先提交本题，再请 AI 老师讲解';
       ai.el.querySelectorAll('[data-ask], .r8-ai-in button, .r8-ai-in textarea, [data-m]').forEach((x) => { x.disabled = (x.dataset && x.dataset.m) ? c.busy : busy; });
@@ -1551,33 +1552,25 @@ const BankPages = {
     };
 
     /** 错题卡片（历史错题列表复用） */
+
     const mistCard = (m) => {
       const stage = Math.min(3, Number(m.review_stage) || 0);
       return `
-      <div class="bk-mist ${m.resolved ? 'resolved' : ''}">
-        <div class="bm-top">
-          <span class="tag">${QT_NAME[m.type] || '题目'}</span>
-          ${m.point ? `<span class="tag gray">${esc(m.point)}</span>` : ''}
-          <span class="tag gray">${esc(m.source || '练习')}</span>
-          <span class="tag gray">答错 ${Number(m.wrong_count) || 0} 次</span>
-          ${m.resolved ? '<span class="tag ok">已掌握</span>' : `<span class="bm-dots" title="复习连续答对 ${stage}/3 次">${'●'.repeat(stage)}${'○'.repeat(3 - stage)}</span>`}
-          <span class="bm-time">${esc(String(m.updated_at || '').slice(0, 16))}</span>
+      <article class="bk-mist ${m.resolved ? 'resolved' : ''}">
+        <div class="bm-top"><span class="tag round-mist-source"><i class="ai ai-doc"></i>${esc(m.source || '练习错题')}</span>
+          <span class="tag gray">${QT_NAME[m.type] || '题目'}</span>${m.point ? `<span class="tag gray">${esc(m.point)}</span>` : ''}
+          ${m.resolved ? '<span class="tag ok">已掌握</span>' : `<span class="round-review-stage">复习 ${stage}/3</span>`}
         </div>
         ${m.material ? `<div class="qz-material folded"><div class="qz-mat-t">查看原文</div><div class="qz-mat-b">${esc(m.material)}</div></div>` : ''}
-        ${quizAudioHTML(m)}
-        <div class="bm-stem">${esc(m.stem)}</div>
-        ${quizImagesHTML(m)}
-        ${Array.isArray(m.options) && m.options.length && m.type !== 'fill' && m.type !== 'sort'
-          ? `<div class="bm-opts">${m.options.map((t, i) => `<span class="bm-opt">${QT_LETTERS[i]}. ${esc(optText(t))}</span>`).join('')}</div>` : ''}
-        <div class="qz-rrow my"><span>我的答案</span><em class="no">${esc(quizAnswerDisplay(m, m.last_answer, m.options))}</em></div>
-        <div class="qz-rrow"><span>正确答案</span><em class="ok">${esc(quizAnswerDisplay(m, m.answer, m.options))}</em></div>
-        ${m.analysis ? `<div class="qz-ana"><span>解析</span>${esc(m.analysis)}</div>` : ''}
-        <div class="bm-acts">
-          <button class="btn primary sm" data-redo="${m.question_id}"><i class="ai ai-refresh"></i> 重做</button>
-          <button class="btn ghost sm" data-similar="${m.question_id}">举一反三</button>
-          <button class="btn ghost sm" data-resolve="${m.question_id}">${m.resolved ? '恢复到错题本' : '我会了，移出错题本'}</button>
-        </div>
-      </div>`;
+        ${quizAudioHTML(m)}<div class="bm-stem">${esc(m.stem)}</div>${quizImagesHTML(m)}
+        ${Array.isArray(m.options) && m.options.length && m.type !== 'fill' && m.type !== 'sort' ? `<div class="bm-opts">${m.options.map((t, i) => `<span class="bm-opt">${QT_LETTERS[i]}. ${esc(optText(t))}</span>`).join('')}</div>` : ''}
+        <details class="round-mist-answer"><summary>我的作答与解析</summary>
+          <div class="qz-rrow my"><span>我的答案</span><em class="no">${esc(quizAnswerDisplay(m, m.last_answer, m.options))}</em></div>
+          <div class="qz-rrow"><span>正确答案</span><em class="ok">${esc(quizAnswerDisplay(m, m.answer, m.options))}</em></div>
+          ${m.analysis ? `<div class="qz-ana"><span>解析</span>${esc(m.analysis)}</div>` : ''}
+        </details>
+        <div class="bm-acts"><span class="round-mist-meta">答错 ${Number(m.wrong_count) || 0} 次 · ${esc(String(m.updated_at || '').slice(0, 16))}</span><button class="btn primary sm" data-redo="${m.question_id}"><i class="ai ai-refresh"></i>重练本题</button><button class="btn ghost sm" data-similar="${m.question_id}">举一反三</button><button class="btn ghost sm" data-resolve="${m.question_id}">${m.resolved ? '恢复到错题本' : '我会了，移出错题本'}</button></div>
+      </article>`;
     };
     // Only the newest action in this rendered page may open a popup or report an error.
     let mistakeActionVersion = 0;
@@ -1687,12 +1680,15 @@ const BankPages = {
         </a>`).join('')}</div>`;
     const bindTabs = () => {
       if (!isCurrent()) return;
-      const m = document.getElementById('bkTabsMount');
+      const pageTabs = host.querySelector('#roundMistTabs');
+      const legacyTabs = document.getElementById('bkTabsMount');
+      if (pageTabs && legacyTabs) legacyTabs.innerHTML = '';
+      const m = pageTabs || legacyTabs;
       if (!m) return;
       m.innerHTML = tabsHTML();
       m.querySelectorAll('.bk2-tabs a').forEach((a) => a.onclick = () => {
         if (subject === a.dataset.s && !sub) return;
-        subject = a.dataset.s; sub = ''; paint();
+        subject = a.dataset.s; sub = ''; mistFilter = { source: '', count: '', days: '', point: '' }; paint();
       });
     };
 
@@ -1754,6 +1750,7 @@ const BankPages = {
       };
     };
 
+
     const paintSubject = () => {
       const list = data.list.filter((m) => (m.subject || '其他') === subject);
       const cnt = (b) => list.filter((m) => inBucket(m, b)).length;
@@ -1762,49 +1759,33 @@ const BankPages = {
       const mastered = list.filter((m) => m.resolved).length;
       const his = list.filter((m) => m.resolved || ageDays(m) > 180).length;
       const due = data.review.due || 0;
-      const pct = list.length ? Math.round(mastered / list.length * 100) : 0;
+      const filtered = list.filter((q) => (!mistFilter.source || (q.source || '练习') === mistFilter.source)
+        && (!mistFilter.count || (mistFilter.count === '2' ? Number(q.wrong_count) >= 2 : Number(q.wrong_count) === 1))
+        && (!mistFilter.days || ageDays(q) <= Number(mistFilter.days))
+        && (!mistFilter.point || (q.point || '') === mistFilter.point));
+      const opts = (items, selected) => items.map(([v,t]) => `<option value="${esc(v)}" ${v === selected ? 'selected' : ''}>${esc(t)}</option>`).join('');
+      const sources = [...new Set(list.map((q) => q.source || '练习'))].sort();
+      const points = [...new Set(list.map((q) => q.point).filter(Boolean))].sort();
       host.innerHTML = `
-        <div class="t9-root">
-          <section class="t9-hero t9-${SUBJ_META[subject] ? SUBJ_META[subject].cls : 'smath'}">
-            <div class="t9-hero-l">
-              <span class="t9-hero-k">${esc(subject)}错题本</span>
-              <div class="t9-hero-n"><em>${open}</em><span>道待攻克</span></div>
-              <div class="t9-hero-bar" title="已掌握 ${mastered} / 共 ${list.length} 题"><i style="width:${pct}%"></i></div>
-              <span class="t9-hero-s">已掌握 ${mastered} 题 · 累计 ${list.length} 题${due ? ` · 今天有 <b>${due}</b> 题到期复习` : ''}</span>
-            </div>
-            <div class="t9-hero-acts">
-              ${due ? '<button class="t9-btn t9-btn-main" id="bkReview"><i class="ai ai-flash"></i> 开始今日复习</button>' : ''}
-              <button class="t9-btn" id="bkUpBtn">📱 手机扫码上传</button>
-              <button class="t9-btn" id="bkDocx">📄 导出 Word</button>
-            </div>
-          </section>
-          <div class="t9-sec">按时间强化</div>
-          <div class="t9-buckets">
-            <button class="t9-bucket c-red" id="bkD2" ${d2 ? '' : 'disabled'}><em>${d2}</em><span>2天内错题</span><i>${d2 ? '去强化 ›' : '暂无'}</i></button>
-            <button class="t9-bucket c-orange" id="bkD7" ${d7 ? '' : 'disabled'}><em>${d7}</em><span>3-7天内错题</span><i>${d7 ? '去强化 ›' : '暂无'}</i></button>
-            <button class="t9-bucket c-blue" id="bkD180" ${d180 ? '' : 'disabled'}><em>${d180}</em><span>8-180天内错题</span><i>${d180 ? '去强化 ›' : '暂无'}</i></button>
-          </div>
-          <div class="t9-sec">更多</div>
-          <div class="t9-funcs">
-            <button class="t9-func" id="bkPts">
-              <span class="t9-func-ic i-purple">${bkIcon('points', 22)}</span>
-              <span class="t9-func-m"><b>薄弱知识点<em class="t9-ai">AI</em></b><span>AI 识别错题考点，同类归在一起强化</span></span><i>›</i>
-            </button>
-            <button class="t9-func" id="bkAll">
-              <span class="t9-func-ic i-blue">${bkIcon('history', 22)}</span>
-              <span class="t9-func-m"><b>全部错题</b><span>按来源、次数、时间和知识点筛选</span></span><i>›</i>
-            </button>
-            <button class="t9-func" id="bkHis">
-              <span class="t9-func-ic i-blue">${bkIcon('history', 22)}</span>
-              <span class="t9-func-m"><b>历史错题</b><span>${his ? `${his} 题 · 已掌握或超期` : '暂无历史错题'}</span></span><i>›</i>
-            </button>
-            <button class="t9-func" id="bkUps">
-              <span class="t9-func-ic i-pink">${bkIcon('upload', 22)}</span>
-              <span class="t9-func-m"><b>上传的错题</b><span>手机扫码上传的纸质错题和审核进度</span></span><i>›</i>
-            </button>
+        <div class="t9-root round-mist-root">
+          <header class="round-mist-heading"><div><h1>错题本</h1><p>把容易错的地方，变成下一次会做的题。</p></div><button class="round-mist-upload" id="bkUpBtn"><i class="ai ai-upload"></i>手机扫码上传</button></header>
+          <div class="round-mist-toolbar"><div id="roundMistTabs"></div><label>知识点<select name="point">${opts([['','全部知识点'],...points.map(x=>[x,x])],mistFilter.point)}</select></label><label>来源<select name="source">${opts([['','全部来源'],...sources.map(x=>[x,x])],mistFilter.source)}</select></label><label>时间<select name="days">${opts([['','全部时间'],['7','最近 7 天'],['30','最近 30 天'],['90','最近 90 天']],mistFilter.days)}</select></label><label>次数<select name="count">${opts([['','全部次数'],['1','错过 1 次'],['2','错过 2 次及以上']],mistFilter.count)}</select></label></div>
+          <div class="round-mist-layout">
+            <section class="round-mist-results"><div class="round-mist-count">共 ${filtered.length} 题<span>待攻克 ${open} 题 · 已掌握 ${mastered} 题</span><button id="bkAll">全部错题与筛选<i class="ai ai-arrow-right"></i></button></div>
+              ${filtered.length ? `<div class="bk-mist-list">${filtered.map(mistCard).join('')}</div>` : '<div class="round-mist-empty"><i class="ai ai-book"></i><h2>这里还没有错题</h2><p>完成练习后，错题会自动记录在这里。</p></div>'}
+              <p class="round-mist-note"><i class="ai ai-help"></i>拍照题目会标注来源，并进入待审核队列。</p>
+            </section>
+            <aside class="round-mist-organize"><h2><i class="ai ai-print"></i>整理与导出</h2><p class="round-mist-total">${subject} · 累计 ${list.length} 题</p><h3>导出错题 Word</h3><p>选择题目范围，导出可编辑的文档。支持仅题目或题目与解析。</p><button id="bkDocx" class="round-export"><i class="ai ai-download"></i>选择范围并导出 Word</button>
+              <div class="round-mist-review"><h3>按时间强化</h3><div class="t9-buckets">
+                <button class="t9-bucket" id="bkD2" ${d2 ? '' : 'disabled'}><em>${d2}</em><span>2天内</span></button><button class="t9-bucket" id="bkD7" ${d7 ? '' : 'disabled'}><em>${d7}</em><span>3–7天</span></button><button class="t9-bucket" id="bkD180" ${d180 ? '' : 'disabled'}><em>${d180}</em><span>8–180天</span></button>
+              </div>${due ? `<button class="round-review-due" id="bkReview"><i class="ai ai-flash"></i>开始今日复习（${due}题）</button>` : '<p class="round-review-empty">今天暂无到期复习题。</p>'}</div>
+              <nav class="round-mist-more" aria-label="错题工具"><button id="bkPts"><i class="ai ai-puzzle"></i><span>薄弱知识点</span><i class="ai ai-arrow-right"></i></button><button id="bkHis"><i class="ai ai-clock"></i><span>历史错题（${his}）</span><i class="ai ai-arrow-right"></i></button><button id="bkUps"><i class="ai ai-upload"></i><span>上传的错题与审核进度</span><i class="ai ai-arrow-right"></i></button></nav>
+            </aside>
           </div>
         </div>`;
       bindTabs();
+      bindMistCards(host, filtered);
+      host.querySelectorAll('.round-mist-toolbar select').forEach(el => el.onchange = () => { mistFilter[el.name] = el.value; paint(); });
       const rb = host.querySelector('#bkReview');
       if (rb) rb.onclick = startReview;
       host.querySelector('#bkD2').onclick = () => quizMistakes(list.filter((m) => inBucket(m, 'd2')), `${subject}错题强化 · 2天内`, '连续答对自动移出错题本');
@@ -1817,7 +1798,6 @@ const BankPages = {
       host.querySelector('#bkUpBtn').onclick = showQR;
       host.querySelector('#bkDocx').onclick = exportWord;
     };
-
     // ---- 学科子页：薄弱知识点（AI 归类）/ 历史错题 / 上传的错题 ----
     const paintSub = (version) => {
       const subIsCurrent = () => isCurrent() && version === paintVersion;

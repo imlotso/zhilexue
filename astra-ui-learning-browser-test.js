@@ -62,7 +62,7 @@ test('learning navigation settles closed on fresh mobile and desktop-to-mobile r
    await page.locator('#learnHeroTitle').scrollIntoViewIfNeeded();
    await page.screenshot({path:path.join(OUT,'learning-stable-'+width+'-390.png')});
    await page.setViewportSize({width:1487,height:1058});
-   await page.waitForFunction(()=>document.querySelector('.st-side').getBoundingClientRect().left>=-1);
+   await page.waitForFunction(()=>document.querySelector('.round-main-nav').getBoundingClientRect().width>0);
    await page.setViewportSize({width:390,height:844});
    await page.waitForFunction(()=>document.querySelector('.st-side').getBoundingClientRect().right<=1);
    await page.locator('.learn-menu').click({trial:true,timeout:1500});

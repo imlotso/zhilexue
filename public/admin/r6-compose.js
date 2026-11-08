@@ -5,26 +5,44 @@ function r6FilterRow(st, field, title, options) {
 function r6Filters(st) {
   const row = (field, title, options) => r6FilterRow(st, field, title, options);
   return `<div class="r6-filters">
-    ${row('type','题型',[['','全部'],...MF_TYPES])}
+    <details class="r6-filter-detail"><summary>题型、来源、难度与更多筛选</summary>${row('type','题型',[['','全部'],...MF_TYPES])}
     <div id="r6-subtypes"></div>
     ${row('source','来源',[['','全部'],['sync','同步'],['monthly','月考'],['midterm','期中'],['final','期末'],['mock','中考模拟'],['zhongkao','中考真题'],['contest','竞赛']])}
     ${row('difficulty','难度',[['','全部'],['1,2','容易'],['3','普通'],['4,5','困难']])}
     ${row('mode','方式',[['','关联出题'],['exact','精准出题']])}
-    <div class="r6-more"><label>年份 <input id="r6-year" inputmode="numeric" maxlength="4" placeholder="如 2025" value="${esc(st.year||'')}"></label><label>地区 <input id="r6-region" maxlength="40" placeholder="按来源文字匹配" value="${esc(st.region||'')}"></label><label><input type="checkbox" id="r6-unused" ${st.unused?'checked':''}> 过滤已组卷</label><label class="r6-keyword">关键词 <input id="r6-kw" value="${esc(st.kw||'')}" placeholder="搜索题目"></label><button class="btn sm" id="r6-search">搜索</button><button class="btn ghost sm" id="r6-clear">清除筛选</button></div>
+    </details><div class="r6-more"><label>年份 <input id="r6-year" inputmode="numeric" maxlength="4" placeholder="如 2025" value="${esc(st.year||'')}"></label><label>地区 <input id="r6-region" maxlength="40" placeholder="按来源文字匹配" value="${esc(st.region||'')}"></label><label><input type="checkbox" id="r6-unused" ${st.unused?'checked':''}> 过滤已组卷</label><label class="r6-keyword">关键词 <input id="r6-kw" value="${esc(st.kw||'')}" placeholder="搜索题目"></label><button class="btn sm" id="r6-search">搜索</button><button class="btn ghost sm" id="r6-clear">清除筛选</button></div>
   </div>`;
 }
+/* Presentation-only basket summary: saved question IDs/scores remain owned by QB. */
+function r6BasketPreviewHTML() {
+  const rows = QB.list();
+  return '<div class="r6-basket-summary"><strong>' + rows.length + ' 题</strong><span>共 ' + rows.reduce((sum, row) => sum + (Number(row.score) || 0), 0) + ' 分</span></div>'
+    + (rows.length ? '<ol class="r6-basket-preview-list">' + rows.map((row, index) => '<li><span class="r6-basket-number">' + String(index + 1).padStart(2, '0') + '</span><span><b>' + esc((MF_TYPES.find(([type]) => type === row.type) || ['', row.type || '题目'])[1]) + '</b><small>题目 #' + Number(row.id) + ' · ' + (Number(row.score) || 0) + ' 分</small></span></li>').join('') + '</ol>' : '<div class="r6-basket-empty">' + ic('doc') + '<strong>试题篮还是空的</strong><p>从题目列表添加习题，逐步组成一份试卷。</p></div>');
+}
+function r6PaintBasket() {
+  const panel = document.getElementById('r6-basket-preview');
+  if (panel) panel.innerHTML = r6BasketPreviewHTML();
+  document.querySelectorAll('[data-r6add]').forEach(button => {
+    const selected = QB.has(button.dataset.r6add);
+    button.setAttribute('aria-pressed', String(selected));
+    button.textContent = selected ? '移出试题篮' : '+ 加入试题篮';
+  });
+}
+const r6RoundedHeading = () => '<header class="r6-page-heading"><h2>智能组卷</h2><p>先选范围，再挑题目，最后预览与下发。</p></header><ol class="r6-process" aria-label="组卷步骤"><li><b>1</b>选择范围</li><li class="on" aria-current="step"><b>2</b>筛选题目</li><li><b>3</b>预览与下发</li></ol>';
 async function viewPaperR6() {
   const st = ADM.page.r6 = ADM.page.r6 || { tab: 'textbook', tp: { stage:'primary', subject:'数学', kind:'textbook', sel:[], open:{}, multi:true }, type:'', difficulty:'', kw:'', page:1 };
   if (st.tab === 'classic' || st.tab === 'existing') {
     const old = await viewPaper();
     const after = old.after;
-    return { html: `<div class="r6-tabs"><button data-r6tab="textbook">章节选题</button><button data-r6tab="knowledge">知识点选题</button><button class="${st.tab==='classic'?'on':''}" data-r6tab="classic">一键组卷</button><button class="${st.tab==='existing'?'on':''}" data-r6tab="existing">已有试卷</button></div><div class="r6-mode-${st.tab}">${old.html}</div>`, after: () => { if (after) after(); document.querySelectorAll('[data-r6tab]').forEach(b=>b.onclick=()=>{st.tab=b.dataset.r6tab;render();}); } };
+    return { html: `<section class="r6-rounded-page">${r6RoundedHeading()}<div class="r6-tabs"><button data-r6tab="textbook">章节选题</button><button data-r6tab="knowledge">知识点选题</button><button class="${st.tab==='classic'?'on':''}" data-r6tab="classic">一键组卷</button><button class="${st.tab==='existing'?'on':''}" data-r6tab="existing">已有试卷</button></div><div class="r6-mode-${st.tab}">${old.html}</div></section>`, after: () => { if (after) after(); document.querySelectorAll('[data-r6tab]').forEach(b=>b.onclick=()=>{st.tab=b.dataset.r6tab;render();}); } };
   }
   st.tp.kind = st.tab;
-  return { html: `<div class="r6-tabs"><button data-r6tab="textbook" class="${st.tab==='textbook'?'on':''}">章节选题</button><button data-r6tab="knowledge" class="${st.tab==='knowledge'?'on':''}">知识点选题</button><button data-r6tab="classic">一键组卷</button><button data-r6tab="existing">已有试卷</button><button class="r6-basket" id="r6-basket">试题篮 <b>${QB.count()}</b></button></div><div class="r3-bank"><aside class="card r3-side"><div id="r6-tree"></div></aside><section class="card r3-main"><div class="card-h"><h3>选择试题</h3><span class="hint">按目录和条件筛选后，逐题加入试题篮</span></div>${r6Filters(st)}<div id="r6-knows" class="r6-knows"></div><div id="r6-results" aria-live="polite">正在加载题目…</div></section></div>`,
+  return { html: `<section class="r6-rounded-page">${r6RoundedHeading()}<div class="r6-tabs"><button data-r6tab="textbook" class="${st.tab==='textbook'?'on':''}">章节选题</button><button data-r6tab="knowledge" class="${st.tab==='knowledge'?'on':''}">知识点选题</button><button data-r6tab="classic">一键组卷</button><button data-r6tab="existing">已有试卷</button><button class="r6-basket" id="r6-basket">试题篮 <b>${QB.count()}</b></button></div>${r6Filters(st)}<div class="r3-bank r6-rounded-grid"><aside class="card r3-side"><h3 class="r6-panel-title">${ic('book')} 筛选范围</h3><div id="r6-tree"></div></aside><section class="card r3-main"><div class="card-h"><h3>${ic('book')} 题目列表</h3><span class="hint">按目录和条件筛选后，逐题加入试题篮</span></div><div id="r6-knows" class="r6-knows"></div><div id="r6-results" aria-live="polite">正在加载题目…</div></section><aside class="r6-basket-panel" aria-label="常驻试卷篮"><h3>${ic('doc')} 试卷篮</h3><div id="r6-basket-preview" aria-live="polite">${r6BasketPreviewHTML()}</div><div class="r6-basket-settings"><h4>${ic('setting')} 试卷设置</h4><p>在预览中填写标题、设置时长，调整题目顺序与分值。</p><button type="button" class="btn" data-basket-open>${ic('eye')} 预览与保存试卷</button><button type="button" class="btn ghost" data-basket-existing>${ic('arrow-right')} 已有试卷与下发</button><small>保存为草稿后，可选择学生下发。下发后显示在学生端「我的任务」。</small></div></aside></div></section>`,
     after: () => {
       document.querySelectorAll('[data-r6tab]').forEach(b=>b.onclick=()=>{st.tab=b.dataset.r6tab;st.tp.kind=st.tab;st.tp.sel=[];st.page=1;render();});
       document.getElementById('r6-basket').onclick=()=>r6BasketDialog(st);
+      document.querySelectorAll('[data-basket-open]').forEach(b=>b.onclick=()=>r6BasketDialog(st));
+      document.querySelectorAll('[data-basket-existing]').forEach(b=>b.onclick=()=>{st.tab='existing';render();});
       const paintFilters=()=>document.querySelectorAll('[data-r6-filter]').forEach(b=>{const on=String(st[b.dataset.r6Filter]||'')===b.dataset.value;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));});
       const bindFilterButtons=(root)=>root.querySelectorAll('[data-r6-filter]').forEach(b=>b.onclick=()=>{st[b.dataset.r6Filter]=b.dataset.value;st.page=1;if(b.dataset.r6Filter==='type')renderSubtypes(tp && tp.ctx());paintFilters();load();});
       const renderSubtypes=(ctx)=>{const panel=document.getElementById('r6-subtypes');if(!panel)return;if(!ctx){st.subtype='';panel.innerHTML='';return;}const list=QSubtype.list.filter(x=>QSubtype.matchesSubject(x,ctx.subject)&&(!st.type||QSubtype.matchesType(x,st.type)));if(st.subtype&&!list.some(x=>x.code===st.subtype))st.subtype='';panel.innerHTML=list.length?r6FilterRow(st,'subtype','细分',[['','全部'],...list.map(x=>[x.code,x.label])]):'';bindFilterButtons(panel);};
@@ -41,9 +59,9 @@ async function viewPaperR6() {
         const params=new URLSearchParams({page:String(st.page),size:'20',stage:ctx.stage,subject:ctx.subject});
         if(ctx.sel.length) params.set('nodes',ctx.sel.join(',')); if(st.type)params.set('type',st.type);if(st.subtype)params.set('question_subtype',st.subtype);if(st.difficulty)params.set('difficulty',st.difficulty);if(st.kw)params.set('kw',st.kw);if(st.source)params.set('src_kind',st.source);if(st.mode)params.set('node_mode',st.mode);if(st.year)params.set('year',st.year);if(st.region)params.set('region',st.region);if(st.unused)params.set('unused','1');if(st.knows && st.knows.length)params.set('knows',st.knows.join(','));
         try {const d=await api(`${MF_API}/questions?${params}`); if(request!==requestSeq || !document.getElementById('r6-results'))return;
-          result.innerHTML=`<div class="r6-result-count">共 ${d.total} 道题</div><div class="r3-list">${d.list.length?d.list.map((q,i)=>qcCard(q,{no:(d.page-1)*20+i+1,selectable:false,acts:`<button type="button" class="r3-bbtn" data-r6add="${q.id}">${QB.has(q.id)?'移出试题篮':'+ 加入试题篮'}</button>${qbGroupKey(q)?` <button type="button" class="r3-bbtn" data-r6group="${q.id}">整组加入</button>`:''}`})).join(''):'<div class="r3-empty">没有符合条件的题目，试试更换筛选条件。</div>'}</div><div class="r6-pagination"><button type="button" data-r6page="prev" ${d.page<=1?'disabled':''}>上一页</button><span>${d.page} / ${Math.max(1,Math.ceil(d.total/20))}</span><button type="button" data-r6page="next" ${d.page*20>=d.total?'disabled':''}>下一页</button></div>`;
-          result.querySelectorAll('[data-r6add]').forEach(b=>b.onclick=()=>{const q=d.list.find(x=>Number(x.id)===Number(b.dataset.r6add));QB.toggle(q);b.textContent=QB.has(q.id)?'移出试题篮':'+ 加入试题篮';document.getElementById('r6-basket').innerHTML=`试题篮 <b>${QB.count()}</b>`;});
-          result.querySelectorAll('[data-r6group]').forEach(b=>b.onclick=async()=>{if(await qbAddWholeGroup(b.dataset.r6group)){document.getElementById('r6-basket').innerHTML=`试题篮 <b>${QB.count()}</b>`;result.querySelectorAll('[data-r6add]').forEach(x=>{x.textContent=QB.has(x.dataset.r6add)?'移出试题篮':'+ 加入试题篮';});}});
+          result.innerHTML=`<div class="r6-result-count">共 ${d.total} 道题</div><div class="r3-list">${d.list.length?d.list.map((q,i)=>qcCard(q,{no:(d.page-1)*20+i+1,selectable:false,acts:`<button type="button" class="r3-bbtn" data-r6add="${q.id}" aria-pressed="${QB.has(q.id)}">${QB.has(q.id)?'移出试题篮':'+ 加入试题篮'}</button>${qbGroupKey(q)?` <button type="button" class="r3-bbtn" data-r6group="${q.id}">整组加入</button>`:''}`})).join(''):'<div class="r3-empty">没有符合条件的题目，试试更换筛选条件。</div>'}</div><div class="r6-pagination"><button type="button" data-r6page="prev" ${d.page<=1?'disabled':''}>上一页</button><span>${d.page} / ${Math.max(1,Math.ceil(d.total/20))}</span><button type="button" data-r6page="next" ${d.page*20>=d.total?'disabled':''}>下一页</button></div>`;
+          result.querySelectorAll('[data-r6add]').forEach(b=>b.onclick=()=>{const q=d.list.find(x=>Number(x.id)===Number(b.dataset.r6add));QB.toggle(q);r6PaintBasket();b.setAttribute('aria-pressed',String(QB.has(q.id)));b.textContent=QB.has(q.id)?'移出试题篮':'+ 加入试题篮';document.getElementById('r6-basket').innerHTML=`试题篮 <b>${QB.count()}</b>`;});
+          result.querySelectorAll('[data-r6group]').forEach(b=>b.onclick=async()=>{if(await qbAddWholeGroup(b.dataset.r6group)){r6PaintBasket();document.getElementById('r6-basket').innerHTML=`试题篮 <b>${QB.count()}</b>`;result.querySelectorAll('[data-r6add]').forEach(x=>{x.setAttribute('aria-pressed',String(QB.has(x.dataset.r6add)));x.textContent=QB.has(x.dataset.r6add)?'移出试题篮':'+ 加入试题篮';});}});
           result.querySelectorAll('[data-r6page]').forEach(b=>b.onclick=()=>{st.page+=b.dataset.r6page==='next'?1:-1;load();});qcBind(result);mtxTypeset(result);
         }catch(e){result.textContent='题目加载失败，请稍后重试。';}
       }
@@ -79,7 +97,7 @@ async function r6BasketDialog(st) {
   let rows=initial.some(x=>x.group_key)?initial:[...new Set(initial.map(x=>x.type))].flatMap(type=>initial.filter(x=>x.type===type));
   const label=type=>(MF_TYPES.find(([k])=>k===type)||[type,type||'其他题型'])[1];
   const blocks=()=>{const out=[];rows.forEach(x=>{const prev=out[out.length-1];if(prev && ((x.group_key && prev.key===x.group_key) || (!x.group_key && !prev.key && prev.type===x.type)))prev.rows.push(x);else out.push({key:x.group_key,type:x.type,rows:[x]});});return out;};
-  const persist=()=>{QB.set(rows.map(({id,type,score,group_key,partial_score})=>({id,type,score,...(group_key?{group_key}:{}),...(partial_score==null?{}:{partial_score})})));const button=document.getElementById('r6-basket');if(button)button.innerHTML=`试题篮 <b>${QB.count()}</b>`;};
+  const persist=()=>{QB.set(rows.map(({id,type,score,group_key,partial_score})=>({id,type,score,...(group_key?{group_key}:{}),...(partial_score==null?{}:{partial_score})})));r6PaintBasket();const button=document.getElementById('r6-basket');if(button)button.innerHTML=`试题篮 <b>${QB.count()}</b>`;};
   const paint=w=>{
     const groups=blocks();
     const groupLabel=g=>g.key?'组合题':label(g.type);

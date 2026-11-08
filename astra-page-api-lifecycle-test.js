@@ -81,8 +81,12 @@ test('current quiz completion still reloads its valid mistakes host', async t =>
     counts: { 数学: 1 }, review: { due: 0 },
   }) });
   await f.mistakes(); f.host.querySelector('#bkD2').onclick();
-  assert.ok(f.quiz()); await f.quiz().onDone();
-  assert.match(f.host.innerHTML, /<em>0<\\/em><span>道待攻克/);
+  assert.ok(f.quiz());
+  assert.match(f.host.innerHTML, /待攻克 1 题 · 已掌握 0 题/);
+  await f.quiz().onDone();
+  assert.ok(f.host.innerHTML.includes('<div class="round-mist-count">共 0 题<span>待攻克 0 题 · 已掌握 0 题</span>'));
+  assert.ok(f.host.innerHTML.includes('<h2>这里还没有错题</h2>'));
+  assert.doesNotMatch(f.host.innerHTML, /Synthetic/);
 });
 `;
 const compiled = new Module(__filename, module);

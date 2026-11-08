@@ -18,6 +18,10 @@ try {
 }
 const source = fs.readFileSync(path.join(__dirname, 'public/js/bank.js'), 'utf8');
 const backend = fs.readFileSync(path.join(__dirname, 'src/bank.js'), 'utf8');
+// Cards are now visible on the overview, so load their real shared option helper.
+const sharedApi = fs.readFileSync(path.join(__dirname, 'public/js/api.js'), 'utf8');
+const optTextSource = sharedApi.match(/function optText\(o\) \{[\s\S]*?\n\}/)?.[0];
+assert.ok(optTextSource, 'production option text helper must exist');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
   let resolve, reject;
@@ -73,11 +77,21 @@ function fixture(t, subject = '数学') {
   });
   const calls = [], errors = [], queued = [], queuedMistakes = [], queuedUploads = [], queuedPoints = [], queuedFilters = [], queuedSubjective = [];
   const host = hostFixture();
-  let mistakeTabs = [];
-  const tabsMount = {
-    set innerHTML(html) { mistakeTabs = [...html.matchAll(/data-s="([^"]*)"/g)].map(m => ({ dataset: { s: m[1] } })); },
-    querySelectorAll(selector) { assert.equal(selector, '.bk2-tabs a'); return mistakeTabs; },
+  // The rounded overview mounts subject tabs inside the page; subpages retain
+  // the existing topbar mount. Model both DOM nodes independently.
+  const makeTabsMount = () => {
+    let tabs = [];
+    return {
+      get tabs() { return tabs; },
+      set innerHTML(html) { tabs = [...html.matchAll(/data-s="([^"]*)"/g)].map(m => ({ dataset: { s: m[1] } })); },
+      querySelectorAll(selector) { assert.equal(selector, '.bk2-tabs a'); return tabs; },
+    };
   };
+  const tabsMount = makeTabsMount(), inlineTabsMount = makeTabsMount();
+  const hostQuery = host.querySelector.bind(host);
+  host.querySelector = selector => selector === '#roundMistTabs'
+    ? (host.innerHTML.includes('id="roundMistTabs"') ? inlineTabsMount : null)
+    : hostQuery(selector);
   const box = { window: {}, location: { hash: '#/papers', origin: 'https://test.invalid' }, URLSearchParams, document: { getElementById: id => id === 'bkTabsMount' ? tabsMount : null }, bindImageZoom: () => {},
     esc: v => String(v ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'),
     toast: (message, kind) => errors.push({ message, kind }),
@@ -97,13 +111,14 @@ function fixture(t, subject = '数学') {
       return res.data;
     },
   };
+  vm.runInNewContext(optTextSource, box, { filename: 'public/js/api.js:optText' });
   vm.runInNewContext(source, box, { filename: 'public/js/bank.js' });
   let quiz;
   box.window.BankQuiz.open = options => { quiz = options; };
   return { host, calls, errors, queued, queuedMistakes, queuedUploads, queuedPoints, queuedFilters, queuedSubjective, quiz: () => quiz,
     start: (selectedSubject = subject) => box.window.BankPages.papers(host, selectedSubject),
     mistakes: () => box.window.BankPages.mistakes(host),
-    mistakeTab(s) { mistakeTabs.find(tab => tab.dataset.s === s).onclick(); },
+    mistakeTab(s) { (host.innerHTML.includes('id="roundMistTabs"') ? inlineTabsMount : tabsMount).tabs.find(tab => tab.dataset.s === s).onclick(); },
     search(q) { host.querySelector('#pkQ').value = q; host.querySelector('#pkSearch').onclick(); },
     tab(s) { host.querySelectorAll('.bk-tabs a').find(a => a.dataset.s === s).onclick(); },
   };

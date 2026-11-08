@@ -53,10 +53,11 @@ test('desktop uses full viewport and a docked, gated AI panel without making an 
   const {page,errors}=await open();
   try{
     const frame=await bounds(page,'.quiz-box');assert.ok(frame.width>=1470,'workbench must occupy viewport width');assert.ok(frame.height>=1040,'workbench must occupy viewport height');
-    const side=await bounds(page,'.r8-qz-side'),left=await bounds(page,'.r8-qz-left');assert.ok(side.width>420&&side.width<520,'answer sidebar should match one-third concept proportion');assert.ok(left.width>900);
+    const side=await bounds(page,'.r8-qz-side'),left=await bounds(page,'.r8-qz-left');assert.ok(side.width>360&&side.width<440,'answer sidebar should match approved rounded concept proportion');assert.ok(left.width>900);
     assert.equal(await page.locator('#qzAiDock .r8-ai').count(),1,'AI belongs inside sidebar, not independent floating popup');
     assert.match(await page.locator('#r8AiBody').innerText(),/先作答/);
     assert.equal(await page.locator('.r8-ai-in textarea').isDisabled(),true);assert.equal(aiCalls.length,0);
+    const dotBox=await bounds(page,'#qzDots'), lastDot=await bounds(page,'.qz-dot:last-child');assert.ok(lastDot.y+lastDot.height<=dotBox.y+dotBox.height+1,'ten-question answer card must show its last row without clipping');
     assert.equal(await page.locator('.r8-fb').count(),0);assert.equal(await page.locator('.r8-right').count(),0);
     await page.screenshot({path:path.join(evidence,'quiz-unchecked-1487.png')});assert.deepEqual(errors,[]);
   }finally{await page.close();}
@@ -119,7 +120,7 @@ test('long ten-option questions scroll inside the question region and preserve s
 test('many questions keep the desktop AI dock and footer reachable',async()=>{
   const qs=Array.from({length:40},(_,i)=>({...questions[0],id:9500+i}));const {page,errors}=await open(1487,1058,qs);
   try{
-    const dots=await bounds(page,'#qzDots'),ai=await bounds(page,'.r8-ai');assert.ok(dots.height<=191);assert.ok(ai.y+ai.height<=1058);
+    const dots=await bounds(page,'#qzDots'),ai=await bounds(page,'.r8-ai');assert.ok(dots.height<=200);assert.ok(ai.y+ai.height<=1058);
     await page.locator('.qz-dot').last().click();assert.match(await page.locator('.qz-qno').innerText(),/第 40 题/);assert.deepEqual(errors,[]);
   }finally{await page.close();}
 });
@@ -170,4 +171,10 @@ for (const width of [1487,1440]) test('desktop '+width+'px to mobile collapses A
     assert.equal(await page.locator('.r8-ai-in textarea').isDisabled(),true);
     assert.equal(aiCalls.length,0); assert.deepEqual(errors,[]);
   }finally{await page.close();}
+});
+
+test('approved fill question keeps original input and numeric keypad usable',async()=>{
+ const qs=Array.from({length:8},(_,i)=>({id:9800+i,type:'fill',subject:'数学',blanks:1,quiz_ticket:'synthetic-only',stem:'计算：(−3)² + 2 × (−4) =（ ）。'}));
+ const {page,errors}=await open(1487,1058,qs);
+ try{await page.locator('.quiz-h-t b').evaluate(e=>e.textContent='第一章 有理数 · 配套练习');await page.locator('.quiz-h-t span').evaluate(e=>e.textContent='数学 · 章节练习');await page.locator('.t6-input').click();await page.locator('#qzKpad').waitFor({state:'visible'});await page.locator('#qzKpad [data-k="1"]').click();assert.equal(await page.locator('.t6-input').inputValue(),'1');await page.locator('.t6-input').fill('');const input=await bounds(page,'.t6-input'),pad=await bounds(page,'#qzKpad');assert.ok(input.height<=80,'rounded single answer remains a concise field');assert.ok(pad.y-input.y-input.height<80,'keyboard follows the answer instead of leaving a large empty gap');await page.screenshot({path:path.join(evidence,'quiz-fill-1487.png')});for(const [width,height] of [[1366,768],[390,844]]){await page.setViewportSize({width,height});await page.waitForTimeout(250);const submit=await bounds(page,'#qzCheckOne');assert.ok(submit.y+submit.height<=height,'fill submit remains visible after resizing');assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);await page.locator('.t6-input').fill('1');await page.locator('#qzCheckOne').click({trial:true});await page.screenshot({path:path.join(evidence,'quiz-fill-'+width+'.png')});}assert.deepEqual(errors,[]);}finally{await page.close();}
 });

@@ -7,7 +7,7 @@ const ADM = { chapters: [], page: {} };
 const ic = (name) => `<i class="ai ai-${name}" aria-hidden="true"></i>`;
 window.ic = ic;
 const NAV = [
-  { k: 'dash', t: '首页', i: 'dashboard' },
+  { k: 'dash', t: '工作台', i: 'home' },
   { k: 'branches', t: '分校管理', i: 'building', principalOnly: true },
   { k: 'students', t: '学生管理', i: 'student' },
   { k: 'xreport', t: '学习报告', i: 'chart' },
@@ -35,7 +35,7 @@ const NAV = [
   { k: 'oplog', t: '操作日志', i: 'doc', principalOnly: true },
 ];
 const NAV_GROUPS = [
-  { k: 'g-home', t: '首页', i: 'home', leaf: 'dash' },
+  { k: 'g-home', t: '工作台', i: 'home', leaf: 'dash' },
   { k: 'g-org', t: '学生与账号', i: 'building', items: ['branches', 'students', 'xreport'] },
   { k: 'g-res', t: '教学资源', i: 'folder', items: ['chapters', 'videos', 'handouts', 'words', 'letters', 'phonics'] },
   { k: 'g-bank', t: '智能题库', i: 'doc', items: ['mfq', 'intake', 'pending', 'ktree', 'mfp', 'paper', 'lessonq', 'bkup'] },
@@ -44,14 +44,14 @@ const NAV_GROUPS = [
 ];
 const navItem = (k) => NAV.find((n) => n.k === k);
 const navOf = () => NAV.filter((n) => !n.principalOnly || (Auth.user && Auth.user.role === 'admin'));
-const TITLE = { intake: '录题中心', 'intake-excel': 'Excel 模板导入', mfq: '题库管理', pending: '待审核题目', ktree: '知识树管理', mfset: 'AI 配置中心', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '首页', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
+const TITLE = { intake: '录题中心', 'intake-excel': 'Excel 模板导入', mfq: '题库管理', pending: '待审核题目', ktree: '知识树管理', mfset: 'AI 配置中心', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '工作台', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
 TITLE['intake-photo'] = '拍照 / 截图识别';
 TITLE['intake-pdf'] = 'PDF 识别'; TITLE['intake-word'] = 'Word 规则导入';
 TITLE['intake-skill'] = 'JSON / 技能包导入'; TITLE['intake-teacher'] = '老师扫码录题'; TITLE['intake-manual'] = '手动创建';
 function sideFoldGet() { try { return localStorage.getItem('xuexi_admin_side') === '1'; } catch (e) { return false; } }
 function sideFoldSet(v) { try { localStorage.setItem('xuexi_admin_side', v ? '1' : '0'); } catch (e) { /* 忽略 */ } }
 function openGroupsGet() {
-  try { return JSON.parse(localStorage.getItem('xuexi_admin_nav') || '[]'); } catch (e) { return []; }
+  try { return JSON.parse(localStorage.getItem('xuexi_admin_nav') || '["g-bank"]'); } catch (e) { return []; }
 }
 function openGroupsSet(arr) { try { localStorage.setItem('xuexi_admin_nav', JSON.stringify(arr)); } catch (e) { /* 忽略 */ } }
 function navGroupsHTML(cur) {
@@ -640,10 +640,10 @@ function shell(inner) {
   const title = TITLE[cur] || '首页';
   const folded = sideFoldGet();
   return `
-  <div class="layout admin-app ${cur === 'pending' ? 'ui-review-shell' : ''} ${folded ? 'side-fold' : ''}">
+  <div class="layout admin-app ui-rounded-shell ${cur === 'pending' ? 'ui-review-shell' : ''} ${folded ? 'side-fold' : ''}">
     <div class="t11-scrim" id="t11Scrim"></div>
     <aside class="side">
-      <div class="brand">${cur === 'pending' ? '<div class="zx-logo"><img class="zx-mark" src="/img/ui-brand-20261108.png" alt="智乐学" width="52" height="52"><span class="zx-txt"><b>智乐学</b><em>管理端</em></span></div>' : brandHTML('管理端')}</div>
+      <div class="brand"><div class="zx-logo"><img class="zx-mark" src="/img/ui-brand-20261108.png" alt="智乐学" width="52" height="52"><span class="zx-txt"><b>智乐学</b><em>管理端</em></span></div></div>
       <nav class="nav">${navGroupsHTML(cur)}</nav>
       <div class="side-foot">${u.role === 'branch' ? '分校管理端' : '系统管理端'}</div>
     </aside>
@@ -733,12 +733,22 @@ async function viewDash() {
     ['待复习错题', d.due, '截至今天待复习的错题'],
   ];
   const quick = [['students','student','学生管理'],['mfq','doc','题库管理'],['pending','list','待审核题目'],['paper','book','智能组卷'],['videos','video','视频管理'],['xreport','chart','学习报告']];
-  return { html: `<section class="r10-dash">
-    <div class="r10-heading"><div><h2>学习概览</h2><p>关注学生学习进展与需要处理的事项</p></div><div class="r10-period" role="group" aria-label="统计时间"><button class="${period === 'today' ? 'active' : ''}" data-period="today">今日</button><button class="${period === 'week' ? 'active' : ''}" data-period="week">本周</button></div></div>
-    <div class="r10-metrics">${metrics.map(([name,value,hint]) => `<div class="r10-metric" title="${esc(hint)}"><span>${name}</span><strong>${value}</strong><small>${esc(hint)}</small></div>`).join('')}</div>
-    <div class="r10-grid"><section class="card r10-panel"><div class="r10-panel-head"><div><h3>近 14 天学习趋势</h3><p>每日题目作答次数</p></div></div><div class="r10-chart" role="img" aria-label="近14天每日题目作答次数">${d.trend.map((x) => `<div class="r10-bar-col" title="${esc(x.date)}：${x.answers} 次"><span>${x.answers || ''}</span><div class="r10-bar" style="height:${Math.max(x.answers ? 4 : 1, Math.round(x.answers / max * 100))}%"></div><small>${esc(x.date.slice(5))}</small></div>`).join('')}</div></section>
-    <section class="card r10-panel"><div class="r10-panel-head"><div><h3>待办事项</h3><p>及时跟进教学工作</p></div></div><div class="r10-todos">${pending === null ? '' : `<button data-go="pending"><span>待审核题目</span><b>${pending}</b></button>`}<button data-go="bkfb"><span>待处理错题反馈</span><b>${d.feedback}</b></button><button data-go="students"><span>7 天内到期学生</span><b>${d.expiring}</b></button></div></section></div>
-    <section class="card r10-panel"><div class="r10-panel-head"><div><h3>快捷入口</h3><p>常用教学管理功能</p></div></div><div class="r10-quick">${quick.map(([go,icon,name]) => `<button data-go="${go}">${ic(icon)}<span>${name}</span></button>`).join('')}</div></section>
+  return { html: `<section class="r10-dash rounded-dash">
+    <div class="rounded-dash-heading"><h1>教学工作台</h1><p>把题目录入、课堂练习和学习反馈连起来。</p></div>
+    <div class="rounded-dash-top">
+      <section class="rounded-dash-hero"><div class="rounded-hero-copy"><p class="rounded-eyebrow">录题 <span aria-hidden="true">→</span> 审核 <span aria-hidden="true">→</span> 入库</p><h2>从待审核题目开始</h2><p>逐题核对题干、答案和分类，确认后再入库。</p><button type="button" class="rounded-amber" data-go="pending">进入审核 ${ic('arrow-right')}</button></div><img src="/img/ui-rounded-admin-hero-20261108.png" alt="" width="260" height="260" class="rounded-admin-art"></section>
+      <section class="rounded-quick-card"><h2>${ic('dashboard')} 常用操作</h2><div>${[['intake','upload','导入题目'],['paper','doc','创建试卷'],['videos','video','管理课程']].map(([go,icon,label])=>`<button type="button" data-go="${go}">${ic(icon)}<span>${label}</span>${ic('arrow-right')}</button>`).join('')}</div></section>
+    </div>
+    <section class="rounded-work-section"><h2>${ic('clock')} 今日工作入口</h2><div class="rounded-work-list">
+      ${[['pending','check','待审核题目','处理批量录入与学生拍照来源。','去审核'],['paper','doc','试卷与任务','选择题目，向学生下发练习。','去组卷'],['videos','video','课程与习题','配置视频、小分组和配套练习。','去管理']].map(([go,icon,label,hint,action])=>`<button type="button" data-go="${go}"><span class="rounded-work-icon">${ic(icon)}</span><strong>${label}</strong><span class="rounded-work-hint">${hint}</span><span class="rounded-work-action">${action} ${ic('arrow-right')}</span></button>`).join('')}
+    </div></section>
+    <div class="rounded-dash-bottom">
+      <section class="card rounded-learning-summary"><div class="r10-panel-head"><h2>${ic('chart')} 学情概览</h2><div class="r10-period" role="group" aria-label="统计时间"><button class="${period === 'today' ? 'active' : ''}" data-period="today">今日</button><button class="${period === 'week' ? 'active' : ''}" data-period="week">本周</button></div></div><p class="rounded-summary-caption">当前账号权限范围内的实际学习记录</p><div class="r10-metrics">${metrics.map(([name,value,hint]) => `<div class="r10-metric" title="${esc(hint)}"><span>${name}</span><strong>${value}</strong><small>${esc(hint)}</small></div>`).join('')}</div><button type="button" class="rounded-outline" data-go="xreport">查看学情报告 ${ic('arrow-right')}</button></section>
+      <section class="card rounded-tree-card"><h2>${ic('folder')} 题库组织</h2><button type="button" data-go="ktree">${ic('folder')}<span><strong>章节树</strong><small>按教材章节组织</small></span>${ic('arrow-right')}</button><button type="button" data-go="ktree">${ic('list')}<span><strong>知识点树</strong><small>跨章节定位知识点</small></span>${ic('arrow-right')}</button><p>在知识树管理中切换分类，支持新增与编辑。</p></section>
+    </div>
+    <div class="r10-grid rounded-detail-grid"><section class="card r10-panel"><div class="r10-panel-head"><div><h3>近 14 天学习趋势</h3><p>每日题目作答次数</p></div></div><div class="r10-chart" role="img" aria-label="近14天每日题目作答次数">${d.trend.map((x) => `<div class="r10-bar-col" title="${esc(x.date)}：${x.answers} 次"><span>${x.answers || ''}</span><div class="r10-bar" style="height:${Math.max(x.answers ? 4 : 1, Math.round(x.answers / max * 100))}%"></div><small>${esc(x.date.slice(5))}</small></div>`).join('')}</div></section>
+    <section class="card r10-panel"><div class="r10-panel-head"><div><h3>需要关注</h3><p>及时跟进教学工作</p></div></div><div class="r10-todos">${pending === null ? '' : `<button data-go="pending"><span>待审核题目</span><b>${pending}</b></button>`}<button data-go="bkfb"><span>待处理错题反馈</span><b>${d.feedback}</b></button><button data-go="students"><span>7 天内到期学生</span><b>${d.expiring}</b></button></div></section></div>
+    <section class="card r10-panel rounded-all-actions"><div class="r10-panel-head"><h3>更多管理入口</h3></div><div class="r10-quick">${quick.map(([go,icon,name]) => `<button data-go="${go}">${ic(icon)}<span>${name}</span></button>`).join('')}</div></section>
   </section>`, after: () => {
     document.querySelectorAll('.r10-dash [data-go]').forEach((b) => b.onclick = () => { location.hash = '#/' + b.dataset.go; });
     document.querySelectorAll('.r10-dash [data-period]').forEach((b) => b.onclick = () => { ADM.page.dashPeriod = b.dataset.period; render(); });
