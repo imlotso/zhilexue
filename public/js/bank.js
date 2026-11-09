@@ -851,12 +851,15 @@ const BankQuiz = {
     /* ---------------- 逐题反馈：大标签「答对了 / 答错了」+ 你的答案 / 正确答案 + 解析 ---------------- */
     const stepJudgeHTML = (q, ck) => `
       <div class="qz-judge-box r8-fb ${ck.ungraded ? 'ung' : ck.ok ? 'ok' : 'no'}">
-        <div class="r8-fb-tag">${ck.ungraded ? `${r8Ic('steps')}已提交，本题不自动判分` : ck.match_total ? `${ck.ok ? r8Ic('ok') : r8Ic('no')}连对 ${Number(ck.match_correct)} / ${Number(ck.match_total)} 项` : ck.ok ? `${r8Ic('ok')}答对了` : `${r8Ic('no')}答错了`}</div>
+        <div class="r8-fb-tag">${ck.selfAllowed ? (typeof ck.selfCorrect === 'boolean' ? `自评：${ck.selfCorrect ? '正确' : '错误'}` : '已提交，请对照参考答案自评') : ck.ungraded ? `${r8Ic('steps')}已提交，本题不自动判分` : ck.match_total ? `${ck.ok ? r8Ic('ok') : r8Ic('no')}连对 ${Number(ck.match_correct)} / ${Number(ck.match_total)} 项` : ck.ok ? `${r8Ic('ok')}答对了` : `${r8Ic('no')}答错了`}</div>
         <details class="ui-quiz-answer-details"><summary>查看作答与${ck.ungraded ? '参考' : '正确'}答案</summary>
         <div class="qz-jb-r"><span>你的答案</span><em class="${ck.ungraded ? '' : ck.ok ? 'ok' : 'no'}">${window.mtxAnswerHTML ? mtxAnswerHTML(ck.my || '未作答', q.subject) : esc(ck.my || '未作答')}</em></div>
-        ${(ck.ok && !ck.ungraded) || (ck.ungraded && !String(ck.raw || '').trim() && !(ck.solution_images || []).length) ? '' : `<div class="qz-jb-r"><span>${ck.ungraded ? '参考答案' : '正确答案'}</span><em class="ok">${quizSolutionContent(q, ck.answer, ck.solution_images)}</em></div>`}
+        ${(ck.ok && !ck.ungraded && !ck.selfAllowed) || (ck.ungraded && !String(ck.raw || '').trim() && !(ck.solution_images || []).length) ? '' : `<div class="qz-jb-r"><span>${ck.ungraded ? '参考答案' : '正确答案'}</span><em class="ok">${quizSolutionContent(q, ck.answer, ck.solution_images)}</em></div>`}
         </details>
         ${ck.analysis ? `<div class="qz-jb-ana"><span>解析</span><div class="r8-ana-t">${quizSolutionContent(q, ck.analysis, ck.solution_images)}</div></div>` : ''}
+        ${ck.selfAllowed ? `<div class="t11-self-grade" role="group" aria-label="本题自评"><p>对照参考答案与解析，选择你的作答是否正确。自评用于个人学习记录，不代表老师评分。</p>
+          <button type="button" class="btn ${ck.selfCorrect === true ? 'primary' : 'ghost'} sm" data-self-correct="true" aria-pressed="${ck.selfCorrect === true}">自评正确</button>
+          <button type="button" class="btn ${ck.selfCorrect === false ? 'primary' : 'ghost'} sm" data-self-correct="false" aria-pressed="${ck.selfCorrect === false}">自评错误</button></div>` : ''}
         <div class="r8-fb-acts"><button type="button" class="r8-link" data-fb="1">对题目有反馈？</button></div>
       </div>`;
 
@@ -897,6 +900,11 @@ const BankQuiz = {
       t8Bind(bodyEl);
       if (window.mtxTypeset) mtxTypeset(bodyEl);   // 题干 / 选项 / 解析里的 LaTeX 排版
       bodyEl.querySelectorAll('.qz-material').forEach((m) => { m.querySelector('.qz-mat-t').onclick = () => m.classList.toggle('folded'); });
+      bodyEl.querySelectorAll('[data-self-correct]').forEach(b => b.onclick = () => {
+        if (st.busy || st.phase !== 'answer' || !ck || !ck.selfAllowed || st.checked[st.idx] !== ck) return;
+        ck.selfCorrect = b.dataset.selfCorrect === 'true'; ck.ok = ck.selfCorrect; ck.ungraded = false;
+        paint();
+      });
       bodyEl.querySelectorAll('[data-fb]').forEach((b) => b.onclick = () => openFeedback(q, { my_answer: q.question_subtype === 'drawing' ? '已作图' : (ck ? ck.myRaw : quizAnswerText(q, st.answers[q.id])) }));
       // 判分后：题卡右下角、「下一题」上方出现「AI 老师」（答错时高亮）
       fab.hidden = !ck;
@@ -933,7 +941,7 @@ const BankQuiz = {
       const si = stemImagesHTML(q);
       const ung = !!(r && r.ungraded);
       return `<div class="qz-rq ${ung ? 'ung' : okk ? 'ok' : 'no'}" data-qid="${q.id}">
-        <div class="qz-rq-h"><span class="r8-rno ${ung ? 'd' : okk ? 'ok' : 'no'}">${no}</span><span class="qz-rstate">${ung ? '暂未自动评分' : okk ? '答对了' : '答错了'}</span>
+        <div class="qz-rq-h"><span class="r8-rno ${ung ? 'd' : okk ? 'ok' : 'no'}">${no}</span><span class="qz-rstate">${r && r.self_graded ? (okk ? '自评正确' : '自评错误') : ung ? '暂未自动评分' : okk ? '答对了' : '答错了'}</span>
           <span class="qz-rtag">${({ calculation: '计算题', drawing: '作图题', writing: '书面表达', translation: '翻译' })[q.question_subtype] || QT_NAME[q.type] || '题目'}</span>${q.point ? `<span class="qz-rpoint">${esc(q.point)}</span>` : ''}
           <span class="qz-raqno">#${String(q.id).padStart(5, '0')}</span></div>
         ${quizAudioHTML(q)}
@@ -970,7 +978,9 @@ const BankQuiz = {
       const ptList = [...pts.values()];
       const weak = ptList.filter((p) => p.wrong.length).sort((a, b) => (a.correct / a.total) - (b.correct / b.total));
       const ungN = Number(r.ungraded_count) || list.filter((x) => x.ungraded).length;
-      const scoreTxt = ungN ? (r.objective_score_total ? `客观题 ${r.objective_score} / ${r.objective_score_total}` : '')
+      const selfN = Number(r.self_graded_count) || list.filter(x => x.self_graded).length;
+      const pendingN = Number(r.pending_manual_count) || 0;
+      const scoreTxt = (ungN || pendingN) ? (r.objective_score_total ? `客观题 ${r.objective_score} / ${r.objective_score_total}` : '')
         : (opt.scoreTotal || r.score_total ? `${r.score != null ? r.score : Math.round(r.correct / Math.max(1, r.total) * opt.scoreTotal)} / ${r.score_total || opt.scoreTotal}` : '');
       const ms = r.mastery || {};
       const mrow = (label, a) => (a && a.total ? `<div class="r8-rep-acc"><span>${esc(label)}</span><b>${a.rate === null || a.rate === undefined ? '未做' : a.rate + '%'}</b><em>已做 ${a.answered} / ${a.total} 题</em></div>` : '');
@@ -984,8 +994,9 @@ const BankQuiz = {
               <div><span>用时</span><b>${r8Dur(secs)}</b></div>
               ${scoreTxt ? `<div><span>得分</span><b>${scoreTxt}</b></div>` : ''}
             </div>
-            <div class="r8-rep-msg">${r.wrong ? `${r8Ic('book')}<span>答错的 ${r.wrong} 道题已自动收进<b>错题本</b>，可以在错题本里重做和复习</span>` : !graded.length ? `${r8Ic('book')}<span>本次题目暂未自动评分，可查看已有参考内容或等待老师评分。</span>` : `${r8Ic('ok')}<span>客观题全部答对。</span>`}</div>
+            <div class="r8-rep-msg">${r.wrong ? `${r8Ic('book')}<span>答错的 ${r.wrong} 道题已自动收进<b>错题本</b>，可以在错题本里重做和复习</span>` : !graded.length ? `${r8Ic('book')}<span>本次题目暂未自动评分，可查看已有参考内容或等待老师评分。</span>` : `${r8Ic('ok')}<span>${selfN ? '本次已评题目全部正确（含自评）。' : '客观题全部答对。'}</span>`}</div>
           </div>
+          ${selfN || pendingN ? `<div class="r8-rep-sec t11-self-grade-note"><p>${selfN ? `含 ${selfN} 道自评题；正确率、错题和知识点掌握情况包含你的自评，不代表老师评分。` : ''}${pendingN ? `本试卷还有 ${pendingN} 道题待老师评分，正式总分尚未确定。` : ''}</p></div>` : ''}
           ${ms.video || ms.section ? `<div class="r8-rep-sec"><h4>现在的习题正确率</h4>${ms.video ? mrow('本视频「' + (ms.video.title || '') + '」', ms.video) : ''}${ms.section ? mrow('小分组「' + ms.section.name + '」', ms.section) : ''}</div>` : ''}
           <div class="r8-rep-sec"><h4>题号<em>点方块查看这道题的解析</em></h4>
             <div class="r8-rep-nos">${qs.map((q, i) => { const x = map[q.id]; const s = !x ? 'u' : x.ungraded ? 'd' : x.is_correct ? 'ok' : 'no'; return `<button type="button" class="r8-no ${s}" data-jump="${q.id}" title="第 ${i + 1} 题">${i + 1}</button>`; }).join('')}</div></div>
@@ -1034,7 +1045,7 @@ const BankQuiz = {
 
     /* ---- 提交本题 → 立即核对（不落库），显示对错 / 答案 / 解析，出现 AI 老师 ---- */
     const checkOne = async () => {
-      if (st.busy) return;
+      if (st.busy || st.phase !== 'answer' || st.checked[st.idx]) return;
       const checkedIndex = st.idx;
       const q = qs[checkedIndex];
       const my = quizAnswerText(q, st.answers[q.id]);
@@ -1045,21 +1056,31 @@ const BankQuiz = {
         const r = await api('/api/stu/bank/check', { method: 'POST', body: { items: [{ question_id: q.id, quiz_ticket: q.quiz_ticket, my_answer: my }] } });
         const x = (r.list || [])[0] || {};
         if (!mask.isConnected) return;
-        st.checked[checkedIndex] = { ok: !!x.is_correct, ungraded: !!x.ungraded, raw: x.answer || '', answer: quizAnswerDisplay(q, x.answer, q.options), analysis: x.analysis || '', solution_images: x.solution_images || [], my: q.question_subtype === 'drawing' ? '已提交作图' : quizAnswerDisplay(q, my, q.options), myRaw: q.question_subtype === 'drawing' ? '已作图' : my, blanks: x.blanks || null, match_correct: x.match_correct, match_total: x.match_total };
+        if (quizAnswerText(q, st.answers[q.id]) !== my) { toast('作答已修改，请重新提交本题'); return; }
+        st.checked[checkedIndex] = { ok: !!x.is_correct, ungraded: !!x.ungraded, selfAllowed: !!x.self_grade_allowed, selfTicket: x.self_grade_ticket || '', raw: x.answer || '', answer: quizAnswerDisplay(q, x.answer, q.options), analysis: x.analysis || '', solution_images: x.solution_images || [], my: q.question_subtype === 'drawing' ? '已提交作图' : quizAnswerDisplay(q, my, q.options), myRaw: q.question_subtype === 'drawing' ? '已作图' : my, blanks: x.blanks || null, match_correct: x.match_correct, match_total: x.match_total };
         if (typeof FX !== 'undefined') FX.pop();
         paint();
-      } catch (e) { toast(e.message || '核对失败，请重试', 'err'); if (btn) btn.disabled = false; }
-      st.busy = false;
-      const currentCheck = $('#qzCheckOne'); if (currentCheck) currentCheck.disabled = false;
+      } catch (e) { if (mask.isConnected) toast(e.message || '核对失败，请重试', 'err'); }
+      finally {
+        st.busy = false;
+        const currentCheck = $('#qzCheckOne'); if (currentCheck) currentCheck.disabled = false;
+      }
     };
 
     const doSubmit = async () => {
-      if (st.busy) return;
-      if (!isStep && !(await elConfirm({ title: '交卷确认', message: '全部题目已核对，确定交卷吗？交卷后记录成绩，错题进错题本。', okText: '交卷' }))) return;
+      if (st.busy || st.phase !== 'answer' || !mask.isConnected) return;
+      // 在等待确认框期间也锁定，避免双击产生两次最终提交。
       st.busy = true;
-      const answers = qs.map((q) => ({ question_id: q.id, quiz_ticket: q.quiz_ticket, my_answer: quizAnswerText(q, st.answers[q.id]) }));
-      const duration = Math.round((Date.now() - st.startedAt) / 1000);
       try {
+        if (!isStep && !(await elConfirm({ title: '交卷确认', message: '全部题目已核对，确定交卷吗？交卷后保存个人学习记录，自评错误的题目进入错题本；老师评分单独保留。', okText: '交卷' }))) return;
+        if (!mask.isConnected) return;
+        const answers = qs.map((q, i) => {
+          const ck = st.checked[i];
+          return { question_id:q.id, quiz_ticket:q.quiz_ticket, my_answer:quizAnswerText(q,st.answers[q.id]),
+            ...(q.point_node_id ? { point_node_id:q.point_node_id } : {}),
+            ...(ck && ck.selfAllowed && typeof ck.selfCorrect === 'boolean' ? { self_correct:ck.selfCorrect, self_grade_ticket:ck.selfTicket } : {}) };
+        });
+        const duration = Math.round((Date.now() - st.startedAt) / 1000);
         const r = await opt.submit(answers, duration);
         lastSubmitted = r;
         if (!mask.isConnected) { notifyDone(); return; }
@@ -1067,8 +1088,8 @@ const BankQuiz = {
         st.result = r; st.phase = 'result';
         if (typeof FX !== 'undefined') FX.pop();
         paint();
-      } catch (e) { toast(e.message || '交卷失败，请重试', 'err'); }
-      st.busy = false;
+      } catch (e) { if (mask.isConnected) toast(e.message || '交卷失败，请重试', 'err'); }
+      finally { st.busy = false; }
     };
 
     paint();
@@ -1209,7 +1230,7 @@ const BankPages = {
             </div>
           </div>
         </div>
-        ${subjective.length ? `<div class="pk-lib r4-subjective"><div class="pk-h">主观题反馈<span class="pk-sub">每次作答单独评分</span></div><div class="r4-subjective-list">${subjective.filter((x) => !subject || x.subject === subject).slice(0, 20).map((x) => `<details class="r4-subjective-item" ${x.has_drawing ? `data-student-drawing="${Number(x.id)}"` : ''}><summary><span>${esc((x.stem || '题目已删除').slice(0, 60))}</span><b>${x.score === null || x.score === undefined ? '待老师评分' : `${Number(x.score)} / ${x.max_score == null ? 100 : Number(x.max_score)} 分`}</b></summary><div><p>我的作答：${x.has_drawing ? '<span data-drawing-status>打开后加载作图</span><img class="r4-drawing-image" data-drawing-image alt="我的作图">' : (window.mtxAnswerHTML ? mtxAnswerHTML(x.my_answer || '未作答', x.subject) : esc(x.my_answer || '未作答').replace(/\n/g, '<br>'))}</p>${x.reviewed_at ? `<p>老师评语：${esc(x.review_comment || '暂无评语').replace(/\n/g, '<br>')}</p>` : '<p>老师尚未评分。</p>'}<small>${esc((x.created_at || '').slice(0, 16))}</small></div></details>`).join('') || '<p class="hint">当前学科还没有主观题作答</p>'}</div></div>` : ''}
+        ${subjective.length ? `<div class="pk-lib r4-subjective"><div class="pk-h">主观题反馈<span class="pk-sub">每次作答单独评分</span></div><div class="r4-subjective-list">${subjective.filter((x) => !subject || x.subject === subject).slice(0, 20).map((x) => `<details class="r4-subjective-item" ${x.has_drawing ? `data-student-drawing="${Number(x.id)}"` : ''}><summary><span>${esc((x.stem || '题目已删除').slice(0, 60))}</span><b>${x.score === null || x.score === undefined ? '待老师评分' : `${Number(x.score)} / ${x.max_score == null ? 100 : Number(x.max_score)} 分`}</b></summary><div>${x.self_correct === 0 || x.self_correct === 1 ? `<p>本次自评：${x.self_correct ? '正确' : '错误'}（不代表老师评分）</p>` : ''}<p>我的作答：${x.has_drawing ? '<span data-drawing-status>打开后加载作图</span><img class="r4-drawing-image" data-drawing-image alt="我的作图">' : (window.mtxAnswerHTML ? mtxAnswerHTML(x.my_answer || '未作答', x.subject) : esc(x.my_answer || '未作答').replace(/\n/g, '<br>'))}</p>${x.reviewed_at ? `<p>老师评语：${esc(x.review_comment || '暂无评语').replace(/\n/g, '<br>')}</p>` : '<p>老师尚未评分。</p>'}<small>${esc((x.created_at || '').slice(0, 16))}</small></div></details>`).join('') || '<p class="hint">当前学科还没有主观题作答</p>'}</div></div>` : ''}
         <div class="pk-lib">
           <div class="pk-h">${bkIcon('math', 16)} 试卷库<span class="pk-sub">${libLoading ? '加载中…' : libError ? '加载失败' : `${fl.length} 份试卷`}</span></div>
           <div class="t10-search">
@@ -1270,6 +1291,7 @@ const BankPages = {
     let nodes = [], byParent = {}, byId = new Map();
     const kidsOf = (id) => byParent[id] || [];
     let treeRequest = 0, countRequest = 0, available = 0, composing = false, selectionRevision = 0;
+    let coverage = {};
     const route = location.hash;
     const nodeRow = (n, depth) => {
       const kids = kidsOf(n.id);
@@ -1284,10 +1306,11 @@ const BankPages = {
       <div class="pk-sel-box">
         <div class="pk-sel-h"><b>${kind === 'knowledge' ? '知识点组卷' : '章节组卷'} · ${esc(subject)}</b><button class="close-x" id="pkSelX">&times;</button></div>
         <div class="pk-sel-tip"><label for="pkEdition">教材版本</label> <select id="pkEdition" disabled><option>正在加载…</option></select></div>
-        <div class="pk-sel-tip">勾选${kind === 'knowledge' ? '知识点' : '单元'}，勾选大项会包含全部下级范围。</div>
+        <div class="pk-sel-tip">勾选${kind === 'knowledge' ? '知识点' : '单元'}，每个最小知识点各出 1 题，覆盖全部所选章节，不限制为 5、10 或 20 题。</div>
         <div class="pk-tree" id="pkTree">正在加载目录…</div>
+        <div class="pk-sel-tip t11-scan-coverage" id="pkCoverage" style="max-height:110px;overflow:auto" aria-live="polite"></div>
         <div class="pk-sel-f">
-          <span><label for="pkWant">练习题量</label> <select id="pkWant"><option value="5">5 题</option><option value="10">10 题</option><option value="20">20 题</option></select><br><span class="hint" aria-live="polite">范围内可用 <b id="pkSelQ">0</b> 题 <span id="pkSelShort"></span></span></span>
+          <span><span class="hint" aria-live="polite">本次可出 <b id="pkSelQ">0</b> 题 <span id="pkSelShort"></span></span></span>
           <span><button class="btn ghost" id="pkSelCancel">取消</button>
           <button class="btn primary" id="pkSelGo" disabled>开始扫描</button></span>
         </div>
@@ -1319,22 +1342,23 @@ const BankPages = {
     };
     const updateCountChoice = () => {
       const hasSelection = !!mask.querySelector('.pk-ck:checked');
-      const short = available < Number(mask.querySelector('#pkWant').value);
-      mask.querySelector('#pkSelGo').disabled = composing || !hasSelection || short;
-      mask.querySelector('#pkSelShort').textContent = hasSelection && short ? '，请减少题量或扩大范围' : '';
+      mask.querySelector('#pkSelGo').disabled = composing || !hasSelection || available < 1;
+      mask.querySelector('#pkSelShort').textContent = hasSelection ? ` / ${Number(coverage.target_total) || available} 个最小点${(coverage.missing || []).length ? `，缺 ${(coverage.missing || []).length} 题` : ''}` : '';
+      mask.querySelector('#pkSelGo').textContent = (coverage.missing || []).length ? '开始扫描（有缺题）' : '开始扫描';
     };
     const refreshCount = async () => {
       const seq = ++countRequest;
       const ids = selectedRoots();
       const countEl = mask.querySelector('#pkSelQ');
       const go = mask.querySelector('#pkSelGo');
-      available = 0; go.disabled = true; mask.querySelector('#pkSelShort').textContent = '';
+      available = 0; coverage = {}; go.disabled = true; mask.querySelector('#pkSelShort').textContent = ''; mask.querySelector('#pkCoverage').textContent = '';
       if (!ids.length) { countEl.textContent = '0'; return; }
       countEl.textContent = '查询中…';
       try {
         const data = await api('/api/stu/bank/scan-count', { method: 'POST', silent: true, body: { kind, node_ids: ids, subject } });
         if (!current() || seq !== countRequest) return;
-        available = Number(data.total) || 0;
+        available = Number(data.total) || 0; coverage = data;
+        mask.querySelector('#pkCoverage').innerHTML = `${data.fallback_count ? `<p>${Number(data.fallback_count)} 个章节末级节点尚未关联知识点，暂按章节各出 1 题。</p>` : ''}${(data.missing || []).length ? `<p>以下范围缺题，本次不能完整覆盖：</p><ul>${data.missing.map(x => `<li>${esc(x.node_name)}：${x.reason === 'shared' ? '与其他知识点共用题目，缺独立题' : '暂无可用题'}</li>`).join('')}</ul>` : ''}`;
         countEl.textContent = String(available);
         updateCountChoice();
       } catch (err) {
@@ -1358,7 +1382,6 @@ const BankPages = {
         }
         refreshCount();
       }
-      if (e.target.id === 'pkWant') updateCountChoice();
     });
     mask.addEventListener('click', (e) => {
       const nd = e.target.closest('.pk-nd');
@@ -1369,7 +1392,8 @@ const BankPages = {
     });
 
     const loadTree = async (id) => {
-      const seq = ++treeRequest; ++countRequest; composing = false; available = 0;
+      const seq = ++treeRequest; ++countRequest; composing = false; available = 0; coverage = {};
+      mask.querySelector('#pkCoverage').textContent = '';
       nodes = []; byParent = {}; byId = new Map();
       mask.querySelector('#pkTree').textContent = '正在加载目录…';
       mask.querySelector('#pkSelQ').textContent = '0';
@@ -1397,14 +1421,15 @@ const BankPages = {
     mask.querySelector('#pkSelGo').onclick = async () => {
       if (composing || !current()) return;
       const ids = selectedRoots();
-      if (!ids.length || available < Number(mask.querySelector('#pkWant').value)) return;
+      if (!ids.length || available < 1) return;
       const seq = treeRequest, countSeq = countRequest, revision = selectionRevision;
       composing = true; updateCountChoice();
       try {
-        const d = await api('/api/stu/bank/scan-compose', { method: 'POST', silent: true, body: { kind, node_ids: ids, subject, count: Number(mask.querySelector('#pkWant').value) } });
+        const d = await api('/api/stu/bank/scan-compose', { method: 'POST', silent: true, body: { kind, node_ids: ids, subject } });
         if (!current() || seq !== treeRequest || countSeq !== countRequest || revision !== selectionRevision) return;
+        if (!(d.items || []).length) { await refreshCount(); toast('所选范围暂无可用题，请查看缺题范围', 'err'); return; }
         close();
-        BankPages.showRadar(kind, subject, d.items || [], host);
+        BankPages.showRadar(kind, subject, d.items || [], host, d);
       } catch (e) {
         if (current() && seq === treeRequest && countSeq === countRequest && revision === selectionRevision) toast(e.message || '组卷失败', 'err');
       } finally {
@@ -1415,7 +1440,7 @@ const BankPages = {
   },
 
   /** 雷达扫描动画页：小知识点逐个弹出 → 开始做题 → 做题报告 / 学情报告 */
-  showRadar(kind, subject, items, host) {
+  showRadar(kind, subject, items, host, coverage = {}) {
     if (!items.length) { toast('这个范围里还没有题目', 'err'); return; }
     const title = kind === 'knowledge' ? `知识点组卷 · ${subject}` : `章节组卷 · ${subject}`;
     const reportName = kind === 'knowledge' ? '学情报告' : '做题报告';
@@ -1433,6 +1458,8 @@ const BankPages = {
         <div class="pk-radar-r">
           <div class="pk-radar-title">${esc(title)}</div>
           <div class="pk-chips" id="pkChips"></div>
+          ${(coverage.missing || []).length ? `<div class="t11-scan-missing" style="max-height:100px;overflow:auto"><b>缺题 ${coverage.missing.length} 个最小点，本次未覆盖：</b><ul>${coverage.missing.map(x => `<li>${esc(x.node_name)}</li>`).join('')}</ul></div>` : ''}
+          ${coverage.fallback_count ? '<p class="hint">未关联知识点的章节按末级章节出题，具体范围见上方题签。</p>' : ''}
           <div class="pk-radar-acts">
             <button class="btn ghost" id="pkRCancel">取消</button>
             <button class="btn primary" id="pkRGo" style="display:none"></button>
@@ -1440,23 +1467,28 @@ const BankPages = {
         </div>
       </div>`;
     document.body.appendChild(mask);
-    mask.querySelector('#pkRCancel').onclick = () => mask.remove();
+    const route = location.hash;
+    const current = () => mask.isConnected && (!host || host.isConnected) && location.hash === route;
+    const close = () => { mask.remove(); if (BankPages._closeScan === close) BankPages._closeScan = null; };
+    BankPages._closeScan = close;
+    mask.querySelector('#pkRCancel').onclick = close;
     const chips = mask.querySelector('#pkChips');
-    const groups = new Map();
-    items.forEach((it) => { const name = it.node_name || '未命名知识点'; groups.set(name, (groups.get(name) || 0) + 1); });
-    [...groups].forEach(([name, count], i) => {
+    items.forEach((item, i) => {
+      const name = item.node_name + (item.fallback ? '（章节）' : ''), count = 1;
       setTimeout(() => {
+        if (!current()) return;
         chips.insertAdjacentHTML('beforeend', `<span class="pk-chip pop">${esc(name)}<b>${count} 题</b></span>`);
         chips.parentElement.scrollTop = chips.parentElement.scrollHeight;
-        if (i === groups.size - 1) {
+        if (i === items.length - 1) {
           const radar = mask.querySelector('#pkRadar');
           if (radar) radar.classList.add('done');
-          mask.querySelector('#pkRTip').textContent = `扫描完成：${groups.size} 个知识点，共 ${items.length} 题`;
+          mask.querySelector('#pkRTip').textContent = `扫描完成：已覆盖 ${items.length} / ${Number(coverage.target_total) || items.length} 个最小点，共 ${items.length} 题`;
           const go = mask.querySelector('#pkRGo');
           go.style.display = '';
           go.textContent = `开始做题（${items.length} 题）`;
           go.onclick = () => {
-            mask.remove();
+            if (!current()) return;
+            close();
             BankQuiz.open({
               mode: 'step',
               title,
@@ -1467,7 +1499,7 @@ const BankPages = {
             });
           };
         }
-      }, 400 + i * 220);
+      }, 400 + i * Math.min(220, 2500 / items.length));
     });
   },
 

@@ -40,7 +40,8 @@ function fixture(t) {
     CREATE TABLE handouts(id INTEGER PRIMARY KEY,chapter_id INTEGER,video_id INTEGER,section_id INTEGER,title TEXT,file_name TEXT,ext TEXT,size INTEGER,download_count INTEGER);
     CREATE TABLE progress(id INTEGER PRIMARY KEY,user_id INTEGER,chapter_id INTEGER,video_id INTEGER,video_done INTEGER,handout_done INTEGER);
     CREATE TABLE questions(id INTEGER PRIMARY KEY,chapter_id INTEGER,section_id INTEGER,video_id INTEGER,type TEXT);
-    CREATE TABLE records(id INTEGER PRIMARY KEY,user_id INTEGER,question_id INTEGER,is_correct INTEGER);
+    CREATE TABLE records(id INTEGER PRIMARY KEY,user_id INTEGER,question_id INTEGER,is_correct INTEGER,self_response_id INTEGER);
+    CREATE TABLE subjective_responses(id INTEGER PRIMARY KEY,user_id INTEGER,question_id INTEGER,self_correct INTEGER);
     CREATE TABLE video_nodes(video_id INTEGER,node_id INTEGER);
     CREATE TABLE bank_tree_nodes(id INTEGER,name TEXT,sort INTEGER);
     INSERT INTO users VALUES(1,'四年级','上册','primary');
@@ -84,7 +85,7 @@ for (const [id, name] of [[3,'unattempted objective'],[4,'subjective only'],[5,'
   });
 }
 test('answered pure group course remains reachable with its accuracy', t => {
-  const f = fixture(t); f.db.exec('INSERT INTO records VALUES(1,1,1,1)');
+  const f = fixture(t); f.db.exec('INSERT INTO records(id,user_id,question_id,is_correct) VALUES(1,1,1,1)');
   assert.equal(f.list().find(x => x.id === 3)?.acc.rate, 100);
   assert.equal(f.detail(3).data?.acc.rate, 100);
 });

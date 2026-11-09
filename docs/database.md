@@ -99,3 +99,12 @@
 `mf_recog_runs.pages` 的页对象可带 `upload_request_key/upload_input_hash`，用于同批次同账号页图重复上传保护；保留原来的图片 key、url、name。没有凭据的历史页不猜测合并。
 
 `mf_capture_batches` 增加 `edition/term/material_type VARCHAR(80) DEFAULT ''`，与录题批次已有的资料范围对应。技能包可在题卡保存这些范围，避免不同学科题包使用一个批次版本；手动与教师扫码保存到 `mf_recog_runs` 既有范围列。均由 `src/db.js` 幂等只加不删，旧记录保持空值；没有新增示例目录内容，也没有改正式题目的答案字段。
+
+## 2026-11-09 学生自评来源
+
+`src/db.js` 增加两条幂等、可空列，保留全部旧数据，不改原列类型和正式成绩：
+
+- `subjective_responses.self_correct INTEGER DEFAULT NULL`：NULL 未自评，0 自评错误，1 自评正确。与 `score`、`reviewed_at`、`reviewed_by` 分离，老师批阅后仍保留这次自评。
+- `records.self_response_id INTEGER DEFAULT NULL`：本次自评关联的 `subjective_responses.id`，在同一交卷事务中写入；普通客观题及历史记录保持 NULL。个人主观题正确率仅接纳对应 response 的学生、题目、自评值均吻合的记录，不能把旧问答题记录当成自评。为兼容现有迁移未追加强制外键约束，查询显式核对关联。
+
+AI 初审沿用原待审核来源 JSON 和 AI 来源元数据，不增表、不自动迁移/覆盖正式题目。

@@ -31,6 +31,11 @@ jobs:
           FORMULA_EVIDENCE_DIR: formula-component-evidence
         if: ${{ !cancelled() }}
       - run: node bank-test.js
+      - name: Check Word bugfix regressions
+        run: npm run test:bugfix
+      - name: Check scan and self-assessment interactions
+        run: npm run test:bugfix:browser
+        if: ${{ !cancelled() }}
       - run: node ci-isolation-test.js
       - run: npm run test:takeover # 目录/正确率/权限/下发事务、响应式组件契约及 Word 排序；不依赖服务或浏览器
       - name: Check word component geometry

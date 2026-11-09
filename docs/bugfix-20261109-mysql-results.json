@@ -1,0 +1,162 @@
+{
+  "source_commit": "dd0097917847dad7798856e55e7945b15de98f6a",
+  "mysql_version": "8.4.7",
+  "passed": 12,
+  "failed": 0,
+  "final_exit_code": 0,
+  "scope": "Real business HTTP routes and MySQL SQL with synthetic identity and data. Full login, legacy API suite, remote CI and real AI were not run.",
+  "checks": [
+    {
+      "name": "isolated MySQL identity",
+      "status": "passed",
+      "evidence": {
+        "version": "8.4.7",
+        "port": 13439,
+        "bind_address": "127.0.0.1",
+        "datadir": "isolated temporary data directory",
+        "isolation": "REPEATABLE-READ"
+      }
+    },
+    {
+      "name": "current empty schema and idempotent rerun",
+      "status": "passed",
+      "evidence": {
+        "tables": 49,
+        "columns": [
+          {
+            "name": "self_correct",
+            "type": "int",
+            "nullable": "YES",
+            "default_value": null
+          },
+          {
+            "name": "self_response_id",
+            "type": "int",
+            "nullable": "YES",
+            "default_value": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "baseline upgrade repeated twice preserves teacher and historical records",
+      "status": "passed",
+      "evidence": {
+        "baseline": "2c4adba",
+        "teacher_score": 7,
+        "self_correct": null,
+        "self_response_id": null
+      }
+    },
+    {
+      "name": "real HTTP chapter scan count and composition",
+      "status": "passed",
+      "evidence": {
+        "count": {
+          "total": 2,
+          "target_total": 3,
+          "missing": [
+            {
+              "node_id": 103,
+              "node_name": "乘法",
+              "fallback": false,
+              "need": 1,
+              "reason": "empty"
+            }
+          ],
+          "fallback_count": 0
+        },
+        "question_ids": [
+          1,
+          2
+        ],
+        "legacy_count_did_not_truncate": true
+      }
+    },
+    {
+      "name": "real HTTP check self-assessment submit and teacher report",
+      "status": "passed",
+      "evidence": {
+        "records": 1,
+        "self_correct": 0,
+        "teacher_score": null,
+        "provenance_matches": true,
+        "mistake_count": 1
+      }
+    },
+    {
+      "name": "paper self-assessment stays ungraded until explicit teacher grading",
+      "status": "passed",
+      "evidence": {
+        "before_teacher_score": null,
+        "pending_manual_count": 1,
+        "after_teacher_score": 85,
+        "retained_self_correct": 1
+      }
+    },
+    {
+      "name": "real HTTP pending bulk edit across three sources and stale rejection",
+      "status": "passed",
+      "evidence": {
+        "saved": 3,
+        "stale_code": 1,
+        "questions_unchanged": 2
+      }
+    },
+    {
+      "name": "real HTTP AI_MOCK review preserves official answers and never imports",
+      "status": "passed",
+      "evidence": {
+        "reviewed": 3,
+        "failed": 0,
+        "answers_unchanged": true,
+        "ai_mock": "1",
+        "tts_mock": "1"
+      }
+    },
+    {
+      "name": "separate connection edits after preflight cause 403 and complete rollback",
+      "status": "passed",
+      "evidence": {
+        "response_code": 403,
+        "unchanged_tables": [
+          "records",
+          "subjective_responses",
+          "mistakes",
+          "practices",
+          "paper_tries",
+          "mf_paper_tries"
+        ]
+      }
+    },
+    {
+      "name": "real InnoDB question row lock blocks competing writer until submit commits",
+      "status": "passed",
+      "evidence": {
+        "observed_lock_waits": 1,
+        "writer_elapsed_ms": 20,
+        "provenance_response_id": 3,
+        "teacher_score": null
+      }
+    },
+    {
+      "name": "concurrent pending bulk saves serialize and stale loser cannot overwrite",
+      "status": "passed",
+      "evidence": {
+        "observed_lock_waits": 1,
+        "first_code": 0,
+        "second_code": 1,
+        "second_message": "题目或审核状态已变化，请刷新后重新选择；未保存任何修改",
+        "retained_answer": "并发先到答案"
+      }
+    },
+    {
+      "name": "later invalid pending item rolls back an earlier successful update",
+      "status": "passed",
+      "evidence": {
+        "response_code": 1,
+        "drafts_unchanged": true
+      }
+    }
+  ]
+}

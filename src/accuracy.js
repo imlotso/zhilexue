@@ -9,7 +9,7 @@
  *   · 正确 correct = 已做的题里最近一次答对的题数
  *   · 正确率 rate = correct / answered 取整百分数；一题没做过时 rate = null（前端显示"未做"）
  *   · 小分组 = 该分组下所有视频的题 + 直接挂在小分组上的题（R8：questions.section_id）合并后再算（不是各视频百分比的平均）
- * 问答题（type='answer'）不能自动判分，不进 records，也就不进正确率。
+ * 问答题只在学生已自评、产生 records 后计入个人掌握度；待老师评分不等于老师已确认。
  */
 
 /** 一批视频各自的统计：Map(video_id -> { total, answered, correct }) */
@@ -23,7 +23,8 @@ function videoStats(db, userId, videoIds) {
       SUM(CASE WHEN r.is_correct=1 THEN 1 ELSE 0 END) AS correct
     FROM questions q
     LEFT JOIN records r ON r.id = (SELECT MAX(r2.id) FROM records r2 WHERE r2.user_id=? AND r2.question_id=q.id)
-    WHERE q.video_id IN (${ph}) AND q.type<>'answer'
+    WHERE q.video_id IN (${ph}) AND (q.type<>'answer' OR EXISTS (SELECT 1 FROM subjective_responses sr WHERE sr.id=r.self_response_id
+      AND sr.user_id=r.user_id AND sr.question_id=q.id AND sr.self_correct IS NOT NULL AND sr.self_correct=r.is_correct))
     GROUP BY q.video_id`).all(Number(userId), ...ids);
   rows.forEach((r) => out.set(Number(r.vid), { total: Number(r.total) || 0, answered: Number(r.answered) || 0, correct: Number(r.correct) || 0 }));
   return out;
@@ -40,7 +41,8 @@ function sectionOwnStats(db, userId, sectionIds) {
       SUM(CASE WHEN r.is_correct=1 THEN 1 ELSE 0 END) AS correct
     FROM questions q
     LEFT JOIN records r ON r.id = (SELECT MAX(r2.id) FROM records r2 WHERE r2.user_id=? AND r2.question_id=q.id)
-    WHERE q.section_id IN (${ph}) AND q.type<>'answer' AND (q.video_id IS NULL OR q.video_id=0)
+    WHERE q.section_id IN (${ph}) AND (q.type<>'answer' OR EXISTS (SELECT 1 FROM subjective_responses sr WHERE sr.id=r.self_response_id
+      AND sr.user_id=r.user_id AND sr.question_id=q.id AND sr.self_correct IS NOT NULL AND sr.self_correct=r.is_correct)) AND (q.video_id IS NULL OR q.video_id=0)
     GROUP BY q.section_id`).all(Number(userId), ...ids);
   rows.forEach((r) => out.set(Number(r.sid), { total: Number(r.total) || 0, answered: Number(r.answered) || 0, correct: Number(r.correct) || 0 }));
   return out;

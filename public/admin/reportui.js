@@ -237,7 +237,7 @@ function vrepDetail(d) {
    ============================================================ */
 const EREP = { branch: 'all', kw: '', openUid: 0 };
 
-const QT_NAME = { single: '单选', multi: '多选', judge: '判断', fill: '填空', sort: '排序', compound: '组合', cloze: '完形', reading: '阅读' };
+const QT_NAME = { answer: '解答', single: '单选', multi: '多选', judge: '判断', fill: '填空', sort: '排序', compound: '组合', cloze: '完形', reading: '阅读' };
 
 async function viewEReport() {
   const st = EREP;
@@ -254,8 +254,8 @@ async function viewEReport() {
         <button class="btn ghost" id="erSearch">查询</button>
         <button class="btn ghost" id="erReset">重置</button>
       </div>
-      <p class="w-tip" style="margin:0 0 12px">统计学生端「做练习 / 试卷」的作答数据：做题数与正确率来自练习作答，错题按错题本（含复习进度）统计，试卷取自智能组卷的交卷记录。点「详情」看试卷成绩和最近的作答明细。</p>
-      <div class="r1-student-cards">${list.length ? list.map(s => `<article class="r1-student-card"><header><span class="r1-student-avatar" aria-hidden="true">${ic('user')}</span><div><h3>${esc(s.name || s.username)}</h3><p>${esc([s.grade,s.branch || '总校'].filter(Boolean).join(' · '))}</p></div><button type="button" class="btn ghost sm" data-edetail="${s.id}">查看报告 ${ic('arrow-right')}</button></header><div class="r1-student-metrics"><div><span>已做习题</span><strong>${Number(s.answered) || 0}</strong><small>作答记录</small></div><div><span>习题正确率</span><strong>${s.rate == null ? '—' : esc(s.rate) + '%'}</strong><small>${s.rate == null ? '暂无可统计作答' : '已评分的有效作答'}</small></div><div><span>待复习错题</span><strong>${Number(s.wrong_open) || 0}</strong><small>已掌握 ${Number(s.mastered) || 0} 题</small></div></div><footer><span>${s.last_at ? '最近练习 ' + esc(s.last_at.slice(0,16)) : '暂无可统计的客观题或试卷记录'}</span><button type="button" class="link-btn" data-edocx="${s.id}">导出错题 Word</button></footer></article>`).join('') : '<div class="r1-report-empty"><span class="r1-empty-book" aria-hidden="true">'+ic('book')+'</span><h3>完成练习后生成报告</h3><p>暂未产生可统计的练习记录，或当前筛选下没有学生。</p><small>暂无数据不代表正确率为 0%。</small></div>'}</div>
+      <p class="w-tip" style="margin:0 0 12px">统计学生端「做练习 / 试卷」的作答数据：做题数与正确率来自客观判分和学生自评，自评不代表老师评分；错题按错题本（含复习进度）统计，试卷取自智能组卷的交卷记录。点「详情」看试卷成绩和最近的作答明细。</p>
+      <div class="r1-student-cards">${list.length ? list.map(s => `<article class="r1-student-card"><header><span class="r1-student-avatar" aria-hidden="true">${ic('user')}</span><div><h3>${esc(s.name || s.username)}</h3><p>${esc([s.grade,s.branch || '总校'].filter(Boolean).join(' · '))}</p></div><button type="button" class="btn ghost sm" data-edetail="${s.id}">查看报告 ${ic('arrow-right')}</button></header><div class="r1-student-metrics"><div><span>已做习题</span><strong>${Number(s.answered) || 0}</strong><small>作答记录</small></div><div><span>习题正确率</span><strong>${s.rate == null ? '—' : esc(s.rate) + '%'}</strong><small>${s.rate == null ? '暂无可统计作答' : '客观判分 / 学生自评'}</small></div><div><span>待复习错题</span><strong>${Number(s.wrong_open) || 0}</strong><small>已掌握 ${Number(s.mastered) || 0} 题</small></div></div><footer><span>${s.last_at ? '最近练习 ' + esc(s.last_at.slice(0,16)) : '暂无可统计的练习或试卷记录'}</span><button type="button" class="link-btn" data-edocx="${s.id}">导出错题 Word</button></footer></article>`).join('') : '<div class="r1-report-empty"><span class="r1-empty-book" aria-hidden="true">'+ic('book')+'</span><h3>完成练习后生成报告</h3><p>暂未产生可统计的练习记录，或当前筛选下没有学生。</p><small>暂无数据不代表正确率为 0%。</small></div>'}</div>
       <details class="r1-all-fields"><summary>查看全部统计字段</summary>
       ${list.length ? `<div style="overflow-x:auto"><table>
         <thead><tr><th>姓名</th><th>账号</th><th>年级</th><th>校区</th><th>学科做题（对/总）</th><th>做题数</th><th>正确率</th><th>待复习错题</th><th>已掌握</th><th>试卷</th><th>平均分</th><th>最高分</th><th>最近做题</th><th>到期</th><th>状态</th><th class="r1-act-cell">操作</th></tr></thead>
@@ -421,9 +421,9 @@ async function r1OpenDrawer(uid) {
   const recRows = (det.rows || []).map((r) => `<tr>
     <td>${esc(QT_NAME[r.type] || r.type || '—')}</td><td>${esc(r.subject || '—')}</td>
     <td title="${esc(r.stem || '')}">${esc(String(r.stem || '').slice(0, 40))}${String(r.stem || '').length > 40 ? '…' : ''}</td>
-    <td>${r.match_total ? `<span class="tag ${Number(r.is_correct) === 1 ? 'ok' : 'no'}">连对 ${Number(r.match_correct)} / ${Number(r.match_total)} 项</span>` : Number(r.is_correct) === 1 ? '<span class="tag ok">对</span>' : '<span class="tag no">错</span>'}</td>
+    <td>${r.self_correct === 0 || r.self_correct === 1 ? `<span class="tag ${r.self_correct ? 'ok' : 'no'}">学生自评${r.self_correct ? '正确' : '错误'}</span>` : r.match_total ? `<span class="tag ${Number(r.is_correct) === 1 ? 'ok' : 'no'}">连对 ${Number(r.match_correct)} / ${Number(r.match_total)} 项</span>` : Number(r.is_correct) === 1 ? '<span class="tag ok">对</span>' : '<span class="tag no">错</span>'}</td>
     <td class="r1-time">${esc((r.created_at || '').slice(0, 16))}</td></tr>`).join('');
-  const subjectiveRows = (det.subjective || []).map((r) => `<tr><td>${esc(({ writing: '书面表达', translation: '翻译', calculation: '计算题', drawing: '作图题' })[r.question_subtype] || '问答题')}</td><td>${esc(r.subject || '—')}</td><td>${esc(r.stem || '题目已删除')}</td><td>${r.has_drawing ? `<button type="button" class="btn ghost xs" data-subjective-drawing="${Number(r.id)}">查看作图</button>` : esc(r.my_answer || '未作答').replace(/\n/g, '<br>')}</td><td>${r.score == null ? '未评分' : `${Number(r.score)} / ${r.max_score == null ? 100 : Number(r.max_score)} 分`}${r.review_comment ? `<div>${esc(r.review_comment).replace(/\n/g, '<br>')}</div>` : ''}</td><td class="r1-time">${esc((r.created_at || '').slice(0, 16))}</td><td><button type="button" class="btn ghost xs" data-subjective-grade="${Number(r.id)}">${r.score == null ? '评分' : '修改评分'}</button></td></tr>`).join('');
+  const subjectiveRows = (det.subjective || []).map((r) => `<tr><td>${esc(({ writing: '书面表达', translation: '翻译', calculation: '计算题', drawing: '作图题' })[r.question_subtype] || '问答题')}</td><td>${esc(r.subject || '—')}</td><td>${esc(r.stem || '题目已删除')}</td><td>${r.has_drawing ? `<button type="button" class="btn ghost xs" data-subjective-drawing="${Number(r.id)}">查看作图</button>` : esc(r.my_answer || '未作答').replace(/\n/g, '<br>')}</td><td>${r.score == null ? '未评分' : `${Number(r.score)} / ${r.max_score == null ? 100 : Number(r.max_score)} 分`}${r.self_correct === 0 || r.self_correct === 1 ? `<div>学生自评${r.self_correct ? '正确' : '错误'}（不代表老师评分）</div>` : ''}${r.review_comment ? `<div>${esc(r.review_comment).replace(/\n/g, '<br>')}</div>` : ''}</td><td class="r1-time">${esc((r.created_at || '').slice(0, 16))}</td><td><button type="button" class="btn ghost xs" data-subjective-grade="${Number(r.id)}">${r.score == null ? '评分' : '修改评分'}</button></td></tr>`).join('');
 
   const body = wrap.querySelector('.r1-body');
   body.innerHTML = `
@@ -438,7 +438,7 @@ async function r1OpenDrawer(uid) {
     <div class="r1-report-grid"><section class="r1-sec r1-knowledge-panel"><h4><span class="r1-n">2</span>知识点与小分组
         <span class="r1-tools"><label class="r1-chk"><input type="checkbox" id="r1Weak"> 只看未掌握（&lt; ${R1_WEAK}%）</label>
         <button type="button" class="link-btn" id="r1Open">全部展开</button><button type="button" class="link-btn" id="r1Fold">全部收起</button></span></h4>
-      <p class="r1-note">每道题取学生<b>最近一次</b>作答的对错；小分组 = 组内所有视频的题合在一起算。问答题不自动判分，不计入。</p>
+      <p class="r1-note">每道题取学生<b>最近一次</b>作答的对错；小分组 = 组内所有视频的题合在一起算。已自评的问答题计入个人掌握度，未自评不计入；学生自评不代表老师评分。</p>
       ${acc ? `<div class="r1-accsum">全部课程合计 ${r1RateHTML(acc.acc)}</div>` : ''}
       <div class="r1-tree" id="r1Tree">${accErr ? `<div class="empty">${esc(accErr)}</div>` : ''}</div>
     </section><aside class="r1-feedback"><h4>${ic('chat')} 学习反馈</h4><div class="r1-empty-book" aria-hidden="true">${ic('book')}</div><h3>${hasPractice ? (hasPendingGrading && !totalN ? '已有作答，等待人工评分' : '每一步练习，都看得见') : '完成练习后生成报告'}</h3><p>${hasPractice ? (hasPendingGrading && !totalN ? '已收到主观题或试卷作答，人工评分完成后可查看相应结果。' : '结合知识点正确率与最近作答，了解需要巩固的内容。') : '这里会呈现题目结果、知识点掌握情况和需要复习的内容。'}</p><div class="r1-feedback-note">${hasPendingGrading ? '有作答待人工评分，请在下方试卷与作答记录中单独查看。' : '暂无可统计数据不代表正确率为 0%。'}<br>正确率与学习进度分别呈现。</div></aside></div>

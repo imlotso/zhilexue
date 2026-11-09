@@ -403,3 +403,13 @@ body.t11 .r6-rounded-page .r3-main>.card-h{flex:none}
  body.t11 .ui-review-shell .pd-review-footer #pd-current-commit{min-width:180px}
  body.t11 .pd-review-commit>span{font-size:12px}
 }
+
+/* T11 bug fixes: preserve the existing formula toolbar on narrow dialogs. */
+body.t11 .t8-bar{flex-wrap:wrap;}
+body.t11 .t8-upload-status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 12px;font-size:13px;color:var(--t11-muted,#64726c);overflow-wrap:anywhere;}
+body.t11 .t8-upload-status[hidden],body.t11 .t8-upload-status button[hidden]{display:none;}
+/* Match the embedded three-page navigation to the original admin shell. */
+body.t11 .r10-embed-nav{background:#fff;border:1px solid #dce6df;border-radius:18px;padding:10px;gap:8px;}
+body.t11 .r10-embed-nav button{border:1px solid #d3e2d8;background:#f4f8f3;color:#0c5947;border-radius:12px;padding:10px 16px;min-height:42px;}
+body.t11 .r10-embed-nav button.active{background:#0c5947;color:#fff;border-color:#0c5947;}
+body.t11 .r10-embed-nav button:focus-visible{outline:3px solid #ffca58;outline-offset:2px;}

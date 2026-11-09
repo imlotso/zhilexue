@@ -490,6 +490,7 @@ async function mfQEdit(id, done, opts) {
   const curNodes = q.nodes || [];
   const chapOrd = tpOrder(chapTrees, q.subject, q.stage), knowOrd = tpOrder(knowTrees, q.subject, q.stage);   // R2：同学科学段的排前面、默认版本第一
   const defC = chapOrd[0] || null; const defK = knowOrd[0] || null;
+  let imageEditor = null;
   let aud = null;   // 听力音频字段（T7）
   modal({
     title: `编辑题目 #${q.id}`, wide: true, okText: '保存',
@@ -528,7 +529,7 @@ async function mfQEdit(id, done, opts) {
       w.querySelector('#qeType').addEventListener('change', () => subtypeUpdate());
       w.querySelector('#qeSubtype').addEventListener('change', showMatch);
       if (!Array.isArray(q.images)) q.images = [];
-      t8Enhance(w, { fields: ['#qeStem', '#qeOpts', '#qeAns', '#qeAna'], images: q.images });   // 公式输入 + 粘贴 / 拖拽图片（T8）
+      imageEditor = t8Enhance(w, { uploadFields: ['#qeStem'], fields: ['#qeStem', '#qeOpts', '#qeAns', '#qeAna'], images: q.images });   // 公式输入 + 粘贴 / 拖拽图片（T8）
       const loadNodes = async (selId, boxId, cls) => {
         const tid = w.querySelector('#' + selId).value;
         if (!tid) { w.querySelector('#' + boxId).innerHTML = '<span class="hint">暂无可用分类树</span>'; return; }
@@ -545,6 +546,10 @@ async function mfQEdit(id, done, opts) {
       bindTree('qeKTree', 'qeKNodes', 'qe-knd');
     },
     onOk: async (w, showErr) => {
+      if (imageEditor) {
+        await imageEditor.whenIdle();
+        if (imageEditor.hasFailures()) return showErr('有图片上传失败，请重试或点击“忽略失败图片”后再保存。');
+      }
       const score10 = w.querySelector('#qeDiff10').value;
       if (score10 !== '' && (!Number.isInteger(Number(score10)) || Number(score10) < 1 || Number(score10) > 10)) return showErr('十级难度须为 1 至 10 的整数');
       const chapIds = [...w.querySelectorAll('.qe-cnd:checked')].map((c) => Number(c.value));
@@ -558,7 +563,7 @@ async function mfQEdit(id, done, opts) {
         match_prompts: w.querySelector('#qeMatch').value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
         difficulty: Number(w.querySelector('#qeDiff').value) || 3, difficulty_score_10: score10 === '' ? null : Number(score10),
         stem: w.querySelector('#qeStem').value,
-        stem_html: q.stem_html || '',
+        stem_html: w.querySelector('#qeStem').value === (q.stem || '') ? (q.stem_html || '') : '',
         options: w.querySelector('#qeOpts').value.split('\n').map((s) => s.trim()).filter(Boolean),
         answer: w.querySelector('#qeAns').value, analysis: w.querySelector('#qeAna').value,
         grade: q.grade || '', point: q.point || '', material: q.material || '', source: q.source || '',

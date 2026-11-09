@@ -2169,6 +2169,7 @@ admin.post('/intake/runs/:id/aifill/confirm', (req, res) => {
     card.ai_answer_review = { ...review, legacy_confirmed: card.ai_legacy_reviewed, legacy_fields: { ...(review.legacy_fields || {}), [fields[0]]: stamp } };
   } else {
     const suggestion = card.ai_answer_suggestion;
+    if (suggestion && suggestion.source === 'review') return fail(res, '请在编辑并核对建议中确认 AI 初审内容，以保留审核报告和修改记录');
     if (!suggestion || !suggestion.token || String(b.token || '') !== suggestion.token || suggestion.basis !== signature || suggestion.scope !== JSON.stringify([run.subject || '', run.stage || '', run.grade || ''])) return fail(res, 'AI 建议已过期，请重新生成并核对');
     const fields = [...new Set(Array.isArray(b.fields) ? b.fields : [])];
     if (fields.length !== 1 || fields.some((field) => !['answer', 'analysis'].includes(field))) return fail(res, '请逐项选择要采纳的答案或解析建议');

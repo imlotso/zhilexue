@@ -35,11 +35,12 @@ function fixture(t) {
  CREATE TABLE mf_paper_questions(paper_id INTEGER,question_id INTEGER,kind TEXT,position INTEGER,id INTEGER,score INTEGER);
  INSERT INTO mf_paper_questions VALUES(1,1,'question',1,1,50),(1,3,'question',2,2,50);
  CREATE TABLE bank_trees(id INTEGER PRIMARY KEY,kind TEXT,subject TEXT,stage TEXT);
- CREATE TABLE bank_tree_nodes(id INTEGER PRIMARY KEY,tree_id INTEGER,parent_id INTEGER,name TEXT);
+ CREATE TABLE bank_tree_nodes(id INTEGER PRIMARY KEY,tree_id INTEGER,parent_id INTEGER,name TEXT,sort INTEGER DEFAULT 0);
+ CREATE TABLE bank_tree_node_mappings(chapter_node_id INTEGER,knowledge_node_id INTEGER);
  CREATE TABLE question_nodes(question_id INTEGER,node_id INTEGER);
  CREATE TABLE video_nodes(video_id INTEGER,node_id INTEGER);
- CREATE TABLE subjective_responses(id INTEGER PRIMARY KEY,user_id INTEGER,question_id INTEGER,kind TEXT,paper_id INTEGER,my_answer TEXT,score INTEGER,max_score INTEGER,review_comment TEXT,reviewed_at TEXT,created_at TEXT,drawing_data TEXT);
- INSERT INTO subjective_responses VALUES(1,1,1,'self',0,'secret',NULL,1,'','','','image');
+ CREATE TABLE subjective_responses(id INTEGER PRIMARY KEY,user_id INTEGER,question_id INTEGER,kind TEXT,paper_id INTEGER,my_answer TEXT,score INTEGER,max_score INTEGER,review_comment TEXT,reviewed_at TEXT,created_at TEXT,drawing_data TEXT,self_correct INTEGER);
+ INSERT INTO subjective_responses VALUES(1,1,1,'self',0,'secret',NULL,1,'','','','image',NULL);
  `);
  for(let id=1;id<=4;id++){
  db.prepare("INSERT INTO questions VALUES(?,'single',?,'A','[]',1,1,1,'数学','primary','加法','','[]','解析','',1,'[]','',0,'manual')").run(id,'stem-'+id);
@@ -59,8 +60,8 @@ function fixture(t) {
  stuSeesChapter:()=>true,ensureChapterVisible:()=>true,
  accuracy:{SEC_EXPR:'v.section_id'},store:{getUrlSync:()=>''},
  QSubtype:{compatible:()=>'',isMatch:()=>false},judgeQ:()=>true,matchScore:()=>null,isUngradedQ:()=>false,
- paperHasAssignees:()=>false,roundScore:x=>x,scanScope:()=>({ids:[1],treeIds:[1],subject:'数学'}),
- compose:{scopeSql:()=>({where:' WHERE 1=1',args:[]}),expandNodeIds:()=>[1],pickPerNode:()=>[{row:db.prepare('SELECT * FROM questions WHERE id=1').get()}]},
+ paperHasAssignees:()=>false,roundScore:x=>x,scanScope:()=>({ids:[1],treeIds:[1],subject:'数学',kind:'knowledge',stage:'primary'}),
+ compose:require('./src/compose'),
  };
  function load(file,method,route){
  vm.runInNewContext(extract(file,`stu.${method}('${route}',`),box);
@@ -120,9 +121,15 @@ test('subjective history and drawing cannot expose pending',async t=>{
  const f=fixture(t);assert.equal((await f.load('bank','get','/subjective-responses')()).data.list.length,0);
  assert.match((await f.load('bank','get','/subjective-responses/:id/drawing')({}, {}, {id:1})).error,/审核/);
 });
-test('student compose count and old picker cannot issue pending ticket',async t=>{
- const f=fixture(t);assert.equal((await f.load('bank','post','/scan-count')()).data.total,2);
- const r=await f.load('bank','post','/scan-compose')();assert.ok(r.error);assert.equal(f.tickets.length,0);
+function seedScan(f) {
+ f.db.exec("INSERT INTO bank_trees VALUES(1,'knowledge','数学','primary'); INSERT INTO bank_tree_nodes(id,tree_id,parent_id,name) VALUES(1,1,NULL,'运算'),(11,1,1,'第一点'),(12,1,1,'第二点'),(13,1,1,'第三点'),(14,1,1,'第四点'); INSERT INTO question_nodes VALUES(1,11),(2,12),(3,13),(4,14);");
+}
+test('student scan counts all real points but pending questions never receive tickets',async t=>{
+ const f=fixture(t);seedScan(f);const count=(await f.load('bank','post','/scan-count')()).data;
+ assert.equal(count.total,2);assert.equal(count.target_total,4);assert.equal(count.missing.length,2);
+ const r=await f.load('bank','post','/scan-compose')();assert.equal(r.error,undefined);
+ assert.deepEqual(Array.from(r.data.items,x=>x.question.id).sort(),[3,4]);assert.deepEqual(f.tickets.sort(),[3,4]);
+ assert.deepEqual(Array.from(r.data.missing,x=>x.node_id).sort(),[11,12]);assert.ok(!JSON.stringify(r.data).includes('stem-1'));
 });
 test('approved and unrelated shared questions still pass check',async t=>{
  const f=fixture(t),r=await f.load('bank','post','/check')({items:[{question_id:3},{question_id:4}]});
@@ -151,14 +158,15 @@ test('similar questions cannot start from pending and never suggest pending cand
 });
 test('node mastery excludes pending historical answers and stems',async t=>{
  const f=fixture(t);
- f.db.exec("INSERT INTO bank_tree_nodes VALUES(1,1,NULL,'加法'); INSERT INTO question_nodes VALUES(1,1),(2,1),(3,1),(4,1); INSERT INTO records VALUES(1,1,1,'B',0,'2026-01-01'),(2,1,3,'A',1,'2026-01-01');");
+ f.db.exec("INSERT INTO bank_tree_nodes(id,tree_id,parent_id,name) VALUES(1,1,NULL,'加法'); INSERT INTO question_nodes VALUES(1,1),(2,1),(3,1),(4,1); INSERT INTO records VALUES(1,1,1,'B',0,'2026-01-01'),(2,1,3,'A',1,'2026-01-01');");
  f.box.accuracy.lastAnswers=require('./src/accuracy').lastAnswers;
  const r=await f.load('bank','get','/node-mastery')({}, {node_id:1});
  assert.equal(r.data.total,2);assert.deepEqual(Array.from(r.data.list,x=>x.id),[3]);
 });
-test('fixed-count composition does not count pending toward available quantity',async t=>{
- const f=fixture(t),r=await f.load('bank','post','/scan-compose')({count:5});
- assert.match(r.error,/只有 2 道题/);assert.equal(f.tickets.length,0);
+test('legacy count request still covers reviewed points and reports quarantined shortages',async t=>{
+ const f=fixture(t);seedScan(f);const r=await f.load('bank','post','/scan-compose')({count:5});
+ assert.equal(r.error,undefined);assert.equal(r.data.target_total,4);assert.equal(r.data.total,2);assert.equal(r.data.missing.length,2);
+ assert.deepEqual(f.tickets.sort(),[3,4]);
 });
 test('student export policy is supplied by server, never a query override',()=>{
  assert.match(extract('app',"stu.get('/mistakes/export-docx',"),/sendMistakeDocx\(db, res, me, req.query, \{ studentOnlyReviewed: true \}\)/);

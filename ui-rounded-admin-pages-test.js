@@ -47,7 +47,8 @@ test('report student cards retain server accuracy, including zero and ungraded d
   vm.runInContext(read('public/admin/reportui.js'),c);
   const view=await c.viewEReport();
   assert.match(view.html,/r1-student-cards/);
-  assert.match(view.html,/暂无可统计的客观题或试卷记录/);
+  assert.match(view.html,/暂无可统计的练习或试卷记录/);
+  assert.match(view.html,/学生自评/); assert.match(view.html,/不代表老师评分/);
   assert.doesNotMatch(view.html,/尚无练习记录/);
   assert.match(view.html,/暂无可统计作答/);
   assert.match(view.html,/>0%</);

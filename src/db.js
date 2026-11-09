@@ -924,6 +924,10 @@ try { db.exec('ALTER TABLE subjective_responses ADD COLUMN review_comment MEDIUM
 try { db.exec('ALTER TABLE subjective_responses ADD COLUMN reviewed_by INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
 try { db.exec("ALTER TABLE subjective_responses ADD COLUMN reviewed_at VARCHAR(32) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 try { db.exec('ALTER TABLE subjective_responses ADD COLUMN drawing_data MEDIUMTEXT'); } catch (e) { /* 列已存在 */ }
+// 学生自评与教师正式评分分开保存；旧作答保持未自评。
+try { db.exec('ALTER TABLE subjective_responses ADD COLUMN self_correct INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
+// 主观题个人正确率只接纳明确关联的自评，不把历史记录当作自评。
+try { db.exec('ALTER TABLE records ADD COLUMN self_response_id INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
 // T10：真题试卷的年份（学生端试卷库按名称 / 学科 / 年级 / 年份搜索）
 try { db.exec("ALTER TABLE mf_papers ADD COLUMN year VARCHAR(8) DEFAULT ''"); } catch (e) { /* 列已存在 */ }
 // 卷型与 paper_type（统一卷 / 一人一卷）不同，旧数据不臆测分类。

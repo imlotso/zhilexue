@@ -734,7 +734,7 @@ async function viewDash() {
   ];
   const quick = [['students','student','学生管理'],['mfq','doc','题库管理'],['pending','list','待审核题目'],['paper','book','智能组卷'],['videos','video','视频管理'],['xreport','chart','学习报告']];
   return { html: `<section class="r10-dash rounded-dash">
-    <div class="rounded-dash-heading"><h1>教学工作台</h1><p>把题目录入、课堂练习和学习反馈连起来。</p></div>
+    <div class="rounded-dash-heading"><h1>教学工作台</h1></div>
     <div class="rounded-dash-top">
       <section class="rounded-dash-hero"><div class="rounded-hero-copy"><p class="rounded-eyebrow">录题 <span aria-hidden="true">→</span> 审核 <span aria-hidden="true">→</span> 入库</p><h2>从待审核题目开始</h2><p>逐题核对题干、答案和分类，确认后再入库。</p><button type="button" class="rounded-amber" data-go="pending">进入审核 ${ic('arrow-right')}</button></div><img src="/img/ui-rounded-admin-hero-20261108.png" alt="" width="260" height="260" class="rounded-admin-art"></section>
       <section class="rounded-quick-card"><h2>${ic('dashboard')} 常用操作</h2><div>${[['intake','upload','导入题目'],['paper','doc','创建试卷'],['videos','video','管理课程']].map(([go,icon,label])=>`<button type="button" data-go="${go}">${ic(icon)}<span>${label}</span>${ic('arrow-right')}</button>`).join('')}</div></section>
@@ -1983,7 +1983,7 @@ function r10EmbeddedApp(kind, initial) {
         try {
           const doc = frame.contentDocument;
           const style = doc.createElement('style');
-          style.textContent = grades ? '.topbar,.sidebar{display:none!important}.layout{display:block!important}.main{margin:0!important;width:auto!important;max-width:none!important;padding:16px!important}body{background:#f6f8fc!important}' : '.topbar{display:none!important}.content{padding:16px!important}body{background:#f6f8fc!important}';
+          style.textContent = grades ? '.topbar,.sidebar{display:none!important}.layout{display:block!important}.main{margin:0!important;width:auto!important;max-width:none!important;padding:16px!important}body{background:#f7f5ef!important}' : '.topbar{display:none!important}.content{padding:16px!important}body{background:#f7f5ef!important}';
           doc.head.appendChild(style);
           const sync = () => highlight(frame.contentWindow.location.hash.replace(/^#\//,'').split('?')[0] || initial);
           frame.contentWindow.addEventListener('hashchange', sync); sync();
@@ -2096,6 +2096,8 @@ async function mfcapConsume() {
   await mfcapSave(raw);
 }
 (async function boot() {
+  // Page modules are loaded after admin.js; a fast account response must not outrun them.
+  if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, { once: true }));
   await mfcapConsume();
   if (!Auth.token) { location.hash = '#/login'; renderLogin(); return; }
   try { Auth.user = await api('/api/me'); } catch (e) { /* ignore */ }
