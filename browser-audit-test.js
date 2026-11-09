@@ -209,7 +209,11 @@ const frac = String.raw`\frac{1}{2}+\sqrt{x_1^2}`;
     assert.ok(await p.locator('.r4-review-row').count(), 'new imported batch visible immediately');
   });
   await test('UI03-words-selection', async (open) => {
-    const p = await open('student', '#/words/quick');
+    const p = await open('student');
+    await p.waitForFunction(() => window.__stuVm && !window.__stuVm.loading && window.__stuVm.page === 'home');
+    await p.locator('.learn-menu').click();
+    await p.locator('nav[aria-label="学习工具"]').waitFor({ state: 'visible' });
+    await p.locator('nav[aria-label="学习工具"] a[href="#/words/quick"]').click();
     await p.waitForFunction(() => window.__stuVm && !window.__stuVm.loading && window.__stuVm.page === 'words');
     await p.locator('[data-wu=""]').waitFor();
     assert.equal(await p.locator('[data-wu=""].on').count(), 0, 'all units is not selected initially');
