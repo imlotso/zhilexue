@@ -26,7 +26,8 @@
     "test:ui-rounded:unit": "node --test astra-ui-rounded-student-test.js rounded-shell-test.js rounded-quiz-test.js ui-rounded-admin-pages-test.js",
     "test:ui-rounded:browser": "node --test astra-ui-rounded-student-browser-test.js rounded-shell-browser-test.js astra-ui-quiz-workbench-test.js ui-rounded-admin-pages-browser-test.js ui-rounded-admin-review-height-test.js && node ui-review-concept-test.js --browser",
     "test:bugfix": "node --test astra-batch-image-upload-test.js astra-legacy-student-layout-test.js astra-subjective-self-schema-test.js pending-ai-bulk-review-test.js pending-ai-bulk-ui-test.js rounded-three-pages-dom-test.js student-point-scan-test.js student-self-grade-test.js student-self-grade-ui-test.js astra-self-assessment-report-ui-test.js astra-admin-script-boot-test.js",
-    "test:bugfix:browser": "node --test student-scan-self-grade-browser-test.js astra-ui-rounded-student-browser-test.js"
+    "test:bugfix:browser": "node --test student-scan-self-grade-browser-test.js astra-ui-rounded-student-browser-test.js",
+    "test:ci-contracts": "node --test astra-formula-word-ci-regression-test.js legacy-ui-contract-test.js && node mistake-test.js --ui-only && node theme-test.js --ui-only"
   },
   "dependencies": {
     "@resvg/resvg-js": "2.6.2",

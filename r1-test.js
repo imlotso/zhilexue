@@ -9,6 +9,7 @@
  */
 const { db } = require('./src/db');
 const { hash } = require('./src/auth');
+const { readReportSections } = require('./legacy-ui-contract-test');
 
 const BASE = process.env.BASE || 'http://localhost:3000';
 const ADM = '/api/admin/bank';
@@ -190,7 +191,7 @@ async function main() {
         items: [...g.querySelectorAll('.ng-sub a .txt')].map((x) => x.textContent.trim()),
       })));
       const items = (t) => (menu.find((g) => g.t === t) || { items: [] }).items.join('/');
-      log(menu.map((g) => g.t).join('/') === '首页/学生与账号/教学资源/智能题库/学情与报告/系统设置', '菜单分组顺序不变：首页 / 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置', menu.map((g) => g.t).join('/'));
+      log(menu.map((g) => g.t).join('/') === '工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置', '菜单分组顺序：工作台 / 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置', menu.map((g) => g.t).join('/'));
       log(items('学生与账号') === '分校管理/学生管理/学习报告', '「学习报告」在「学生与账号」下、「学生管理」后面', items('学生与账号'));
       log(items('学情与报告') === '成绩管理/谈心谈话/家校沟通/AI学情诊断', '「学情与报告」：成绩管理 / 谈心谈话 / 家校沟通 / AI学情诊断（诊断排在家校沟通后）', items('学情与报告'));
       log(items('教学资源') === '课程目录/视频管理/讲义资料/词书管理/字母乐园/音标训练' && items('智能题库') === '题库管理/录题中心/待审核题目/知识树管理/试卷管理/智能组卷/课文习题' && items('系统设置') === 'AI 配置中心/操作日志', '教学资源和系统设置保持原组，智能题库包含统一录题中心');
@@ -225,8 +226,9 @@ async function main() {
       log(rowDl.head === 'PK' && rowDl.zip && /\.docx$/.test(rowDl.name), '行内「导出错题 Word」→ 下载 .docx（PK 压缩包，含 word/document.xml）', `${rowDl.name} ${rowDl.size}B`);
 
       await p.click('[data-edetail]'); await p.waitForSelector('.r1-drawer #r1Tree .r1-course', { timeout: 8000 });
-      const secs = await p.$$eval('.r1-sec h4', (h) => h.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-      log(secs.length === 5 && /学科总览/.test(secs[0]) && /课程.*小分组.*视频/.test(secs[1]) && /试卷成绩/.test(secs[2]) && /最近作答/.test(secs[3]) && /主观题作答/.test(secs[4]), '详情抽屉：学科总览、课程正确率、试卷成绩、最近作答和主观评分', secs.join(' | '));
+      const report = await p.evaluate(readReportSections);
+      const secs = report.headings;
+      log(secs.length === 5 && /学科总览/.test(secs[0]) && /知识点与小分组/.test(secs[1]) && /试卷成绩/.test(secs[2]) && /最近作答/.test(secs[3]) && /主观题作答/.test(secs[4]), '详情抽屉：学科总览、知识点与小分组、试卷成绩、最近作答和主观评分', secs.join(' | '));
       const subj = await p.$$eval('.r1-subj', (c) => c.map((x) => `${x.dataset.subj}:${x.querySelector('.r1-subj-v').textContent.trim()}`).join(','));
       log(subj === '数学:67%,英语:—,物理:100%,化学:—', '学科总览：数学 67%（10/15）、物理 100%（4/4），没做的学科显示「—」', subj);
       const got = await domRows(p);
@@ -234,9 +236,10 @@ async function main() {
       log(got.length > 0 && JSON.stringify(got) === JSON.stringify(want), `四级正确率：页面 ${got.length} 行（课程 / 小分组 / 视频）与 /api/admin/bank/accuracy 逐行一致`, JSON.stringify(got.filter((r) => /R1|正数|数轴|有理|长度|时间/.test(r.name)).map((r) => r.name + ' ' + r.badge)));
       const v25 = got.find((r) => r.name === '数轴上的点');
       log(!!v25 && v25.badge === '25%', '「数轴上的点」视频 25%（答对 1 / 4 题）', v25 && v25.badge);
-      const paperTxt = await p.$eval('.r1-sec:nth-of-type(3)', (e) => e.textContent.replace(/\s+/g, ' '));
+      const paperTxt = report.paperText;
       log(/单元测验/.test(paperTxt) && /75 \/ \d+/.test(paperTxt) && /3 \/ 4 题/.test(paperTxt), '试卷成绩：试卷名、75 分、答对 3 / 4 题', paperTxt.slice(0, 120));
-      log((await p.$$('.r1-scroll-tall tbody tr')).length === 19, '最近作答：19 条记录');
+      log(report.recordCount === 19, '最近作答：19 条记录（不混入主观评分表）');
+      log(report.subjectiveText === '还没有主观题作答' && report.gradeIds.length === 0, '纯客观题夹具：主观评分区显示空态，不误生成评分记录');
 
       // 折叠
       await p.click('.r1-lv1[data-tog]'); await p.waitForTimeout(100);

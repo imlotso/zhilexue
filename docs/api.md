@@ -65,7 +65,7 @@
 - `POST /papers/auto` 还可设置 `difficulty_ratios:{easy,medium,hard}`（整数百分比，总和 100）；`POST /papers/auto-by-node` 使用 `node_ids` 和 `per_node_count` 按知识点分别抽题，重叠范围跨节点去重，并返回不足的知识点；`POST /papers/replace` 在原范围内换同题型、同难度档的题。
 - `POST /papers/:id/assign`：下发给指定学生并置为已下发。接收名单写入、发布状态和截止时间更新在同一事务内完成，任一步失败全部回滚；重试仍按学生去重。**有下发名单的试卷只对名单里的学生可见**（`GET /tasks`、`GET /papers`、`GET /papers/:id`、`POST /submit kind=paper` 都按此判断）；没有名单的才按年级/学段/册别广播。`POST /papers/:id/publish {publish:0}` 撤回时清空名单。
 - `GET /papers/:id/export-docx?mode=student|answers|teacher`：按试卷题序和分值导出学生版、附答案版或教师版 Word；常见公式转为可编辑公式，暂不支持的公式保留原文。
-- 学生端 `POST /scan-count`：`{kind, subject, node_ids}` 返回所选节点及后代的去重题量；`POST /scan-compose` 增加 `count:5|10|20` 时抽取指定数量的不同题目，题量不足返回提示。旧客户端不传 `count` 时仍按最小有题节点抽题。
+- 学生端 `POST /scan-count` 与 `POST /scan-compose`：`{kind, subject, node_ids}` 按所选范围内的最小知识点各取 1 道不同题目，返回可生成题数 `total`、目标点数 `target_total` 和逐点缺口 `missing`。旧 `count:5|10|20` 不再截断覆盖或要求凑足题量；章节映射及缺题规则见下文「完整知识点扫描」。
 | 课文习题 | `GET /chapters`；`GET /chapters/:id/lessons`；`GET /videos/:id/questions`；`POST /videos/:id/bind`；`POST /videos/:id/import-docx`；`GET /sections/:id/questions`；`POST /sections/:id/bind`；`POST /sections/:id/import-docx`；`GET/POST /videos/:id/nodes`。视频和小分组 Word 导入均先进入待审核，审核入库后自动回挂。 |
 | 反馈 | `GET /feedback`；`PUT /feedback/:id` |
 | 选项 | `GET /branches-options`；`GET /students-options` |

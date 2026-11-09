@@ -125,13 +125,20 @@ function cleanup() {
       await sp.goto(BASE + '/#/papers'); await sp.waitForSelector('.bk-tabs [data-s="数学"]'); await sp.click('.bk-tabs [data-s="数学"]'); await sp.waitForSelector('.pk-libcard', { timeout: 8000 });
       await sp.fill('#pkQ', TAG); await sp.keyboard.press('Enter'); await sp.waitForTimeout(800);
       await sp.click('.pk-libcard [data-lib]'); await sp.waitForSelector('#pkPreviewStart'); await sp.click('#pkPreviewStart'); await sp.waitForSelector('.quiz-body, #qzBody', { timeout: 8000 });
-      log(await sp.$$eval('.t8-fbtn', (e) => e.length) === 1 && (await sp.$$eval('svg', (e) => e.length)) > 0, '学生端：数学填空题有「公式」按钮，题干里的分数 / 根号已渲染成公式');
-      await sp.click('.t8-fbtn'); await sp.waitForSelector('math-field', { timeout: 15000 });
-      await sp.evaluate(() => document.querySelector('math-field').setValue('\\frac{1}{2}')); await sp.waitForTimeout(200);
+      await sp.waitForSelector('#qzBody .qz-stem mjx-container svg');
+      log(await sp.$$eval('#qzBody .t8-fbtn', (e) => e.length) === 1 && (await sp.$$eval('#qzBody .qz-stem mjx-container svg', (e) => e.length)) > 0, '学生端：数学填空题有「公式」按钮，题干里的分数 / 根号已渲染成公式');
+      await sp.click('#qzBody .t8-fbtn'); await sp.waitForSelector('math-field', { timeout: 15000 });
+      await sp.evaluate(() => document.querySelector('math-field').setValue('\\frac{1}{2}'));
+      await sp.waitForFunction(() => window.mathVirtualKeyboard && window.mathVirtualKeyboard.visible);
       const kb = await sp.evaluate(() => !!(window.mathVirtualKeyboard && window.mathVirtualKeyboard.visible));
-      await sp.click('.t8-ok'); await sp.waitForTimeout(300);
-      const val = await sp.evaluate(() => [...document.querySelectorAll('textarea,input.t6-fill')].map((x) => x.value).join('|'));
+      await sp.click('.t8-ok'); await sp.waitForSelector('.t8-dlg', { state: 'detached' });
+      // The desktop AI panel has its own textarea; only this question's blank is an answer.
+      const val = await sp.inputValue('#qzBody textarea[data-blank="0"]');
       log(kb && val === '\\frac{1}{2}', '学生端：点「公式」弹出 MathLive 虚拟键盘，输入后答案框里是 \\frac{1}{2}', val);
+      await sp.click('#qzDots [data-i="1"]'); await sp.waitForSelector('#qzBody textarea[data-ans]');
+      await sp.click('#qzDots [data-i="0"]');
+      const stored = await sp.inputValue('#qzBody textarea[data-blank="0"]');
+      log(stored === '\\frac{1}{2}', '学生端：切换题目再返回，公式答案仍保存在作答状态中', stored);
       const ap = await browser.newPage({ viewport: { width: 1300, height: 950 } }); watch(ap, 'admin');
       await ap.goto(BASE + '/admin/'); await ap.fill('input[type=text],input:not([type])', '15152099970'); await ap.fill('input[type=password]', '123456'); await ap.keyboard.press('Enter'); await ap.waitForTimeout(1500);
       await ap.goto(BASE + '/admin/#/mfq'); await ap.waitForTimeout(1500);
