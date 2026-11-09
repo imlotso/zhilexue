@@ -271,17 +271,17 @@ const ViewProfile = (() => {
         labels,
         datasets: [{
           label: '总分', data: tl.map(t => Number(t.total.toFixed(1))),
-          borderColor: '#2f5cff', backgroundColor: 'rgba(47,92,255,.10)',
-          tension: .3, fill: true, pointRadius: 4, pointBackgroundColor: '#2f5cff'
+          borderColor: '#0C594B', backgroundColor: 'rgba(12,89,75,.10)',
+          tension: .3, fill: true, pointRadius: 4, pointBackgroundColor: '#0C594B'
         }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: {
-          legend: { labels: { boxWidth: 12, font: { size: 11 } } },
+          legend: { labels: { boxWidth: 12, font: { size: 12 } } },
           tooltip: { callbacks: { afterLabel: (c) => { const t = tl[c.dataIndex]; return (t.delta == null ? '首次记录' : '较上次 ' + U.signNum(t.delta, 0) + ' 分') + (t.classRank != null ? ` · 班级第 ${t.classRank} 名` : ''); } } }
         },
-        scales: { y: { ticks: { font: { size: 11 } } }, x: { ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: (v) => String(labels[v] || '').split('\n') } } }
+        scales: { y: { ticks: { font: { size: 12 } } }, x: { ticks: { font: { size: 12 }, maxRotation: 0, autoSkip: false, callback: (v) => String(labels[v] || '').split('\n') } } }
       }
     });
 
@@ -292,15 +292,15 @@ const ViewProfile = (() => {
         labels,
         datasets: [
           { label: '班级名次', data: tl.map(t => t.classRank), borderColor: '#e08a00', backgroundColor: 'rgba(224,138,0,.10)', tension: .3, pointRadius: 4, spanGaps: true },
-          { label: '年级名次', data: tl.map(t => t.gradeRank), borderColor: '#8a5cff', backgroundColor: 'rgba(138,92,255,.08)', tension: .3, pointRadius: 4, borderDash: [5, 4], spanGaps: true }
+          { label: '年级名次', data: tl.map(t => t.gradeRank), borderColor: '#5B706A', backgroundColor: 'rgba(91,112,106,.08)', tension: .3, pointRadius: 4, borderDash: [5, 4], spanGaps: true }
         ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } } },
+        plugins: { legend: { labels: { boxWidth: 12, font: { size: 12 } } } },
         scales: {
-          y: { reverse: true, title: { display: true, text: '名次（数值越小越好）', font: { size: 10 } }, ticks: { font: { size: 11 } } },
-          x: { ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: (v) => String(labels[v] || '').split('\n') } }
+          y: { reverse: true, title: { display: true, text: '名次（数值越小越好）', font: { size: 12 } }, ticks: { font: { size: 12 } } },
+          x: { ticks: { font: { size: 12 }, maxRotation: 0, autoSkip: false, callback: (v) => String(labels[v] || '').split('\n') } }
         }
       }
     });
@@ -312,8 +312,8 @@ const ViewProfile = (() => {
         labels: knRep.radar.labels.map(l => l.length > 10 ? l.slice(0, 10) + '…' : l),
         datasets: [{
           label: '掌握度(%)', data: knRep.radar.values,
-          borderColor: '#2f5cff', backgroundColor: 'rgba(47,92,255,.16)',
-          pointBackgroundColor: '#2f5cff', pointRadius: 3, borderWidth: 2
+          borderColor: '#0C594B', backgroundColor: 'rgba(12,89,75,.16)',
+          pointBackgroundColor: '#0C594B', pointRadius: 3, borderWidth: 2
         }]
       },
       options: {
@@ -322,8 +322,8 @@ const ViewProfile = (() => {
         scales: {
           r: {
             min: 0, max: 100, beginAtZero: true,
-            angleLines: { color: '#e6eaf2' }, grid: { color: '#eef1f7' },
-            pointLabels: { font: { size: 10 }, color: '#5a6478' },
+            angleLines: { color: '#D5E3DB' }, grid: { color: '#E5F1E9' },
+            pointLabels: { font: { size: 12 }, color: '#5B706A' },
             ticks: { display: false, stepSize: 20 }
           }
         }

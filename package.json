@@ -24,7 +24,9 @@
     "test:ui-concepts:unit": "node --test astra-ui-learning-space-test.js ui-review-concept-test.js",
     "test:ui-concepts:browser": "node --test astra-ui-learning-browser-test.js astra-ui-quiz-workbench-test.js && node ui-review-concept-test.js --browser",
     "test:ui-rounded:unit": "node --test astra-ui-rounded-student-test.js rounded-shell-test.js rounded-quiz-test.js ui-rounded-admin-pages-test.js",
-    "test:ui-rounded:browser": "node --test astra-ui-rounded-student-browser-test.js rounded-shell-browser-test.js astra-ui-quiz-workbench-test.js ui-rounded-admin-pages-browser-test.js ui-rounded-admin-review-height-test.js && node ui-review-concept-test.js --browser"
+    "test:ui-rounded:browser": "node --test astra-ui-rounded-student-browser-test.js rounded-shell-browser-test.js astra-ui-quiz-workbench-test.js ui-rounded-admin-pages-browser-test.js ui-rounded-admin-review-height-test.js && node ui-review-concept-test.js --browser",
+    "test:senyu:unit": "node --test senyu-controls-test.js senyu-workspaces-test.js senyu-behavior-test.js senyu-theme-test.js senyu-three-pages-dom-test.js senyu-iframe-test.js senyu-student-navigation-test.js senyu-course-progress-test.js",
+    "test:senyu:browser": "node --test senyu-components-browser-test.js senyu-three-pages-browser-test.js senyu-student-navigation-browser-test.js rounded-shell-browser-test.js astra-ui-quiz-workbench-test.js && node mlive-keyboard-browser-test.js"
   },
   "dependencies": {
     "@resvg/resvg-js": "2.6.2",
@@ -47,6 +49,7 @@
     "qiniu": "^7.15.2"
   },
   "devDependencies": {
+    "jsdom": "26.1.0",
     "playwright": "1.62.1"
   }
 }

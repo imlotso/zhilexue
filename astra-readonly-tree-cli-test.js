@@ -22,7 +22,7 @@ function worker({ missing = false, failReadOnly = false } = {}) {
           return [[{ version: 'synthetic', db: 'fixture' }]];
         } };
       } };
-    }, console: { error() {} }, process: { exit() { throw new Error('unexpected exit'); } },
+    }, console: { error() {} }, process: { env: {}, exit() { throw new Error('unexpected exit'); } },
     setInterval(fn) { heartbeat = fn; return { unref() {} }; }, SharedArrayBuffer, Int32Array, Atomics,
   });
   return { calls, options, fatal: () => onError({ fatal: true }), heartbeat: () => heartbeat(), lose: () => { lost = true; }, async send(msg) {

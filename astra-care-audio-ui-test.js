@@ -25,7 +25,7 @@ test('detail views and audio modal never directly embed stored audio URLs; modal
   assert.doesNotMatch(source,/<audio[^\n]*src=/); assert.match(source,/URL\.revokeObjectURL\(objectUrl\)/); assert.match(source,/controller\.abort\(\)/); assert.match(source,/opts\.onClose/); assert.match(source,/catch \(e\) \{[\s\S]*?toast\(e\.message/);
 });
 test('modal save failure keeps the draft open; retry succeeds and replacement cleans up once',()=>{
-  function element() { return {children:[],events:{},appendChild(child){child.parent=this;this.children.push(child)},remove(){if(this.parent)this.parent.children=this.parent.children.filter(c=>c!==this)},addEventListener(type,fn){this.events[type]=fn},querySelector(){return this.closeButton||(this.closeButton=element())}}; }
+  function element() { return {children:[],events:{},setAttribute(){},removeAttribute(){},querySelectorAll(){return []},focus(){},appendChild(child){child.parent=this;this.children.push(child)},remove(){if(this.parent)this.parent.children=this.parent.children.filter(c=>c!==this)},addEventListener(type,fn){this.events[type]=fn},querySelector(){return this.closeButton||(this.closeButton=element())}}; }
   const root=element(), events={}, messages=[];
   const document={getElementById:()=>root,createElement:element,addEventListener:(k,v)=>{events[k]=v},removeEventListener:(k)=>{delete events[k]}};
   const box={document,esc:String,toast:(msg)=>messages.push(msg)};

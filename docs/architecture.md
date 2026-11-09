@@ -108,3 +108,13 @@ zhilexue/
 - 管理端 `ui-rounded-shell-20261108.css` 与 `ui-rounded-pages-20261108.css` 最后加载。前者统一薄荷侧栏、圆角卡片和首页；后者覆盖审核、组卷、录题、学情。审核保留分类保存与入库分离；低高度桌面保留三项关键操作可达。样式仅作用于已有页面类。
 - 答题继续使用共享 `BankQuiz.open()`、原判分/提交及 AI 门控。`ui-quiz-20261108.css` 改为森林绿/暖白/琥珀黄；未核对 AI 面板收敛但保留关闭与恢复。原数字键盘和 MathLive 公式弹窗不变。
 - 增加 `test:ui-rounded:unit`、`test:ui-rounded:browser` 以复现合成前端验收。无构建步骤、依赖升级、后端路由或数据库迁移。完整说明及接受的交互差异见 `docs/rounded-ui-implementation-20261108.md` 与 `design-qa.md`。
+
+## 森屿共享主题（2026-11-09，实施分支）
+
+- `public/css/senyu-tokens.css` 提供 `--sy-*` 令牌，`senyu-components.css` 提供 `.sy-*` 显式基础样式；页面用 `data-ui-theme="senyu"` 和 `body.sy-theme` 接入。独立 iframe 必须各自加载，父页面不注入强制颜色。
+- `public/js/senyu-controls.js` 在主题页面增强原生日期输入的展示。源字段仍是唯一业务值和校验来源，日历单实例，键盘事件不进入父弹窗，观察所属字段生命周期并自动收尾；不新增 API、数据存储或依赖。
+- 可定制原生 select 使用浏览器支持的 `appearance: base-select`；不支持时保留原生选择语义及系统弹层，其视觉兼容性需另验收。
+
+`senyu-workspaces.css` 是后台/学生旧组件的局部适配层，在旧圆润层后加载；不重写原页面的数据流程。`senyu-uploads.css` 单独服务票据式上传文档。`treepanel.js` 保留原选择模型，补充可访问树和级联键盘交互。根目录 `senyu-*-test.js` 提供合成 DOM/主题检查，`test:senyu:browser` 使用现有真实组件浏览器夹具。
+
+学生入口在共享适配层之后加载 `senyu-student-navigation.css`，以相同且高于旧重要性规则的作用域覆盖学科导航与学习工具两组；保留独立分组、原路由和数据方法。`test:senyu:unit` 汇集共享组件、三页、父子 iframe 桥接和真实 Vue 抽屉回归；iframe 测试只运行父级桥接，不等同于子页脚本或打印结果验收。

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-ui-theme="senyu">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -21,13 +21,16 @@
 <link rel="stylesheet" href="./ui-review-20261108.css?v=20261108">
 <link rel="stylesheet" href="./ui-rounded-shell-20261108.css?v=20261108r1">
 <link rel="stylesheet" href="./ui-rounded-pages-20261108.css?v=20261108r1">
+<link rel="stylesheet" href="../css/senyu-tokens.css?v=20261109-senyu">
+<link rel="stylesheet" href="../css/senyu-components.css?v=20261109-senyu">
+<link rel="stylesheet" href="../css/senyu-workspaces.css?v=20261109-senyu-ci2">
 <link rel="icon" href="../img/logo.jpg" type="image/jpeg">
 <script>window.STORAGE_PREFIX = 'xuexi_admin';
 /* MathJax 3 配置：题库题干 LaTeX 分隔符；按需排版（mtxTypeset），不自动扫全页 */
 window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]'], ['$$', '$$']] }, svg: { fontCache: 'global' }, options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'input'] }, startup: { typeset: false } };</script>
 <script defer src="../vendor/mathjax-tex-svg.js"></script>
 </head>
-<body class="t11">
+<body class="t11 sy-theme sy-core">
 <div id="app"><div class="loading-page">加载中…</div></div>
 <script src="../js/api.js?v=20261104r0"></script>
 <script src="../js/mathlib.js?v=20261105b"></script>
@@ -35,9 +38,9 @@ window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath:
 <script src="../js/pdfpages.js"></script>
 <script src="../vendor/html2canvas.min.js"></script>
 <script src="./vcodec.js?v=20261102a"></script>
-<script src="./admin.js?v=20261108-rounded"></script>
+<script src="./admin.js?v=20261109-senyu"></script>
 <script src="./treepick.js?v=20261104r2m"></script>
-<script src="./treepanel.js?v=20261105"></script>
+<script src="./treepanel.js?v=20261109-senyu"></script>
 <script src="./qcard.js?v=20261105"></script>
 <script src="./qbasket.js?v=20261105"></script>
 <script src="./bankui.js?v=20261104r8r2"></script>
@@ -66,5 +69,6 @@ window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath:
 <script src="./paper.js?v=20261026a"></script>
 <script src="../vendor/qrcode.min.js"></script>
 <script src="./aireport.js?v=20261026d"></script>
+<script src="../js/senyu-controls.js?v=20261109-senyu"></script>
 </body>
 </html>

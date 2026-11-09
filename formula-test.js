@@ -128,9 +128,11 @@ function cleanup() {
       log(await sp.$$eval('.t8-fbtn', (e) => e.length) === 1 && (await sp.$$eval('svg', (e) => e.length)) > 0, '学生端：数学填空题有「公式」按钮，题干里的分数 / 根号已渲染成公式');
       await sp.click('.t8-fbtn'); await sp.waitForSelector('math-field', { timeout: 15000 });
       await sp.evaluate(() => document.querySelector('math-field').setValue('\\frac{1}{2}')); await sp.waitForTimeout(200);
-      const kb = await sp.evaluate(() => !!(window.mathVirtualKeyboard && window.mathVirtualKeyboard.visible));
+      await sp.waitForFunction(() => window.mathVirtualKeyboard && window.mathVirtualKeyboard.visible);
+      const kb = await sp.evaluate(() => !!window.mathVirtualKeyboard.visible);
       await sp.click('.t8-ok'); await sp.waitForTimeout(300);
-      const val = await sp.evaluate(() => [...document.querySelectorAll('textarea,input.t6-fill')].map((x) => x.value).join('|'));
+      // Read the answer field, not the separate AI follow-up textarea.
+      const val = await sp.locator('#qzBody textarea[data-blank="0"]').inputValue();
       log(kb && val === '\\frac{1}{2}', '学生端：点「公式」弹出 MathLive 虚拟键盘，输入后答案框里是 \\frac{1}{2}', val);
       const ap = await browser.newPage({ viewport: { width: 1300, height: 950 } }); watch(ap, 'admin');
       await ap.goto(BASE + '/admin/'); await ap.fill('input[type=text],input:not([type])', '15152099970'); await ap.fill('input[type=password]', '123456'); await ap.keyboard.press('Enter'); await ap.waitForTimeout(1500);

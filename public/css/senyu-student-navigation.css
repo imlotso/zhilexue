@@ -1,0 +1,71 @@
+/* One scale for the student drawer's subject navigation and learning tools.
+   The explicit scope and !important declarations replace the older 23px/20px
+   important rail rules. Keep this adapter after senyu-workspaces.css. */
+/* A translated drawer must not leave invisible links in the Tab order.
+   inert is the primary keyboard guard; visibility also covers older browsers. */
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side[aria-hidden="true"] { visibility:hidden!important; }
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side[aria-hidden="false"] { visibility:visible!important; }
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .st-subj,
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .learn-tools {
+  display:flex; flex-direction:column; align-items:stretch; width:100%; gap:4px!important;
+  padding:0!important; margin:0; flex:none;
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .learn-tools {
+  margin-top:16px; padding-top:16px!important; border-top:1px solid var(--sy-color-border);
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .sy-student-nav-label {
+  padding:0 14px 4px; color:var(--sy-color-muted); font-size:12px; line-height:1.5; font-weight:600;
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .st-subj a,
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .learn-tools a {
+  display:flex!important; flex-direction:row!important; flex:none; align-items:center!important;
+  justify-content:flex-start!important; width:100%!important; max-width:none!important;
+  min-height:48px!important; height:auto!important; gap:12px!important;
+  padding:10px 14px!important; margin:0!important; box-sizing:border-box;
+  font-size:18px!important; line-height:1.5!important; font-weight:500!important;
+  color:var(--sy-color-ink)!important; background:transparent!important;
+  border:0!important; border-radius:12px!important; text-align:left!important; text-decoration:none;
+  transition:background .15s,color .15s; cursor:pointer;
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .st-subj a .ic,
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .learn-tools a .ic {
+  display:flex!important; align-items:center; justify-content:center; flex:0 0 28px;
+  width:28px!important; height:28px!important; margin:0!important; padding:0;
+  background:none!important; border:0!important; box-shadow:none!important;
+  color:inherit!important; transform:none!important; transition:none;
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .st-subj a .ai,
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .learn-tools a .ai {
+  display:block; width:24px!important; height:24px!important; flex:none; color:inherit!important;
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .st-subj a .nt,
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .learn-tools a .nt {
+  display:block!important; flex:1 1 auto!important; min-width:0; font-size:inherit!important;
+  line-height:inherit!important; overflow-wrap:anywhere;
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .st-subj a:hover,
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .learn-tools a:hover {
+  background:var(--sy-color-border)!important; color:var(--sy-color-ink)!important;
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .st-subj a.on,
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .learn-tools a.on {
+  background:var(--sy-color-primary)!important; color:#fff!important; font-weight:600!important; box-shadow:none!important;
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .st-subj a.on:hover,
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .learn-tools a.on:hover {
+  background:var(--sy-color-primary-hover)!important; color:#fff!important;
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .st-subj a:focus-visible,
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .learn-tools a:focus-visible {
+  outline:2px solid var(--sy-color-focus); outline-offset:2px; box-shadow:0 0 0 4px var(--sy-color-focus-halo)!important;
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side .learn-mist-count {
+  flex:none; min-width:22px; padding:2px 6px; margin:0; border-radius:7px; text-align:center;
+  font-size:12px; line-height:1.5; font-weight:600; background:var(--sy-color-surface-subtle); color:var(--sy-color-primary);
+}
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side a.on .learn-mist-count {
+  background:#ffffff26; color:#fff;
+}
+@media(prefers-reduced-motion:reduce) {
+  body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student .st-side nav a { transition:none; }
+}

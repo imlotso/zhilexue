@@ -70,6 +70,7 @@
     }).join('');
 
     document.getElementById('tkEmpty').hidden = rows.length > 0;
+    document.getElementById('tkEmpty').textContent = all.length ? '未找到符合筛选条件的谈话记录，请调整或重置筛选。' : '暂无谈话记录，点击「添加谈话」开始记录。';
     document.getElementById('tkMeta').textContent =
       '共 ' + rows.length + ' 条' + (rows.length !== all.length ? '（全部 ' + all.length + ' 条）' : '');
 
@@ -159,7 +160,7 @@
       '<input class="input" type="date" id="fFollowDate"></label>' +
 
       '<div class="field full"><span class="field-lab">谈话内容 *（可直接手动输入）</span>' +
-      '<textarea class="input" id="fContent" rows="7" placeholder="可直接手动输入谈话内容"></textarea>' +
+      '<textarea aria-label="谈话内容" aria-required="true" class="input" id="fContent" rows="7" placeholder="可直接手动输入谈话内容"></textarea>' +
       '</div>' +
       '<div class="field full"><span class="field-lab">谈话录音（选填，上传后可在记录中收听）</span>' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
@@ -195,10 +196,12 @@
     function saveRecord(c) {
       var date = $('#fDate', c.el).value || ui.today();
       var sid = refs.combo.getValue();
-      if (!sid) { ui.toast('请选择学生', 'err'); return false; }
+      if (!sid) { ui.fieldError(refs.combo.input, '请选择学生'); ui.toast('请选择学生', 'err'); return false; }
+      ui.fieldError(refs.combo.input, '');
       var sName = (global.App.studentById(sid) || {}).name || '';
       var text = $('#fContent', c.el).value.trim();
-      if (!text) { ui.toast('请填写谈话内容', 'err'); $('#fContent', c.el).focus(); return false; }
+      if (!text) { ui.fieldError($('#fContent', c.el), '请填写谈话内容'); ui.toast('请填写谈话内容', 'err'); return false; }
+      ui.fieldError($('#fContent', c.el), '');
 
       store.talks.add({
         date: date,
@@ -228,6 +231,7 @@
     });
     $('#fStuSlot', el).appendChild(combo.el);
     refs.combo = combo;
+    combo.input.setAttribute('aria-label', '学生'); combo.input.setAttribute('aria-required', 'true');
     if (!opts.length) {
       ui.toast('学生信息为空，请先到「学生信息」添加学生', 'err');
     }
@@ -236,6 +240,8 @@
     var audioBtn = $('#fAudioBtn', el);
     var audioFile = $('#fAudioFile', el);
     var audioName = $('#fAudioName', el);
+    audioName.setAttribute('role', 'status');
+    $('#fContent', el).addEventListener('input', function () { ui.fieldError(this, ''); });
     var content = $('#fContent', el);
 
     audioBtn.addEventListener('click', function () { audioFile.click(); });
@@ -243,15 +249,21 @@
       var f = audioFile.files && audioFile.files[0];
       if (!f) return;
       if (f.size > 50 * 1024 * 1024) { ui.toast('录音文件不能超过 50MB', 'err'); return; }
+      var saveButton = el.querySelector('.modal-foot .btn-primary');
+      audioBtn.disabled = true; saveButton.disabled = true; audioBtn.setAttribute('aria-busy', 'true');
+      audioName.dataset.state = 'pending';
       audioName.textContent = '正在上传「' + f.name + '」…';
       ui.uploadAudio(f).then(function (d) {
-        refs.audioUrl = d.url;
+        refs.audioUrl = d.url; audioName.dataset.state = 'success';
         audioName.textContent = '已上传「' + (d.name || f.name) + '」，保存记录后可随时收听';
         ui.toast('录音已上传', 'ok');
       }).catch(function (e) {
         refs.audioUrl = '';
-        audioName.textContent = '未选择录音';
+        audioName.dataset.state = 'error';
+        audioName.textContent = '上传失败，请重试；填写的内容仍保留';
         ui.toast(e.message || '录音上传失败', 'err');
+      }).finally(function () {
+        audioBtn.disabled = false; saveButton.disabled = false; audioBtn.removeAttribute('aria-busy');
       });
       audioFile.value = '';
     });

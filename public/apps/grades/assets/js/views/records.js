@@ -88,12 +88,12 @@ const ViewRecords = (() => {
 
       ${ViewImport.barHtml()}
 
-      <div class="tabs">
-        <button class="tab-btn ${tab === 'list' ? 'active' : ''}" data-tab="list">成绩明细</button>
-        <button class="tab-btn ${tab === 'kn' ? 'active' : ''}" data-tab="kn">知识点诊断</button>
+      <div class="tabs" role="tablist" aria-label="成绩视图">
+        <button class="tab-btn ${tab === 'list' ? 'active' : ''}" data-tab="list" id="grades-tab-list" role="tab" aria-selected="${tab === 'list'}" aria-controls="tabBody" tabindex="${tab === 'list' ? '0' : '-1'}">成绩明细</button>
+        <button class="tab-btn ${tab === 'kn' ? 'active' : ''}" data-tab="kn" id="grades-tab-kn" role="tab" aria-selected="${tab === 'kn'}" aria-controls="tabBody" tabindex="${tab === 'kn' ? '0' : '-1'}">知识点诊断</button>
       </div>
 
-      <div id="tabBody"></div>
+      <div id="tabBody" role="tabpanel" aria-labelledby="grades-tab-${tab}"></div>
     `;
 
     const body = el.querySelector('#tabBody');
@@ -108,7 +108,7 @@ const ViewRecords = (() => {
   }
 
   function listCard(rows, pageRows, totalPage) {
-    const th = (key, label, cls = '') => `<th class="sortable ${cls}" data-sort="${key}">${label}${sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</th>`;
+    const th = (key, label, cls = '') => `<th class="sortable ${cls}" data-sort="${key}" aria-sort="${sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}"><button type="button" class="sy-sort-button">${label}<span aria-hidden="true">${sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</span></button></th>`;
     const subjMode = !!f.subject;
     return `<div class="card" id="listCard">
       <div class="card-head">
@@ -136,7 +136,7 @@ const ViewRecords = (() => {
             const key = r.examId + '|' + r.studentName;
             const isOpen = open.has(key);
             return `<tr class="clickable ${isOpen ? 'row-open' : ''}" data-key="${U.esc(key)}">
-                <td><span class="expand-icon">▶</span></td>
+                <td><button type="button" class="sy-row-toggle" aria-label="${isOpen ? '收起' : '展开'} ${U.esc(r.studentName)} 的本次成绩" aria-expanded="${isOpen}"><span class="expand-icon" aria-hidden="true">▶</span></button></td>
                 <td><div class="name-cell"><span class="avatar">${U.esc(U.avatarText(r.studentName))}</span>${U.esc(r.studentName)}</div></td>
                 <td>${U.esc(r.grade || r.stage || '—')}</td>
                 <td>${U.esc(r.examName)}</td>
@@ -191,12 +191,12 @@ const ViewRecords = (() => {
       <div class="pg-left">
         <span>共 ${total} 条</span>
         <span>每页</span>
-        <select id="pgSize">${[10, 20, 30].map(n => `<option value="${n}" ${pageSize === n ? 'selected' : ''}>${n}</option>`).join('')}</select>
+        <select id="pgSize" aria-label="每页记录数">${[10, 20, 30].map(n => `<option value="${n}" ${pageSize === n ? 'selected' : ''}>${n}</option>`).join('')}</select>
         <span>条</span>
       </div>
       <div class="pg-btns">
         <button class="pg-btn" data-pg="prev" ${page <= 1 ? 'disabled' : ''}>上一页</button>
-        ${nums.map(n => n === '...' ? '<span class="pg-dots">…</span>' : `<button class="pg-btn ${n === page ? 'active' : ''}" data-pg="${n}">${n}</button>`).join('')}
+        ${nums.map(n => n === '...' ? '<span class="pg-dots">…</span>' : `<button class="pg-btn ${n === page ? 'active' : ''}" data-pg="${n}" ${n === page ? 'aria-current="page"' : ''} aria-label="第 ${n} 页">${n}</button>`).join('')}
         <button class="pg-btn" data-pg="next" ${page >= totalPage ? 'disabled' : ''}>下一页</button>
       </div>
     </div>`;
@@ -308,7 +308,15 @@ const ViewRecords = (() => {
       page = 1; open.clear(); App.refresh();
     };
 
-    el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; App.refresh(); });
+    el.querySelectorAll('[data-tab]').forEach(b => {
+      b.onclick = () => { tab = b.dataset.tab; App.refresh(); document.getElementById('grades-tab-' + tab).focus(); };
+      b.onkeydown = e => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+        e.preventDefault();
+        const next = e.key === 'Home' ? 'list' : e.key === 'End' ? 'kn' : (tab === 'list' ? 'kn' : 'list');
+        document.getElementById('grades-tab-' + next).click();
+      };
+    });
   }
 
   function bindList(body, rows) {
@@ -317,6 +325,7 @@ const ViewRecords = (() => {
       if (sort.key === k) sort.dir = sort.dir === 'asc' ? 'desc' : 'asc';
       else { sort.key = k; sort.dir = ['studentName', 'examName', 'stage', 'type'].includes(k) ? 'asc' : 'desc'; }
       App.refresh();
+      document.querySelector(`th[data-sort="${k}"] button`)?.focus();
     });
 
     // 行点击：展开 / 收起
@@ -324,6 +333,7 @@ const ViewRecords = (() => {
       const k = tr.dataset.key;
       if (open.has(k)) open.delete(k); else open.add(k);
       App.refresh();
+      Array.from(document.querySelectorAll('tr[data-key]')).find(row => row.dataset.key === k)?.querySelector('.sy-row-toggle')?.focus();
     });
 
     // 展开区内的操作按钮（detail-row 是独立 tr，需单独绑定）

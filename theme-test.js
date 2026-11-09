@@ -32,20 +32,37 @@ const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8');
     './intake-teacher.css': /\.rt-[\w-]+/,
     './intake-manual.css': /\.(?:r4|r4m)-[\w-]+/,
     './r6-compose.css': /\.(?:r6|pp)-[\w-]+/,
+    './ui-review-20261108.css': /^(?:body\.t11\b|\.pd-[\w-]+)/,
+    './ui-rounded-shell-20261108.css': /^body\.t11\b/,
+    './ui-rounded-pages-20261108.css': /^body\.t11\b/,
+    '../css/senyu-tokens.css': /^:root\[data-ui-theme="senyu"\]/,
+    '../css/senyu-components.css': /^(?:body)?\.sy-theme\b/,
+    '../css/senyu-workspaces.css': /^body(?:\.sy-core\b|\.t11\.sy-core\b)/,
   };
   const themeIndex = hrefs.indexOf('./theme.css');
   const afterTheme = hrefs.slice(themeIndex + 1);
-  log(themeIndex > 0 && hrefs.lastIndexOf('./theme.css') === themeIndex && afterTheme.every(h => pageStyles[h]), 'theme.css 在所有通用样式之后，后置样式仅限页面组件', hrefs.join(' → '));
+  log(themeIndex > 0 && hrefs.lastIndexOf('./theme.css') === themeIndex && afterTheme.every(h => pageStyles[h]), 'theme.css 在所有通用样式之后，后置样式仅限已登记的页面/主题作用域', hrefs.join(' → '));
   const unscoped = [];
   afterTheme.filter(h => pageStyles[h]).forEach(h => {
-    const pageCss = read('public/admin/' + h.slice(2)).replace(/\/\*[\s\S]*?\*\//g, '');
+    const pageCss = read(path.join('public/admin', h)).replace(/\/\*[\s\S]*?\*\//g, '');
     pageCss.replace(/(^|[}{])\s*([^{}@]+)\{/g, (_, pre, sel) => {
-      sel.split(',').map(s => s.trim()).filter(Boolean).forEach(s => { if (!pageStyles[h].test(s)) unscoped.push(`${h}: ${s}`); });
+      // Split selector lists only outside :is/:not and attribute selectors.
+      const list = []; let start = 0, depth = 0;
+      for (let i = 0; i < sel.length; i++) {
+        if ('(['.includes(sel[i])) depth++;
+        else if (')]'.includes(sel[i])) depth--;
+        else if (sel[i] === ',' && depth === 0) { list.push(sel.slice(start, i)); start = i + 1; }
+      }
+      list.push(sel.slice(start));
+      list.map(s => s.trim()).filter(Boolean).forEach(s => {
+        if (h === '../css/senyu-components.css' && /^(?:from|to|[\d.]+%)$/.test(s)) return; // keyframe steps, not selectors
+        if (!pageStyles[h].test(s)) unscoped.push(`${h}: ${s}`);
+      });
       return '';
     });
   });
-  log(unscoped.length === 0, '主题之后的选择器均限定在对应页面组件内', unscoped.slice(0, 3).join(' | '));
-  log(/<body class="t11">/.test(html), '<body> 带 t11 类（去掉它就退回旧样式）');
+  log(unscoped.length === 0, '主题之后的选择器均限定在对应页面或主题作用域内', unscoped.slice(0, 3).join(' | '));
+  log(((html.match(/<body\b[^>]*class="([^"]*)"/) || [])[1] || '').split(/\s+/).includes('t11'), '<body> 带 t11 类（可同时挂载新主题类）');
   const res = await fetch(BASE + '/admin/theme.css');
   log(res.status === 200 && (await res.text()).includes('--t11-primary'), '服务器能取到 theme.css');
   // 规则全部挂在 body.t11 下：去掉注释和 @media 外壳后，每个选择器都以 body.t11 开头（:root 之类全局规则不允许）
@@ -64,7 +81,7 @@ const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8');
   // ---------- 2) 菜单分组 ----------
   const groupsSrc = admin.slice(admin.indexOf('const NAV_GROUPS = ['), admin.indexOf('];', admin.indexOf('const NAV_GROUPS = [')));
   const groups = [...groupsSrc.matchAll(/\{ k: '([^']+)', t: '([^']+)'[^}]*?(?:items: \[([^\]]*)\]|leaf: '([^']+)')/g)].map((m) => ({ k: m[1], t: m[2], items: (m[3] || m[4] || '').replace(/'/g, '').split(',').map((s) => s.trim()).filter(Boolean) }));
-  log(groups.map((g) => g.t).join('/') === '首页/学生与账号/教学资源/智能题库/学情与报告/系统设置', '左侧菜单：首页 + 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置', groups.map((g) => g.t).join('/'));
+  log(groups.map((g) => g.t).join('/') === '工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置', '左侧菜单：工作台 + 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置', groups.map((g) => g.t).join('/'));
   const of = (t) => (groups.find((g) => g.t === t) || { items: [] }).items;
   log(of('学生与账号').join(',') === 'branches,students,xreport', '「学生与账号」：分校管理 / 学生管理 / 学习报告（R1）', of('学生与账号').join(','));
   log(of('学情与报告').join(',') === 'grades,talks,care,aireport', '「学情与报告」：成绩管理 / 谈心谈话 / 家校沟通 / AI 学情诊断（R1，「知识点正确率」已并入习题学习报告）', of('学情与报告').join(','));
@@ -107,9 +124,9 @@ const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8');
           log(await p.$$eval('.r10-quick button', (e) => e.length) >= 4 && (await p.$$eval('.r10-metrics .r10-metric', (e) => e.length)) === 5, '首页：学习指标数据卡片 + 快捷操作');
           await p.goto(BASE + '/admin/#/students'); await p.waitForSelector('#btnAdd'); await p.waitForTimeout(500);
           const cs = await p.evaluate(() => { const b = document.getElementById('btnAdd'); const i = document.getElementById('sKw'); const g = document.getElementById('btnBatch'); const c = (e) => e && { r: getComputedStyle(e).borderRadius, h: getComputedStyle(e).height }; return { primary: c(b), ghost: c(g), input: c(i) }; });
-          log(['primary', 'ghost', 'input'].every((k) => cs[k] && cs[k].r === '6px' && cs[k].h === '34px'), '主按钮 / 次按钮 / 输入框：圆角 6px、高度 34px（统一变量生效）', JSON.stringify(cs));
+          log(['primary', 'ghost', 'input'].every((k) => cs[k] && cs[k].r === (k === 'primary' ? '999px' : '12px') && cs[k].h === '44px'), '森屿控件：主按钮胶囊圆角，次按钮/输入框12px，统一高度44px', JSON.stringify(cs));
           const groupsOnPage = await p.$$eval('.nav .nav-group .ng-t .txt, .nav .nav-leaf .txt', (e) => e.map((x) => x.textContent.trim()).join('/'));
-          log(groupsOnPage === '首页/学生与账号/教学资源/智能题库/学情与报告/系统设置', '页面上的菜单分组', groupsOnPage);
+          log(groupsOnPage === '工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置', '页面上的菜单分组', groupsOnPage);
           await p.goto(BASE + '/admin/#/mfq'); await p.waitForSelector('.nav-group.open .ng-sub'); await p.waitForTimeout(800);
           const badge = await p.evaluate(() => { const b = document.getElementById('t11BadgePending'); return b ? { hidden: b.hidden, text: b.textContent } : null; });
           log(!!badge && (badge.hidden ? badge.text === '' : /^\d+\+?$/.test(badge.text)), '待审核题目角标：没有待审核题时隐藏，有就显示数字', JSON.stringify(badge));

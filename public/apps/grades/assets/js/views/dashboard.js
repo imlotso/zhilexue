@@ -226,12 +226,12 @@ const ViewDashboard = (() => {
   }
 
   function emptyPage() {
-    return `<div class="card"><div class="empty-state">
+    return `<div class="page-head"><div><h2 class="page-title">成绩管理</h2><div class="page-desc">汇总考试成绩，持续关注每一份进步。</div></div></div><div class="card"><div class="empty-state">
       <div class="es-ico">◪</div>
       <div class="es-main">${U.esc(Store.campusName())} 暂无成绩数据</div>
       <div class="es-sub">到「成绩列表」批量上传 Excel 成绩表，或先载入示例数据查看效果</div>
       <div style="margin-top:14px;display:flex;gap:10px;justify-content:center">
-        <button class="btn btn-primary" id="goImport">去录入成绩</button>
+        <button class="btn sy-button sy-button--accent" id="goImport">去录入成绩</button>
         <button class="btn" id="loadSample">载入示例数据</button>
       </div>
     </div></div>`;

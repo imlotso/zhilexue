@@ -151,14 +151,14 @@ const ViewTracking = (() => {
         datasets: [{
           label: '名次提升',
           data: rs.map(r => r.rankDelta == null ? 0 : r.rankDelta),
-          backgroundColor: rs.map(r => r.rankDelta > 0 ? 'rgba(18,161,80,.85)' : r.rankDelta < 0 ? 'rgba(229,72,77,.85)' : 'rgba(138,147,166,.6)'),
+          backgroundColor: rs.map(r => r.rankDelta > 0 ? 'rgba(12,89,75,.85)' : r.rankDelta < 0 ? 'rgba(180,35,24,.85)' : 'rgba(91,112,106,.6)'),
           borderRadius: 4, barPercentage: .78
         }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => '名次' + (c.parsed.y > 0 ? '前进 ' + c.parsed.y : c.parsed.y < 0 ? '后退 ' + (-c.parsed.y) : '持平') } } },
-        scales: { y: { ticks: { font: { size: 10 } } }, x: { ticks: { font: { size: 9 }, maxRotation: 45 } } }
+        scales: { y: { ticks: { font: { size: 12 } } }, x: { ticks: { font: { size: 12 }, maxRotation: 45 } } }
       }
     });
   }
