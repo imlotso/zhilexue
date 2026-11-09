@@ -191,4 +191,74 @@ function pickPerNode(db, allNodes, ids) {
   return items;
 }
 
-module.exports = { TYPES, expandNodeIds, scopeSql, poolCounts, pickByCounts, pickByNodes, pickPerNode };
+/** 学生扫描：以真实叶节点为目标，即使缺题也保留；章节映射优先，兼容双挂题与未映射章节叶。 */
+function planStudentScan(db, { ids, kind, subject, stage }) {
+  const nodes = db.prepare(`SELECT n.id,n.parent_id,n.name,n.tree_id,t.kind FROM bank_tree_nodes n
+    JOIN bank_trees t ON t.id=n.tree_id WHERE t.subject=? AND (t.stage=? OR IFNULL(t.stage,'')='') ORDER BY n.sort,n.id`).all(subject, stage);
+  const byId = new Map(nodes.map(n => [Number(n.id), n])), children = new Map();
+  nodes.forEach(n => { const id = Number(n.parent_id) || 0; if (!children.has(id)) children.set(id, []); children.get(id).push(Number(n.id)); });
+  const expand = roots => {
+    const found = new Set(), todo = roots.map(Number);
+    while (todo.length) { const id = todo.pop(); if (found.has(id) || !byId.has(id)) continue; found.add(id); todo.push(...(children.get(id) || [])); }
+    return found;
+  };
+  const leaves = roots => [...expand(roots)].filter(id => !(children.get(id) || []).length);
+  const selected = expand(ids), targets = new Map(), mapped = new Set(), inferred = new Set();
+  const addKnowledge = id => leaves([id]).forEach(leaf => {
+    const n = byId.get(leaf); if (n.kind === 'knowledge') targets.set(leaf, { ...n, fallback: false });
+  });
+  if (kind === 'knowledge') leaves(ids).forEach(id => { const n = byId.get(id); if (n.kind === kind) targets.set(id, { ...n, fallback: false }); });
+  else if (selected.size) {
+    const ph = [...selected].map(() => '?').join(',');
+    db.prepare(`SELECT chapter_node_id,knowledge_node_id FROM bank_tree_node_mappings WHERE chapter_node_id IN (${ph})`).all(...selected).forEach(link => {
+      const n = byId.get(Number(link.knowledge_node_id));
+      if (n && n.kind === 'knowledge') { mapped.add(Number(link.chapter_node_id)); addKnowledge(n.id); }
+    });
+    // 老题双挂章节与知识点，也能确定其真实关联；待审核题不能泄漏或改变扫描范围。
+    const base = scopeSql(db, { subject });
+    db.prepare(`SELECT DISTINCT c.node_id AS chapter_node_id,k.node_id AS knowledge_node_id FROM questions q
+      JOIN question_nodes c ON c.question_id=q.id JOIN question_nodes k ON k.question_id=q.id
+      ${base.where} AND c.node_id IN (${ph}) AND (q.stage=? OR IFNULL(q.stage,'')='')`).all(...base.args, ...selected, stage).forEach(link => {
+      const n = byId.get(Number(link.knowledge_node_id));
+      if (n && n.kind === 'knowledge') { inferred.add(Number(link.chapter_node_id)); addKnowledge(n.id); }
+    });
+    leaves(ids).forEach(id => {
+      if (inferred.has(id)) return;
+      let n = byId.get(id); const seen = new Set();
+      while (n && selected.has(Number(n.id)) && !seen.has(n.id)) {
+        if (mapped.has(Number(n.id))) return;
+        seen.add(n.id); n = byId.get(Number(n.parent_id));
+      }
+      const leaf = byId.get(id);
+      if (leaf.kind === 'textbook') targets.set(id, { ...leaf, fallback: true });
+    });
+  }
+  const ordered = [...targets.values()].sort((a,b) => Number(a.id)-Number(b.id));
+  const base = scopeSql(db, { subject });
+  const candidates = ordered.map(node => db.prepare(`SELECT q.* FROM questions q${base.where}
+    AND (q.stage=? OR IFNULL(q.stage,'')='') AND q.type IN (${TYPES.map(() => '?').join(',')})
+    AND q.id IN (SELECT question_id FROM question_nodes WHERE node_id=?) ORDER BY RANDOM() LIMIT ?`)
+    .all(...base.args, stage, ...TYPES, node.id, ordered.length));
+  // 增广匹配：同一题最多用一次，共享题可让位给只有它可用的知识点。
+  const owners = new Map(), rows = new Map();
+  candidates.forEach(list => list.forEach(q => rows.set(q.id,q)));
+  const assign = (index, seen) => {
+    for (const q of candidates[index]) {
+      if (seen.has(q.id)) continue;
+      seen.add(q.id);
+      if (!owners.has(q.id) || assign(owners.get(q.id), seen)) { owners.set(q.id,index); return true; }
+    }
+    return false;
+  };
+  ordered.forEach((_,i) => assign(i,new Set()));
+  const byTarget = new Map(); owners.forEach((i,qid) => byTarget.set(i,rows.get(qid)));
+  const items = [], missing = [];
+  ordered.forEach((n,i) => {
+    const item = { node_id:n.id, node_name:n.name, fallback:n.fallback };
+    if (byTarget.has(i)) items.push({ ...item, row:byTarget.get(i) });
+    else missing.push({ ...item, need:1, reason:candidates[i].length ? 'shared' : 'empty' });
+  });
+  return { items, missing, target_total:ordered.length, fallback_count:ordered.filter(n => n.fallback).length };
+}
+
+module.exports = { TYPES, expandNodeIds, scopeSql, poolCounts, pickByCounts, pickByNodes, pickPerNode, planStudentScan };

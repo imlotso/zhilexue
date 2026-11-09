@@ -65,7 +65,7 @@
 - `POST /papers/auto` 还可设置 `difficulty_ratios:{easy,medium,hard}`（整数百分比，总和 100）；`POST /papers/auto-by-node` 使用 `node_ids` 和 `per_node_count` 按知识点分别抽题，重叠范围跨节点去重，并返回不足的知识点；`POST /papers/replace` 在原范围内换同题型、同难度档的题。
 - `POST /papers/:id/assign`：下发给指定学生并置为已下发。接收名单写入、发布状态和截止时间更新在同一事务内完成，任一步失败全部回滚；重试仍按学生去重。**有下发名单的试卷只对名单里的学生可见**（`GET /tasks`、`GET /papers`、`GET /papers/:id`、`POST /submit kind=paper` 都按此判断）；没有名单的才按年级/学段/册别广播。`POST /papers/:id/publish {publish:0}` 撤回时清空名单。
 - `GET /papers/:id/export-docx?mode=student|answers|teacher`：按试卷题序和分值导出学生版、附答案版或教师版 Word；常见公式转为可编辑公式，暂不支持的公式保留原文。
-- 学生端 `POST /scan-count`：`{kind, subject, node_ids}` 返回所选节点及后代的去重题量；`POST /scan-compose` 增加 `count:5|10|20` 时抽取指定数量的不同题目，题量不足返回提示。旧客户端不传 `count` 时仍按最小有题节点抽题。
+- 学生端 `POST /scan-count` 与 `POST /scan-compose`：`{kind, subject, node_ids}` 按所选范围内的最小知识点各取 1 道不同题目，返回可生成题数 `total`、目标点数 `target_total` 和逐点缺口 `missing`。旧 `count:5|10|20` 不再截断覆盖或要求凑足题量；章节映射及缺题规则见下文「完整知识点扫描」。
 | 课文习题 | `GET /chapters`；`GET /chapters/:id/lessons`；`GET /videos/:id/questions`；`POST /videos/:id/bind`；`POST /videos/:id/import-docx`；`GET /sections/:id/questions`；`POST /sections/:id/bind`；`POST /sections/:id/import-docx`；`GET/POST /videos/:id/nodes`。视频和小分组 Word 导入均先进入待审核，审核入库后自动回挂。 |
 | 反馈 | `GET /feedback`；`PUT /feedback/:id` |
 | 选项 | `GET /branches-options`；`GET /students-options` |
@@ -298,3 +298,31 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 ### 原桶只读保护（显式启用）
 
 `STORAGE_CLOUD_READ_ONLY=1` 时，媒体云端上传、分片上传签名/完成/取消、删除等在 SDK 写请求前被拒绝。讲义/视频的单删、批量删、清文件/替换及报告删除遇到该拒绝，不先删除数据库记录或保留的本地副本，返回明确的云端只读错误。仅改标题等元数据不受此保护拦截。未设置或设为 `0` 时保持原写入行为；本补丁不修改部署配置。
+
+## 2026-11-09 Word bug 修复
+
+### 待审核 AI 初审与批量人工修改
+
+前缀 `/api/admin/bank/mf`。待审核列表增加 `edit_signature`，覆盖内容、范围及审核状态。
+
+- `POST /ext/pending/ai-review`：`{items:[{id,expected}]}`，1–20 个不同待审核 ID；`expected` 使用最新 `edit_signature`。返回 `{reviewed,failed,list,mock}`。报告和可选答案/解析保存在独立建议中，不覆盖原题、不自动确认内容/图片、不入库。处理模型返回前再次检查权限及快照；分项失败会明确列出。只读文字，图片和音频须老师核对。
+- `PUT /ext/pending/items`：`{items:[{id,expected,patch,ai_fields?,ai_token?,ai_confirmed?}]}`，同样限制 1–20 题。按固定顺序锁来源行并在同一事务保存，任一失效/校验失败整批回滚。`patch` 只允许内容和分类白名单，不允许伪造来源、图片或审核记录；共用旧正式题且会影响其他待审扫码记录时拒绝批改。
+- 使用建议的答案/解析时，分别传 `ai_fields:["answer","analysis"]`（实际使用的字段）、当前 `ai_token` 与逐题 `ai_confirmed:true`。允许在建议上人工改写，但保留建议原文、原字段、最终值、确认人及时间；手动粘贴完全相同的建议也不能绕过来源记录。保存后仍在待审核，图片和原文核对门禁继续有效。旧快捷采纳接口不接收 `source:"review"` 报告，须经批量编辑入口核对。
+
+### 完整知识点扫描
+
+`POST /api/stu/bank/scan-count` 与 `/scan-compose` 接收 `{kind:"textbook"|"knowledge",subject,node_ids}`。选中节点必须存在，且同学科/当前学段和对应树类型。旧 `count` 参数不再截断覆盖范围。
+
+- `total` 为可生成题数，`target_total` 为目标最小节点数，`missing:[{node_id,node_name,fallback,need:1,reason:"empty"|"shared"}]` 为缺题/共享题不足的点，`fallback_count` 为未映射而按章节叶节点兼容扫描的数量。缺题不会静默消失。
+- 章节优先使用明确的章节→知识点映射，兼容历史双挂题；展开到最小知识点，去重并采用一题一目标的匹配。没有知识映射的章节叶明确提示回退，不伪称已有知识点。
+- compose 的 `items` 包含 `{node_id,node_name,fallback,question}`；题目增加 `point_node_id` 及本次目标点名称。`/submit` 的答案项可带 `point_node_id`，服务端校验题目真实挂载、叶节点、同学科及当前学段，报告使用此点而非不相关的旧自由文本标签。
+
+### 提交后学生自评
+
+- `POST /api/stu/bank/check` 仅在非空作答、已有参考答案/解析的解答题或作文上返回 `self_grade_allowed:true` 和 `self_grade_ticket`。作图、客观题、缺参考内容不开放自评；不写记录。
+- `/submit` 对应答案项增加布尔 `self_correct` 及 `self_grade_ticket`，并保留原 `quiz_ticket`。自评票据绑定学生、题目内容与这份作答；伪造、过期、修改作答后复用或跨题/跨人均拒绝，预检发生于写事务前。
+- 有自评的结果标记 `self_graded:true`，汇总增加 `self_graded_count`。个人练习正确率、错题本和掌握度使用自评；记录通过 `self_response_id` 精确关联这次主观作答。
+- `paper` / `mfpaper` 的自评仍是待老师评分，返回 `pending_manual_count`，正式 `score` 保持待评空值；`objective_score` / `objective_score_total` 仍为客观题结果。自评不能覆盖老师分数或变成正式试卷得分。
+- `GET /subjective-responses` 增加可空 `self_correct`，页面单独标注“本次自评，不代表老师评分”。旧数据为 NULL，未自评保留原待评规则。
+
+后台 `GET /api/admin/xreport/exercises/:id/detail` 的 `rows` 增加可空 `self_correct`，通过同学生/同题/同结果的精确自评来源关联返回；主观作答列表也返回该值。页面清楚标注学生自评与正式老师分数，原正式评分接口和历史总分保持不变。

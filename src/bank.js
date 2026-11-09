@@ -27,6 +27,27 @@ const { decodeDrawing } = require('./drawing-answer');
 const QSubtype = require('../public/js/question-subtypes');
 // 无正式答案的题不能自动判错；AI 建议不会被用作标准答案。
 const isUngradedQ = (q) => !!q && (q.type === 'answer' || ['writing', 'drawing'].includes(q.question_subtype) || !String(q.answer || '').trim());
+// 自评仅开放给有参考答案或解析的文字主观题，不改变无答案客观题或作图题的人工评分合同。
+const canSelfGradeQ = q => !!q && q.question_subtype !== 'drawing' && (q.type === 'answer' || q.question_subtype === 'writing')
+  && (!!String(q.answer || '').trim() || !!String(q.analysis || '').trim() || require('./question-images').solutionImages(q).some(Boolean));
+function selfGradeSignature(uid, q, answer, expires) {
+  // 绑定实际题面与参考内容；source_detail 也决定题图可见性，不能沿用改题前的自评。
+  const snapshot = ['type', 'question_subtype', 'subject', 'stage', 'grade', 'stem', 'stem_html', 'material',
+    'options', 'match_prompts', 'images', 'audio_key', 'audio_play_limit', 'source_detail', 'answer', 'analysis']
+    .map((field) => q[field] == null ? '' : q[field]);
+  const basis = JSON.stringify([Number(uid), Number(q.id), String(answer || ''), snapshot, expires]);
+  return crypto.createHmac('sha256', upSecret()).update(ticketEpoch.macInput('bank-self-grade|' + basis)).digest('base64url');
+}
+function signSelfGrade(uid, q, answer) {
+  const expires = Math.floor(Date.now() / 1000) + 2 * 3600;
+  return expires + '.' + selfGradeSignature(uid, q, answer, expires);
+}
+function verifySelfGrade(uid, q, answer, ticket) {
+  const m = /^(\d{9,12})\.([A-Za-z0-9_-]{43})$/.exec(String(ticket || ''));
+  if (!canSelfGradeQ(q) || !String(answer || '').trim() || !m || Number(m[1]) <= Math.floor(Date.now() / 1000)) return false;
+  const expected = Buffer.from(selfGradeSignature(uid, q, answer, Number(m[1]))), actual = Buffer.from(m[2]);
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
 const kbtree = require('./kbtree');
 const compose = require('./compose');
 const { pickTree } = require('./treepick');   // R2：按 学段+学科+默认版本 取树
@@ -1444,6 +1465,25 @@ stu.post('/submit', (req, res) => {
   if (!answers.length) return fail(res, '没有作答内容');
   if (!require('./qmeta').questionsAllowed(db, null, answers.map(a => Number(a.question_id)))) return fail(res, '题目待老师审核，暂不能练习', 403);
   if (kind === 'self' && answers.some((a) => !verifyQuestionTicket(uid, Number(a.question_id), a.quiz_ticket))) return res.status(403).json({ code: 403, msg: '题目授权已失效或客户端版本过旧，请重新打开练习' });
+  const scanPoints = new Map();
+  for (const a of answers) {
+    if (!Object.hasOwn(a, 'point_node_id')) continue;
+    if (!/^[1-9]\d*$/.test(String(a.point_node_id)) || !Number.isSafeInteger(Number(a.point_node_id))) return fail(res, '组卷知识点无效，请重新组卷');
+    const node = db.prepare(`SELECT n.name FROM bank_tree_nodes n JOIN bank_trees t ON t.id=n.tree_id
+      JOIN question_nodes qn ON qn.node_id=n.id JOIN questions q ON q.id=qn.question_id
+      WHERE qn.question_id=? AND n.id=? AND t.subject=q.subject AND t.kind IN ('textbook','knowledge')
+      AND (t.stage=? OR IFNULL(t.stage,'')='') AND NOT EXISTS (SELECT 1 FROM bank_tree_nodes child WHERE child.parent_id=n.id)`)
+      .get(Number(a.question_id), Number(a.point_node_id), stageOfGrade(me.stage, String(me.grade || '')));
+    if (!node) return fail(res, '组卷知识点发生变化，请重新组卷');
+    if (!scanPoints.has(Number(a.question_id))) scanPoints.set(Number(a.question_id), node.name);
+  }
+  // 必须先核对同一份作答才能自评；逐项预检在事务写入之前，避免混合请求部分落库。
+  for (const a of answers) {
+    if (!Object.hasOwn(a, 'self_correct')) continue;
+    const q = db.prepare('SELECT * FROM questions WHERE id=?').get(Number(a.question_id));
+    if (typeof a.self_correct !== 'boolean' || !verifyQuestionTicket(uid, Number(a.question_id), a.quiz_ticket)
+      || !verifySelfGrade(uid, q, a.my_answer, a.self_grade_ticket)) return fail(res, '自评授权已失效，请重新提交本题后再自评', 403);
+  }
   const videoId = b.video_id ? Number(b.video_id) : 0;
   const paperId = b.paper_id ? Number(b.paper_id) : 0;
   if (kind === 'practice' && !videoId) return fail(res, '缺少知识点');
@@ -1521,17 +1561,25 @@ stu.post('/submit', (req, res) => {
   const detail = [];
   const ungradedDetail = [];
   const saveSubjective = db.prepare('INSERT INTO subjective_responses (user_id,question_id,kind,paper_id,my_answer,created_at) VALUES (?,?,?,?,?,?)');
-  const addUngraded = (qid, response, drawing) => {
+  const addUngraded = (qid, response, drawing, selfCorrect = null) => {
     const id = saveSubjective.run(uid, qid, kind, paperId || null, response, now()).lastInsertRowid;
     if (drawing) db.prepare('UPDATE subjective_responses SET drawing_data=? WHERE id=?').run(drawing, id);
-    ungradedDetail.push({ question_id: qid, response_id: id, my_answer: response, ungraded: true, ...(drawing ? { drawing: true } : {}) });
+    if (selfCorrect !== null) db.prepare('UPDATE subjective_responses SET self_correct=? WHERE id=?').run(selfCorrect ? 1 : 0, id);
+    ungradedDetail.push({ question_id: qid, response_id: id, my_answer: response, ungraded: true, ...(drawing ? { drawing: true } : {}), ...(selfCorrect === null ? {} : { self_correct:selfCorrect ? 1 : 0 }) });
+    return id;
   };
   const bindAttempt = (tryId) => ungradedDetail.forEach((d) => db.prepare('UPDATE subjective_responses SET try_id=?, max_score=? WHERE id=?').run(tryId, d.max_score, d.response_id));
   const seenAnswers = new Set();
   let paperScore = null, paperTotal = null;   // 试卷类交卷：得分 / 满分（回传给学生端显示）
   const tx = db.transaction(() => {
     for (const a of answers) {
-      const q = getQ.get(Number(a.question_id));
+      const selfGraded = Object.hasOwn(a, 'self_correct');
+      // 预检后可能有另一连接改题。自评必须锁定并核对本事务实际使用的题目，直至提交。
+      const q = selfGraded ? db.prepare('SELECT * FROM questions WHERE id=? FOR UPDATE').get(Number(a.question_id)) : getQ.get(Number(a.question_id));
+      if (selfGraded && (typeof a.self_correct !== 'boolean' || !verifyQuestionTicket(uid, Number(a.question_id), a.quiz_ticket)
+        || !verifySelfGrade(uid, q, a.my_answer, a.self_grade_ticket))) {
+        const e = new Error('自评授权已失效，请重新提交本题后再自评'); e.selfGradeError = true; throw e;
+      }
       if (!q) continue;
       if (seenAnswers.has(q.id)) continue;
       seenAnswers.add(q.id);
@@ -1543,8 +1591,8 @@ stu.post('/submit', (req, res) => {
         if (!m) continue;
         misStage.set(q.id, Number(m.review_stage) || 0);
       }
-      if (isUngradedQ(q)) {
-        // 问答题没法自动判分：不记对错、不进错题本、不进正确率，只回传参考答案让学生自己对照
+      if (isUngradedQ(q) && !selfGraded) {
+        // 未自评仍保持待老师评分，不自动判错或进入错题本。
         const drawing = q.question_subtype === 'drawing' ? String(a.my_answer || '') : '';
         if (drawing) { try { decodeDrawing(drawing); } catch (e) { e.drawingError = true; throw e; } }
         const response = drawing ? '' : String(a.my_answer || '');
@@ -1556,10 +1604,12 @@ stu.post('/submit', (req, res) => {
         addUngraded(q.id, response, drawing);
         continue;
       }
-      const match = matchScore(q, a.my_answer);
-      const isOk = judgeQ(q, a.my_answer);
-      if (isOk) correct++;
-      insRec.run(uid, q.id, q.chapter_id || 0, String(a.my_answer || ''), isOk ? 1 : 0, match ? match.match_correct : null, match ? match.match_total : null, now());
+      const selfResponseId = selfGraded ? addUngraded(q.id, String(a.my_answer || ''), '', a.self_correct) : null;
+      const match = selfGraded ? null : matchScore(q, a.my_answer);
+      const isOk = selfGraded ? a.self_correct : judgeQ(q, a.my_answer);
+      if (isOk && !selfGraded) correct++;
+      const recordId = insRec.run(uid, q.id, q.chapter_id || 0, String(a.my_answer || ''), isOk ? 1 : 0, match ? match.match_correct : null, match ? match.match_total : null, now()).lastInsertRowid;
+      if (selfResponseId) db.prepare('UPDATE records SET self_response_id=? WHERE id=?').run(selfResponseId, recordId);
       if (isOk) {
         if (kind === 'review') {
           // 复习：答对推进轮次，连续 3 次答对 = 已掌握（移出错题本）；答对间隔 2 / 4 天
@@ -1584,9 +1634,9 @@ stu.post('/submit', (req, res) => {
       results.push({
         question_id: q.id, type: q.type, stem: q.stem, material: q.material || '',
         options: o.options, my_answer: String(a.my_answer || ''), answer: q.answer,
-        analysis: q.analysis || '', solution_images: require('./question-images').solutionImages(q), difficulty: q.difficulty, is_correct: isOk, point: String(q.point || '').trim(), ...(match || {}),
+        analysis: q.analysis || '', solution_images: require('./question-images').solutionImages(q), difficulty: q.difficulty, is_correct: isOk, point: scanPoints.get(q.id) || String(q.point || '').trim(), ...(selfGraded ? { self_graded:true } : {}), ...(match || {}),
       });
-      detail.push({ question_id: q.id, my_answer: String(a.my_answer || ''), is_correct: isOk ? 1 : 0, ...(match || {}), ...(q.type === 'multi' ? { multi_partial_eligible: multiPartialEligible(q, a.my_answer) } : {}) });
+      if (!selfGraded) detail.push({ question_id: q.id, my_answer: String(a.my_answer || ''), is_correct: isOk ? 1 : 0, ...(match || {}), ...(q.type === 'multi' ? { multi_partial_eligible: multiPartialEligible(q, a.my_answer) } : {}) });
     }
     if (kind === 'paper') {
       const total = detail.length;
@@ -1628,17 +1678,19 @@ stu.post('/submit', (req, res) => {
       bindAttempt(attemptId);
     } else {
       db.prepare('INSERT INTO practices (user_id,chapter_id,total,correct,duration,created_at) VALUES (?,?,?,?,?,?)')
-        .run(uid, (video && video.chapter_id) || (section && section.chapter_id) || 0, detail.length, correct, Number(b.duration) || 0, now());
+        .run(uid, (video && video.chapter_id) || (section && section.chapter_id) || 0, results.filter(r => !r.ungraded).length, results.filter(r => !r.ungraded && r.is_correct).length, Number(b.duration) || 0, now());
     }
   });
-  try { tx(); } catch (e) { if (e.drawingError) return fail(res, e.message); throw e; }
+  try { tx(); } catch (e) { if (e.selfGradeError) return fail(res, e.message, 403); if (e.drawingError) return fail(res, e.message); throw e; }
   const detailsByQuestion = new Map(detail.map((d) => [d.question_id, d]));
   results.forEach((r) => { const d = detailsByQuestion.get(r.question_id); if (d && d.max_score != null) { r.max_score = d.max_score; r.earned_score = d.earned_score; } });
-  const wrong = detail.length - correct;
+  const studyResults = results.filter(r => !r.ungraded);
+  const studyCorrect = studyResults.filter(r => r.is_correct).length;
+  const wrong = studyResults.length - studyCorrect;
   // 本次各知识点的对错（学习报告用）：按题目的"知识点"文字归组，没标注的归"未标注知识点"
   const byPoint = new Map();
   results.filter((r) => !r.ungraded).forEach((r) => {
-    const pt = String((db.prepare('SELECT point FROM questions WHERE id=?').get(r.question_id) || {}).point || '').trim() || '未标注知识点';
+    const pt = String(r.point || '').trim() || '未标注知识点';
     const x = byPoint.get(pt) || { point: pt, total: 0, correct: 0 };
     x.total++; if (r.is_correct) x.correct++;
     byPoint.set(pt, x);
@@ -1664,8 +1716,8 @@ stu.post('/submit', (req, res) => {
     };
   }
   const attempt = presentAttempt({ score: paperScore, detail: JSON.stringify(detail.concat(ungradedDetail)) });
-  ok(res, { total: detail.length, correct, wrong, list: results, by_point: [...byPoint.values()], mastery, score: paperScore, score_total: paperTotal, ungraded_count: ungradedDetail.length, objective_score: attempt.objective_score, objective_score_total: attempt.objective_score_total },
-    kind === 'paper' ? `交卷成功：答对 ${correct} / ${detail.length}` : `本次共 ${detail.length} 题，答对 ${correct} 题`);
+  ok(res, { total: studyResults.length, correct:studyCorrect, wrong, list: results, by_point: [...byPoint.values()], mastery, score: paperScore, score_total: paperTotal, ungraded_count: results.filter(r => r.ungraded).length, self_graded_count:results.filter(r => r.self_graded).length, pending_manual_count:['paper','mfpaper'].includes(kind) ? ungradedDetail.length : 0, objective_score: attempt.objective_score, objective_score_total: attempt.objective_score_total },
+    kind === 'paper' ? `交卷成功：个人练习记录答对 ${studyCorrect} / ${studyResults.length}` : `本次共 ${studyResults.length} 题，答对 ${studyCorrect} 题`);
 });
 
 // ---------- 试卷库：试卷管理里「发布」的 mf 试卷 ----------
@@ -1739,7 +1791,9 @@ function scanScope(req, res) {
   const b = req.body || {};
   const kind = b.kind === 'knowledge' ? 'knowledge' : 'textbook';
   const subject = String(b.subject || '').trim();
-  const ids = [...new Set((Array.isArray(b.node_ids) ? b.node_ids : []).map(Number).filter(Boolean))];
+  const rawIds = Array.isArray(b.node_ids) ? b.node_ids : [];
+  if (rawIds.some(id => !/^[1-9]\d*$/.test(String(id)) || !Number.isSafeInteger(Number(id)))) { fail(res, '请选择有效的单元或知识点'); return null; }
+  const ids = [...new Set(rawIds.map(Number))];
   if (!subject) { fail(res, '请选择学科'); return null; }
   if (!ids.length || ids.length > 1000) { fail(res, '请选择有效的单元或知识点'); return null; }
   // R2：节点属于哪棵树就在哪棵树里找（学生选的就是 scan-tree 给的那棵），再校验这棵树是同学科、同种类、本学段（或不分学段）的
@@ -1753,49 +1807,27 @@ function scanScope(req, res) {
     fail(res, any ? '选中的节点不属于该学科的树，请重新选择' : (kind === 'knowledge' ? '该学科还没有知识点分类树' : '该学科还没有章节树'));
     return null;
   }
-  return { ids, treeIds, subject };
+  return { ids, treeIds, subject, kind, stage };
 }
 
 stu.post('/scan-count', (req, res) => {
   const scope = scanScope(req, res); if (!scope) return;
-  const { where, args } = compose.scopeSql(db, { subject: scope.subject, nodeIds: scope.ids });
-  const total = Number(db.prepare(`SELECT COUNT(*) AS n FROM questions q${where} AND ${require('./qmeta').questionScopeSql(null, 'q')}`).get(...args).n);
-  ok(res, { total });
+  const plan = compose.planStudentScan(db, scope);
+  ok(res, { total:plan.items.length, target_total:plan.target_total, missing:plan.missing, fallback_count:plan.fallback_count });
 });
 
-// 无 count 的旧客户端仍保留每个最小有题节点抽一题的行为。
+// 不再按旧客户端的 5/10/20 题截断：选中范围内每个真实最小知识点各一题。
 stu.post('/scan-compose', (req, res) => {
   const scope = scanScope(req, res); if (!scope) return;
-  const { ids, treeIds, subject } = scope;
-  const requested = req.body && req.body.count;
-  if (requested !== undefined) {
-    const count = Number(requested);
-    if (![5, 10, 20].includes(count)) return fail(res, '请选择 5、10 或 20 题');
-    const expanded = [...compose.expandNodeIds(db, ids)];
-    const { where, args } = compose.scopeSql(db, { subject, nodeIds: ids });
-    const total = Number(db.prepare(`SELECT COUNT(*) AS n FROM questions q${where} AND ${require('./qmeta').questionScopeSql(null, 'q')}`).get(...args).n);
-    if (total < count) return fail(res, `该范围只有 ${total} 道题，请减少题量或扩大范围`);
-    const rows = db.prepare(`SELECT q.* FROM questions q${where} AND ${require('./qmeta').questionScopeSql(null, 'q')} ORDER BY RANDOM() LIMIT ?`).all(...args, count);
-    const nodeFor = db.prepare(`SELECT n.id, n.name FROM question_nodes qn JOIN bank_tree_nodes n ON n.id=qn.node_id
-      WHERE qn.question_id=? AND n.id IN (${expanded.map(() => '?').join(',')}) ORDER BY n.id LIMIT 1`);
-    const items = rows.map((row) => {
-      const node = nodeFor.get(row.id, ...expanded) || { id: 0, name: row.point || '' };
-      return { node_id: node.id, node_name: node.name, question: { ...serveQ(row, req.user.id), point: node.name } };
-    });
-    return ok(res, { items, total: items.length, available: total });
-  }
-  const ph = treeIds.map(() => '?').join(',');
-  const allNodes = db.prepare(`SELECT id, tree_id, parent_id, name FROM bank_tree_nodes WHERE tree_id IN (${ph})`).all(...treeIds);
-  // 每个"最小的有题节点"抽 1 题（共用 compose.js）
-  const items = compose.pickPerNode(db, allNodes, ids).filter(it => require('./qmeta').questionsAllowed(db, null, [it.row.id])).map((it) => ({ node_id: it.node_id, node_name: it.node_name, count: it.count, question: { ...serveQ(it.row, req.user.id), point: it.node_name } }));
-  if (!items.length) return fail(res, '选中的范围里还没有题目，先去题库管理补题或换个范围');
-  ok(res, { items, total: items.length });
+  const plan = compose.planStudentScan(db, scope);
+  const items = plan.items.map(({ row, ...item }) => ({ ...item, question:{ ...serveQ(row,req.user.id), point:item.node_name, point_node_id:item.node_id } }));
+  ok(res, { items, total:items.length, target_total:plan.target_total, missing:plan.missing, fallback_count:plan.fallback_count });
 });
 
 // ---------- 错题本（学生端，按学科） ----------
 // 仅返回本人的主观题单次作答及老师反馈，不将其混入自动判分记录。
 stu.get('/subjective-responses', (req, res) => {
-  const rows = db.prepare(`SELECT r.id, r.question_id, r.kind, r.paper_id, r.my_answer, r.score, r.max_score, r.review_comment, r.reviewed_at, r.created_at,
+  const rows = db.prepare(`SELECT r.id, r.question_id, r.kind, r.paper_id, r.my_answer, r.score, r.max_score, r.review_comment, r.reviewed_at, r.created_at, r.self_correct,
     CASE WHEN r.drawing_data IS NOT NULL AND r.drawing_data<>'' THEN 1 ELSE 0 END AS has_drawing,
     q.stem, q.subject, q.question_subtype FROM subjective_responses r LEFT JOIN questions q ON q.id=r.question_id
     WHERE ${require('./qmeta').questionScopeSql(null, 'q')} AND r.user_id=? ORDER BY r.id DESC LIMIT 100`).all(req.user.id);
@@ -1955,7 +1987,11 @@ stu.post('/check', (req, res) => {
   const out = items.map((a) => {
     const q = db.prepare('SELECT * FROM questions WHERE id=?').get(Number(a.question_id) || 0);
     if (!q) return { question_id: a.question_id, is_correct: false, answer: '', analysis: '', missing: true };
-    if (isUngradedQ(q)) return { question_id: q.id, is_correct: false, ungraded: true, answer: q.answer, analysis: q.analysis || '', solution_images: require('./question-images').solutionImages(q) };
+    if (isUngradedQ(q)) {
+      const allowed = canSelfGradeQ(q) && !!String(a.my_answer || '').trim();
+      return { question_id:q.id, is_correct:false, ungraded:true, answer:q.answer, analysis:q.analysis || '', solution_images:require('./question-images').solutionImages(q),
+        ...(allowed ? { self_grade_allowed:true, self_grade_ticket:signSelfGrade(req.user.id,q,a.my_answer) } : {}) };
+    }
     const isOk = judgeQ(q, a.my_answer);
     const out1 = { question_id: q.id, is_correct: isOk, answer: q.answer, analysis: q.analysis || '', solution_images: require('./question-images').solutionImages(q) };
     const match = matchScore(q, a.my_answer); if (match) Object.assign(out1, match);

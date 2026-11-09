@@ -31,6 +31,13 @@ jobs:
           FORMULA_EVIDENCE_DIR: formula-component-evidence
         if: ${{ !cancelled() }}
       - run: node bank-test.js
+      - name: Check Word bugfix regressions
+        run: npm run test:bugfix
+      - name: Check legacy UI acceptance contracts
+        run: npm run test:ci-contracts
+      - name: Check scan and self-assessment interactions
+        run: npm run test:bugfix:browser
+        if: ${{ !cancelled() }}
       - run: node ci-isolation-test.js
       - run: npm run test:takeover # 目录/正确率/权限/下发事务、响应式组件契约及 Word 排序；不依赖服务或浏览器
       - name: Check word component geometry
@@ -219,12 +226,19 @@ jobs:
         env:
           MYSQL_HOST: 127.0.0.1
           MYSQL_DATABASE: xuexi
+          ASTRA_OUTPUT: astra-retest-evidence
       - name: Upload admin UI evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: admin-page-screenshots
           path: admin-page-screenshots
+      - name: Upload Astra retest evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: astra-retest-evidence
+          path: astra-retest-evidence
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4

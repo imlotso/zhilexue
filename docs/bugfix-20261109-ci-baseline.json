@@ -1,0 +1,244 @@
+{
+  "repository": "imlotso/zhilexue",
+  "current_head": "4a9fad4b95a78bf7af91a275cd9287c23257c414",
+  "baseline_head": "2c4adba46e0fe4d0ca85a2a406c3b32d313c66fc",
+  "notes": [
+    "This file contains the nine relevant API step summaries, exact failure lines and counts, not the complete failure-step blocks or full job logs.",
+    "Both current unit jobs succeeded. Both current API jobs failed at these same nine steps. No remote writes were made during recovery."
+  ],
+  "steps": [
+    {
+      "step": "compose-test.js",
+      "push_failures": [
+        "  ❌ 各知识点可用题数 3 / 3  →  /",
+        "  ❌ 题量查询包含后代且不会重复计数  →  2",
+        "  ❌ 按所选题量抽取 5 道不同题目",
+        "  ❌ 题量不足时明确提示实际数量"
+      ],
+      "pr_failures": [
+        "  ❌ 各知识点可用题数 3 / 3  →  /",
+        "  ❌ 题量查询包含后代且不会重复计数  →  2",
+        "  ❌ 按所选题量抽取 5 道不同题目",
+        "  ❌ 题量不足时明确提示实际数量"
+      ],
+      "baseline_failures": [],
+      "push_result": [
+        "结果：57 通过 / 4 失败"
+      ],
+      "pr_result": [
+        "结果：57 通过 / 4 失败"
+      ],
+      "baseline_result": [
+        "结果：61 通过 / 0 失败"
+      ],
+      "identical_to_baseline": false,
+      "identical_between_push_and_pr": true
+    },
+    {
+      "step": "mistake-test.js",
+      "push_failures": [
+        "  ❌ 错题本用新的 t9-* 样式"
+      ],
+      "pr_failures": [
+        "  ❌ 错题本用新的 t9-* 样式"
+      ],
+      "baseline_failures": [
+        "  ❌ 错题本用新的 t9-* 样式"
+      ],
+      "push_result": [
+        "结果：47 通过 / 1 失败"
+      ],
+      "pr_result": [
+        "结果：47 通过 / 1 失败"
+      ],
+      "baseline_result": [
+        "结果：47 通过 / 1 失败"
+      ],
+      "identical_to_baseline": true,
+      "identical_between_push_and_pr": true
+    },
+    {
+      "step": "formula-test.js",
+      "push_failures": [
+        "  ❌ 学生端：点「公式」弹出 MathLive 虚拟键盘，输入后答案框里是 \\frac{1}{2}  →  \\frac{1}{2}|"
+      ],
+      "pr_failures": [
+        "  ❌ 学生端：点「公式」弹出 MathLive 虚拟键盘，输入后答案框里是 \\frac{1}{2}  →  \\frac{1}{2}|"
+      ],
+      "baseline_failures": [
+        "  ❌ 学生端：点「公式」弹出 MathLive 虚拟键盘，输入后答案框里是 \\frac{1}{2}  →  \\frac{1}{2}|"
+      ],
+      "push_result": [
+        "结果：27 通过 / 1 失败"
+      ],
+      "pr_result": [
+        "结果：27 通过 / 1 失败"
+      ],
+      "baseline_result": [
+        "结果：27 通过 / 1 失败"
+      ],
+      "identical_to_baseline": true,
+      "identical_between_push_and_pr": true
+    },
+    {
+      "step": "theme-test.js",
+      "push_failures": [
+        "  ❌ theme.css 在所有通用样式之后，后置样式仅限页面组件  →  ../css/app.css → ../css/ali-icons.css → ../vendor/element-ui.css → ../css/ruoyi.css → ./theme.css → ./r3.css → ./ktree.css → ./intake-center.css → ./intake-skill.css → ./intake-teacher.css → ./intake-manual.css → ./r6-compose.css → ./ui-review-20261108.css → ./ui-rounded-shell-20261108.css → ./ui-rounded-pages-20261108.css",
+        "  ❌ 左侧菜单：首页 + 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置  →  工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置",
+        "  ❌ 主按钮 / 次按钮 / 输入框：圆角 6px、高度 34px（统一变量生效）  →  {\"primary\":{\"r\":\"24px\",\"h\":\"40px\"},\"ghost\":{\"r\":\"14px\",\"h\":\"40px\"},\"input\":{\"r\":\"13px\",\"h\":\"40px\"}}",
+        "  ❌ 页面上的菜单分组  →  工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置"
+      ],
+      "pr_failures": [
+        "  ❌ theme.css 在所有通用样式之后，后置样式仅限页面组件  →  ../css/app.css → ../css/ali-icons.css → ../vendor/element-ui.css → ../css/ruoyi.css → ./theme.css → ./r3.css → ./ktree.css → ./intake-center.css → ./intake-skill.css → ./intake-teacher.css → ./intake-manual.css → ./r6-compose.css → ./ui-review-20261108.css → ./ui-rounded-shell-20261108.css → ./ui-rounded-pages-20261108.css",
+        "  ❌ 左侧菜单：首页 + 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置  →  工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置",
+        "  ❌ 主按钮 / 次按钮 / 输入框：圆角 6px、高度 34px（统一变量生效）  →  {\"primary\":{\"r\":\"24px\",\"h\":\"40px\"},\"ghost\":{\"r\":\"14px\",\"h\":\"40px\"},\"input\":{\"r\":\"13px\",\"h\":\"40px\"}}",
+        "  ❌ 页面上的菜单分组  →  工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置"
+      ],
+      "baseline_failures": [
+        "  ❌ theme.css 在所有通用样式之后，后置样式仅限页面组件  →  ../css/app.css → ../css/ali-icons.css → ../vendor/element-ui.css → ../css/ruoyi.css → ./theme.css → ./r3.css → ./ktree.css → ./intake-center.css → ./intake-skill.css → ./intake-teacher.css → ./intake-manual.css → ./r6-compose.css → ./ui-review-20261108.css → ./ui-rounded-shell-20261108.css → ./ui-rounded-pages-20261108.css",
+        "  ❌ 左侧菜单：首页 + 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置  →  工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置",
+        "  ❌ 主按钮 / 次按钮 / 输入框：圆角 6px、高度 34px（统一变量生效）  →  {\"primary\":{\"r\":\"24px\",\"h\":\"40px\"},\"ghost\":{\"r\":\"14px\",\"h\":\"40px\"},\"input\":{\"r\":\"13px\",\"h\":\"40px\"}}",
+        "  ❌ 页面上的菜单分组  →  工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置"
+      ],
+      "push_result": [
+        "结果：27 通过 / 4 失败"
+      ],
+      "pr_result": [
+        "结果：27 通过 / 4 失败"
+      ],
+      "baseline_result": [
+        "结果：27 通过 / 4 失败"
+      ],
+      "identical_to_baseline": true,
+      "identical_between_push_and_pr": true
+    },
+    {
+      "step": "r0-test.js",
+      "push_failures": [
+        "  ❌ 浏览器检查异常  →  page.click: Timeout 30000ms exceeded. | Call log: |   - waiting for locator('.pd-item [data-act=\"commit\"]')"
+      ],
+      "pr_failures": [
+        "  ❌ 浏览器检查异常  →  page.click: Timeout 30000ms exceeded. | Call log: |   - waiting for locator('.pd-item [data-act=\"commit\"]')"
+      ],
+      "baseline_failures": [
+        "  ❌ 浏览器检查异常  →  page.click: Timeout 30000ms exceeded. | Call log: |   - waiting for locator('.pd-item [data-act=\"commit\"]')"
+      ],
+      "push_result": [
+        "结果：17 通过 / 1 失败"
+      ],
+      "pr_result": [
+        "结果：17 通过 / 1 失败"
+      ],
+      "baseline_result": [
+        "结果：17 通过 / 1 失败"
+      ],
+      "identical_to_baseline": true,
+      "identical_between_push_and_pr": true
+    },
+    {
+      "step": "r8-test.js",
+      "push_failures": [
+        "  ❌ 课程页顶部卡片：知识点掌握 X / Y、习题正确率、学习进度、即将学习 都和接口一致  →  课程视频 R8测试视频二 点击播放课程视频 继续学习",
+        "  ❌ 浏览器部分异常  →  page.$eval: Failed to find element matching selector \".st-backbar .bb-prog\""
+      ],
+      "pr_failures": [
+        "  ❌ 课程页顶部卡片：知识点掌握 X / Y、习题正确率、学习进度、即将学习 都和接口一致  →  课程视频 R8测试视频二 点击播放课程视频 继续学习",
+        "  ❌ 浏览器部分异常  →  page.$eval: Failed to find element matching selector \".st-backbar .bb-prog\""
+      ],
+      "baseline_failures": [
+        "  ❌ 课程页顶部卡片：知识点掌握 X / Y、习题正确率、学习进度、即将学习 都和接口一致  →  课程视频 R8测试视频二 点击播放课程视频 继续学习",
+        "  ❌ 浏览器部分异常  →  page.$eval: Failed to find element matching selector \".st-backbar .bb-prog\""
+      ],
+      "push_result": [
+        "结果：36 通过 / 2 失败"
+      ],
+      "pr_result": [
+        "结果：36 通过 / 2 失败"
+      ],
+      "baseline_result": [
+        "结果：36 通过 / 2 失败"
+      ],
+      "identical_to_baseline": true,
+      "identical_between_push_and_pr": true
+    },
+    {
+      "step": "r1-test.js",
+      "push_failures": [
+        "  ❌ 菜单分组顺序不变：首页 / 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置  →  工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置",
+        "  ❌ 详情抽屉：学科总览、课程正确率、试卷成绩、最近作答和主观评分  →  1学科总览 | 2知识点与小分组 只看未掌握（< 80%） 全部展开全部收起 | 3试卷成绩 | 最近作答（最近 100 条） | 主观题作答（每次作答单独评分）",
+        "  ❌ 浏览器检查异常  →  page.$eval: Failed to find element matching selector \".r1-sec:nth-of-type(3)\""
+      ],
+      "pr_failures": [
+        "  ❌ 菜单分组顺序不变：首页 / 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置  →  工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置",
+        "  ❌ 详情抽屉：学科总览、课程正确率、试卷成绩、最近作答和主观评分  →  1学科总览 | 2知识点与小分组 只看未掌握（< 80%） 全部展开全部收起 | 3试卷成绩 | 最近作答（最近 100 条） | 主观题作答（每次作答单独评分）",
+        "  ❌ 浏览器检查异常  →  page.$eval: Failed to find element matching selector \".r1-sec:nth-of-type(3)\""
+      ],
+      "baseline_failures": [
+        "  ❌ 菜单分组顺序不变：首页 / 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置  →  工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置",
+        "  ❌ 详情抽屉：学科总览、课程正确率、试卷成绩、最近作答和主观评分  →  1学科总览 | 2知识点与小分组 只看未掌握（< 80%） 全部展开全部收起 | 3试卷成绩 | 最近作答（最近 100 条） | 主观题作答（每次作答单独评分）",
+        "  ❌ 浏览器检查异常  →  page.$eval: Failed to find element matching selector \".r1-sec:nth-of-type(3)\""
+      ],
+      "push_result": [
+        "结果：27 通过 / 3 失败"
+      ],
+      "pr_result": [
+        "结果：27 通过 / 3 失败"
+      ],
+      "baseline_result": [
+        "结果：27 通过 / 3 失败"
+      ],
+      "identical_to_baseline": true,
+      "identical_between_push_and_pr": true
+    },
+    {
+      "step": "browser-audit-test.js",
+      "push_failures": [
+        "FAIL UI03-words-selection page.waitForFunction: Timeout 6000ms exceeded."
+      ],
+      "pr_failures": [
+        "FAIL UI03-words-selection page.waitForFunction: Timeout 6000ms exceeded."
+      ],
+      "baseline_failures": [
+        "FAIL UI03-words-selection page.waitForFunction: Timeout 6000ms exceeded."
+      ],
+      "push_result": [
+        "17/18 passed; evidence /tmp/zhilexue-browser-audit"
+      ],
+      "pr_result": [
+        "17/18 passed; evidence /tmp/zhilexue-browser-audit"
+      ],
+      "baseline_result": [
+        "17/18 passed; evidence /tmp/zhilexue-browser-audit"
+      ],
+      "identical_to_baseline": true,
+      "identical_between_push_and_pr": true
+    },
+    {
+      "step": "astra-retest-test.js",
+      "push_failures": [
+        "FAIL UI07-new-subjective-real-submit The input did not match the regular expression /不自动判分/. Input:"
+      ],
+      "pr_failures": [
+        "FAIL UI06-complete-localization page.waitForFunction: Timeout 8000ms exceeded.",
+        "FAIL UI07-new-subjective-real-submit The input did not match the regular expression /不自动判分/. Input:"
+      ],
+      "baseline_failures": [],
+      "push_result": [
+        "2/3 passed"
+      ],
+      "pr_result": [
+        "1/3 passed"
+      ],
+      "baseline_result": [
+        "3/3 passed"
+      ],
+      "identical_to_baseline": false,
+      "identical_between_push_and_pr": false
+    }
+  ],
+  "sources": {
+    "push": "https://github.com/imlotso/zhilexue/actions/runs/42629068370",
+    "pull_request": "https://github.com/imlotso/zhilexue/actions/runs/42629205398",
+    "baseline": "https://github.com/imlotso/zhilexue/actions/runs/42554168299"
+  }
+}

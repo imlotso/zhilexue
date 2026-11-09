@@ -165,8 +165,8 @@ admin.get('/exercises/:id/detail', (req, res) => {
     SELECT t.id, t.score, t.total, t.correct, t.detail, t.created_at, p.title, p.total_score
     FROM paper_tries t LEFT JOIN papers p ON p.id = t.paper_id
     WHERE t.user_id = ? ORDER BY t.id DESC LIMIT 100`).all(id).map(presentAttempt);
-  // 主观题单独保存，不计对错；仅在通过分校学生归属校验后返回。
-  const subjective = db.prepare(`SELECT r.id, r.question_id, r.kind, r.paper_id, r.try_id, r.my_answer, r.score, r.max_score, r.review_comment, r.reviewed_at, r.created_at,
+  // 主观题正式评分与学生自评分开；仅在通过分校学生归属校验后返回。
+  const subjective = db.prepare(`SELECT r.id, r.question_id, r.kind, r.paper_id, r.try_id, r.my_answer, r.score, r.max_score, r.review_comment, r.reviewed_at, r.created_at, r.self_correct,
     CASE WHEN r.drawing_data IS NOT NULL AND r.drawing_data<>'' THEN 1 ELSE 0 END AS has_drawing, q.stem, q.subject, q.question_subtype
     FROM subjective_responses r LEFT JOIN questions q ON q.id=r.question_id WHERE r.user_id=? AND ${require('./qmeta').questionScopeSql(req.user, 'q')} ORDER BY r.id DESC LIMIT 100`).all(id);
   // 学科统计
@@ -181,8 +181,10 @@ admin.get('/exercises/:id/detail', (req, res) => {
   // 最近作答（最近 100 条）
   const rows = db.prepare(`
     SELECT r.question_id, r.my_answer, r.is_correct, r.match_correct, r.match_total, r.created_at,
-      q.stem, q.type, q.subject
+      q.stem, q.type, q.subject, sr.self_correct
     FROM records r LEFT JOIN questions q ON q.id = r.question_id
+    LEFT JOIN subjective_responses sr ON sr.id=r.self_response_id AND sr.user_id=r.user_id
+      AND sr.question_id=r.question_id AND sr.self_correct IN (0,1) AND sr.self_correct=r.is_correct
     WHERE r.user_id = ? AND ${require('./qmeta').questionScopeSql(req.user, 'q')} ORDER BY r.id DESC LIMIT 100`).all(id);
   // 错题概览
   const mis = db.prepare('SELECT resolved, COUNT(*) n FROM mistakes WHERE user_id=? GROUP BY resolved').all(id);

@@ -40,13 +40,14 @@ function fixture() {
     CREATE TABLE videos (id INTEGER PRIMARY KEY, title TEXT, chapter_id INTEGER, section_id INTEGER, sort INTEGER);
     CREATE TABLE handouts (id INTEGER PRIMARY KEY, video_id INTEGER, chapter_id INTEGER, section_id INTEGER);
     CREATE TABLE questions (id INTEGER PRIMARY KEY, video_id INTEGER, section_id INTEGER, chapter_id INTEGER, type TEXT);
-    CREATE TABLE records (id INTEGER PRIMARY KEY, user_id INTEGER, question_id INTEGER, is_correct INTEGER);
+    CREATE TABLE records (id INTEGER PRIMARY KEY, user_id INTEGER, question_id INTEGER, is_correct INTEGER, self_response_id INTEGER);
+    CREATE TABLE subjective_responses (id INTEGER PRIMARY KEY, user_id INTEGER, question_id INTEGER, self_correct INTEGER);
     INSERT INTO users VALUES (1,'QA student','qa_student','四年级','上','student',90);
     INSERT INTO chapters VALUES (100,'QA mixed course','数学','四年级','上'),(200,'QA own-only course','数学','四年级','上'),(300,'QA unanswered course','数学','四年级','上');
     INSERT INTO sections VALUES (10,100,'QA mixed group',1),(20,200,'QA own-only group',1),(30,300,'QA unanswered group',1);
     INSERT INTO videos VALUES (1000,'QA mastered video',100,10,1);
     INSERT INTO questions VALUES (1001,1000,NULL,100,'single'),(1002,NULL,10,100,'fill'),(1003,NULL,10,100,'answer'),(2001,NULL,20,200,'single'),(3001,NULL,30,300,'fill');
-    INSERT INTO records VALUES (1,1,1001,1),(2,1,1002,0),(3,1,2001,1),(4,2,1002,1);
+    INSERT INTO records(id,user_id,question_id,is_correct) VALUES (1,1,1001,1),(2,1,1002,0),(3,1,2001,1),(4,2,1002,1);
   `);
   let handler;
   const sandbox = {
@@ -100,16 +101,27 @@ check('unanswered independent questions remain null, not zero percent', () => wi
   assert.equal(c.acc.rate, null);
 }));
 check('subjective answers do not increase objective total', () => withFixture((f) => {
-  f.db.exec('INSERT INTO records VALUES (5,1,1003,1)');
+  f.db.exec('INSERT INTO records(id,user_id,question_id,is_correct) VALUES (5,1,1003,1)');
   assert.equal(course(f.report(), 100).groups[0].own_acc.total, 1);
 }));
+check('explicit self evaluation includes subjective response in personal mastery only', () => withFixture((f) => {
+  f.db.exec('INSERT INTO subjective_responses VALUES(10,1,1003,1); INSERT INTO records VALUES(5,1,1003,1,10)');
+  const a = course(f.report(), 100).groups[0].own_acc;
+  assert.equal(a.total, 2); assert.equal(a.answered, 2); assert.equal(a.correct, 1); assert.equal(a.rate, 50);
+}));
+check('self evaluation provenance must match user, question and explicit correctness', () => withFixture((f) => {
+  for (const values of ['(10,2,1003,1)', '(10,1,1002,1)', '(10,1,1003,NULL)', '(10,1,1003,0)']) {
+    f.db.exec('DELETE FROM subjective_responses; DELETE FROM records WHERE id=5; INSERT INTO subjective_responses VALUES'+values+'; INSERT INTO records VALUES(5,1,1003,1,10)');
+    assert.equal(course(f.report(), 100).groups[0].own_acc.total, 1);
+  }
+}));
 check('latest student answer replaces old attempt, without denominator growth', () => withFixture((f) => {
-  f.db.exec('INSERT INTO records VALUES (5,1,1002,1)');
+  f.db.exec('INSERT INTO records(id,user_id,question_id,is_correct) VALUES (5,1,1002,1)');
   const a = course(f.report(), 100).acc;
   assert.equal(a.total, 2); assert.equal(a.answered, 2); assert.equal(a.correct, 2); assert.equal(a.rate, 100);
 }));
 check('legacy dual binding counts once in shared student/admin aggregation', () => withFixture((f) => {
-  f.db.exec("INSERT INTO questions VALUES (1004,1000,10,100,'single'); INSERT INTO records VALUES (5,1,1004,1)");
+  f.db.exec("INSERT INTO questions VALUES (1004,1000,10,100,'single'); INSERT INTO records(id,user_id,question_id,is_correct) VALUES (5,1,1004,1)");
   const own = accuracy.ofVideo(accuracy.sectionOwnStats(f.db, 1, [10]), 10);
   const video = accuracy.ofVideo(accuracy.videoStats(f.db, 1, [1000]), 1000);
   assert.equal(own.total, 1, 'direct section statistics must not include video-bound question');
@@ -117,7 +129,7 @@ check('legacy dual binding counts once in shared student/admin aggregation', () 
   assert.equal(course(f.report(), 100).acc.total, 3);
 }));
 check('handout-inherited video group includes direct questions', () => withFixture((f) => {
-  f.db.exec("INSERT INTO videos VALUES (1001,'QA inherited video',100,NULL,2); INSERT INTO handouts VALUES (1,1001,100,10); INSERT INTO questions VALUES (1004,1001,NULL,100,'single'); INSERT INTO records VALUES (5,1,1004,1)");
+  f.db.exec("INSERT INTO videos VALUES (1001,'QA inherited video',100,NULL,2); INSERT INTO handouts VALUES (1,1001,100,10); INSERT INTO questions VALUES (1004,1001,NULL,100,'single'); INSERT INTO records(id,user_id,question_id,is_correct) VALUES (5,1,1004,1)");
   const c = course(f.report(), 100);
   assert.equal(c.groups.length, 1); assert.equal(c.acc.total, 3); assert.equal(c.acc.rate, 67);
 }));

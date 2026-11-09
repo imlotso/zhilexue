@@ -7,13 +7,14 @@
  *   · course-detail：小分组题数 / 练习题数 / 正确率（含小分组自己的题）、视频知识点标签、继续学习、右上角正确率；课程卡片正确率
  *   · 小分组练习取题 / 交卷（不能夹带别处的题）、知识点掌握情况（题目继承视频的知识点）、填空逐空判分
  *   · SSE 讲解接口：AI_MOCK 下 text/event-stream、分多块、追问带上下文；学生 token 不能调后台接口
- * 浏览器（有 Playwright 时）：课程页顶部数字与接口一致、右上角显示正确率；做题弹窗判分前后 boundingBox 相同；
- *   700×500 题图宽 ≥ 320；答错后出现 AI 老师按钮 → 浮层贴视口右下、不压「下一题」、流式文本逐步变长、自由追问有第二条回复；
- *   手机 390 宽 AI 浮层是底部抽屉、顶栏不换行；报告页题号方块数量正确；全程无页面脚本报错。
+ * 浏览器（有 Playwright 时）：课程目录指标、当前视频和列表进度与接口一致；做题弹窗判分前后 boundingBox 相同；
+ *   700×500 题图宽 ≥ 320；桌面右栏 AI 判分前锁定，判分后开始讲解、不压「下一题」、流式文本逐步变长、自由追问有第二条回复；
+ *   手机 390 宽 AI 抽屉留在屏内，关闭后恢复题目操作、顶栏不换行；报告页题号方块数量正确；全程无页面脚本报错。
  */
 const zlib = require('zlib');
 const { db } = require('./src/db');
 const { hash } = require('./src/auth');
+const { readCourseMetrics } = require('./legacy-ui-contract-test');
 
 const BASE = process.env.BASE || 'http://localhost:3000';
 const MF = '/api/admin/bank/mf';
@@ -241,54 +242,76 @@ function cleanup() {
       pg.on('pageerror', (e) => errs.push(`${w}:` + e.message));
       await pg.goto(BASE + '/'); await pg.waitForTimeout(600);
       await pg.fill('input[type=text],input[type=tel],input:not([type])', 'r8s' + uniq + 'a'); await pg.fill('input[type=password]', '123456'); await pg.keyboard.press('Enter'); await pg.waitForTimeout(1300);
-      await pg.goto(BASE + '/#/course/' + ch); await pg.waitForSelector('.r8-hero', { timeout: 8000 }); await pg.waitForTimeout(500);
+      await pg.goto(BASE + '/#/course/' + ch); await pg.waitForSelector('.round-course-summary', { timeout: 8000 });
       return pg;
     };
     try {
       const pg = await open(1440, 900);
+      let aiRequests = 0;
+      pg.on('request', request => { if (request.url().includes('/api/stu/bank/ai-explain/stream')) aiRequests++; });
       cd = (await req(`/api/stu/course-detail?id=${ch}`, { token: TA })).data;
-      const hero = await pg.$eval('.r8-hero', (e) => e.innerText.replace(/\s+/g, ' '));
-      log(hero.includes(`${cd.kp_done} / ${cd.kp_total}`) && hero.includes(cd.acc.rate + '%') && hero.includes(`已做 ${cd.acc.answered} / ${cd.acc.total} 题`) && hero.includes(cd.percent + '%') && hero.includes(cd.next.title),
-      '课程页顶部卡片：知识点掌握 X / Y、习题正确率、学习进度、即将学习 都和接口一致', hero.slice(0, 120));
-      const bb = await pg.$eval('.st-backbar .bb-prog', (e) => e.innerText.replace(/\s+/g, ' '));
-      log(/进度/.test(bb) && bb.includes('正确率') && bb.includes(cd.acc.rate + '%'), '右上角进度区同时显示进度和正确率', bb);
-      const side = await pg.$$eval('.r8-gside', (a) => a.map((x) => x.innerText.replace(/\s+/g, ' ')));
-      log(side.some((t) => t.includes('小分组练习（5 题）') && t.includes('60%')), '左侧小分组卡显示「已学 a/b · 正确率」和「小分组练习（N 题）」', side[0]);
+      const metrics = await pg.evaluate(readCourseMetrics);
+      log(metrics.learned === `已学 ${cd.kp_done} / ${cd.kp_total} 课` && metrics.accuracy === `课程正确率 ${cd.acc.rate}%` && metrics.answered === `已做 ${cd.acc.answered} / ${cd.acc.total} 题` && metrics.nextTitle === cd.next.title,
+        '课程目录汇总：已学课数、课程正确率、已做题数；课程预览：继续学习的视频，逐项与接口一致', JSON.stringify(metrics));
+      const nextLesson = cd.lessons.find(l => l.video_id === cd.next.video_id);
+      log(JSON.stringify(metrics.lessonStats) === JSON.stringify([`学习进度${nextLesson.done ? '已学完' : '未开始'}`, `配套习题${nextLesson.qcount} 题`, `习题正确率${nextLesson.acc.rate}%`]),
+        '当前视频指标：学习状态、配套习题数和正确率与接口一致', metrics.lessonStats.join(' / '));
+      await pg.click('.round-back'); await pg.waitForSelector('.st-card', { timeout: 8000 });
+      const card = pg.locator('.st-card').filter({ hasText: cd.name });
+      const progress = await card.evaluate(el => ({ count: el.querySelector('.fb-top b').textContent.trim(), percent: el.querySelector('.pbar i').style.width, rate: el.querySelector('.r8-sc-acc b').textContent.trim() }));
+      log(progress.count === `${cd.kp_done} / ${cd.kp_total}` && progress.percent === cd.percent + '%' && progress.rate === cd.acc.rate + '%', '课程列表学习进度和正确率仍与课程详情接口一致', JSON.stringify(progress));
+      await card.click(); await pg.waitForSelector('.round-course-summary', { timeout: 8000 });
+      for (const group of cd.groups) {
+        const panel = pg.locator('.round-course-group').filter({ has: pg.getByText(group.name, { exact: true }) });
+        await panel.locator('.round-group-title').click();
+        const actual = await panel.evaluate(el => ({ rate: el.querySelector('.round-group-actions span').textContent.trim(), lessons: [...el.querySelectorAll('.round-lesson-row')].map(row => ({ title: row.querySelector('.round-lesson-select b').textContent.trim(), state: row.querySelector('.round-lesson-state').textContent.trim() })) }));
+        const want = group.lessons.map(l => ({ title: l.title, state: l.done ? '已学完' : l.video_id === cd.next.video_id ? '正在查看' : '未开始' }));
+        log(actual.rate === `正确率 ${group.acc.rate === null ? '未作答' : group.acc.rate + '%'}` && JSON.stringify(actual.lessons) === JSON.stringify(want), `${group.name}：视频目录、已学状态和分组正确率与接口逐项一致`, JSON.stringify(actual));
+        await panel.getByRole('button', { name: '分组练习', exact: true }).click(); await pg.waitForSelector('.r8-qz', { timeout: 8000 });
+        const count = await pg.$$eval('#qzDots .r8-dot', els => els.length);
+        log(count === group.practice_count && (await pg.$eval('.quiz-h-t b', el => el.textContent)).includes(group.name), `${group.name}练习入口载入完整 ${group.practice_count} 题，不把视频题数当成分组总题数`, String(count));
+        await pg.click('#qzClose'); await pg.waitForSelector('.quiz-mask', { state: 'detached' });
+      }
+      const firstGroup = pg.locator('.round-course-group').filter({ has: pg.getByText(gA().name, { exact: true }) });
+      await firstGroup.locator('.round-group-title').click();
+      await firstGroup.locator('.round-lesson-row').filter({ hasText: lv.title }).locator('.round-lesson-select').click();
       const tags = await pg.$$eval('.r8-ktag', (a) => a.map((x) => x.textContent.trim()));
-      log(tags.length >= 2, '视频卡显示关联的知识点标签', tags.join('、'));
-      await pg.click('.r8-ktag'); await pg.waitForSelector('.r8-nm', { timeout: 4000 });
+      log(JSON.stringify(tags) === JSON.stringify(lv.nodes.map(n => n.name)), '选中视频显示该视频关联的全部知识点标签', tags.join('、'));
+      await pg.locator('.r8-ktag').first().click(); await pg.waitForSelector('.r8-nm', { timeout: 4000 });
       log(/正确率/.test(await pg.$eval('.r8-nm', (e) => e.innerText)), '点知识点标签弹出该知识点的掌握情况');
       await pg.click('.r8-nm .close-x');
 
       // 做题弹窗：视频一的练习（2 题：带图单选 + 填空）
-      await pg.click('.kp-box:first-child .kb-quiz'); await pg.waitForSelector('.r8-qz .r0-qimg', { timeout: 8000 });
+      await pg.click('.round-practice-banner button'); await pg.waitForSelector('.r8-qz .r0-qimg', { timeout: 8000 });
       await pg.waitForFunction(() => { const i = document.querySelector('.r0-qimg'); return i && i.complete && i.naturalWidth > 0; }, null, { timeout: 8000 });
       const imgW = await pg.$eval('.r0-qimg', (i) => i.getBoundingClientRect().width);
       log(imgW >= 320, '700×500 的题图在做题弹窗里显示宽度 ≥ 320px', imgW.toFixed(0) + 'px');
       const box = () => pg.$eval('.quiz-box', (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map((v) => Math.round(v)).join(','); });
       const b1 = await box();
-      log(await pg.$('#qzAiFab[hidden]') !== null, '判分前不出现「AI 老师」按钮');
+      const locked = await pg.$eval('#qzAiDock .r8-ai', el => ({ input: el.querySelector('textarea').disabled, start: !!el.querySelector('[data-start]'), text: el.textContent }));
+      log(await pg.$('#qzAiFab[hidden]') !== null && locked.input && !locked.start && /先作答/.test(locked.text) && aiRequests === 0, '判分前右栏 AI 锁定，不泄露答案、不发送讲解请求');
       await pg.click('.qz-opt >> nth=1'); await pg.click('#qzCheckOne'); await pg.waitForSelector('.r8-fb', { timeout: 5000 }); await pg.waitForTimeout(400);
       const b2 = await box();
       log(b1 === b2, '判分前后做题弹窗位置和尺寸完全相同（定高，内容区内部滚动）', `${b1} → ${b2}`);
       const fb = await pg.evaluate(() => ({ tag: document.querySelector('.r8-fb-tag').textContent.trim(), wrong: document.querySelectorAll('.qz-opt.r8-wrong').length, right: document.querySelectorAll('.qz-opt.r8-right').length, dot: document.querySelector('.r8-dot.no') !== null }));
       log(fb.tag === '答错了' && fb.wrong === 1 && fb.right === 1 && fb.dot, '答错：大标签「答错了」、选错的选项标红、正确项标绿、题号方格变红', JSON.stringify(fb));
-      const fabOk = await pg.$eval('#qzAiFab', (e) => !e.hidden && e.classList.contains('hot'));
-      log(fabOk, '答错后题卡右下角出现（高亮的）「AI 老师」按钮');
-      await pg.click('#qzAiFab'); await pg.waitForSelector('.r8-ai.show', { timeout: 4000 });
+      const ready = await pg.$eval('#qzAiDock .r8-ai', el => ({ input: el.querySelector('textarea').disabled, start: !!el.querySelector('[data-start]'), gate: el.querySelector('#qzAiGate').textContent }));
+      log(!ready.input && ready.start && /本题已提交/.test(ready.gate) && aiRequests === 0, '答错后右栏解锁「开始讲解」，点击前不自动请求 AI');
+      await pg.click('#qzAiDock [data-start]'); await pg.waitForSelector('.r8-ai.show', { timeout: 4000 });
       await pg.waitForFunction(() => { const b = document.querySelector('.r8-msg.bot .r8-bub'); return b && b.textContent.length > 8; }, null, { timeout: 8000 });
       const len1 = await pg.$eval('.r8-msg.bot .r8-bub', (e) => e.textContent.length);
       await pg.waitForTimeout(700);
       const len2 = await pg.$eval('.r8-msg.bot .r8-bub', (e) => e.textContent.length);
       log(len2 > len1, 'AI 讲解流式输出：文字逐步变长', `${len1} → ${len2} 字`);
+      await pg.locator('.r8-ai').scrollIntoViewIfNeeded();
       const geo = await pg.evaluate(() => {
-        const p = document.querySelector('.r8-ai').getBoundingClientRect(); const n = document.querySelector('#qzGoNext').getBoundingClientRect(); const q = document.querySelector('.qz-stem').getBoundingClientRect();
+        const el = document.querySelector('.r8-ai'), p = el.getBoundingClientRect(); const n = document.querySelector('#qzGoNext').getBoundingClientRect(); const q = document.querySelector('.qz-stem').getBoundingClientRect();
+        const side = document.querySelector('.r8-qz-side').getBoundingClientRect();
         const hit = (a, b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
-        return { right: innerWidth - p.right, bottom: innerHeight - p.bottom, w: Math.round(p.width), h: Math.round(p.height), vh: innerHeight, hitNext: hit(p, n), hitStem: hit(p, q) };
+        return { docked: !!el.closest('#qzAiDock'), position: getComputedStyle(el).position, inside: p.left >= side.left && p.right <= side.right && p.top >= 0 && p.bottom <= innerHeight + 1, w: p.width, h: p.height, hitNext: hit(p, n), hitStem: hit(p, q) };
       });
-      log(geo.right >= 0 && geo.right <= 24 && geo.bottom >= 0 && geo.bottom <= 24 && geo.w >= 360 && geo.w <= 440 && Math.abs(geo.h - geo.vh * 0.6) < 40,
-        'AI 浮层在当前窗口右下方：右、下贴边，约 400 宽、60vh 高', JSON.stringify(geo));
-      log(!geo.hitNext && !geo.hitStem, 'AI 浮层不遮挡「下一题」按钮和题干');
+      log(geo.docked && geo.position === 'relative' && geo.inside && geo.w > 0 && geo.h >= 300, 'AI 面板属于右侧答题栏，滚动后可完整访问', JSON.stringify(geo));
+      log(!geo.hitNext && !geo.hitStem, '右栏 AI 不遮挡「下一题」按钮和题干');
       await pg.waitForFunction(() => !document.querySelector('.r8-msg.bot.streaming'), null, { timeout: 15000 });
       const secTitles = await pg.$$eval('.r8-msg.bot .r8-md-sec', (a) => a.map((x) => x.textContent.trim()));
       log(['知识点', '思路', '步骤', '易错点'].every((k) => secTitles.includes(k)), '讲解按「知识点 / 思路 / 步骤 / 易错点」分段渲染', secTitles.join(' / '));
@@ -300,7 +323,7 @@ function cleanup() {
       await pg.click('.r8-ai [data-m=guide]'); await pg.waitForFunction(() => { const b = document.querySelector('.r8-msg.bot .r8-bub'); return b && /第 1 步/.test(b.textContent); }, null, { timeout: 10000 });
       log(await pg.$('.qz-ai-mask') === null, '「一步步引导」是浮层里的模式切换，不再弹居中遮罩小窗');
       await pg.click('.r8-ai [data-act=min]');
-      log(await pg.$eval('.r8-ai', (e) => getComputedStyle(e).display === 'none') && await pg.$('.r8-ai-pill:not([hidden])') !== null, 'AI 浮层可以最小化（右下角留一个「AI 老师 · 展开」）');
+      log(await pg.$eval('.r8-ai', (e) => getComputedStyle(e).display === 'none') && await pg.$('#qzAiDock .r8-ai-pill:not([hidden])') !== null, 'AI 面板可以最小化，右栏保留「AI 老师 · 展开」');
       await pg.click('.r8-ai-pill');
       await pg.click('#qzGoNext'); await pg.waitForTimeout(500);
       const follow = await pg.$eval('#r8AiQ', (e) => e.textContent);
@@ -314,17 +337,21 @@ function cleanup() {
       log(rep.nos === 2 && rep.ring && /错题本/.test(rep.txt) && /薄弱知识点/.test(rep.txt) && /用时/.test(rep.txt), '做题报告：得分环、用时、题号方块数量正确（2）、薄弱知识点、错题已进错题本', `${rep.nos} 个方块`);
       await pg.close();
 
-      // 手机 390：顶栏不换行、AI 浮层为底部抽屉
+      // 手机 390：顶栏不换行、AI 按需打开为屏内抽屉，关闭后恢复题目操作。
       const mp = await open(390, 844);
-      await mp.click('.kp-box:first-child .kb-quiz'); await mp.waitForSelector('.r8-qz', { timeout: 8000 }); await mp.waitForTimeout(500);
+      await mp.getByRole('button', { name: '练习' + lv.title, exact: true }).click(); await mp.waitForSelector('.r8-qz', { timeout: 8000 }); await mp.waitForTimeout(500);
       const head = await mp.evaluate(() => { const h = document.querySelector('.r8-qz-h'); const t = h.querySelector('.quiz-h-t b'); return { h: h.getBoundingClientRect().height, lh: parseFloat(getComputedStyle(t).lineHeight) || 24, th: t.getBoundingClientRect().height }; });
-      log(head.h <= 64 && head.th <= head.lh * 1.3, '手机：做题弹窗顶栏一行不换行（标题省略号）', JSON.stringify(head));
+      log(head.h >= 66 && head.h <= 92 && head.th <= head.lh * 1.3, '手机：当前圆角顶栏 66–92px、标题一行不换行', JSON.stringify(head));
+      const mobileHead = await mp.locator('.r8-qz-h').boundingBox();
       await mp.click('.qz-opt >> nth=1'); await mp.click('#qzCheckOne'); await mp.waitForSelector('.r8-fb', { timeout: 5000 });
       const btnH = await mp.$$eval('.quiz-f .btn', (a) => a.map((b) => Math.round(b.getBoundingClientRect().height)));
       log(btnH.every((x) => x <= 52), '手机：底部按钮文字不竖排（按钮高度正常）', btnH.join(','));
       await mp.click('#qzAiFab'); await mp.waitForSelector('.r8-ai.show', { timeout: 4000 }); await mp.waitForTimeout(400);
-      const dr = await mp.evaluate(() => { const r = document.querySelector('.r8-ai').getBoundingClientRect(); return { l: Math.round(r.left), w: Math.round(r.width), b: Math.round(innerHeight - r.bottom), h: Math.round(r.height), vh: innerHeight, quizBottom: document.querySelector('.quiz-box').getBoundingClientRect().bottom, aiTop:r.top }; });
-      log(dr.l === 0 && dr.w === 390 && dr.b === 0 && Math.abs(dr.h - dr.vh * 0.48) < 4 && dr.quizBottom <= dr.aiTop + 1, '手机：AI 抽屉整宽贴底，与题卡上下分区且不遮挡题卡', JSON.stringify(dr));
+      const dr = await mp.evaluate(() => { const r = document.querySelector('.r8-ai').getBoundingClientRect(); return { l: Math.round(r.left), w: Math.round(r.width), b: Math.round(innerHeight - r.bottom), h: Math.round(r.height), vh: innerHeight, top: r.top }; });
+      log(dr.l === 8 && dr.w === 374 && dr.b === 8 && dr.top >= 0 && Math.abs(dr.h - Math.min(dr.vh * 0.58, 490)) <= 1, '手机：AI 抽屉左右和底部留 8px，高度 58vh（最多 490px），完整留在屏内', JSON.stringify(dr));
+      await mp.click('.r8-ai [data-act=close]');
+      await mp.locator('#qzGoNext').click({ trial: true });
+      log(!(await mp.locator('.r8-ai').isVisible()) && JSON.stringify(await mp.locator('.r8-qz-h').boundingBox()) === JSON.stringify(mobileHead), '手机：关闭 AI 后顶栏位置不变，「下一题」恢复可点击');
       await mp.close();
       log(errs.length === 0, '全程无页面脚本报错', errs.slice(0, 3).join(' | '));
     } catch (e) {

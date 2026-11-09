@@ -254,18 +254,52 @@ function cleanup() {
   const sc = await req(`${STU}/scan-compose`, { method: 'POST', token: tok[s3.id], body: { kind: 'knowledge', subject: SUBJECT, node_ids: [k1] } });
   const items = sc.data && sc.data.items || [];
   log(sc.code === 0 && items.length === 2 && items.map((x) => x.node_name).sort().join() === ['整式', '方程'].sort().join(),
-    '选「代数」→ 最小知识点「整式」「方程」各 1 题，共 2 题', items.map((x) => `${x.node_name}(${x.count})`).join('、'));
-  log(items.every((x) => x.question && x.question.id), '组卷结果带题目');
-  const byNode = Object.fromEntries(items.map((x) => [x.node_name, x]));
-  log(byNode['整式'] && byNode['整式'].count === 3 && byNode['方程'] && byNode['方程'].count === 3, '各知识点可用题数 3 / 3', items.map((x) => x.count).join('/'));
+    '选「代数」→ 最小知识点「整式」「方程」各 1 题，共 2 题', items.map((x) => `${x.node_name}(题目${x.question?.id})`).join('、'));
+  log(items.every((x) => x.question && x.question.id && x.question.quiz_ticket && x.question.answer === undefined && x.question.point_node_id === x.node_id),
+    '组卷结果带合法题目票据和目标知识点，但不泄露答案');
+  // 题库库存仍为每点 3 题；学生扫描返回的是覆盖数，不再把库存数误作练习题量。
+  const pointPools = await Promise.all([k11, k12].map(node => req(`${ADM}/papers/pool`, { method: 'POST', token: AT, body: { subject: SUBJECT, node_ids: [node] } })));
+  log(pointPools.every(x => x.code === 0 && x.data.total === 3) && sc.data.total === 2 && sc.data.target_total === 2 && sc.data.missing.length === 0,
+    '各知识点库存 3 / 3，扫描每点只选 1 题并完整覆盖 2 点', pointPools.map(x => x.data && x.data.total).join('/'));
   const sc2 = await req(`${STU}/scan-compose`, { method: 'POST', token: tok[s3.id], body: { kind: 'knowledge', subject: SUBJECT, node_ids: [k12] } });
   log(sc2.code === 0 && sc2.data.items.length === 1 && sc2.data.items[0].node_name === '方程', '只选「方程」→ 1 题');
   const count = await req(`${STU}/scan-count`, { method: 'POST', token: tok[s3.id], body: { kind: 'knowledge', subject: SUBJECT, node_ids: [k1, k12] } });
-  log(count.code === 0 && count.data.total === 6, '题量查询包含后代且不会重复计数', String(count.data && count.data.total));
-  const fixed = await req(`${STU}/scan-compose`, { method: 'POST', token: tok[s3.id], body: { kind: 'knowledge', subject: SUBJECT, node_ids: [k1], count: 5 } });
-  log(fixed.code === 0 && fixed.data.items.length === 5 && new Set(fixed.data.items.map((x) => x.question.id)).size === 5, '按所选题量抽取 5 道不同题目');
-  const shortage = await req(`${STU}/scan-compose`, { method: 'POST', token: tok[s3.id], body: { kind: 'knowledge', subject: SUBJECT, node_ids: [k1], count: 10 } });
-  log(shortage.code !== 0 && /6/.test(shortage.msg), '题量不足时明确提示实际数量');
+  log(count.code === 0 && count.data.total === 2 && count.data.target_total === 2 && count.data.missing.length === 0 && count.data.fallback_count === 0,
+    '题量查询按最小知识点计数，包含后代且重叠范围不重复', JSON.stringify(count.data));
+  for (const legacyCount of [5, 10, 20]) {
+    const fixed = await req(`${STU}/scan-compose`, { method: 'POST', token: tok[s3.id], body: { kind: 'knowledge', subject: SUBJECT, node_ids: [k1, k12], count: legacyCount } });
+    const list = fixed.data && fixed.data.items || [];
+    log(fixed.code === 0 && list.length === 2 && fixed.data.total === 2 && fixed.data.target_total === 2 && fixed.data.missing.length === 0
+      && new Set(list.map(x => x.question.id)).size === 2 && list.map(x => x.node_id).sort((a,b) => a-b).join() === [k11,k12].sort((a,b) => a-b).join(),
+    `旧 count=${legacyCount} 不凑数：仍为整式、方程各 1 道不同题目`);
+  }
+  const emptyPoint = addNode(kn, k1, '暂无题的最小知识点');
+  const shortageBody = { kind: 'knowledge', subject: SUBJECT, node_ids: [k1], count: 10 };
+  const shortage = await req(`${STU}/scan-compose`, { method: 'POST', token: tok[s3.id], body: shortageBody });
+  const shortageCount = await req(`${STU}/scan-count`, { method: 'POST', token: tok[s3.id], body: shortageBody });
+  const hasExactGap = data => data && data.total === 2 && data.target_total === 3 && data.missing.length === 1
+    && data.missing[0].node_id === emptyPoint && data.missing[0].node_name === '暂无题的最小知识点'
+    && data.missing[0].need === 1 && data.missing[0].reason === 'empty' && data.missing[0].fallback === false;
+  log(shortage.code === 0 && shortageCount.code === 0 && hasExactGap(shortage.data) && hasExactGap(shortageCount.data)
+    && shortage.data.items.length === 2 && new Set(shortage.data.items.map(x => x.question.id)).size === 2,
+    '缺题知识点不消失、不拿别的点凑数：计数和组卷均明确 3 点目标、2 题、1 个具体缺口');
+  db.prepare('DELETE FROM bank_tree_nodes WHERE id=?').run(emptyPoint);
+
+  const manyRoot = addNode(kn, null, '超过二十点的合成范围');
+  const manyNodes = Array.from({ length: 21 }, (_, i) => addNode(kn, manyRoot, '覆盖点' + (i + 1)));
+  manyNodes.forEach((node, i) => addQ('single', 'T5完整覆盖题' + (i + 1), 'A', [node]));
+  for (const legacyCount of [5, 10, 20]) {
+    const fullScan = await req(`${STU}/scan-compose`, { method: 'POST', token: tok[s3.id], body: { kind: 'knowledge', subject: SUBJECT, node_ids: [manyRoot], count: legacyCount } });
+    const list = fullScan.data && fullScan.data.items || [];
+    log(fullScan.code === 0 && fullScan.data.total === 21 && fullScan.data.target_total === 21 && fullScan.data.missing.length === 0 && list.length === 21
+      && new Set(list.map(x => x.question.id)).size === 21 && new Set(list.map(x => x.node_id)).size === 21 && list.every(x => manyNodes.includes(x.node_id)),
+      `21 个最小知识点全部覆盖，旧 count=${legacyCount} 不截断且题目不重复`);
+  }
+  for (const node_ids of [[k1, 999999999], [c1]]) {
+    const invalid = await req(`${STU}/scan-compose`, { method: 'POST', token: tok[s3.id], body: { kind: 'knowledge', subject: SUBJECT, node_ids } });
+    const invalidCount = await req(`${STU}/scan-count`, { method: 'POST', token: tok[s3.id], body: { kind: 'knowledge', subject: SUBJECT, node_ids } });
+    log(invalid.code !== 0 && invalidCount.code !== 0, '未知或错误树类型的节点不能扩大扫描范围', node_ids.join(','));
+  }
   const scEmpty = await req(`${STU}/scan-compose`, { method: 'POST', token: tok[s3.id], body: { kind: 'knowledge', subject: SUBJECT, node_ids: [] } });
   log(scEmpty.code !== 0, '没选范围：提示');
   const scCh = await req(`${STU}/scan-compose`, { method: 'POST', token: tok[s3.id], body: { kind: 'textbook', subject: SUBJECT, node_ids: [c2] } });

@@ -42,6 +42,7 @@ function fixture(t) {
     raw.prepare("INSERT INTO subjective_responses(id,user_id,question_id,kind,my_answer,score,max_score) VALUES(?,101,?,'practice','historical answer',4,10)").run(qid, qid);
   }
   raw.exec("INSERT INTO subjective_responses(id,user_id,question_id,kind,my_answer,score,max_score,drawing_data) VALUES(6,201,2,'practice','foreign student answer',4,10,'private drawing')");
+  raw.exec('ALTER TABLE records ADD COLUMN self_response_id INTEGER DEFAULT NULL; ALTER TABLE subjective_responses ADD COLUMN self_correct INTEGER DEFAULT NULL');
   const detail = JSON.stringify([{ question_id: 2, stem: 'foreign private stem', ungraded: true, earned_score: 3, max_score: 10 }]);
   raw.prepare("INSERT INTO paper_tries VALUES(1,101,7,8,5,4,?,'2026-11-07')").run(detail);
   raw.exec("INSERT INTO papers VALUES(7,'historical paper',10)");
@@ -110,4 +111,14 @@ test('own student response grading remains allowed and changes no question conte
   assert.equal(f.call('post /subjective/:id/grade', { id: 1, body: { score: 7 } }).body.code, 0);
   assert.equal(f.raw.prepare('SELECT score FROM subjective_responses WHERE id=1').get().score, 7);
   assert.deepEqual(f.raw.prepare('SELECT * FROM questions').all(), before);
+});
+
+test('report labels only exact self-response provenance and keeps teacher scores separate', t => {
+ const f=fixture(t); f.raw.exec('UPDATE records SET self_response_id=1 WHERE id=1; UPDATE subjective_responses SET self_correct=1 WHERE id=1; UPDATE records SET self_response_id=6 WHERE id=5; UPDATE subjective_responses SET self_correct=1 WHERE id=6');
+ const data=f.call('get /exercises/:id/detail').body.data;
+ assert.equal(data.rows.find(r=>r.question_id===1).self_correct,1);
+ assert.equal(data.rows.find(r=>r.question_id===5).self_correct,null,'cross-user provenance must not be attributed');
+ const subject=data.subjective.find(r=>r.question_id===1);assert.equal(subject.self_correct,1);assert.equal(subject.score,4);
+ f.raw.exec('UPDATE subjective_responses SET self_correct=0 WHERE id=1');
+ assert.equal(f.call('get /exercises/:id/detail').body.data.rows.find(r=>r.question_id===1).self_correct,null,'mismatched result is not valid self-assessment');
 });

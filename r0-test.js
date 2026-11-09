@@ -167,9 +167,14 @@ function cleanup() {
     log(hv.c !== hv.bg && hv.bg !== 'rgba(0, 0, 0, 0)', 'B6 选中的「知识点」切换键悬停时保持可辨认的前景和背景', JSON.stringify(hv));
 
     // ---- B8：待审核单题入库弹分类框 ----
-    await ap.evaluate(() => { ADM.page.pd = { source: 'all', kw: 'R0浏览器测试待审核', sel: {} }; ADM.page.pdPage = 1; location.hash = '#/pending'; render(); });
-    await ap.waitForSelector('.pd-item', { timeout: 8000 });
-    await ap.click('.pd-item [data-act="commit"]');
+    const pending = (await req(MF + '/ext/pending?kw=' + encodeURIComponent(TAG + '待审核'), { token: AT })).data.list.find(it => it.kind === 'run' && Number(it.batch_id) === Number(runId));
+    log(!!pending && !pending.content_review_pending && !pending.type_unconfirmed && !pending.figure_review_issue && !pending.ai_legacy_pending && !(pending.ai_review_pending_fields || []).length,
+      'B8 规则夹具没有待核对 AI / 题面 / 图片内容，入库仍须人工确认分类');
+    if (!pending) throw new Error('未找到 B8 专属待审核夹具');
+    await ap.evaluate(id => { ADM.page.pd = { source: 'all', kw: 'R0浏览器测试待审核', sel: {}, active: id }; ADM.page.pdPage = 1; location.hash = '#/pending'; render(); }, pending.id);
+    await ap.waitForSelector('#pd-current-commit', { timeout: 8000 });
+    log(await ap.locator('#pd-current-commit').isEnabled(), 'B8 当前题目通过审核门控后才启用「核对并入库」');
+    await ap.click('#pd-current-commit');
     await ap.waitForSelector('#pdB-sub', { timeout: 4000 });
     const dlgTxt = await ap.$eval('.el-dialog', (e) => e.innerText);
     const hasTree = await ap.$$eval('#pdB-stage, #pdB-grade, #pdB-ktree, #pdB-ctree', (a) => a.length);

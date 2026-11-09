@@ -1,0 +1,105 @@
+/* Match the existing rounded admin shell. Scoped to this app, including its dialogs. */
+body.rounded-grades {
+  --bg:#f7f5ef; --panel:#fff; --panel-2:#f4f8f3;
+  --line:#dfe5df; --line-2:#edf0eb; --text:#143b33; --text-2:#5e6a64; --text-3:#66736b;
+  --primary:#0c5947; --primary-soft:#e7f3eb; --radius:26px;
+  --shadow:none; --shadow-sm:none;
+  background:var(--bg) !important;
+  font:15px/1.6 "Noto Sans CJK SC","Microsoft YaHei","PingFang SC",Arial,sans-serif;
+}
+.rounded-grades .topbar { background:#fff; border-color:var(--line); }
+.rounded-grades .brand-mark { background:var(--primary); border-radius:12px; }
+.rounded-grades .brand-text strong { color:var(--text); font-size:17px; }
+.rounded-grades .brand-text span { color:var(--text-2); background:var(--primary-soft); }
+.rounded-grades .sidebar { background:#e6f1e9; border:0; }
+.rounded-grades .nav-item { border-radius:24px; }
+.rounded-grades .nav-item.active { color:#fff; background:var(--primary); }
+.rounded-grades .nav-item.active .nav-tag { color:#e7f3eb; opacity:1; }
+.rounded-grades .main { padding:24px 26px 44px; }
+.rounded-grades .page-title { font-size:30px; line-height:1.3; color:var(--text); }
+.rounded-grades .page-desc { font-size:14px; margin-top:7px; }
+.rounded-grades .page-head { gap:18px; margin-bottom:20px; }
+.rounded-grades .card { overflow:hidden; }
+.rounded-grades .card-head { padding:18px 20px; }
+.rounded-grades .card-title { font-size:18px; }
+.rounded-grades .card-body { padding:20px; }
+.rounded-grades .card-foot { padding:14px 20px; }
+.rounded-grades .stat-grid { gap:16px; margin-bottom:20px; }
+.rounded-grades .stat { border-radius:24px; padding:20px; gap:7px; }
+.rounded-grades .stat::after { display:none; }
+.rounded-grades .stat-label { font-size:14px; }
+.rounded-grades .stat-value { font-size:30px; }
+.rounded-grades .stat-sub,.rounded-grades .stat.wide .lift-foot { font-size:12px; }
+.rounded-grades .btn { min-height:40px; height:auto; padding:8px 18px; border-radius:24px; font-size:14px; }
+.rounded-grades .btn-sm { min-height:34px; padding:5px 13px; font-size:13px; }
+.rounded-grades .btn:hover { background:var(--panel-2); border-color:#bfd8cc; }
+.rounded-grades .btn-primary:hover { background:#083f35; border-color:#083f35; }
+.rounded-grades .btn-danger:hover { background:var(--down-soft); border-color:var(--down); }
+.rounded-grades .icon-btn { border-radius:13px; width:38px; height:38px; }
+.rounded-grades input[type=text],.rounded-grades input[type=date],.rounded-grades input[type=number],
+.rounded-grades select,.rounded-grades textarea { border-radius:13px; min-height:40px; font-size:14px; }
+.rounded-grades textarea { min-height:92px; }
+.rounded-grades .field label { font-size:13px; }
+.rounded-grades .filters { gap:14px; }
+.rounded-grades .import-bar { padding:14px 18px; gap:12px; margin-bottom:18px; }
+.rounded-grades .tabs { border:0; background:var(--primary-soft); border-radius:24px; padding:6px; width:max-content; max-width:100%; gap:6px; }
+.rounded-grades .tab-btn { border:0; margin:0; border-radius:22px; padding:9px 19px; }
+.rounded-grades .tab-btn.active { color:#fff; background:var(--primary); }
+.rounded-grades table.grid { font-size:14px; }
+.rounded-grades table.grid th { background:var(--panel-2); font-size:13px; padding:13px 15px; }
+.rounded-grades table.grid td { padding:13px 15px; }
+.rounded-grades table.grid tbody tr:hover,.rounded-grades .detail-row>td { background:#f5faf6; }
+.rounded-grades table.grid tbody tr.row-open { background:var(--primary-soft); }
+.rounded-grades .student-profile-link { border-radius:8px; }
+.rounded-grades .student-profile-link:hover { color:var(--primary); text-decoration:underline; }
+.rounded-grades .sort-button { font:inherit; color:inherit; background:transparent; border:0; cursor:pointer; padding:3px 0; text-align:inherit; white-space:nowrap; }
+.rounded-grades .row-toggle { display:grid; place-items:center; width:32px; height:32px; border:0; border-radius:50%; background:var(--primary-soft); cursor:pointer; }
+.rounded-grades .pager { padding:14px 18px; }
+.rounded-grades .pg-btn { border-radius:16px; min-width:34px; height:34px; }
+.rounded-grades .pager .pg-left select { min-height:34px; }
+.rounded-grades .rank-item,.rounded-grades .tl-item,.rounded-grades .analysis-box,
+.rounded-grades .comment-item,.rounded-grades .paper-thumb { border-radius:15px; }
+.rounded-grades .advice-box { background:var(--panel-2); border-color:var(--line); border-radius:18px; }
+.rounded-grades .empty-state { padding:58px 24px; }
+.rounded-grades .empty-state .es-main { font-size:17px; }
+.rounded-grades .empty-state .es-sub { font-size:14px; margin-top:8px; }
+.rounded-grades .modal-box { border-radius:26px; max-height:calc(100dvh - 32px); display:flex; flex-direction:column; overflow:hidden; }
+.rounded-grades .modal-head,.rounded-grades .modal-foot { flex:none; padding:18px 22px; }
+.rounded-grades .modal-title { font-size:21px; }
+.rounded-grades .modal-body { padding:22px; min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+.rounded-grades .modal-close { width:36px; height:36px; border-radius:50%; }
+.rounded-grades .modal-foot { border-radius:0 0 26px 26px; }
+.rounded-grades :is(button,a,input,select,textarea):focus-visible { outline:3px solid #bb8b22; outline-offset:3px; }
+@media(max-width:1100px) {
+  .rounded-grades .stat-grid.s4 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .rounded-grades .toolbar { flex-wrap:wrap; }
+}
+@media(max-width:900px) {
+  .rounded-grades .layout { display:block; }
+  .rounded-grades .sidebar { position:static; width:100%; height:auto; padding:12px; gap:10px; }
+  .rounded-grades .sidebar nav { flex-direction:row; flex-wrap:wrap; gap:6px; }
+  .rounded-grades .sidebar .nav-item { padding:8px 13px; font-size:14px; }
+  .rounded-grades .nav-tag { display:none; }
+  .rounded-grades .sidebar-foot { flex-direction:row; align-items:center; justify-content:space-between; }
+}
+@media(max-width:640px) {
+  .rounded-grades .main { padding:14px 12px 30px; }
+  .rounded-grades .page-title { font-size:25px; }
+  .rounded-grades .page-head>.toolbar { width:100%; }
+  .rounded-grades .page-head .field { flex:1; min-width:130px; }
+  .rounded-grades .stat { padding:15px; }
+  .rounded-grades .stat-value { font-size:26px; }
+  .rounded-grades .stat.wide { grid-column:1 / -1; }
+  .rounded-grades .form-grid { grid-template-columns:minmax(0,1fr); }
+  .rounded-grades .form-grid>* { grid-column:auto!important; }
+  .rounded-grades .modal-box { width:calc(100vw - 24px); max-height:calc(100dvh - 24px); }
+  .rounded-grades .modal-body { padding:18px; }
+  .rounded-grades .modal-foot { flex-wrap:wrap; }
+  .rounded-grades .sidebar-foot { display:flex; }
+  .rounded-grades .sidebar-foot .data-stat { display:none; }
+  .rounded-grades .pg-btns { flex-wrap:wrap; }
+}
+@media print {
+  body.rounded-grades { background:#fff!important; }
+  .rounded-grades .card { overflow:visible; border-radius:0; }
+}

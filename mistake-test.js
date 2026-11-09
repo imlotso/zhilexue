@@ -1,6 +1,7 @@
 'use strict';
 /**
  * 错题本改版 + Word 导出（T9）自测： node mistake-test.js
+ * 无服务 / 无数据库：node mistake-test.js --ui-only（真实 bank.js DOM、样式和导出入口）。
  * 需先启动服务（默认 http://localhost:3000）并 npm run seed；直连同一个 MySQL 造专用学生 / 题目 / 错题，结束后清理。
  * 覆盖：
  *   1) 用客户《马英惠-数学…错题集.pdf》对应的 10 道题生成 Word：封面、错题练习、错题解析、答案 / 解析 / 答题记录、"多次答错"、页码、公式原样、图片内嵌
@@ -14,14 +15,70 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const { spawnSync } = require('child_process');
-const JSZip = require('jszip');
-delete process.env.AI_MOCK;   // 第 5 项要让 AI 调用真的发到本机模拟服务
-const { db } = require('./src/db');
-const { hash } = require('./src/auth');
+const UI_ONLY = process.argv.includes('--ui-only');
+let JSZip, db, hash;
 
 const BASE = process.env.BASE || 'http://localhost:3000';
 let pass = 0, fail = 0;
 const log = (c, name, extra = '') => { console.log(`  ${c ? '✅' : '❌'} ${name}${extra ? '  →  ' + extra : ''}`); c ? pass++ : fail++; };
+
+async function checkMistakeUi() {
+  const { JSDOM } = require('jsdom');
+  const vm = require('vm');
+  const read = file => fs.readFileSync(path.join(__dirname, file), 'utf8');
+  const dom = new JSDOM(read('public/index.html'), { url: 'http://ui.invalid/#/mistakes', runScripts: 'outside-only', pretendToBeVisual: true });
+  const w = dom.window, d = w.document, host = d.getElementById('app');
+  const unexpected = [], errors = [];
+  w.addEventListener('error', e => errors.push(e.message));
+  host.className = 'rounded-student';
+  const date = new Date();
+  const today = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} 12:00:00`;
+  const question = { type: 'single', stem: '合成错题', options: ['甲', '乙'], answer: 'A', last_answer: 'B', analysis: '合成解析', images: [], point: '因式分解', source: '练习错题', wrong_count: 1, review_stage: 0, updated_at: today };
+  const data = { list: [{ ...question, question_id: 1, subject: '数学', resolved: 0 },
+    { ...question, question_id: 2, subject: '数学', resolved: 1 },
+    { ...question, question_id: 3, subject: '英语', resolved: 0 }], counts: { '数学': 1, '英语': 1 }, review: { due: 0 } };
+  // Load the actual linked styles and execute the complete scripts. Only HTTP is synthetic.
+  w.fetch = async url => {
+    if (url !== '/api/stu/bank/mistakes') { unexpected.push(url); throw new Error('Unexpected UI request: ' + url); }
+    return { ok: true, status: 200, json: async () => ({ code: 0, data }) };
+  };
+  try {
+    for (const link of d.querySelectorAll('link[rel="stylesheet"]')) {
+      const style = d.createElement('style');
+      style.textContent = read('public/' + link.getAttribute('href').split('?')[0]);
+      link.replaceWith(style);
+    }
+    for (const file of ['public/js/api.js', 'public/js/bank.js']) vm.runInContext(read(file), dom.getInternalVMContext(), { filename: file });
+    await w.BankPages.mistakes(host);
+    const tabs = [...host.querySelectorAll('#roundMistTabs [data-s]')];
+    log(tabs.map(el => el.dataset.s).join('/') === '英语/数学/物理/化学' && host.querySelector('.bk2-tabs .on').dataset.s === '英语', '真实错题页：四科学科入口保留，优先显示有未掌握题目的英语');
+    host.querySelector('[data-s="数学"]').click();
+    const root = host.querySelector('.t9-root.round-mist-root');
+    log(!!root && root.querySelector('h1').textContent === '错题本' && root.querySelectorAll('.bk-mist').length === 2 && host.querySelector('.bk2-tabs .on').dataset.s === '数学', '真实错题页：切换数学后显示圆角 T9 页面和该科两道题');
+    const rootStyle = w.getComputedStyle(root), layoutStyle = w.getComputedStyle(root.querySelector('.round-mist-layout'));
+    const buckets = [...root.querySelectorAll('.t9-bucket')];
+    const bucketStyle = w.getComputedStyle(buckets[0]);
+    log(rootStyle.display === 'flex' && layoutStyle.display === 'grid' && w.getComputedStyle(root.querySelector('.t9-buckets')).display === 'grid'
+      && bucketStyle.borderRadius === '18px' && bucketStyle.minHeight === '87px', '真实错题页：T9 基础布局与圆角时间强化样式生效');
+    log(buckets.length === 3 && buckets.map(el => el.querySelector('em').textContent).join('/') === '1/0/0'
+      && !buckets[0].disabled && buckets[1].disabled && buckets[2].disabled, '时间强化只计算未掌握题目，空时间段按钮禁用');
+    log(!root.querySelector('#bkFav,[data-go="favorites"],[href="#/favorites"]') && !/收藏/.test(root.textContent), '真实错题页没有收藏入口');
+    root.querySelector('#bkDocx').click();
+    const dialog = d.querySelector('.t9-dlg');
+    log(!!dialog && w.getComputedStyle(dialog).borderRadius === '20px' && dialog.querySelector('input[name=t9r]:checked').value === 'unresolved'
+      && dialog.querySelector('#t9xGo').textContent === '下载 Word（1 题）', '导出入口打开有样式的 T9 弹窗，默认只导出 1 道未掌握题');
+    const all = dialog.querySelector('input[name=t9r][value=all]');
+    all.checked = true; all.dispatchEvent(new w.Event('change', { bubbles: true }));
+    log(dialog.querySelector('#t9xGo').textContent === '下载 Word（2 题）'
+      && [...dialog.querySelectorAll('input[name="r9-print"]')].map(el => el.value).join('/') === '0/1'
+      && dialog.querySelector('input[name="r9-print"]:checked').value === '1', '导出范围切换包含已掌握题，保留仅题目 / 题目与解析选项');
+    dialog.querySelector('#t9xCancel').click();
+    log(!d.querySelector('.t9-dlg'), '取消导出关闭弹窗');
+    host.querySelector('[data-s="物理"]').click();
+    log(!!host.querySelector('.round-mist-empty') && !host.querySelector('.bk-mist') && [...host.querySelectorAll('.t9-bucket')].every(el => el.disabled), '无错题学科显示空状态，不能误用上一学科的题目');
+    log(errors.length === 0 && unexpected.length === 0, '真实错题页没有脚本错误或未约定的接口请求', errors.concat(unexpected).join(' | '));
+  } finally { w.close(); }
+}
 async function req(p, { method = 'GET', body, token, raw } = {}) {
   const headers = {};
   if (token) headers.Authorization = 'Bearer ' + token;
@@ -84,6 +141,17 @@ const xmlText = (xml) => xml.replace(/<w:br\/>/g, '\n').replace(/<\/w:p>/g, '\n'
 
 (async () => {
   console.log('\n=== 错题本改版 + Word 导出（T9）· 自测 ===\n');
+  if (UI_ONLY) {
+    await checkMistakeUi();
+    console.log('  ⏭  --ui-only 不验证数据库、AI 识别、下载接口或浏览器布局');
+    console.log('\n结果：' + pass + ' 通过 / ' + fail + ' 失败');
+    process.exit(fail ? 1 : 0);
+    return;
+  }
+  JSZip = require('jszip');
+  delete process.env.AI_MOCK;   // 第 5 项要让 AI 调用真的发到本机模拟服务
+  ({ db } = require('./src/db'));
+  ({ hash } = require('./src/auth'));
   const A = addStudent('a', '八年级'), B = addStudent('b', '八年级');
   const login = async (u, role) => (await req('/api/login', { method: 'POST', body: { username: u, password: '123456', role } })).data.token;
   const AT = await login('15152099970', 'admin'), TA = await login(A.username, 'student'), TB = await login(B.username, 'student');
@@ -235,9 +303,8 @@ const xmlText = (xml) => xml.replace(/<w:br\/>/g, '\n').replace(/<\/w:p>/g, '\n'
 
   // ---------- 6) 前端：没有收藏入口 ----------
   const js = fs.readFileSync(path.join(__dirname, 'public/js/bank.js'), 'utf8');
-  const css = fs.readFileSync(path.join(__dirname, 'public/css/app.css'), 'utf8');
   log(!/收藏夹|bkFav/.test(js), '学生端错题本前端里没有「收藏夹」入口（bkFav / 收藏夹 都没有了）');
-  log(/t9-hero/.test(js) && /\.t9-hero\{/.test(css), '错题本用新的 t9-* 样式');
+  await checkMistakeUi();
   const home = await (await fetch(BASE + '/js/bank.js')).text();
   log(!/收藏夹/.test(home), '线上服务的 bank.js 同样没有「收藏夹」');
   const hist = db.prepare("SELECT COUNT(*) n FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='mistakes'").get().n;

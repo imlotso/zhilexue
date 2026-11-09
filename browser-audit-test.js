@@ -209,13 +209,23 @@ const frac = String.raw`\frac{1}{2}+\sqrt{x_1^2}`;
     assert.ok(await p.locator('.r4-review-row').count(), 'new imported batch visible immediately');
   });
   await test('UI03-words-selection', async (open) => {
-    const p = await open('student');
+    // Fresh sessions land on home and redirect direct word links there. Enter courses first.
+    const p = await open('student', '#/courses');
     await p.waitForFunction(() => window.__stuVm && !window.__stuVm.loading && window.__stuVm.page === 'courses');
-    await p.evaluate(() => location.hash = '#/words/quick'); await p.locator('[data-wu=""]').waitFor();
-    assert.equal(await p.locator('[data-wu=""].on').count(), 0, 'all units is not selected initially');
-    await p.locator('[data-wu]').nth(1).click(); await p.locator('#wtGroups .wt-grp').first().waitFor();
+    await p.evaluate(() => location.hash = '#/words/quick');
+    await p.locator('#wtBook').waitFor();
+    assert.equal(await p.locator('[data-wu=""].on').count(), 0, 'all units is not selected on first entry');
+    await p.locator('#wtBook').selectOption(String(bookId));
+    await p.locator('[data-wu="Unit 1"]').waitFor();
+    assert.equal(await p.locator('#wtBook').inputValue(), String(bookId), 'use the synthetic audit book, not the default seed book');
+    assert.equal(await p.locator('[data-wu=""].on').count(), 0, 'changing books leaves all units unselected');
+    await p.locator('[data-wu="Unit 1"]').click(); await p.locator('#wtGroups .wt-grp').first().waitFor();
     assert.equal(await p.locator('#wtGroups .wt-grp.on').count(), 0, 'no group is selected until clicked');
     await p.locator('#wtGroups .wt-grp').first().click(); assert.equal(await p.locator('#wtGroups .wt-grp.on').count(), 1);
+    // Group order is shuffled. Reach the long fixture word through the real next action.
+    const currentWord = p.locator('#wtQuickBox .t13-word-text');
+    for (let i = 0; i < 4 && await currentWord.innerText() !== 'characteristically'; i++) await p.locator('#wqNext').click();
+    assert.equal(await currentWord.innerText(), 'characteristically', 'the selected group displays the synthetic long word');
     for (const width of [1180,500]) {
       await p.setViewportSize({width,height:800});
       const next = p.locator('#wqNext');
