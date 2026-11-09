@@ -270,6 +270,30 @@ const App = {
     await this.load();
   },
   methods: {
+    closeLearningNav() {
+      const drawer = this.$refs && this.$refs.learningNav;
+      const previous = document.activeElement;
+      const shade = this.$refs && this.$refs.learningNavShade;
+      const ownedFocus = !!((drawer && drawer.contains(previous)) || (shade && shade === previous));
+      this.mobileNavOpen = false;
+      if (!ownedFocus) return;
+      this.$nextTick(() => {
+        const trigger = this.$refs && this.$refs.learningNavTrigger;
+        const active = document.activeElement;
+        if (this.mobileNavOpen || !trigger || !trigger.isConnected || trigger.disabled || trigger.closest('[hidden],[inert],[aria-hidden="true"]')) return;
+        // Closing/inert may blur to body. Do not steal a newer external focus.
+        if (active !== previous && active !== document.body && active !== document.documentElement) return;
+        for (let node = trigger; node; node = node.parentElement) {
+          const style = window.getComputedStyle(node);
+          if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') return;
+        }
+        trigger.focus({ preventScroll: true });
+      });
+    },
+    onLearningNavKeydown(event) {
+      if (!this.mobileNavOpen || event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault(); event.stopPropagation(); this.closeLearningNav();
+    },
     courseSub,
     selectLesson(lesson, groupId) { this.selectedLessonId = lesson.video_id; this.activeGroupId = groupId; },
     /** 习题正确率标签（T6）：a = { total, answered, correct, rate }；没有绑题的视频 / 分组不显示 */
@@ -296,7 +320,7 @@ const App = {
     async load() {
       this.syncRoute();
       const request = this.loadRequest = (this.loadRequest || 0) + 1;
-      this.mobileNavOpen = false;
+      this.closeLearningNav();
       const pageScroller = document.querySelector && document.querySelector('.rounded-student');
       if (pageScroller) pageScroller.scrollTop = 0;
       if (this.page !== 'papers') this.pendingSelfPractice = '';
@@ -933,7 +957,7 @@ const App = {
   </div>
 
   <div v-else class="st-layout st-biz st-rail learn-shell rounded-student" :class="{ 'learn-nav-open': mobileNavOpen, 'learn-is-home': page==='home' }">
-    <button v-if="mobileNavOpen" class="learn-nav-shade" @click="mobileNavOpen=false" aria-label="关闭导航"></button>
+    <button v-if="mobileNavOpen" class="learn-nav-shade" ref="learningNavShade" type="button" tabindex="-1" @click="closeLearningNav" aria-label="关闭导航"></button>
     <header class="round-topbar">
       <a class="round-brand" href="#/home" @click.prevent="goHome"><img src="/img/ui-brand-20261108.png" alt=""><b>智乐学</b></a>
       <nav class="round-main-nav" aria-label="学习导航">
@@ -945,19 +969,23 @@ const App = {
       <div class="round-top-actions">
         <button v-if="inWords" class="round-accent" @click="toggleAccent" title="切换发音口音"><i class="ai ai-volume"></i>{{ wtAccent==='uk' ? '英音' : '美音' }}</button>
         <button class="st-theme-btn" ref="themeBtn" aria-label="切换显示主题" title="切换显示主题" :aria-expanded="themeOpen" @click="toggleTheme"><i class="ai ai-leaf"></i><span>{{ theme==='day' ? '护眼' : curTheme.t }}</span></button>
-        <button class="learn-menu" aria-label="打开学习导航" :aria-expanded="mobileNavOpen" @click="mobileNavOpen=!mobileNavOpen"><img class="learn-account" :src="avatar.src" :alt="avatar.name"></button>
+        <button class="learn-menu" ref="learningNavTrigger" type="button" :aria-label="mobileNavOpen ? '关闭学习导航' : '打开学习导航'" aria-controls="student-learning-nav" :aria-expanded="mobileNavOpen" @keydown="onLearningNavKeydown" @click="mobileNavOpen ? closeLearningNav() : mobileNavOpen=true"><img class="learn-account" :src="avatar.src" :alt="avatar.name"></button>
       </div>
     </header>
-    <aside class="st-side" aria-label="更多学习工具">
-      <button class="round-drawer-close" @click="mobileNavOpen=false" aria-label="关闭导航"><i class="ai ai-arrow-left"></i>返回学习</button>
-      <a class="sbrand" href="#/home" @click.prevent="goHome"><img src="/img/ui-brand-20261108.png" alt=""><span class="learn-brand-text"><b>智乐学</b></span></a>
+    <aside class="st-side" id="student-learning-nav" ref="learningNav" aria-label="学习导航" :inert="mobileNavOpen ? null : ''" :aria-hidden="!mobileNavOpen" @keydown="onLearningNavKeydown">
+      <button class="round-drawer-close" type="button" @click="closeLearningNav" aria-label="关闭导航"><i class="ai ai-arrow-left"></i>返回学习</button>
+      <a class="sbrand" href="#/home" @click.prevent="closeLearningNav(); goHome()"><img src="/img/ui-brand-20261108.png" alt=""><span class="learn-brand-text"><b>智乐学</b></span></a>
       <nav class="st-subj" aria-label="学科导航">
-        <a href="#/home" @click.prevent="goHome"><span class="ic"><i class="ai ai-home"></i></span><span class="nt">学习空间</span></a>
-        <a v-for="s in ['数学','英语','物理','化学']" :key="s" href="#/courses" @click.prevent="pickSubject(s)"><span class="ic"><i class="ai" :class="'ai-'+(subjIcon[s]||'book')"></i></span><span class="nt">{{ s }}</span></a>
-        <a href="#/papers" @click.prevent="goBank('papers')"><span class="ic"><i class="ai ai-doc"></i></span><span class="nt">试卷</span></a>
-        <a href="#/mistakes" @click.prevent="goBank('mistakes')"><span class="ic"><i class="ai ai-list"></i></span><span class="nt">错题本</span><small v-if="mistCount">{{mistCount}}</small></a>
+        <a href="#/home" :class="{on:page==='home'}" :aria-current="page==='home' ? 'page' : null" @click.prevent="closeLearningNav(); goHome()"><span class="ic" aria-hidden="true"><i class="ai ai-home"></i></span><span class="nt">学习空间</span></a>
+        <a v-for="s in ['数学','英语','物理','化学']" :key="s" href="#/courses" :class="{on:(page==='courses'||page==='course')&&subject===s}" :aria-current="(page==='courses'||page==='course')&&subject===s ? 'page' : null" @click.prevent="closeLearningNav(); pickSubject(s)"><span class="ic" aria-hidden="true"><i class="ai" :class="'ai-'+(subjIcon[s]||'book')"></i></span><span class="nt">{{ s }}</span></a>
+        <a href="#/papers" :class="{on:page==='papers'}" :aria-current="page==='papers' ? 'page' : null" @click.prevent="closeLearningNav(); goBank('papers')"><span class="ic" aria-hidden="true"><i class="ai ai-doc"></i></span><span class="nt">试卷</span></a>
+        <a href="#/mistakes" :class="{on:page==='mistakes'}" :aria-current="page==='mistakes' ? 'page' : null" @click.prevent="closeLearningNav(); goBank('mistakes')"><span class="ic" aria-hidden="true"><i class="ai ai-list"></i></span><span class="nt">错题本</span><small v-if="mistCount" class="learn-mist-count">{{mistCount}}</small></a>
       </nav>
-      <nav class="learn-tools" aria-label="学习工具"><a href="#/words/quick" @click.prevent="goWords('quick')"><i class="ai ai-flash"></i>速记训练</a><a href="#/timer" @click.prevent="goTool"><i class="ai ai-clock"></i>专注计时</a></nav>
+      <nav class="learn-tools" aria-label="学习工具">
+        <div class="sy-student-nav-label" aria-hidden="true">学习工具</div>
+        <a href="#/words/quick" :class="{on:page==='words'&&wordSub==='quick'}" :aria-current="page==='words'&&wordSub==='quick' ? 'page' : null" @click.prevent="closeLearningNav(); goWords('quick')"><span class="ic" aria-hidden="true"><i class="ai ai-flash"></i></span><span class="nt">速记训练</span></a>
+        <a href="#/timer" :class="{on:page==='tool'}" :aria-current="page==='tool' ? 'page' : null" @click.prevent="closeLearningNav(); goTool()"><span class="ic" aria-hidden="true"><i class="ai ai-clock"></i></span><span class="nt">专注计时</span></a>
+      </nav>
       <div class="st-me"><span class="st-me-name">{{user.name}}</span><button class="st-out" @click="logout"><i class="ai ai-logout"></i>退出</button></div>
     </aside>
     <div class="st-main">

@@ -1,0 +1,15 @@
+/* 森屿教学台: shared by each document, including independent iframe apps. */
+:root[data-ui-theme="senyu"] {
+ --sy-color-canvas:#F8F7F2;--sy-color-surface:#FFFFFF;--sy-color-surface-subtle:#E5F1E9;
+ --sy-color-primary:#0C594B;--sy-color-primary-hover:#094B3F;--sy-color-primary-active:#073C33;
+ --sy-color-accent:#F9C957;--sy-color-accent-hover:#F1BD3D;--sy-color-ink:#143A33;
+ --sy-color-muted:#5B706A;--sy-color-border:#D5E3DB;--sy-color-control-border:#73877E;
+ --sy-color-danger:#B42318;--sy-color-danger-surface:#FEF3F2;
+ --sy-color-disabled-surface:#E2E8E4;--sy-color-disabled-text:#64756D;
+ --sy-color-focus:#0C594B;--sy-color-focus-halo:#E5F1E9;
+ --sy-space-1:8px;--sy-space-2:16px;--sy-space-3:24px;--sy-space-4:32px;
+ --sy-radius-sm:12px;--sy-radius-md:16px;--sy-radius-lg:20px;--sy-radius-panel:24px;--sy-radius-xl:28px;--sy-radius-pill:999px;
+ --sy-font:"Noto Sans CJK SC","Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+ --sy-shadow:0 12px 36px rgba(20,58,51,.10);--sy-control-height:44px;
+ color-scheme:light;
+}

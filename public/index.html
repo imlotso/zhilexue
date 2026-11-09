@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-ui-theme="senyu">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#2f6bff">
+<meta name="theme-color" content="#0C594B">
 <title>智学课堂 · 学生端</title>
 <link rel="stylesheet" href="./css/app.css?v=20261106-client3">
 <link rel="stylesheet" href="./css/ali-icons.css">
@@ -12,9 +12,13 @@
 <link rel="stylesheet" href="./css/ui-learning-20261108.css?v=20261108">
 <link rel="stylesheet" href="./css/ui-quiz-20261108.css?v=20261108-rounded">
 <link rel="stylesheet" href="./css/ui-rounded-student-20261108.css?v=20261108-rounded">
+<link rel="stylesheet" href="./css/senyu-tokens.css?v=20261109-senyu">
+<link rel="stylesheet" href="./css/senyu-components.css?v=20261109-senyu">
+<link rel="stylesheet" href="./css/senyu-workspaces.css?v=20261109-senyu">
+<link rel="stylesheet" href="./css/senyu-student-navigation.css?v=20261109-senyu-focus">
 <link rel="icon" href="./img/logo.jpg" type="image/jpeg">
 </head>
-<body>
+<body class="sy-theme sy-core">
 <div id="app"><div class="loading-page">加载中…</div></div>
 <script>
 /* MathJax 3 配置：题干 LaTeX 分隔符（\( \) 内联 / \[ \] 与 $$ $$ 展示 / $ $ 内联），页面加载不自动排版（由 mtxTypeset 按需排版） */
@@ -32,6 +36,7 @@ window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath:
 <script src="./js/words.js?v=20261106-client3"></script>
 <script src="./js/t13-fit.js?v=1"></script>
 <script src="./js/mlive.js?v=1"></script>
-<script src="./js/vue-app.js?v=20261108-rounded"></script>
+<script src="./js/vue-app.js?v=20261109-senyu-navigation-focus"></script>
+<script src="./js/senyu-controls.js?v=20261109-senyu"></script>
 </body>
 </html>

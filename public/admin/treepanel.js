@@ -202,58 +202,135 @@ function treePanel(el, opt = {}) {
   }
 
   async function changeScope(patch) {
+    const origin = document.activeElement;
+    const restoreCascader = !!(el.querySelector('.r3-cas-slot') && el.querySelector('.r3-cas-slot').contains(origin));
     Object.assign(st, patch);
     st.sel = []; st.q = '';
     normScope();
     await loadTree();
+    const restoreFocus = restoreCascader && (document.activeElement === origin || document.activeElement === document.body);
     render();
+    if (restoreFocus) el.querySelector('[data-tp="cas"]').focus();
     emit(true);
   }
 
   function bindTree() {
     const box = el.querySelector('.r3-tp-tree');
-    box.querySelectorAll('[data-tw]').forEach((b) => {
-      b.onclick = (e) => {
+    const rows = () => [...box.querySelectorAll('[data-tn]')];
+    const focusRow = id => {
+      const target = rows().find(row => row.dataset.tn === String(id));
+      if (!target) return;
+      rows().forEach(row => { row.tabIndex = row === target ? 0 : -1; });
+      target.focus();
+    };
+    const first = rows().find(row => row.getAttribute('aria-selected') === 'true') || rows()[0];
+    rows().forEach(row => { row.tabIndex = row === first ? 0 : -1; });
+    box.querySelectorAll('[data-tw]').forEach(b => {
+      b.onclick = e => {
         e.stopPropagation();
         if (!tree || st.q) return;
-        const op = (st.open[tree.id] = st.open[tree.id] || {});
-        const id = b.dataset.tw;
+        const op = (st.open[tree.id] = st.open[tree.id] || {}), id = b.dataset.tw;
         if (!(kids[id] || []).length) return;
-        if (op[id]) delete op[id]; else op[id] = 1;
+        op[id] ? delete op[id] : (op[id] = 1);
         renderTree();
+        focusRow(id);
       };
     });
-    box.querySelectorAll('[data-tn]').forEach((row) => {
-      row.onclick = (e) => {
+    rows().forEach(row => {
+      row.onclick = e => {
         if (e.target.closest('[data-tw]')) return;
         const id = row.dataset.tn;
-        if (!id) { if (st.sel.length) setSel([]); return; }
+        if (!id) { if (st.sel.length) setSel([]); focusRow(''); return; }
         const multi = pick || st.multi || e.ctrlKey || e.metaKey || e.target.classList.contains('r3-tn-ck');
-        if (multi) setSel(st.sel.includes(id) ? st.sel.filter((x) => x !== id) : [...st.sel, id]);
+        if (multi) setSel(st.sel.includes(id) ? st.sel.filter(x => x !== id) : [...st.sel, id]);
         else setSel(st.sel.length === 1 && st.sel[0] === id ? [] : [id]);
+        focusRow(id);
       };
       row.ondblclick = () => { const b = row.querySelector('[data-tw]'); if (b && !b.classList.contains('leaf')) b.click(); };
     });
+    box.onkeydown = e => {
+      const row = e.target.closest('[data-tn]');
+      if (!row || !box.contains(row)) return;
+      const list = rows(), index = list.indexOf(row), id = row.dataset.tn;
+      const go = n => focusRow(list[Math.max(0, Math.min(list.length - 1, n))].dataset.tn);
+      if (e.key === 'ArrowDown') go(index + 1);
+      else if (e.key === 'ArrowUp') go(index - 1);
+      else if (e.key === 'Home') go(0);
+      else if (e.key === 'End') go(list.length - 1);
+      else if (e.key === 'ArrowRight') {
+        if (row.getAttribute('aria-expanded') === 'false') row.querySelector('[data-tw]').click();
+        else if (row.getAttribute('aria-expanded') === 'true') go(index + 1);
+      } else if (e.key === 'ArrowLeft') {
+        if (row.getAttribute('aria-expanded') === 'true' && !st.q) row.querySelector('[data-tw]').click();
+        else { const group = row.parentElement.closest('.r3-tn-kids'); const parent = group && group.parentElement.querySelector('.r3-tn'); if (parent) focusRow(parent.dataset.tn); }
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        row.onclick({ target: row, ctrlKey: e.ctrlKey, metaKey: e.metaKey });
+        focusRow(id);
+      } else return;
+      e.preventDefault(); e.stopPropagation();
+    };
   }
 
-  function renderCas() {
+  function renderCas(preferredFocus) {
     const slot = el.querySelector('.r3-cas-slot');
     if (!slot) return;
+    const active = document.activeElement, hadFocus = slot.contains(active);
+    const attribute = active && ['data-cs', 'data-cj', 'data-ce'].find(name => active.hasAttribute(name));
+    const logicalFocus = preferredFocus || (attribute ? { attribute, value: active.getAttribute(attribute) } : null);
     slot.innerHTML = casHtml();
     bindCas();
+    if (hadFocus) {
+      const target = casOpen && logicalFocus && [...slot.querySelectorAll('.r3-cas-it')].find(option => option.getAttribute(logicalFocus.attribute) === logicalFocus.value);
+      (target || slot.querySelector('[data-tp="cas"]')).focus();
+    }
+  }
+  function onCasFocusOut() {
+    const slot = el.querySelector('.r3-cas-slot');
+    queueMicrotask(() => { if (casOpen && el.isConnected && slot && !slot.contains(document.activeElement)) { casOpen = false; renderCas(); } });
   }
   function bindCas() {
     const slot = el.querySelector('.r3-cas-slot');
     const casBtn = slot && slot.querySelector('[data-tp="cas"]');
     if (!casBtn) return;
-    casBtn.onclick = (e) => { e.stopPropagation(); casOpen = !casOpen; casStage = st.stage; casSubj = st.subject; renderCas(); };
-    casBtn.onkeydown = (e) => { if (e.key === 'Escape' && casOpen) { casOpen = false; renderCas(); } };
+    const focusColumn = index => {
+      if (index < 0) { slot.querySelector('[data-tp="cas"]').focus(); return; }
+      const col = slot.querySelectorAll('.r3-cas-col')[index];
+      const target = col && (col.querySelector('.r3-cas-it.on') || col.querySelector('.r3-cas-it'));
+      if (target) target.focus();
+    };
+    const closeCas = () => { casOpen = false; renderCas(); focusColumn(-1); };
+    casBtn.onclick = e => { e.stopPropagation(); casOpen = !casOpen; casStage = st.stage; casSubj = st.subject; renderCas(); focusColumn(casOpen ? 0 : -1); };
+    casBtn.onkeydown = e => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); if (!casOpen) { casOpen = true; casStage = st.stage; casSubj = st.subject; renderCas(); } focusColumn(0); }
+      else if (e.key === 'Escape' && casOpen) { e.preventDefault(); e.stopPropagation(); closeCas(); }
+    };
+    slot.querySelectorAll('.r3-cas-col').forEach((col, index) => {
+      col.setAttribute('aria-label', ['学段', '学科', '教材版本'][index]);
+      col.querySelectorAll('.r3-cas-it').forEach(option => { option.setAttribute('role', 'option'); option.setAttribute('aria-selected', String(option.classList.contains('on'))); option.tabIndex = -1; });
+    });
+    slot.onkeydown = e => {
+      const option = e.target.closest('.r3-cas-it'); if (!option || !casOpen) return;
+      const col = option.closest('.r3-cas-col'), cols = [...slot.querySelectorAll('.r3-cas-col')];
+      const items = [...col.querySelectorAll('.r3-cas-it')], i = items.indexOf(option), c = cols.indexOf(col);
+      if (e.key === 'Escape') closeCas();
+      else if (e.key === 'ArrowDown') items[(i + 1) % items.length].focus();
+      else if (e.key === 'ArrowUp') items[(i + items.length - 1) % items.length].focus();
+      else if (e.key === 'Home') items[0].focus();
+      else if (e.key === 'End') items[items.length - 1].focus();
+      else if (e.key === 'ArrowLeft') focusColumn(c - 1);
+      else if (e.key === 'ArrowRight') { if (c < 2) { if (option.onmouseenter) option.onmouseenter(); focusColumn(c + 1); } }
+      else if (e.key === 'Enter' || e.key === ' ') { option.click(); if (c === 0) focusColumn(1); }
+      else return;
+      e.preventDefault(); e.stopPropagation();
+    };
+    slot.removeEventListener('focusout', onCasFocusOut);
+    slot.addEventListener('focusout', onCasFocusOut);
     slot.querySelectorAll('[data-cs]').forEach((li) => {
-      li.onclick = (e) => { e.stopPropagation(); casStage = li.dataset.cs; casSubj = ''; renderCas(); };
-      li.onmouseenter = () => { if (casStage !== li.dataset.cs) { casStage = li.dataset.cs; casSubj = ''; renderCas(); } };
+      li.onclick = (e) => { e.stopPropagation(); casStage = li.dataset.cs; casSubj = ''; renderCas({ attribute: 'data-cs', value: li.dataset.cs }); };
+      li.onmouseenter = () => { if (casStage !== li.dataset.cs) { casStage = li.dataset.cs; casSubj = ''; renderCas({ attribute: 'data-cs', value: li.dataset.cs }); } };
     });
     slot.querySelectorAll('[data-cj]').forEach((li) => {
-      li.onmouseenter = () => { if (casSubj !== li.dataset.cj) { casSubj = li.dataset.cj; renderCas(); } };
+      li.onmouseenter = () => { if (casSubj !== li.dataset.cj) { casSubj = li.dataset.cj; renderCas({ attribute: 'data-cj', value: li.dataset.cj }); } };
       // 点学科 = 用该学科的默认版本直接切过去；想换版本就点第三列
       li.onclick = (e) => {
         e.stopPropagation();

@@ -16,19 +16,19 @@ function fixture(){
  const hrefs=[...read('public/admin/index.html').matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map(m=>m[1].split('?')[0]);
  const styles=[...hrefs.map(h=>path.resolve(PUBLIC,'admin',h)),path.join(PUBLIC,'admin/r10.css')].map(f=>'<style>'+style(f)+'</style>').join('');
  const converted=code.replaceAll('/img/ui-brand-20261108.png',asset(path.join(PUBLIC,'img/ui-brand-20261108.png'))).replaceAll('/img/ui-rounded-admin-hero-20261108.png',asset(path.join(PUBLIC,'img/ui-rounded-admin-hero-20261108.png')));
- return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+styles+'<body class="t11"><div id="app"></div><script>'+converted.replace(/<\/script/gi,'<\\/script')+'</script></body></html>';
+ return '<!doctype html><html lang="zh-CN" data-ui-theme="senyu"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+styles+'<body class="t11 sy-theme sy-core"><div id="app"></div><script>'+converted.replace(/<\/script/gi,'<\\/script')+'</script></body></html>';
 }
 module.exports={fixture};
-for(const width of [1487,1024,390])test('rounded dashboard renders and preserves navigation '+width,async()=>{
+for(const width of [1487,1024,390])test('senyu dashboard renders and preserves navigation '+width,async()=>{
  fs.mkdirSync(OUT,{recursive:true});const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||'/usr/bin/google-chrome',args:['--no-sandbox']});
  try{
   const page=await browser.newPage({viewport:{width,height:width===390?844:1058}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/*',r=>r.abort());
   await page.setContent(fixture());await page.waitForFunction(()=>window.fixtureReady);await page.evaluate(()=>document.fonts.ready);
   const metrics=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>innerWidth+1,hero:getComputedStyle(document.querySelector('.rounded-dash-hero')).backgroundColor,art:document.querySelector('.rounded-admin-art').naturalWidth,side:document.querySelector('.side').getBoundingClientRect().toJSON()}));
-  assert.equal(metrics.overflow,false);assert.equal(metrics.hero,'rgb(16, 78, 67)');assert.ok(metrics.art>500);
+  assert.equal(await page.getByText('把题目录入、课堂练习和学习反馈连起来。',{exact:true}).count(),0);if(width>820)assert.equal(Math.round(metrics.side.width),240);assert.equal(metrics.overflow,false);assert.equal(metrics.hero,'rgb(12, 89, 75)');assert.ok(metrics.art>500);
   await page.screenshot({path:path.join(OUT,'dashboard-'+width+'.png'),fullPage:false});
   if(width===390){assert.ok(metrics.side.right<=1);await page.locator('#btnFold').click();await page.waitForFunction(()=>document.querySelector('.side').getBoundingClientRect().left>=-1);await page.locator('#t11Scrim').click({position:{x:380,y:400}});await page.waitForFunction(()=>document.querySelector('.side').getBoundingClientRect().right<=1);await page.locator('#btnFold').click();await page.locator('.nav-leaf[data-go="dash"]').click();await page.waitForFunction(()=>!document.querySelector('.t11-drawer'));}
-  else{await page.locator('#btnFold').click();assert.ok(await page.locator('.admin-app').evaluate(e=>e.classList.contains('side-fold')));await page.locator('#btnFold').click();}
+  else{await page.locator('#btnFold').click();assert.ok(await page.locator('.admin-app').evaluate(e=>e.classList.contains('side-fold')));assert.equal(Math.round((await page.locator('.side').boundingBox()).width),68);await page.locator('#btnFold').click();}
   await page.locator('[data-period="week"]').click();await page.waitForFunction(()=>document.querySelector('.r10-metric strong').textContent==='3');assert.match(await page.locator('.rounded-learning-summary').innerText(),/67%/);
   await page.locator('.rounded-amber').click();await page.waitForFunction(()=>window.fixtureNav==='pending');assert.equal(await page.evaluate(()=>location.hash),'#/pending');
   assert.deepEqual(errors,[]);fs.writeFileSync(path.join(OUT,'metrics-'+width+'.json'),JSON.stringify({metrics,errors},null,2));

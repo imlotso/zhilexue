@@ -1,0 +1,242 @@
+/* 森屿 adapters for the existing teacher/student workspaces. No layout state or API changes. */
+body.sy-core,body.t11.sy-core .admin-app.ui-rounded-shell,body.t11.sy-core .ui-review-shell{
+ --ry-primary:var(--sy-color-primary);--ry-primary-d:var(--sy-color-primary-hover);--ry-bg:var(--sy-color-canvas);--ry-card:var(--sy-color-surface);--ry-border:var(--sy-color-border);--ry-text:var(--sy-color-ink);--ry-text2:var(--sy-color-muted);--ry-text3:var(--sy-color-muted);
+ --t11-primary:var(--sy-color-primary);--t11-primary-d:var(--sy-color-primary-hover);--t11-primary-l:var(--sy-color-surface-subtle);--t11-primary-line:#b7d4c5;
+ --t11-text:var(--sy-color-ink);--t11-text2:var(--sy-color-muted);--t11-text3:var(--sy-color-muted);--t11-line:var(--sy-color-border);--t11-line2:#eaf0eb;
+ --t11-bg:var(--sy-color-canvas);--t11-card:var(--sy-color-surface);--t11-head:var(--sy-color-surface-subtle);--t11-side:var(--sy-color-surface-subtle);
+ --t11-danger:var(--sy-color-danger);--t11-danger-l:var(--sy-color-danger-surface);--t11-r:12px;--t11-r-lg:24px;--t11-h:44px;--t11-h-sm:36px;--t11-gap:16px;--t11-pad:24px;--t11-fs:14px;
+ --t11-shadow:none;--t11-shadow-lg:var(--sy-shadow);--primary:var(--sy-color-primary);--primary-dark:var(--sy-color-primary-hover);--blue:var(--sy-color-primary);--brand:var(--sy-color-primary);--brand-l:var(--sy-color-surface-subtle);
+ font-family:var(--sy-font);color:var(--sy-color-ink);font-size:14px;
+}
+/* Keep pre-existing responsive shell mechanics; only normalize its dimensions and density. */
+body.t11.sy-core .admin-app.ui-rounded-shell .brand{height:96px;min-height:96px;padding:16px 24px!important}
+body.t11.sy-core .admin-app.ui-rounded-shell .brand .zx-txt b{font-size:26px!important;color:var(--sy-color-ink)!important}
+body.t11.sy-core .admin-app.ui-rounded-shell .zx-txt em{font-size:13px;color:var(--sy-color-muted)}
+body.t11.sy-core .admin-app.ui-rounded-shell .nav :is(a,.ng-t){font-size:15px;min-height:44px;border-radius:16px!important;margin:4px 0!important}
+body.t11.sy-core .admin-app.ui-rounded-shell .nav .nav-group .ng-sub a{font-size:14px;min-height:40px;border-radius:12px!important}
+body.t11.sy-core .admin-app.ui-rounded-shell .nav a.on{background:var(--sy-color-primary)!important}
+body.t11.sy-core .admin-app.ui-rounded-shell .nav .nav-group.open{background:#f0f6f1;border-radius:20px}
+body.t11.sy-core .admin-app.ui-rounded-shell .content{padding:24px!important}
+body.t11.sy-core .admin-app.ui-rounded-shell .card-h h3{font-size:20px}
+body.t11.sy-core .rounded-dash-heading h1{font-size:32px;line-height:1.35;letter-spacing:0;margin:0}
+body.t11.sy-core .rounded-dash-hero{background:var(--sy-color-primary);border-radius:28px}
+body.t11.sy-core .rounded-hero-copy h2{font-size:28px}
+body.t11.sy-core .rounded-hero-copy .rounded-eyebrow{font-size:16px}
+body.t11.sy-core .rounded-amber{background:var(--sy-color-accent);color:var(--sy-color-ink);font-size:18px;min-height:44px}
+body.t11.sy-core .rounded-amber:hover{background:var(--sy-color-accent-hover)}
+body.t11.sy-core .r10-embed{background:var(--sy-color-canvas);min-width:0}
+body.t11.sy-core .r10-embed-nav{display:flex;gap:8px;flex-wrap:wrap;background:var(--sy-color-surface);border:1px solid var(--sy-color-border);border-radius:16px;padding:8px;margin-bottom:16px}
+body.t11.sy-core .r10-embed-nav button{min-height:40px;border:0;border-radius:12px;background:transparent;color:var(--sy-color-muted);padding:8px 16px;font:inherit;cursor:pointer}
+body.t11.sy-core .r10-embed-nav button.active{background:var(--sy-color-primary);color:#fff}
+body.t11.sy-core .grades-frame{border-radius:20px;background:var(--sy-color-canvas)}
+/* Real forms and actions, including portals outside the SPA root. */
+body.sy-core :is(.btn,.link-btn,.t8-fbtn,.r3-bbtn){font-family:var(--sy-font);border-radius:12px;box-shadow:none}
+body.t11.sy-core :is(.admin-app,.modal,.el-dialog) .btn,body.sy-core .btn.primary{min-height:44px;height:auto;padding:10px 18px;font-size:14px;line-height:1.4;border-radius:999px;background:var(--sy-color-primary);border-color:var(--sy-color-primary);color:#fff}
+body.t11.sy-core :is(.admin-app,.modal,.el-dialog) .btn:is(.sm,.xs){min-height:36px;font-size:13px;padding:6px 12px}
+body.sy-core :is(.btn.primary,.t8-ok):hover:not(:disabled){background:var(--sy-color-primary-hover)}
+body.t11.sy-core :is(.admin-app,.modal,.el-dialog) .btn.ghost,body.sy-core .btn.ghost{background:var(--sy-color-surface);color:var(--sy-color-ink);border:1px solid var(--sy-color-control-border)}
+body.t11.sy-core :is(.admin-app,.modal,.el-dialog) .btn.danger,body.sy-core .btn.danger{background:var(--sy-color-surface);color:var(--sy-color-danger);border-color:var(--sy-color-danger)}
+body.t11.sy-core :is(.admin-app,.modal,.el-dialog) .btn:disabled,body.sy-core .btn:disabled{background:var(--sy-color-disabled-surface);color:var(--sy-color-disabled-text);border-color:var(--sy-color-border);opacity:1;cursor:not-allowed}
+body.sy-core :is(.input,.inp,.el-input__inner,.el-textarea__inner),body.t11.sy-core :is(.admin-app,.modal,.el-dialog) :is(select,textarea,input[type=text],input[type=search],input[type=date],input[type=number],input[type=password],input[type=tel]){font-family:var(--sy-font);font-size:14px;min-height:44px;border:1px solid var(--sy-color-control-border);border-radius:12px;background:var(--sy-color-surface);color:var(--sy-color-ink);padding:9px 12px;box-sizing:border-box;max-width:100%}
+body.sy-core :is(.field,.el-form-item) label{color:var(--sy-color-ink);font-size:14px;font-weight:600}
+body.sy-core :is(.input,.inp,.el-input__inner,.el-textarea__inner):disabled{background:var(--sy-color-disabled-surface);color:var(--sy-color-disabled-text)}
+body.sy-core :is(.input,.inp)[aria-invalid=true],body.sy-core .el-form-item.is-error :is(.el-input__inner,.el-textarea__inner){border-color:var(--sy-color-danger)}
+body.sy-core :is(.field-error,.el-form-item__error,.t8-err){color:var(--sy-color-danger)}
+body.sy-core :is(.tag,.pill,.badge){border-radius:999px;font-size:12px}
+body.sy-core :is(.hint,.muted,.t8-tip){color:var(--sy-color-muted);font-size:13px}
+body.t11.sy-core .admin-app.ui-rounded-shell :is(button,a,input,select,textarea):focus-visible,body.sy-core :is(.modal,.el-dialog,.t8-dlg,.ui-quiz-workbench,.rounded-student) :is(button,a,input,select,textarea):focus-visible{outline:2px solid var(--sy-color-focus);outline-offset:2px;box-shadow:0 0 0 5px var(--sy-color-focus-halo)}
+/* Element UI actual picker/popover content, not just their closed fields. */
+body.sy-core :is(.el-select-dropdown,.el-picker-panel,.el-popover,.el-dropdown-menu,.el-cascader-panel){border:1px solid var(--sy-color-control-border);border-radius:16px;background:var(--sy-color-surface);color:var(--sy-color-ink);box-shadow:var(--sy-shadow)}
+body.sy-core .el-select-dropdown__item{min-height:40px;padding:8px 16px;color:var(--sy-color-ink)}
+body.sy-core .el-select-dropdown__item:is(.selected,.hover){background:var(--sy-color-surface-subtle);color:var(--sy-color-primary)}
+body.sy-core .el-select-dropdown__item.is-disabled{color:var(--sy-color-disabled-text)}
+body.sy-core .el-date-table td.current:not(.disabled) span,body.sy-core .el-date-table td:is(.start-date,.end-date) span{background:var(--sy-color-primary);color:#fff}
+body.sy-core .el-date-table td.in-range div{background:var(--sy-color-surface-subtle)}
+body.sy-core :is(.el-checkbox__input.is-checked,.el-checkbox__input.is-indeterminate) .el-checkbox__inner,body.sy-core .el-radio__input.is-checked .el-radio__inner,body.sy-core .el-switch.is-checked .el-switch__core{background:var(--sy-color-primary);border-color:var(--sy-color-primary)}
+body.sy-core :is(.el-checkbox__input.is-checked+.el-checkbox__label,.el-radio__input.is-checked+.el-radio__label){color:var(--sy-color-primary)}
+/* Tables, pagination, empty/error and detail overlays retain their real content. */
+body.t11.sy-core :is(.tbl,.table,.el-table) th{background:var(--sy-color-surface-subtle);color:var(--sy-color-ink);font-size:14px}
+body.t11.sy-core :is(.tbl,.table,.el-table) td{border-bottom-color:var(--sy-color-border);font-size:14px}
+body.t11.sy-core :is(.pager,.pagination,.el-pagination) :is(.on,.active,.current){background:var(--sy-color-primary);color:#fff;border-color:var(--sy-color-primary)}
+body.sy-core .empty{color:var(--sy-color-muted);padding:32px 20px;font-size:14px;min-height:0}
+body.sy-core :is(.modal,.el-dialog,.qz-ai-box,.t8-dlg){border:1px solid var(--sy-color-border);border-radius:24px;background:var(--sy-color-surface);color:var(--sy-color-ink);box-shadow:var(--sy-shadow);overflow:auto}
+body.sy-core :is(.modal-h,.el-dialog__header,.t8-h){background:var(--sy-color-surface);color:var(--sy-color-ink);border-bottom:1px solid var(--sy-color-border);padding-bottom:16px}
+body.sy-core :is(.modal-f,.el-dialog__footer,.t8-f){background:var(--sy-color-surface);border-top:1px solid var(--sy-color-border);padding-top:16px}
+body.sy-core :is(.modal-b,.el-dialog__body){color:var(--sy-color-ink);overscroll-behavior:contain}
+body.sy-core :is(.close-x,.t8-x){color:var(--sy-color-muted);min-width:40px;min-height:40px;border-radius:12px}
+body.sy-core :is(.close-x,.t8-x):hover{background:var(--sy-color-surface-subtle);color:var(--sy-color-primary)}
+body.sy-core :is(.toast,.el-message){border-radius:16px;font:14px/1.5 var(--sy-font);box-shadow:var(--sy-shadow)}
+/* Trees remain distinct, expandable and editable. */
+body.t11.sy-core :is(.t4-row,.mf-node,.r3-node){border-radius:12px;color:var(--sy-color-ink)}
+body.t11.sy-core :is(.t4-row,.mf-node,.r3-node):hover{background:#f1f6f2}
+body.t11.sy-core :is(.t4-row.on,.mf-node.on,.r3-node.on){background:var(--sy-color-surface-subtle);color:var(--sy-color-primary);box-shadow:inset 3px 0 var(--sy-color-primary)}
+body.t11.sy-core :is(.t4-tog,.mf-tw,.r2-hit){color:var(--sy-color-primary)}
+body.t11.sy-core .r2-hit{background:#fff0c6;border-radius:4px}
+body.t11.sy-core :is(.t4-acts,.kt-map-footer) .btn{min-height:36px}
+/* All intake steps, upload queues and review disclosure surfaces. */
+body.t11.sy-core :is(.r4-step,.r4-steps li,.pd-workflow li){color:var(--sy-color-muted)}
+body.t11.sy-core :is(.r4-step.active,.r4-step.current,.pd-workflow .current){color:var(--sy-color-primary)}
+body.t11.sy-core :is(.r4-step.active .n,.r4-step.current .n,.pd-workflow .current>span){background:var(--sy-color-primary);color:#fff}
+body.t11.sy-core :is(.r4-excel-drop,.r4-drop,.r4-upload-zone,.upload-zone){background:var(--sy-color-surface);border:1px dashed var(--sy-color-control-border);border-radius:20px}
+body.t11.sy-core :is(.r4-excel-panel,.r4-excel-guide,.r4-excel-aside,.r4-wizard,.r4-steps,.pd-provenance,.pd-advanced,.pd-source-details){border-color:var(--sy-color-border);border-radius:16px;background:var(--sy-color-surface)}
+body.t11.sy-core :is(.r4-excel-note,.r4-excel-success,.pd-class-notice,.pd-class-help){background:var(--sy-color-surface-subtle);color:var(--sy-color-primary);border-color:var(--sy-color-border)}
+body.t11.sy-core :is(.r4-excel-errors,.r4-excel-message.error){background:var(--sy-color-danger-surface);color:var(--sy-color-danger)}
+body.t11.sy-core :is(.pd-workspace,.r4-review-layout){color:var(--sy-color-ink);background:var(--sy-color-canvas)}
+body.t11.sy-core :is(.pd-row.selected,.pd-item.on){border-color:var(--sy-color-primary);background:var(--sy-color-surface-subtle)}
+body.t11.sy-core :is(.pd-provenance,.pd-advanced,.pd-source-details,.r6-filter-detail) summary{padding:12px 16px;border-radius:12px;background:var(--sy-color-surface-subtle);color:var(--sy-color-primary);cursor:pointer;font-size:14px}
+body.t11.sy-core .ui-review-shell .pd-review-footer #pd-current-commit{background:var(--sy-color-accent);color:var(--sy-color-ink);border-color:var(--sy-color-accent)}
+body.t11.sy-core .ui-review-shell .pd-class-save{background:var(--sy-color-primary)!important;color:#fff!important;border-color:var(--sy-color-primary)!important}
+/* Preview, report and export controls that were previously left in the old style. */
+body.t11.sy-core .r6-workbench{gap:24px;background:var(--sy-color-surface)}
+body.t11.sy-core .r6-outline{background:var(--sy-color-surface-subtle);border-radius:16px;border-color:var(--sy-color-border);padding:16px}
+body.t11.sy-core .r6-work-main{min-width:0;color:var(--sy-color-ink)}
+body.t11.sy-core :is(.r6-group-head,.r6-process,.r6-filter-options){background:var(--sy-color-surface-subtle);color:var(--sy-color-ink);border-color:var(--sy-color-border);border-radius:12px}
+body.t11.sy-core :is(.r6-workbench .qcard,.r6-workbench .r3-q,.r6-workbench .r6-row){border-color:var(--sy-color-border);border-radius:16px;background:var(--sy-color-surface)}
+body.t11.sy-core .r1-drawer{background:var(--sy-color-canvas);color:var(--sy-color-ink);border-radius:24px 0 0 24px;box-shadow:var(--sy-shadow);overflow:hidden}
+body.t11.sy-core :is(.r1-dh,.r1-sec,.r1-export,.r1-course,.r1-group){border-color:var(--sy-color-border);background:var(--sy-color-surface)}
+body.t11.sy-core .r1-dh{padding:20px 24px}
+body.t11.sy-core .r1-body{overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#b7cdc0 transparent}
+body.t11.sy-core :is(.r1-rate,.r1-subj-v){color:var(--sy-color-primary)}
+body.sy-core :is(.r1-export,.mist-export,.export-options) label{padding:10px 12px;border:1px solid var(--sy-color-border);border-radius:12px}
+/* Student learning/answer system uses the same palette and restrained readable scale. */
+body.sy-core .st-layout.st-biz.st-rail.learn-shell.rounded-student{--learn-blue:var(--sy-color-primary);--learn-ink:var(--sy-color-ink);--learn-muted:var(--sy-color-muted);--learn-page:var(--sy-color-canvas);--learn-side:var(--sy-color-surface-subtle);--learn-hero:var(--sy-color-primary);--learn-line:var(--sy-color-border);--round-mint:var(--sy-color-surface-subtle);--round-amber:var(--sy-color-accent);--primary:var(--sy-color-primary);--blue:var(--sy-color-primary)}
+body.sy-core .rounded-student .learn-greeting h2{font-size:36px;letter-spacing:0}
+body.sy-core .rounded-student .learn-greeting :is(.round-kicker,.round-intro){font-size:18px}
+body.sy-core .round-brand b{font-size:26px}body.sy-core .round-brand img{width:48px;height:48px}
+body.sy-core .round-main-nav a{font-size:18px;color:var(--sy-color-ink)}body.sy-core .round-main-nav a.on{color:var(--sy-color-primary)}body.sy-core .round-main-nav a.on:after{background:var(--sy-color-primary);height:4px}
+body.sy-core :is(.round-top-actions .st-theme-btn,.round-accent){font-size:14px;color:var(--sy-color-primary)}
+body.sy-core :is(.learn-tree-row.on,.round-lesson.on,.learn-unit.on){background:var(--sy-color-surface-subtle);border-color:var(--sy-color-primary)}
+body.sy-core .ui-quiz-workbench{--uq-blue:var(--sy-color-primary);--uq-ink:var(--sy-color-ink);--uq-muted:var(--sy-color-muted);--uq-line:var(--sy-color-border);--uq-paper:var(--sy-color-surface);--uq-tint:var(--sy-color-surface-subtle);background:var(--sy-color-canvas)}
+body.sy-core .ui-quiz-workbench .quiz-box.r8-qz{background:var(--sy-color-canvas)}
+body.sy-core .ui-quiz-workbench .quiz-h-t b{font-size:24px}body.sy-core .ui-quiz-workbench .quiz-h-t span{font-size:16px}
+body.sy-core .ui-quiz-workbench .qz-fs button{font-size:16px;min-height:36px}
+body.sy-core .ui-quiz-workbench .qz-qno{font-size:22px}body.sy-core .ui-quiz-workbench .qz-qtype{font-size:14px}
+body.sy-core .ui-quiz-workbench .quiz-box.r8-qz.fs-sm .qz-stem{font-size:18px}body.sy-core .ui-quiz-workbench .quiz-box.r8-qz.fs-md .qz-stem{font-size:22px}body.sy-core .ui-quiz-workbench .quiz-box.r8-qz.fs-lg .qz-stem{font-size:28px}
+body.sy-core .ui-quiz-workbench .qz-stem{margin:24px 0 32px}
+body.sy-core .ui-quiz-workbench .qz-opt{min-height:64px;font-size:18px;padding:16px;gap:16px;border-radius:16px}
+body.sy-core .ui-quiz-workbench .quiz-box.r8-qz.fs-sm .qz-opt{font-size:16px}body.sy-core .ui-quiz-workbench .quiz-box.r8-qz.fs-lg .qz-opt{font-size:22px;min-height:72px}
+body.sy-core .ui-quiz-workbench .qz-opt .qz-l{width:36px;height:36px;font-size:18px;border-radius:12px}
+body.sy-core .ui-quiz-workbench .quiz-body{scrollbar-width:thin;scrollbar-color:#b7cdc0 transparent;overscroll-behavior:contain}
+body.sy-core .ui-quiz-workbench .r8-ai-body{background:var(--sy-color-surface);overflow:auto;overscroll-behavior:contain}
+body.sy-core :is(.t7-player,.t7-adm,.qz-audio){background:var(--sy-color-surface-subtle);border-color:var(--sy-color-border);border-radius:16px;color:var(--sy-color-ink)}
+body.sy-core :is(.t7-player button,.t7-play){background:var(--sy-color-primary);color:#fff;border-radius:999px}
+body.sy-core .qz-kpad{border-color:var(--sy-color-border);background:var(--sy-color-canvas);padding:12px}
+body.sy-core .kpad-k{min-height:44px;border-radius:12px;border-color:var(--sy-color-control-border);background:var(--sy-color-surface);color:var(--sy-color-ink);font-size:18px}
+body.sy-core .kpad-k:active{background:var(--sy-color-surface-subtle)}body.sy-core .kpad-k.kpad-mode{background:var(--sy-color-surface-subtle);color:var(--sy-color-primary)}body.sy-core .kpad-k.kpad-hide{background:var(--sy-color-primary);color:#fff}
+body.sy-core .t8-fbtn{background:var(--sy-color-surface-subtle);border-color:var(--sy-color-control-border);color:var(--sy-color-primary);min-height:44px}
+/* MathLive 0.109.2 public custom properties cross its Shadow DOM boundary. */
+body.sy-core :is(.t8-mask,.t8-mf){--hue:164;--caret-color:var(--sy-color-primary);--selection-background-color:var(--sy-color-surface-subtle);--selection-color:var(--sy-color-ink);--contains-highlight-background-color:var(--sy-color-surface-subtle);--contains-highlight-color:var(--sy-color-primary);--primary-color:var(--sy-color-primary);--keyboard-accent-color:var(--sy-color-primary);--keyboard-background:var(--sy-color-canvas);--keyboard-border:var(--sy-color-border);--keyboard-toolbar-background:var(--sy-color-surface-subtle);--keyboard-toolbar-background-hover:#d8eadd;--keyboard-toolbar-background-selected:var(--sy-color-primary);--keyboard-toolbar-text:var(--sy-color-ink);--keyboard-toolbar-text-active:#fff;--keycap-background:var(--sy-color-surface);--keycap-background-hover:var(--sy-color-surface-subtle);--keycap-background-active:var(--sy-color-surface-subtle);--keycap-background-pressed:#cee4d6;--keycap-text:var(--sy-color-ink);--keycap-text-hover:var(--sy-color-primary);--keycap-primary-background:var(--sy-color-primary);--keycap-primary-background-hover:var(--sy-color-primary-hover);--keycap-primary-text:#fff;--keycap-secondary-background:var(--sy-color-surface-subtle);--keycap-secondary-text:var(--sy-color-primary);--keycap-border:var(--sy-color-border);--keycap-border-bottom:var(--sy-color-border);--keycap-height:44px;--menu-bg:var(--sy-color-surface)}
+body.sy-core .t8-dlg{padding:20px 24px;max-height:calc(100dvh - 32px);overflow:auto}
+body.sy-core .t8-h{font-size:20px}
+body.sy-core .t8-box{border:1px solid var(--sy-color-control-border);border-radius:16px;background:var(--sy-color-surface);min-height:84px}
+body.sy-core .t8-box:focus-within{border-color:var(--sy-color-primary);box-shadow:0 0 0 3px var(--sy-color-focus-halo)}
+body.sy-core .t8-mf{font-size:28px;color:var(--sy-color-ink)}
+@media(min-width:821px){body.t11.sy-core .admin-app.ui-rounded-shell .side{width:240px!important}body.t11.sy-core .admin-app.ui-rounded-shell .main{margin-left:240px!important;width:calc(100% - 240px)}body.t11.sy-core .admin-app.ui-rounded-shell.side-fold .side{width:68px!important}body.t11.sy-core .admin-app.ui-rounded-shell.side-fold .main{margin-left:68px!important;width:calc(100% - 68px)}}
+@media(max-width:760px){body.t11.sy-core .admin-app.ui-rounded-shell .content{padding:16px!important}body.t11.sy-core .rounded-dash-heading h1{font-size:28px}body.sy-core :is(.modal,.el-dialog,.t8-dlg){border-radius:20px}body.t11.sy-core .r1-drawer{border-radius:20px 0 0 20px}body.sy-core .t8-dlg{padding:16px}body.sy-core .kpad-k{min-height:40px;font-size:16px}body.sy-core .rounded-student .learn-greeting h2{font-size:28px}body.sy-core .rounded-student .learn-greeting :is(.round-kicker,.round-intro){font-size:16px}body.sy-core .ui-quiz-workbench .qz-stem{margin:16px 0 24px}body.sy-core .ui-quiz-workbench .quiz-h-t b{font-size:18px}body.sy-core .ui-quiz-workbench .quiz-h-t span{font-size:13px}body.sy-core .ui-quiz-workbench .qz-opt{padding:12px;min-height:56px}}
+/* Match the actual legacy selectors, including prior important geometry resets. */
+body.t11.sy-core .admin-app.ui-rounded-shell.side-fold .brand{padding:16px 8px!important}
+body.t11.sy-core .admin-app.ui-rounded-shell.ui-review-shell .content{padding:0!important}
+body.t11.sy-core .admin-app.ui-rounded-shell.ui-review-shell .nav a.on{background:var(--sy-color-primary)!important}
+body.t11.sy-core .admin-app.ui-rounded-shell .nav a .ico,body.t11.sy-core .admin-app.ui-rounded-shell .nav .ng-t .ico{color:var(--sy-color-primary)}
+body.t11.sy-core .admin-app.ui-rounded-shell .nav a.on .ico{color:#fff}
+body.t11.sy-core .admin-app.ui-rounded-shell .nav a:not(.on):hover,body.t11.sy-core .admin-app.ui-rounded-shell .nav .ng-t:hover{background:#d8eadd!important;color:var(--sy-color-primary)!important}
+body.t11.sy-core .rounded-dash :is(.rounded-quick-card h2,.rounded-work-section>h2,.rounded-learning-summary h2,.rounded-tree-card h2){font-size:22px;color:var(--sy-color-ink)}
+body.t11.sy-core .rounded-quick-card button{font-size:16px;min-height:44px}
+body.t11.sy-core .rounded-work-list strong,body.t11.sy-core .rounded-tree-card strong{font-size:18px}
+body.t11.sy-core .rounded-learning-summary .r10-metric small{font-size:12px}
+body.t11.sy-core .rounded-dash .r10-period button.active{background:var(--sy-color-primary)}
+body.t11.sy-core :is(.pd-workspace,.r6-rounded-page,.r4-intake,.r1-rounded-report,.r1-rounded-drawer){--round-green:var(--sy-color-primary);--round-dark:var(--sy-color-ink);--round-mint:var(--sy-color-surface-subtle);--round-line:var(--sy-color-border);--round-gold:var(--sy-color-accent)}
+body.t11.sy-core :is(.r6-page-heading,.r1-report-heading,.r4-intake-head,.pd-workspace-heading) h2{font-size:32px;letter-spacing:0;color:var(--sy-color-ink)}
+body.t11.sy-core :is(.r6-page-heading,.r1-report-heading,.r4-intake-head,.pd-workspace-heading) p{font-size:14px;color:var(--sy-color-muted)}
+body.t11.sy-core .ui-review-shell .pd-workspace{background:var(--sy-color-canvas)}
+body.t11.sy-core .ui-review-shell .pd-batch-picker,body.t11.sy-core .ui-review-shell .pd-source-label select{border-color:var(--sy-color-control-border)!important;border-radius:12px!important}
+body.t11.sy-core .pd-workspace .r4-review-row.on{background:var(--sy-color-surface-subtle);border-left-color:var(--sy-color-primary)}
+body.t11.sy-core .pd-preview-heading h3{background:var(--sy-color-primary)}
+body.t11.sy-core .ui-review-shell .pd-class-fields .input{border-color:var(--sy-color-control-border)}
+body.t11.sy-core .pd-workspace .r4-review-row :is(.pd-row-source,small),body.t11.sy-core .pd-preview-source{font-size:12px}
+body.t11.sy-core .pd-workspace .pd-stem{font-size:18px;color:var(--sy-color-ink)}
+body.t11.sy-core .pd-classification h3,body.t11.sy-core .pd-list-heading h3{font-size:20px;color:var(--sy-color-ink)}
+body.t11.sy-core .pd-workspace .pd-class-notice{background:#fff3d6;color:#674b12}
+body.t11.sy-core .ui-review-shell .pd-review-footer .btn:disabled,body.t11.sy-core .ui-review-shell .pd-class-save:disabled{background:var(--sy-color-disabled-surface)!important;color:var(--sy-color-disabled-text)!important;border-color:var(--sy-color-border)!important}
+body.t11.sy-core .ui-review-shell .pd-review-footer #pd-current-commit:disabled{background:var(--sy-color-disabled-surface);color:var(--sy-color-disabled-text)}
+/* Cascading scope selectors, searchable chapter/knowledge trees and their true selected rows. */
+body.t11.sy-core :is(.r3-cas-pop,.r3-cas-col,.r3-tp){background:var(--sy-color-surface);border-color:var(--sy-color-border);border-radius:16px}
+body.t11.sy-core :is(.r3-cas-btn,.r3-tp-search input){border-color:var(--sy-color-control-border);border-radius:12px;min-height:40px;color:var(--sy-color-ink)}
+body.t11.sy-core :is(.r3-cas-it.on,.r3-seg-it.on,.r3-tn.on,.mf-node a.on){background:var(--sy-color-surface-subtle);color:var(--sy-color-primary);border-color:var(--sy-color-primary);border-radius:12px}
+body.t11.sy-core .r3-tn.on{box-shadow:inset 3px 0 var(--sy-color-primary)}
+body.t11.sy-core .t4-row.r2-hitrow{background:#fff7df}
+body.t11.sy-core :is(.r3-tn-car,.r3-tp-tbtn,.t4-tog,.kt-map-toolbar .link-btn){color:var(--sy-color-primary)}
+body.t11.sy-core :is(.r3-tn,.r3-cas-it){min-height:36px}
+body.t11.sy-core .r4-steps>div.active b,body.t11.sy-core .r4-steps>div:first-child b{background:var(--sy-color-primary);box-shadow:0 0 0 4px var(--sy-color-surface-subtle)}
+body.t11.sy-core :is(.r4-kicker,.r4-steps small,.r4-entry small,.r4m-kicker,.r6-basket-preview-list small){font-size:12px;color:var(--sy-color-muted)}
+body.t11.sy-core :is(.r4-feature-launch,.r4-excel-guide,.r4m-summary-q){background:var(--sy-color-surface-subtle);border-color:var(--sy-color-border)}
+body.t11.sy-core .r4-feature-launch>.btn,body.t11.sy-core .r4-excel-drop #rxChoose,body.t11.sy-core .r4-excel-drop #rpChoose{background:var(--sy-color-accent);color:var(--sy-color-ink);border-color:var(--sy-color-accent)}
+body.t11.sy-core .r4m-mode.on,body.t11.sy-core .r4-status{background:var(--sy-color-surface-subtle);color:var(--sy-color-primary)}
+body.t11.sy-core .r4-status.error{background:var(--sy-color-danger-surface);color:var(--sy-color-danger)}
+body.t11.sy-core .r6-basket-panel{background:var(--sy-color-primary)}
+body.t11.sy-core .r6-basket-summary strong,body.t11.sy-core .r6-basket-settings .btn:not(.ghost){background:var(--sy-color-accent);color:var(--sy-color-ink);border-color:var(--sy-color-accent)}
+body.t11.sy-core .r6-basket-settings .btn.ghost{background:transparent;color:#fff;border-color:#c9e0d3}
+body.t11.sy-core .r6-process li{font-size:16px}body.t11.sy-core .r6-process li.on,body.t11.sy-core .r6-tabs button.on{background:var(--sy-color-primary);color:#fff}
+body.t11.sy-core :is(.r6-group-head,.r6-basket-row) button{font:inherit;min-height:36px;padding:8px 12px;border:1px solid var(--sy-color-control-border);border-radius:12px;background:var(--sy-color-surface);color:var(--sy-color-primary)}
+body.t11.sy-core :is(.r6-group-head,.r6-basket-row) button:disabled{background:var(--sy-color-disabled-surface);color:var(--sy-color-disabled-text);border-color:var(--sy-color-border);cursor:not-allowed}
+body.t11.sy-core .r6-basket-row{border-color:var(--sy-color-border);color:var(--sy-color-ink)}
+body.t11.sy-core .r1-rounded-drawer .r1-body{background:var(--sy-color-canvas)}
+body.t11.sy-core .r1-rounded-drawer .r1-dt h3{font-size:24px;color:var(--sy-color-ink)}
+body.t11.sy-core .r1-rounded-drawer :is(.r1-sum,.r1-lv1,.r1-n){background:var(--sy-color-surface-subtle);color:var(--sy-color-ink)}
+body.t11.sy-core .r1-note{color:var(--sy-color-muted)}
+body.t11.sy-core .r1-report-tabs .btn.primary-sm{background:var(--sy-color-primary);color:#fff}
+body.t11.sy-core .r1-report-tabs .btn:not(.primary-sm){background:var(--sy-color-surface);color:var(--sy-color-ink);border:1px solid var(--sy-color-border)}
+body.sy-core :is(.ap-modal,.ap-mh,.ap-mb){background:var(--sy-color-surface);color:var(--sy-color-ink);border-color:var(--sy-color-border)}
+body.sy-core .ap-modal{border-radius:24px}body.sy-core .ap-sel{color:var(--sy-color-primary);border-color:var(--sy-color-primary);background:var(--sy-color-surface-subtle)}
+/* Readable student scale, retaining responsive layout and real lesson/mistake state. */
+body.sy-core .rounded-student .learn-eyebrow{font-size:18px}
+body.sy-core .rounded-student .learn-hero h2{font-size:32px}
+body.sy-core .rounded-student .learn-next{font-size:18px}
+body.sy-core .rounded-student .learn-progress-row{font-size:16px}body.sy-core .rounded-student .learn-progress-row b{font-size:22px}
+body.sy-core .rounded-student .learn-primary{font-size:18px;min-height:48px;height:auto;min-width:180px;padding:12px 24px;color:var(--sy-color-ink)}
+body.sy-core .rounded-student .learn-section-heading h2,body.sy-core .round-course-directory>h2{font-size:24px}
+body.sy-core .rounded-student .learn-tasks .learn-empty{font-size:18px}body.sy-core .rounded-student .learn-tasks .round-view-tasks{font-size:16px}
+body.sy-core .round-path-row b,body.sy-core .rounded-student .learn-practice-row b,body.sy-core .round-practice-banner b{font-size:20px}
+body.sy-core .round-path-index{font-size:18px}body.sy-core .round-path-row>span:last-of-type{font-size:16px}
+body.sy-core .round-course-heading h1{font-size:32px}
+body.sy-core .round-categories button{font-size:18px;padding:10px 24px;min-height:44px}body.sy-core .round-subjects button{font-size:16px;min-height:40px}
+body.sy-core .round-categories button.on,body.sy-core .round-subjects button.on{background:var(--sy-color-primary);color:#fff}
+body.sy-core .rounded-student .round-video-stage{background:var(--sy-color-primary)}
+body.sy-core .round-video-stage h2{font-size:32px}body.sy-core .round-video-label{font-size:16px}
+body.sy-core .round-video-play{background:var(--sy-color-accent);color:var(--sy-color-ink)}
+body.sy-core .round-lesson-title{font-size:24px}body.sy-core .round-practice-banner button{font-size:18px;background:var(--sy-color-primary);min-height:44px}
+body.sy-core .round-practice-banner small{font-size:16px}body.sy-core .round-group-title b{font-size:18px}
+body.sy-core .round-lesson-row.on,body.sy-core .round-path-row.on{background:var(--sy-color-surface-subtle);border-color:var(--sy-color-border);box-shadow:inset 3px 0 var(--sy-color-primary)}
+body.sy-core .round-group-title>span{background:var(--sy-color-primary);color:#fff}
+body.sy-core .ui-quiz-workbench .ui-quiz-progress{background:var(--sy-color-primary)}
+body.sy-core .ui-quiz-workbench .quiz-bar i{background:var(--sy-color-accent)}
+body.sy-core .ui-quiz-workbench .quiz-f .btn.primary{background:var(--sy-color-accent);border-color:var(--sy-color-accent);color:var(--sy-color-ink)}
+body.sy-core .ui-quiz-workbench .quiz-f .btn.primary:disabled{background:var(--sy-color-disabled-surface);border-color:var(--sy-color-border);color:var(--sy-color-disabled-text)}
+body.sy-core .ui-quiz-workbench .r8-dot.cur:not(.ok):not(.no){background:var(--sy-color-accent);border-color:var(--sy-color-accent);color:var(--sy-color-ink)}
+body.sy-core .ui-quiz-workbench .r8-dot.cur{outline:2px solid var(--sy-color-focus);outline-offset:2px}
+body.sy-core :is(.r8-ai-modes,.r8-ai-in,.t8-dlg,.r6-workbench,.r1-drawer,.ap-modal) :is(button,input,select,textarea):focus-visible{outline:2px solid var(--sy-color-focus);outline-offset:2px;box-shadow:0 0 0 5px var(--sy-color-focus-halo)}
+@media(max-width:820px){body.t11.sy-core .admin-app.ui-rounded-shell .side,body.t11.sy-core .admin-app.ui-rounded-shell.side-fold .side{width:240px!important}body.t11.sy-core .admin-app.ui-rounded-shell .main,body.t11.sy-core .admin-app.ui-rounded-shell.side-fold .main{margin-left:0!important;width:100%}body.t11.sy-core :is(.r6-page-heading,.r1-report-heading,.r4-intake-head,.pd-workspace-heading) h2{font-size:28px}body.t11.sy-core .r6-process li{font-size:12px}body.sy-core .rounded-student .learn-hero h2,body.sy-core .round-course-heading h1,body.sy-core .round-video-stage h2{font-size:28px}body.sy-core .round-practice-banner{flex-wrap:wrap}body.sy-core .round-practice-banner button{font-size:16px}body.sy-core .rounded-student .learn-next{font-size:16px}}
+@media print{body.t11.sy-core .admin-app.ui-rounded-shell .main,body.t11.sy-core .admin-app.ui-rounded-shell.ui-review-shell .main{margin:0!important;width:100%}body.t11.sy-core .r1-drawer{overflow:visible;height:auto;border-radius:0;box-shadow:none}}
+body.sy-core .modal-f .btn{min-width:100px}
+body.sy-core .btn[aria-busy=true]{cursor:progress}
+body.sy-core .btn .spinner{border-color:currentColor;border-right-color:transparent}
+@media(prefers-reduced-motion:reduce){body.sy-core .spinner{animation:none}}
+body.t11.sy-core :is(.r3-tn,.r3-cas-it):focus-visible{outline:2px solid var(--sy-color-focus);outline-offset:-2px;background:var(--sy-color-surface-subtle)}
+body.sy-core .btn:active:not(:disabled){filter:brightness(.95);transform:translateY(1px)}
+body.sy-core input::placeholder,body.sy-core textarea::placeholder{color:var(--sy-color-muted)}
+body.sy-core .loading-page{color:var(--sy-color-muted)}
+/* Actual student confirm/prompt/report dialogs also inherit the legacy important RuoYi layer. */
+body.sy-core .el-dialog.modal,body.sy-core .el-dialog.el-msgbox{border-radius:24px!important;box-shadow:var(--sy-shadow)!important;overflow:auto}
+body.sy-core .el-dialog .el-dialog__header.modal-h{border-radius:24px 24px 0 0;border-color:var(--sy-color-border)}
+body.sy-core .el-dialog .el-dialog__footer.modal-f{border-radius:0 0 24px 24px;border-color:var(--sy-color-border)}
+body.sy-core .el-dialog .el-dialog__title{color:var(--sy-color-ink);font-size:20px}
+body.sy-core .el-dialog .el-msg-text{color:var(--sy-color-ink);font-size:14px}
+body.sy-core .el-dialog .el-dialog__footer .btn{min-height:44px;height:auto;padding:10px 20px;border-radius:999px;font-size:14px;line-height:1.5}
+body.sy-core .el-dialog .el-dialog__footer .el-button--primary:not(.danger){background:var(--sy-color-primary)!important;border-color:var(--sy-color-primary)!important;color:#fff!important}
+body.sy-core .el-dialog .el-dialog__footer .el-button--primary:hover:not(.danger):not(:disabled){background:var(--sy-color-primary-hover)!important;border-color:var(--sy-color-primary-hover)!important}
+body.sy-core .el-dialog .el-dialog__footer .btn.ghost{background:var(--sy-color-surface);border-color:var(--sy-color-control-border);color:var(--sy-color-ink)}
+body.sy-core .el-dialog .el-dialog__footer .btn.ghost:hover{background:var(--sy-color-surface-subtle);border-color:var(--sy-color-primary);color:var(--sy-color-primary)}
+body.sy-core .el-dialog .el-dialog__footer .btn.danger{background:var(--sy-color-surface)!important;border-color:var(--sy-color-danger)!important;color:var(--sy-color-danger)!important}
+body.sy-core .el-dialog .el-dialog__footer .btn.danger:hover:not(:disabled){background:var(--sy-color-danger-surface)!important}
+body.sy-core .el-dialog .el-dialog__footer .btn:disabled{background:var(--sy-color-disabled-surface)!important;border-color:var(--sy-color-border)!important;color:var(--sy-color-disabled-text)!important}
+@media(max-width:760px){body.sy-core .el-dialog.modal,body.sy-core .el-dialog.el-msgbox{border-radius:20px!important}body.sy-core .el-dialog .el-dialog__header.modal-h{border-radius:20px 20px 0 0}body.sy-core .el-dialog .el-dialog__footer.modal-f{border-radius:0 0 20px 20px}}

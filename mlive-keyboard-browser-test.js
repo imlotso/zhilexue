@@ -22,8 +22,8 @@ const dependencyRequire = process.env.PLAYWRIGHT_PACKAGE_JSON
 const { chromium } = dependencyRequire('playwright');
 const appCSS = ['/css/app.css', '/css/ali-icons.css', '/vendor/element-ui.css', '/css/ruoyi.css'];
 const styles = {
-  admin: [...appCSS, '/admin/theme.css', '/admin/r3.css', '/admin/ktree.css', '/admin/intake-center.css', '/admin/intake-skill.css', '/admin/intake-teacher.css', '/admin/intake-manual.css', '/admin/r6-compose.css', '/admin/ui-review-20261108.css'],
-  student: [...appCSS, '/css/ui-learning-20261108.css', '/css/ui-quiz-20261108.css'],
+  admin: [...appCSS, '/admin/theme.css', '/admin/r3.css', '/admin/ktree.css', '/admin/intake-center.css', '/admin/intake-skill.css', '/admin/intake-teacher.css', '/admin/intake-manual.css', '/admin/r6-compose.css', '/admin/ui-review-20261108.css', '/admin/ui-rounded-shell-20261108.css', '/admin/ui-rounded-pages-20261108.css', '/css/senyu-tokens.css', '/css/senyu-components.css', '/css/senyu-workspaces.css'],
+  student: [...appCSS, '/css/ui-learning-20261108.css', '/css/ui-quiz-20261108.css', '/css/ui-rounded-student-20261108.css', '/css/senyu-tokens.css', '/css/senyu-components.css', '/css/senyu-workspaces.css'],
 };
 // Execute the real standalone dialog manager, but not the API/Auth definitions.
 const utilities = fs.readFileSync(path.join(root, 'public/js/api.js'), 'utf8');
@@ -32,11 +32,11 @@ const end = utilities.indexOf('/** Element UI 风格弹窗', start);
 assert.ok(start >= 0 && end > start, 'Standalone DialogUX declaration must exist');
 const dialogUX = utilities.slice(start, end);
 function html(mode) {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+  return `<!doctype html><html lang="zh-CN" data-ui-theme="senyu"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <link rel="icon" href="data:,">
     ${styles[mode].map(url => `<link rel="stylesheet" href="${url}">`).join('')}
-    </head><body class="${mode === 'admin' ? 't11' : ''}"><main style="padding:24px"><h1>公式键盘空输入回归</h1>
+    </head><body class="sy-theme sy-core ${mode === 'admin' ? 't11' : ''}"><main style="padding:24px"><h1>公式键盘空输入回归</h1>
     <textarea id="answer">前后</textarea><button id="open">公式</button></main>
     <script>${dialogUX}</script><script src="/js/mlive.js"></script><script>
     window.results = []; window.inputEvents = 0;
@@ -95,6 +95,8 @@ async function runCase(browser, origin, mode, width) {
     await page.locator('#answer').evaluate(el => el.setSelectionRange(1, 1));
     await page.locator('#open').click();
     await page.waitForFunction(() => window.mathVirtualKeyboard?.visible);
+    assert.equal(await page.locator('.t8-mf').evaluate(el => getComputedStyle(el).color), 'rgb(20, 58, 51)');
+    assert.equal(await page.locator('.t8-dlg').evaluate(el => getComputedStyle(el).borderTopLeftRadius), width === 390 ? '20px' : '24px');
     await page.locator('.t8-ok').click();
     assert.equal(await page.locator('.t8-tip').textContent(), '还没有输入公式');
     assert.equal(await page.evaluate(() => results.length), 0);

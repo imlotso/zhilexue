@@ -44,6 +44,11 @@ const App = (() => {
     if (route === 'student') {
       document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.nav === 'students'));
     }
+    U.bindFieldLabels(el);
+    document.querySelectorAll('.nav-item').forEach(a => {
+      if (a.classList.contains('active')) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
   }
 
   function refresh() { render(); }

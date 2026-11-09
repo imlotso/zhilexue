@@ -1,0 +1,25 @@
+/* Standalone ticket-based upload screens. Presentation only; no upload or token logic. */
+body.sy-upload{background:var(--sy-color-canvas);color:var(--sy-color-ink);font-family:var(--sy-font)}
+.sy-upload .wrap{padding:24px 16px 48px}
+.sy-upload .hero{background:var(--sy-color-primary);border-radius:24px;padding:24px;box-shadow:none}
+.sy-upload .hd{color:var(--sy-color-ink)}.sy-upload .hd img{box-shadow:none}
+.sy-upload .card{border:1px solid var(--sy-color-border);border-radius:24px;box-shadow:none;padding:24px}
+.sy-upload .card h2{color:var(--sy-color-primary);font-size:16px}
+.sy-upload :is(.fld label,.f label){font-size:14px;color:var(--sy-color-ink)}
+.sy-upload :is(input[type=text],input:not([type]),textarea,.picker){border:1px solid var(--sy-color-control-border);border-radius:12px;min-height:44px;background:var(--sy-color-surface);color:var(--sy-color-ink);font:16px/1.5 var(--sy-font)}
+.sy-upload :is(button,input,textarea,.picker,[tabindex]):focus-visible{outline:2px solid var(--sy-color-focus);outline-offset:2px;box-shadow:0 0 0 5px var(--sy-color-focus-halo)}
+.sy-upload :is(.tip,.tips,.foot,.fld label .opt,.ok-box p,.uitem .m span,.zone p,.th .nm){color:var(--sy-color-muted);font-size:12px}
+.sy-upload :is(.subj-chip,.r9-mode){border-color:var(--sy-color-control-border);border-radius:12px;background:var(--sy-color-surface);color:var(--sy-color-ink);min-height:44px}
+.sy-upload :is(.subj-chip.on,.r9-mode.on,.sheet .so.on){border-color:var(--sy-color-primary);background:var(--sy-color-surface-subtle);color:var(--sy-color-primary)}
+.sy-upload :is(.fslot,.zone){background:var(--sy-color-surface-subtle);border-color:var(--sy-color-control-border);border-radius:16px}
+.sy-upload .fslot.add{border-color:var(--sy-color-control-border);color:var(--sy-color-primary)}
+.sy-upload :is(.btn-primary,.go,.zone .pick){background:var(--sy-color-primary);color:#fff;border-radius:999px;box-shadow:none;min-height:44px}
+.sy-upload :is(.btn-primary,.go):disabled{background:var(--sy-color-disabled-surface);color:var(--sy-color-disabled-text);opacity:1;cursor:not-allowed}
+.sy-upload .b-wait{background:#fff2d1;color:#755313}.sy-upload .b-ok{background:var(--sy-color-surface-subtle);color:var(--sy-color-primary)}
+.sy-upload :is(.b-no,.err){background:var(--sy-color-danger-surface);color:var(--sy-color-danger)}
+.sy-upload .sheet{border-radius:24px 24px 0 0;background:var(--sy-color-surface)}.sy-upload .sheet .so{color:var(--sy-color-ink);min-height:44px}
+.sy-upload .sheet .st .x{color:var(--sy-color-muted);min-width:44px;min-height:44px}
+.sy-upload .r9-tools button.on{background:var(--sy-color-primary);color:#fff}
+.sy-upload .r9-tools button{border-radius:12px;min-height:44px}
+.sy-upload .fslot .del,.sy-upload .th .rm{width:32px;height:32px;line-height:32px}
+@media(prefers-reduced-motion:reduce){.sy-upload .sheet,.sy-upload .spin{animation:none}.sy-upload :is(.btn,.subj-chip){transition:none}}

@@ -1,13 +1,16 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-ui-theme="senyu">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>班主任工作台 · 谈话谈心与家校沟通</title>
 <link rel="stylesheet" href="assets/css/app.css?v=20261022c">
 <style>[hidden] { display: none !important; }</style>
+<link rel="stylesheet" href="/css/senyu-tokens.css?v=20261109">
+<link rel="stylesheet" href="/css/senyu-components.css?v=20261109">
+<link rel="stylesheet" href="assets/css/senyu-care.css?v=20261109">
 </head>
-<body>
+<body class="sy-theme sy-care">
 
 <div id="careStartup" role="status" aria-live="polite" style="padding:24px">正在验证账号并加载工作台。若长时间未显示，请刷新或联系管理员。</div>
 <div class="app" id="careWorkbench" hidden>
@@ -39,6 +42,10 @@
 
       <!-- ---------- 谈话谈心 ---------- -->
       <section class="page" id="page-talks">
+        <div class="sy-page-heading"><div><h2>谈心谈话</h2><p>记录每一次倾听，让关心有迹可循。</p></div><button class="btn sy-button sy-button--accent" id="tkAdd">
+                <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                添加谈话
+              </button></div>
         <div class="stats" id="talkStats"></div>
 
         <div class="card toolbar">
@@ -46,9 +53,9 @@
             <div class="filters">
               <label class="field inline">
                 <span class="field-lab">日期范围</span>
-                <input type="date" id="tkFrom" class="input">
+                <input type="date" aria-label="谈心谈话开始日期" id="tkFrom" class="input">
                 <span class="sep">至</span>
-                <input type="date" id="tkTo" class="input">
+                <input type="date" aria-label="谈心谈话结束日期" id="tkTo" class="input">
               </label>
               <label class="field inline">
                 <span class="field-lab">学生姓名</span>
@@ -69,10 +76,7 @@
             <div class="toolbar-right">
               <button class="btn" id="tkXlsx">导出 Excel</button>
               <button class="btn" id="tkPdf">导出 PDF</button>
-              <button class="btn btn-primary" id="tkAdd">
-                <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                添加谈话
-              </button>
+
             </div>
           </div>
         </div>
@@ -97,12 +101,16 @@
               <tbody id="tkBody"></tbody>
             </table>
           </div>
-          <div class="empty" id="tkEmpty" hidden>暂无谈话记录，点击右上角「添加谈话」开始记录。</div>
+          <div class="empty" id="tkEmpty" hidden>暂无谈话记录，点击「添加谈话」开始记录。</div>
         </div>
       </section>
 
       <!-- ---------- 家校沟通 ---------- -->
       <section class="page" id="page-contacts">
+        <div class="sy-page-heading"><div><h2>家校沟通</h2><p>连接家庭与学校，共同关注学生成长。</p></div><button class="btn sy-button sy-button--accent" id="ctAdd">
+                <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                添加沟通记录
+              </button></div>
         <div class="stats" id="ctStats"></div>
 
         <div class="card toolbar">
@@ -110,9 +118,9 @@
             <div class="filters">
               <label class="field inline">
                 <span class="field-lab">日期范围</span>
-                <input type="date" id="ctFrom" class="input">
+                <input type="date" aria-label="家校沟通开始日期" id="ctFrom" class="input">
                 <span class="sep">至</span>
-                <input type="date" id="ctTo" class="input">
+                <input type="date" aria-label="家校沟通结束日期" id="ctTo" class="input">
               </label>
               <label class="field inline">
                 <span class="field-lab">学生姓名</span>
@@ -140,10 +148,7 @@
             <div class="toolbar-right">
               <button class="btn" id="ctXlsx">导出 Excel</button>
               <button class="btn" id="ctPdf">导出 PDF</button>
-              <button class="btn btn-primary" id="ctAdd">
-                <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                添加沟通记录
-              </button>
+
             </div>
           </div>
         </div>
@@ -169,7 +174,7 @@
               <tbody id="ctBody"></tbody>
             </table>
           </div>
-          <div class="empty" id="ctEmpty" hidden>暂无沟通记录，点击右上角「添加沟通记录」开始记录。</div>
+          <div class="empty" id="ctEmpty" hidden>暂无沟通记录，点击「添加沟通记录」开始记录。</div>
         </div>
       </section>
 
@@ -305,11 +310,12 @@
 
 <script src="assets/js/xlsx.js?v=20261022c"></script>
 <script src="assets/js/store.js?v=20261107-issue002"></script>
-<script src="assets/js/common.js?v=20261107-security-v2"></script>
+<script src="assets/js/common.js?v=20261109-senyu"></script>
 <script src="assets/js/ai.js?v=20261022c"></script>
 <script src="assets/js/students.js?v=20261022c"></script>
-<script src="assets/js/talks.js?v=20261107-security-v2"></script>
-<script src="assets/js/contacts.js?v=20261107-security-v2"></script>
+<script src="assets/js/talks.js?v=20261109-senyu"></script>
+<script src="assets/js/contacts.js?v=20261109-senyu"></script>
 <script src="assets/js/app.js?v=20261107-issue002"></script>
+<script src="/js/senyu-controls.js?v=20261109"></script>
 </body>
 </html>

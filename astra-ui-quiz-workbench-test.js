@@ -9,7 +9,7 @@ const { chromium } = require('playwright');
 const root = __dirname;
 const evidence = path.join(root, 'evidence/ui-quiz');
 fs.mkdirSync(evidence, {recursive:true});
-const fixture = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/app.css"><link rel="stylesheet" href="/css/ali-icons.css"><link rel="stylesheet" href="/vendor/element-ui.css"><link rel="stylesheet" href="/css/ruoyi.css"><link rel="stylesheet" href="/css/ui-quiz-20261108.css"><body><button id="launch">打开练习</button><script src="/js/api.js"></script><script src="/js/bank.js"></script></body></html>`;
+const fixture = `<!doctype html><html lang="zh-CN" data-ui-theme="senyu"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/app.css"><link rel="stylesheet" href="/css/ali-icons.css"><link rel="stylesheet" href="/vendor/element-ui.css"><link rel="stylesheet" href="/css/ruoyi.css"><link rel="stylesheet" href="/css/ui-quiz-20261108.css"><link rel="stylesheet" href="/css/senyu-tokens.css"><link rel="stylesheet" href="/css/senyu-components.css"><link rel="stylesheet" href="/css/senyu-workspaces.css"><body class="sy-theme sy-core"><button id="launch">打开练习</button><script src="/js/api.js"></script><script src="/js/bank.js"></script></body></html>`;
 const questions = Array.from({length:10},(_,i)=>({id:9001+i,type:'single',subject:'数学',quiz_ticket:'synthetic-only',stem:'计算 36 + 12 × 3 时，正确的计算顺序是（ ）。',options:['先算 36 + 12，再乘 3','按照从左到右的顺序计算','先算 12 × 3，再加 36','先把三个数相加，再计算']}));
 let server, browser, origin, delayedResolve, checkCalls = [], aiCalls = [], holdCheck = false;
 test.before(async()=>{

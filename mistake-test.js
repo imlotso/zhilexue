@@ -235,9 +235,10 @@ const xmlText = (xml) => xml.replace(/<w:br\/>/g, '\n').replace(/<\/w:p>/g, '\n'
 
   // ---------- 6) 前端：没有收藏入口 ----------
   const js = fs.readFileSync(path.join(__dirname, 'public/js/bank.js'), 'utf8');
-  const css = fs.readFileSync(path.join(__dirname, 'public/css/app.css'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, 'public/css/ui-rounded-student-20261108.css'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, 'public/index.html'), 'utf8');
   log(!/收藏夹|bkFav/.test(js), '学生端错题本前端里没有「收藏夹」入口（bkFav / 收藏夹 都没有了）');
-  log(/t9-hero/.test(js) && /\.t9-hero\{/.test(css), '错题本用新的 t9-* 样式');
+  log(/round-mist-heading/.test(js) && /\.round-mist-heading\s*\{/.test(css) && /ui-rounded-student-20261108\.css/.test(html), '错题本使用已加载的圆角页面样式');
   const home = await (await fetch(BASE + '/js/bank.js')).text();
   log(!/收藏夹/.test(home), '线上服务的 bank.js 同样没有「收藏夹」');
   const hist = db.prepare("SELECT COUNT(*) n FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='mistakes'").get().n;

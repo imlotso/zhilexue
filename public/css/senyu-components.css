@@ -1,0 +1,54 @@
+/* Base components are explicit; legacy application selectors belong in adapters. */
+body.sy-theme{background:var(--sy-color-canvas);color:var(--sy-color-ink);font-family:var(--sy-font);line-height:1.5;accent-color:var(--sy-color-primary)}
+.sy-theme .sy-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;box-sizing:border-box;border:1px solid var(--sy-color-control-border);border-radius:var(--sy-radius-pill);padding:9px 20px;font:inherit;font-weight:600;line-height:1.4;cursor:pointer;background:var(--sy-color-surface);color:var(--sy-color-ink);transition:background .15s,box-shadow .15s,transform .1s}
+.sy-theme .sy-button--primary{background:var(--sy-color-primary);border-color:var(--sy-color-primary);color:#fff}
+.sy-theme .sy-button--primary:hover:not(:disabled){background:var(--sy-color-primary-hover)}
+.sy-theme .sy-button--primary:active:not(:disabled){background:var(--sy-color-primary-active);transform:translateY(1px)}
+.sy-theme .sy-button--accent{background:var(--sy-color-accent);border-color:var(--sy-color-accent);color:var(--sy-color-ink)}
+.sy-theme .sy-button--accent:hover:not(:disabled){background:var(--sy-color-accent-hover)}
+.sy-theme .sy-button--secondary:hover:not(:disabled){background:var(--sy-color-surface-subtle)}
+.sy-theme .sy-button--danger{color:var(--sy-color-danger);border-color:var(--sy-color-danger)}
+.sy-theme .sy-button--danger:hover:not(:disabled){background:var(--sy-color-danger-surface)}
+.sy-theme .sy-button:active:not(:disabled){transform:translateY(1px)}
+.sy-theme .sy-button:disabled{background:var(--sy-color-disabled-surface);border-color:var(--sy-color-border);color:var(--sy-color-disabled-text);cursor:not-allowed;transform:none;box-shadow:none}
+.sy-theme .sy-button[aria-busy=true]::before{content:"";width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sy-spin .7s linear infinite}
+.sy-theme :is(.sy-button,.sy-input,.sy-select,.sy-tab,.sy-calendar button):focus-visible{outline:2px solid var(--sy-color-focus);outline-offset:2px;box-shadow:0 0 0 5px var(--sy-color-focus-halo)}
+.sy-theme .sy-field{display:grid;gap:8px;min-width:0}.sy-theme .sy-field>label{font-weight:600;font-size:14px}
+.sy-theme :is(.sy-input,.sy-select){box-sizing:border-box;max-width:100%;min-height:44px;border:1px solid var(--sy-color-control-border);border-radius:12px;padding:9px 12px;background:var(--sy-color-surface);color:var(--sy-color-ink);font:inherit;line-height:1.5}
+.sy-theme :is(.sy-input,.sy-select):disabled{background:var(--sy-color-disabled-surface);color:var(--sy-color-disabled-text);cursor:not-allowed}
+.sy-theme :is(.sy-input,.sy-select)[aria-invalid=true]{border-color:var(--sy-color-danger)}
+.sy-theme .sy-field-help{color:var(--sy-color-muted);font-size:12px}.sy-theme .sy-field-help[role=alert]{color:var(--sy-color-danger)}
+.sy-theme :is(input[type=checkbox],input[type=radio]){accent-color:var(--sy-color-primary)}
+.sy-theme .sy-tabs{display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--sy-color-border);padding:8px 0}
+.sy-theme .sy-tab{border:0;border-radius:999px;background:transparent;color:var(--sy-color-muted);min-height:44px;padding:8px 18px;font:inherit;cursor:pointer}
+.sy-theme .sy-tab:is([aria-selected=true],[aria-current=page],.active){background:var(--sy-color-primary);color:#fff}
+.sy-theme .sy-table{width:100%;border-collapse:collapse;text-align:left}.sy-theme .sy-table th{background:var(--sy-color-surface-subtle);color:var(--sy-color-ink);font-weight:600}
+.sy-theme .sy-table :is(td,th){padding:12px 16px;border-bottom:1px solid var(--sy-color-border)}
+.sy-theme .sy-table tbody tr:hover{background:#f2f7f3}.sy-theme .sy-table tbody tr[aria-selected=true]{background:var(--sy-color-surface-subtle)}
+.sy-theme .sy-pagination{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:16px 0}
+.sy-theme .sy-pagination [aria-current=page]{background:var(--sy-color-primary);color:#fff}
+.sy-theme .sy-empty{padding:32px 24px;text-align:center;color:var(--sy-color-muted);background:var(--sy-color-surface);border-radius:20px}
+.sy-theme :is(.sy-dialog,.sy-drawer){background:var(--sy-color-surface);color:var(--sy-color-ink);border:1px solid var(--sy-color-border);border-radius:24px;box-shadow:var(--sy-shadow);max-height:calc(100dvh - 32px);overflow:auto}
+.sy-theme .sy-badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 10px;background:var(--sy-color-surface-subtle);color:var(--sy-color-primary);font-size:12px}
+.sy-theme .sy-toast{background:var(--sy-color-surface);border:1px solid var(--sy-color-border);border-radius:16px;padding:12px 20px;box-shadow:var(--sy-shadow)}
+.sy-theme .sy-progress{accent-color:var(--sy-color-primary);border-radius:999px;overflow:hidden}
+.sy-theme .sy-skeleton{border-radius:8px;background:linear-gradient(90deg,#e8ede9,#f5f7f4,#e8ede9);background-size:200% 100%;animation:sy-shimmer 1.4s ease-in-out infinite}
+/* A customizable native select keeps its actual options, value and keyboard behavior. */
+@supports (appearance:base-select){
+ .sy-theme select:not([multiple]):not([size]),.sy-theme select:not([multiple]):not([size])::picker(select){appearance:base-select}
+ .sy-theme select::picker(select){border:1px solid var(--sy-color-control-border);border-radius:16px;padding:6px;background:var(--sy-color-surface);color:var(--sy-color-ink);box-shadow:var(--sy-shadow);max-height:320px;overflow:auto}
+ .sy-theme select option{border-radius:8px;padding:10px 12px;gap:10px;min-height:40px;box-sizing:border-box}
+ .sy-theme select option:checked{background:var(--sy-color-surface-subtle);color:var(--sy-color-primary);font-weight:600}
+ .sy-theme select option:hover{background:#f2f7f3}.sy-theme select option:disabled{color:var(--sy-color-disabled-text);background:var(--sy-color-disabled-surface)}
+ .sy-theme select::picker-icon{color:var(--sy-color-primary)}
+}
+.sy-theme input[type=date]{cursor:pointer}.sy-theme input[type=date]::-webkit-calendar-picker-indicator{opacity:.65;cursor:pointer}
+.sy-theme .sy-calendar{position:fixed;z-index:100100;box-sizing:border-box;width:min(320px,calc(100vw - 16px));padding:16px;border:1px solid var(--sy-color-control-border);border-radius:20px;background:var(--sy-color-surface);color:var(--sy-color-ink);box-shadow:var(--sy-shadow);font:14px/1.5 var(--sy-font);max-height:calc(100dvh - 16px);overflow:auto}
+.sy-theme .sy-calendar-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.sy-theme .sy-calendar-title{font-size:16px;font-weight:700}
+.sy-theme .sy-calendar button{box-sizing:border-box;font:inherit;border:0;border-radius:10px;min-width:36px;min-height:36px;padding:6px;background:transparent;color:var(--sy-color-ink);cursor:pointer}
+.sy-theme .sy-calendar button:hover:not(:disabled){background:var(--sy-color-surface-subtle)}.sy-theme .sy-calendar button:disabled{color:#9aa8a0;cursor:not-allowed}
+.sy-theme .sy-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;text-align:center}.sy-theme .sy-calendar-weekday{color:var(--sy-color-muted);font-size:12px;padding:6px 0}
+.sy-theme .sy-calendar button[aria-pressed=true]{background:var(--sy-color-primary);color:#fff}.sy-theme .sy-calendar button[data-outside=true]:not([aria-pressed=true]){color:var(--sy-color-muted)}
+.sy-theme .sy-calendar-footer{display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--sy-color-border);margin-top:8px;padding-top:8px}
+@keyframes sy-spin{to{transform:rotate(360deg)}}@keyframes sy-shimmer{to{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.sy-theme :is(.sy-button,.sy-tab){transition:none}.sy-theme .sy-button[aria-busy=true]::before,.sy-theme .sy-skeleton{animation:none}}

@@ -295,13 +295,17 @@ function modal({ title, body, wide, okText = '保存', onOk, onMount }) {
   };
   if (onOk) wrap.querySelector('#mOk').onclick = async () => {
     if (saving) return; saving = true;
-    const controls = [wrap.querySelector('#mOk'), wrap.querySelector('#mCancel'), wrap.querySelector('.close-x')].filter(Boolean);
+    const saveButton = wrap.querySelector('#mOk');
+    const saveLabel = saveButton.innerHTML;
+    const controls = [saveButton, wrap.querySelector('#mCancel'), wrap.querySelector('.close-x')].filter(Boolean);
+    saveButton.setAttribute('aria-busy', 'true');
+    saveButton.innerHTML = '<span class="spinner" aria-hidden="true"></span> ' + (String(okText).includes('保存') ? '保存中…' : '处理中…');
     controls.forEach(el=>{el.disabled=true;});wrap.querySelector('[role="dialog"]').setAttribute('aria-busy','true');
     try {
       const r = await onOk(wrap, showErr);
       if (r !== false) { saving = false; close(); }
     } catch (e) { showErr(e.message || '保存失败，请重试'); }
-    finally { saving = false; if(wrap.isConnected){controls.forEach(el=>{el.disabled=false;});wrap.querySelector('[role="dialog"]').removeAttribute('aria-busy');} }
+    finally { saving = false; if(wrap.isConnected){controls.forEach(el=>{el.disabled=false;});saveButton.innerHTML=saveLabel;saveButton.removeAttribute('aria-busy');wrap.querySelector('[role="dialog"]').removeAttribute('aria-busy');} }
   };
   if (onMount) { try { const mounting = onMount(wrap, showErr); if(mounting && mounting.catch)mounting.catch(e=>showErr(e.message || '表单加载失败')); } catch(e) { showErr(e.message || '表单加载失败，请重试'); } }
   if (typeof r10Enhance === 'function') r10Enhance(wrap);
@@ -734,7 +738,7 @@ async function viewDash() {
   ];
   const quick = [['students','student','学生管理'],['mfq','doc','题库管理'],['pending','list','待审核题目'],['paper','book','智能组卷'],['videos','video','视频管理'],['xreport','chart','学习报告']];
   return { html: `<section class="r10-dash rounded-dash">
-    <div class="rounded-dash-heading"><h1>教学工作台</h1><p>把题目录入、课堂练习和学习反馈连起来。</p></div>
+    <div class="rounded-dash-heading"><h1>教学工作台</h1></div>
     <div class="rounded-dash-top">
       <section class="rounded-dash-hero"><div class="rounded-hero-copy"><p class="rounded-eyebrow">录题 <span aria-hidden="true">→</span> 审核 <span aria-hidden="true">→</span> 入库</p><h2>从待审核题目开始</h2><p>逐题核对题干、答案和分类，确认后再入库。</p><button type="button" class="rounded-amber" data-go="pending">进入审核 ${ic('arrow-right')}</button></div><img src="/img/ui-rounded-admin-hero-20261108.png" alt="" width="260" height="260" class="rounded-admin-art"></section>
       <section class="rounded-quick-card"><h2>${ic('dashboard')} 常用操作</h2><div>${[['intake','upload','导入题目'],['paper','doc','创建试卷'],['videos','video','管理课程']].map(([go,icon,label])=>`<button type="button" data-go="${go}">${ic(icon)}<span>${label}</span>${ic('arrow-right')}</button>`).join('')}</div></section>
@@ -1983,7 +1987,7 @@ function r10EmbeddedApp(kind, initial) {
         try {
           const doc = frame.contentDocument;
           const style = doc.createElement('style');
-          style.textContent = grades ? '.topbar,.sidebar{display:none!important}.layout{display:block!important}.main{margin:0!important;width:auto!important;max-width:none!important;padding:16px!important}body{background:#f6f8fc!important}' : '.topbar{display:none!important}.content{padding:16px!important}body{background:#f6f8fc!important}';
+          style.textContent = grades ? '.topbar,.sidebar{display:none!important}.layout{display:block!important}.main{margin:0!important;width:auto!important;max-width:none!important;padding:16px!important}' : '.topbar{display:none!important}.content{padding:16px!important}';
           doc.head.appendChild(style);
           const sync = () => highlight(frame.contentWindow.location.hash.replace(/^#\//,'').split('?')[0] || initial);
           frame.contentWindow.addEventListener('hashchange', sync); sync();
