@@ -23,3 +23,37 @@ test('all four shared button variants declare hover feedback and enabled-only pr
  const disabled=rules.find(rule=>rule.selectorText==='.sy-theme .sy-button:disabled');assert.equal(disabled.style.getPropertyValue('transform'),'none');assert.equal(disabled.style.getPropertyValue('box-shadow'),'none');
  }finally{dom.window.close();}
 });
+
+// jsdom does not consistently implement specificity/!important. Resolve this
+// regression's matching radius declarations explicitly, including :is/:not.
+function selectorList(source){
+ const out=[];let start=0,depth=0;
+ for(let i=0;i<source.length;i++){if(source[i]==='('||source[i]==='[')depth++;if(source[i]===')'||source[i]===']')depth--;if(source[i]===','&&!depth){out.push(source.slice(start,i).trim());start=i+1;}}
+ out.push(source.slice(start).trim());return out;
+}
+function compareSpecificity(a,b){return a[0]-b[0]||a[1]-b[1]||a[2]-b[2];}
+function specificity(selector){
+ let value=[0,0,0],s=selector,match;
+ while((match=/:((?:is|not|has|where))\(/.exec(s))){
+  let end=match.index+match[0].length,depth=1;for(;end<s.length&&depth;end++){if(s[end]==='(')depth++;if(s[end]===')')depth--;}
+  assert.equal(depth,0,'balanced selector');
+  if(match[1]!=='where'){const best=selectorList(s.slice(match.index+match[0].length,end-1)).map(specificity).sort(compareSpecificity).pop();value=value.map((n,i)=>n+best[i]);}
+  s=s.slice(0,match.index)+s.slice(end);
+ }
+ s=s.replace(/\[[^\]]*\]/g,()=>{value[1]++;return '';}).replace(/::[\w-]+/g,()=>{value[2]++;return '';}).replace(/#[\w-]+/g,()=>{value[0]++;return '';}).replace(/[.:][\w-]+/g,()=>{value[1]++;return '';});
+ assert.doesNotMatch(s,/[()]/,'extend this narrow cascade helper before using other functional selectors');
+ value[2]+=(s.match(/(?:^|[\s>+~])[a-zA-Z][\w-]*/g)||[]).length;return value;
+}
+test('admin input corners remain 12px under the actual legacy specificity and important rules',()=>{
+ const path=require('node:path'),entry=new JSDOM(fs.readFileSync('public/admin/index.html','utf8'));
+ const vc=new VirtualConsole(),dom=new JSDOM('<body class="t11 sy-theme sy-core"><div class="admin-app ui-rounded-shell"><input class="input" type="text"><input type="search"><select></select><textarea></textarea><div class="ui-review-shell"><div class="pd-class-fields"><input class="input" type="text"></div></div></div></body>',{virtualConsole:vc});
+ try{
+ for(const link of entry.window.document.querySelectorAll('link[rel=stylesheet]')){const style=dom.window.document.createElement('style');style.textContent=fs.readFileSync(path.resolve('public/admin',link.getAttribute('href').split('?')[0]),'utf8');dom.window.document.head.append(style);}
+ const rules=[];function collect(list){for(const rule of list){if(rule.selectorText&&rule.style.getPropertyValue('border-radius'))rules.push(rule);else if(rule.cssRules)collect(rule.cssRules);}}for(const sheet of dom.window.document.styleSheets)collect(sheet.cssRules);
+ for(const control of dom.window.document.querySelectorAll('input,select,textarea')){
+  const candidates=[];for(const [index,rule] of rules.entries())for(const selector of selectorList(rule.selectorText)){let matches=false;try{matches=control.matches(selector);}catch{}if(matches)candidates.push({index,selector,spec:specificity(selector),important:rule.style.getPropertyPriority('border-radius')==='important'?1:0,radius:rule.style.getPropertyValue('border-radius')});}
+  candidates.sort((a,b)=>a.important-b.important||compareSpecificity(a.spec,b.spec)||a.index-b.index);const winner=candidates.at(-1);
+  assert.ok(candidates.some(c=>c.radius==='13px'),'fixture must include the conflicting legacy input radius');assert.equal(winner.radius,'12px',control.outerHTML+' winner: '+winner.selector);
+ }
+ }finally{entry.window.close();dom.window.close();}
+});

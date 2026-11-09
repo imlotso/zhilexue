@@ -348,7 +348,7 @@ const fileForm = (fields, fileName, content) => {
     // T11：后台统一主题（theme.css 在 admin 页面里最后加载，body 带 t11 类）
     const admHtml = await (await fetch(BASE + '/admin/')).text();
     const themeCss = await fetch(BASE + '/admin/theme.css');
-    log(/<body class="t11">/.test(admHtml) && /theme\.css/.test(admHtml) && themeCss.status === 200 && (await themeCss.text()).includes('--t11-primary'), '后台统一主题：theme.css 随后台页面加载，body 带 t11 类');
+    log(((admHtml.match(/<body\b[^>]*class="([^"]*)"/) || [])[1] || '').split(/\s+/).includes('t11') && /theme\.css/.test(admHtml) && themeCss.status === 200 && (await themeCss.text()).includes('--t11-primary'), '后台统一主题：theme.css 随后台页面加载，body 带 t11 类');
     // T13：单词页固定布局的静态资源（卡片类名、缩字号脚本都要随页面一起发出去）
     const idxHtml = await (await fetch(BASE + '/')).text();
     const wordsJs = await (await fetch(BASE + '/js/words.js')).text();

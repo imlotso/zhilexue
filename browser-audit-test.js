@@ -209,9 +209,9 @@ const frac = String.raw`\frac{1}{2}+\sqrt{x_1^2}`;
     assert.ok(await p.locator('.r4-review-row').count(), 'new imported batch visible immediately');
   });
   await test('UI03-words-selection', async (open) => {
-    const p = await open('student');
-    await p.waitForFunction(() => window.__stuVm && !window.__stuVm.loading && window.__stuVm.page === 'courses');
-    await p.evaluate(() => location.hash = '#/words/quick'); await p.locator('[data-wu=""]').waitFor();
+    const p = await open('student', '#/words/quick');
+    await p.waitForFunction(() => window.__stuVm && !window.__stuVm.loading && window.__stuVm.page === 'words');
+    await p.locator('[data-wu=""]').waitFor();
     assert.equal(await p.locator('[data-wu=""].on').count(), 0, 'all units is not selected initially');
     await p.locator('[data-wu]').nth(1).click(); await p.locator('#wtGroups .wt-grp').first().waitFor();
     assert.equal(await p.locator('#wtGroups .wt-grp.on').count(), 0, 'no group is selected until clicked');

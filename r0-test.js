@@ -169,7 +169,7 @@ function cleanup() {
     // ---- B8：待审核单题入库弹分类框 ----
     await ap.evaluate(() => { ADM.page.pd = { source: 'all', kw: 'R0浏览器测试待审核', sel: {} }; ADM.page.pdPage = 1; location.hash = '#/pending'; render(); });
     await ap.waitForSelector('.pd-item', { timeout: 8000 });
-    await ap.click('.pd-item [data-act="commit"]');
+    await ap.click('#pd-current-commit');
     await ap.waitForSelector('#pdB-sub', { timeout: 4000 });
     const dlgTxt = await ap.$eval('.el-dialog', (e) => e.innerText);
     const hasTree = await ap.$$eval('#pdB-stage, #pdB-grade, #pdB-ktree, #pdB-ctree', (a) => a.length);

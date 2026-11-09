@@ -172,6 +172,11 @@ const App = {
       const c = this.course;
       return !c ? [] : c.grouped ? (c.groups || []).map(g => ({ ...g, lessons: g.lessons || [] })) : [{ id: 'course', name: c.name, lessons: c.lessons || [] }];
     },
+    courseProgress() {
+      const c = this.course;
+      if (!c || !Number.isFinite(c.kp_done) || !Number.isFinite(c.kp_total) || c.kp_done < 0 || c.kp_total <= 0) return null;
+      return Math.min(100, Math.round(c.kp_done / c.kp_total * 100));
+    },
     focusLesson() {
       const all = this.courseDisplayGroups.flatMap(g => g.lessons);
       return all.find(l => l.video_id === this.selectedLessonId) || all.find(l => this.course.next && l.video_id === this.course.next.video_id) || all[0] || null;
@@ -1095,7 +1100,7 @@ const App = {
               </template>
             </section>
             <div v-if="!courseDisplayGroups.length" class="ch-empty">暂无知识点</div>
-            <div class="round-course-summary"><i class="ai ai-chart"></i><div><span>已学 {{course.kp_done}} / {{course.kp_total}} 课</span><div class="r8-hs" :class="accCls(course.acc)"><span>课程正确率 {{course.acc&&course.acc.total ? (course.acc.rate===null ? '未作答' : course.acc.rate+'%') : '—'}}</span><em>{{ course.acc && course.acc.total ? '已做 ' + course.acc.answered + ' / ' + course.acc.total + ' 题' : '暂无可自动判分的习题' }}</em></div></div></div>
+            <div class="round-course-summary"><i class="ai ai-chart"></i><div><span>已学 {{course.kp_done}} / {{course.kp_total}} 课</span><div class="round-course-progress"><template v-if="courseProgress!==null">课程完成 <b>{{courseProgress}}%</b></template><template v-else>暂无课程进度</template></div><div class="r8-hs" :class="accCls(course.acc)"><span>课程正确率 {{course.acc&&course.acc.total ? (course.acc.rate===null ? '未作答' : course.acc.rate+'%') : '—'}}</span><em>{{ course.acc && course.acc.total ? '已做 ' + course.acc.answered + ' / ' + course.acc.total + ' 题' : '暂无可自动判分的习题' }}</em></div></div></div>
           </aside>
         </div>
       </template>

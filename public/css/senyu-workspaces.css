@@ -39,6 +39,8 @@ body.t11.sy-core :is(.admin-app,.modal,.el-dialog) .btn.danger,body.sy-core .btn
 body.t11.sy-core :is(.admin-app,.modal,.el-dialog) .btn:disabled,body.sy-core .btn:disabled{background:var(--sy-color-disabled-surface);color:var(--sy-color-disabled-text);border-color:var(--sy-color-border);opacity:1;cursor:not-allowed}
 body.sy-core :is(.input,.inp,.el-input__inner,.el-textarea__inner),body.t11.sy-core :is(.admin-app,.modal,.el-dialog) :is(select,textarea,input[type=text],input[type=search],input[type=date],input[type=number],input[type=password],input[type=tel]){font-family:var(--sy-font);font-size:14px;min-height:44px;border:1px solid var(--sy-color-control-border);border-radius:12px;background:var(--sy-color-surface);color:var(--sy-color-ink);padding:9px 12px;box-sizing:border-box;max-width:100%}
 body.sy-core :is(.field,.el-form-item) label{color:var(--sy-color-ink);font-size:14px;font-weight:600}
+/* Outrank the legacy rounded-shell input:not(...) radius without a blanket important reset. */
+body.t11.sy-core .admin-app.ui-rounded-shell .input,body.t11.sy-core .admin-app.ui-rounded-shell input:not([type=checkbox]):not([type=radio]):not([type=file]),body.t11.sy-core .admin-app.ui-rounded-shell select,body.t11.sy-core .admin-app.ui-rounded-shell textarea{border-radius:12px}
 body.sy-core :is(.input,.inp,.el-input__inner,.el-textarea__inner):disabled{background:var(--sy-color-disabled-surface);color:var(--sy-color-disabled-text)}
 body.sy-core :is(.input,.inp)[aria-invalid=true],body.sy-core .el-form-item.is-error :is(.el-input__inner,.el-textarea__inner){border-color:var(--sy-color-danger)}
 body.sy-core :is(.field-error,.el-form-item__error,.t8-err){color:var(--sy-color-danger)}
@@ -152,7 +154,7 @@ body.t11.sy-core .ui-review-shell .pd-workspace{background:var(--sy-color-canvas
 body.t11.sy-core .ui-review-shell .pd-batch-picker,body.t11.sy-core .ui-review-shell .pd-source-label select{border-color:var(--sy-color-control-border)!important;border-radius:12px!important}
 body.t11.sy-core .pd-workspace .r4-review-row.on{background:var(--sy-color-surface-subtle);border-left-color:var(--sy-color-primary)}
 body.t11.sy-core .pd-preview-heading h3{background:var(--sy-color-primary)}
-body.t11.sy-core .ui-review-shell .pd-class-fields .input{border-color:var(--sy-color-control-border)}
+body.t11.sy-core .ui-review-shell .pd-class-fields .input{border-color:var(--sy-color-control-border);border-radius:12px!important}
 body.t11.sy-core .pd-workspace .r4-review-row :is(.pd-row-source,small),body.t11.sy-core .pd-preview-source{font-size:12px}
 body.t11.sy-core .pd-workspace .pd-stem{font-size:18px;color:var(--sy-color-ink)}
 body.t11.sy-core .pd-classification h3,body.t11.sy-core .pd-list-heading h3{font-size:20px;color:var(--sy-color-ink)}

@@ -247,13 +247,21 @@ function cleanup() {
     try {
       const pg = await open(1440, 900);
       cd = (await req(`/api/stu/course-detail?id=${ch}`, { token: TA })).data;
+      const summary = await pg.$eval('.round-course-summary', (e) => e.innerText.replace(/\s+/g, ' '));
       const hero = await pg.$eval('.r8-hero', (e) => e.innerText.replace(/\s+/g, ' '));
-      log(hero.includes(`${cd.kp_done} / ${cd.kp_total}`) && hero.includes(cd.acc.rate + '%') && hero.includes(`已做 ${cd.acc.answered} / ${cd.acc.total} 题`) && hero.includes(cd.percent + '%') && hero.includes(cd.next.title),
-      '课程页顶部卡片：知识点掌握 X / Y、习题正确率、学习进度、即将学习 都和接口一致', hero.slice(0, 120));
-      const bb = await pg.$eval('.st-backbar .bb-prog', (e) => e.innerText.replace(/\s+/g, ' '));
-      log(/进度/.test(bb) && bb.includes('正确率') && bb.includes(cd.acc.rate + '%'), '右上角进度区同时显示进度和正确率', bb);
-      const side = await pg.$$eval('.r8-gside', (a) => a.map((x) => x.innerText.replace(/\s+/g, ' ')));
-      log(side.some((t) => t.includes('小分组练习（5 题）') && t.includes('60%')), '左侧小分组卡显示「已学 a/b · 正确率」和「小分组练习（N 题）」', side[0]);
+      log(summary.includes(`${cd.kp_done} / ${cd.kp_total}`) && summary.includes(cd.acc.rate + '%') && summary.includes(`已做 ${cd.acc.answered} / ${cd.acc.total} 题`) && hero.includes(cd.next.title),
+        '课程汇总的已学/总数、正确率、做题数和当前视频与接口一致', summary + ' | ' + hero);
+      const progress = await pg.locator('.round-course-summary .round-course-progress').innerText();
+      log(progress.includes(cd.percent + '%'), '课程汇总同时显示学习进度百分比和正确率', progress + ' | ' + summary);
+      const group = pg.locator('.round-course-group').filter({ has: pg.locator('.round-group-title', { hasText: TAG + '小分组A' }) });
+      await group.locator('.round-group-title').click();
+      log((await group.locator('.round-group-actions').innerText()).includes('60%'), '小分组A显示60%正确率');
+      await group.getByRole('button', { name: '分组练习', exact: true }).click();
+      await pg.waitForSelector('#qzDots .qz-dot');
+      log(await pg.locator('#qzDots .qz-dot').count() === 5, '分组练习入口打开完整的5道题');
+      await pg.click('#qzClose');
+      // The redesigned page shows tags for the selected video, not every video at once.
+      await group.locator('.round-lesson-select').filter({ hasText: TAG + '视频一' }).click();
       const tags = await pg.$$eval('.r8-ktag', (a) => a.map((x) => x.textContent.trim()));
       log(tags.length >= 2, '视频卡显示关联的知识点标签', tags.join('、'));
       await pg.click('.r8-ktag'); await pg.waitForSelector('.r8-nm', { timeout: 4000 });
@@ -261,7 +269,7 @@ function cleanup() {
       await pg.click('.r8-nm .close-x');
 
       // 做题弹窗：视频一的练习（2 题：带图单选 + 填空）
-      await pg.click('.kp-box:first-child .kb-quiz'); await pg.waitForSelector('.r8-qz .r0-qimg', { timeout: 8000 });
+      await group.getByRole('button', { name: '练习' + TAG + '视频一', exact: true }).click(); await pg.waitForSelector('.r8-qz .r0-qimg', { timeout: 8000 });
       await pg.waitForFunction(() => { const i = document.querySelector('.r0-qimg'); return i && i.complete && i.naturalWidth > 0; }, null, { timeout: 8000 });
       const imgW = await pg.$eval('.r0-qimg', (i) => i.getBoundingClientRect().width);
       log(imgW >= 320, '700×500 的题图在做题弹窗里显示宽度 ≥ 320px', imgW.toFixed(0) + 'px');
@@ -316,7 +324,9 @@ function cleanup() {
 
       // 手机 390：顶栏不换行、AI 浮层为底部抽屉
       const mp = await open(390, 844);
-      await mp.click('.kp-box:first-child .kb-quiz'); await mp.waitForSelector('.r8-qz', { timeout: 8000 }); await mp.waitForTimeout(500);
+      const mobileGroup = mp.locator('.round-course-group').filter({ has: mp.locator('.round-group-title', { hasText: TAG + '小分组A' }) });
+      await mobileGroup.locator('.round-group-title').click();
+      await mobileGroup.getByRole('button', { name: '练习' + TAG + '视频一', exact: true }).click(); await mp.waitForSelector('.r8-qz', { timeout: 8000 }); await mp.waitForTimeout(500);
       const head = await mp.evaluate(() => { const h = document.querySelector('.r8-qz-h'); const t = h.querySelector('.quiz-h-t b'); return { h: h.getBoundingClientRect().height, lh: parseFloat(getComputedStyle(t).lineHeight) || 24, th: t.getBoundingClientRect().height }; });
       log(head.h <= 64 && head.th <= head.lh * 1.3, '手机：做题弹窗顶栏一行不换行（标题省略号）', JSON.stringify(head));
       await mp.click('.qz-opt >> nth=1'); await mp.click('#qzCheckOne'); await mp.waitForSelector('.r8-fb', { timeout: 5000 });

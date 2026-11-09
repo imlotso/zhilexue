@@ -23,11 +23,11 @@
 
 本轮使用真实生产组件函数、真实 Vue 抽屉模板/方法和真实入口 CSS；账号、API 返回和节点仅为合成输入，不访问生产资源。
 
-- 当前整合 `npm run test:senyu:unit`：**60/60 通过**，包括共享日期、实际弹窗/树/答题行为、三页、父子 iframe 桥接、学生导航和主题检查。
-- 联合定向矩阵：**240/240 通过**，无跳过；包含上述 60 项，不能把两个数字相加。覆盖旧圆润/概念契约、页面生命周期、错题动作、复习日期、教师/手动录题草稿及审核筛选等保留行为。
+- 当前整合 `npm run test:senyu:unit`：**64/64 通过**，包括共享日期、实际弹窗/树/答题行为、三页、父子 iframe 桥接、学生导航和主题检查。
+- 联合定向矩阵：**244/244 通过**，无跳过；包含上述 64 项，不能把两个数字相加。覆盖旧圆润/概念契约、页面生命周期、错题动作、复习日期、教师/手动录题草稿及审核筛选等保留行为。
 - 全部七份森屿 CSS 能被 CSSOM 解析，所有共享令牌引用均有定义；批准色与主要文字色对的对比度检查通过。
 - iframe 回归执行生产父级桥接、读取真实两页 HTML，覆盖独立主题入口、父→子 hash、子→父高亮、子窗口 history back/forward、重新进入和校区/打印按钮点击代理。**不执行子应用脚本，不证明路由页面内容、打印结果或真实 iframe 布局。**
-- 修改 JS 的语法检查与 CRLF-aware 差异空白检查通过。六个入口 129 个本地资源引用均存在。后台及三页 11 个本轮已改脚本更新缓存 URL；学生脚本随导航补丁更新，未改脚本的版本不动。后端/配置/数据目录差异为空。
+- 修改 JS 的语法检查与 CRLF-aware 差异空白检查通过。六个入口 130 个静态本地资源引用（脚本/样式/图像）均存在。后台及三页 11 个本轮已改脚本更新缓存 URL；学生脚本随导航补丁更新，未改脚本的版本不动。后端/配置/数据目录差异为空。
 - jsdom 固定为 26.1.0 开发依赖。250 项既有生产 lock 记录完全未变，已有包锁定版本变化为 0；新 ws 仅位于 jsdom 开发子树，根生产 ws 仍为 8.17.1。`npm ci --dry-run --ignore-scripts` 已通过，没有执行安装脚本。
 
 完整定向矩阵复现命令（正常 npm ci 后无需外部 NODE_PATH）：
@@ -35,7 +35,7 @@
 ```sh
 node --test senyu-controls-test.js senyu-workspaces-test.js senyu-behavior-test.js \
   senyu-theme-test.js senyu-three-pages-dom-test.js senyu-iframe-test.js \
-  senyu-student-navigation-test.js astra-care-store-test.js astra-care-audio-ui-test.js \
+  senyu-student-navigation-test.js senyu-course-progress-test.js astra-care-store-test.js astra-care-audio-ui-test.js \
   astra-ui-rounded-student-test.js rounded-shell-test.js rounded-quiz-test.js \
   ui-rounded-admin-pages-test.js astra-ui-learning-space-test.js ui-review-concept-test.js \
   astra-page-api-lifecycle-test.js astra-mistake-action-lifecycle-test.js \
@@ -65,7 +65,7 @@ node --test senyu-controls-test.js senyu-workspaces-test.js senyu-behavior-test.
 - `npm run test:senyu:browser` 已纳入共享控件、三页、真实后台外壳、实际 BankQuiz、学生导航和 MathLive 的合成前端测试。既有浏览器夹具已加载本次主题，不是继续检查旧颜色。
 - 仍需在独立获准环境逐项截图检查：1440/1024/390px、200% 缩放、默认/展开/激活/禁用/等待/空/错误、长题干/长表单、公式分类键与手机底行、选择/日期菜单、双树、报告/导出/组卷、三页 iframe 和导航焦点。
 - DOM/CSS 测试不证明真实几何、默认 Tab 顺序、字体、Shadow DOM 键盘、音视频播放或下载文档排版。原生可定制 select 的跨浏览器兼容性仍待实测。
-- 未执行完整 CI、真实 MySQL/API 端到端或远端 Actions。已按交付要求整合仅含测试修正的 `51ca3b` 为 `aefd427`，不改变生产逻辑；这不代表其余完整 CI 已通过。不能把定向通过写作全站验收完成。
+- 首次远端 Actions [42564804645](https://github.com/imlotso/zhilexue/actions/runs/42564804645) 已执行：unit 成功（Node20，新UI60/60），API job 失败。原错题测试已通过，仍失败的是 smoke、formula、theme、r0、r8、r1 和 browser-audit 七个脚本。后续修复见下节，新的完整CI尚待对应提交运行，不能把定向通过写作全站验收完成。本机未运行连接真实数据库的测试。
 
 ## CI 接入与交付
 
@@ -74,3 +74,13 @@ node --test senyu-controls-test.js senyu-workspaces-test.js senyu-behavior-test.
 CI unit job现在在 `npm ci` 后、浏览器安装前执行 `npm run test:senyu:unit`。新UI60项独立通过，工作流YAML/顺序与安全隔离检查通过；锁定jsdom26.1.0支持Node>=18，兼容CI既有Node20要求，锁文件script-free dry-run通过。本机实际定向运行使用Node24；远端Node20运行结果以对应CI记录为准。
 
 仓库交付使用已有GitHub连接，在 `imlotso/zhilexue` 的独立分支提交完整内容快照。该接口不能保留本地作者时间和提交SHA，因此远端为新的整合提交，本地逐步历史保留；发布前后核对完整Git tree相等，不传输未修改的配置/凭据文件。该交付不代表浏览器已验收或允许合并main。
+
+
+## 远端 CI 后续修复（2026-11-09）
+
+- 课程右侧已有已学/总数、正确率与整课做题数，实际缺失的是完成百分比。补回 `.round-course-progress`，根据真实计数显示完成百分比，播放完成后的 `recount()` 同步更新；总数为0或数据无效时显示暂无进度，不伪造百分比。三个真实Vue回归先失败后通过。
+- 实际后台输入框被旧 rounded-shell 的 `input:not(...)` 高优先级普通规则覆盖成13px；审核分类区另有13px重要规则。最小作用域覆盖为批准的12px，没有整体提高所有控件的重要性。新增测试读取完整后台CSS，核对匹配选择器的重要性和优先级，先复现13px再通过12px。jsdom级联核对不代替浏览器几何。
+- 整合七个既有API/浏览器脚本的过时定位与主题断言修正。保留真实公式键盘、答案值、分类对话框、课程/分组统计与练习、学生报告以及词书选择断言，不跳过功能。公式值只取真实答案框，避免把独立AI提问框的空值拼入答案。r8百分比断言限定进度区域，避免与正确率偶然相同而误过。
+- 当前新增UI套件64/64、联合矩阵244/244、修改脚本语法和差异空白检查通过。新增四项包含在244项内，未重复计数；本轮锁文件与依赖未改。先前完整CI的失败状态保留，新的远端结果以提交对应的Actions记录为准。
+
+本轮独立复核未发现P0/P1/P2；独立重跑新UI64/64与theme无数据库静态块20/20通过，撤去任一12px覆盖均能使对应级联回归失败。完整API/浏览器结果仍待远端运行，不把此审查作为视觉通过。
