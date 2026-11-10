@@ -236,7 +236,7 @@ async function viewPending() {
   const html = `
   <section class="pd-workspace">
     <header class="pd-workspace-heading"><div><h2>待审核题目</h2><p>先核对，再入库，让每道题都有清晰来源</p></div>
-      <ol class="pd-workflow" aria-label="录题进度"><li class="done"><span>${ic('check')}</span>上传资料</li><li class="current" aria-current="step"><span>2</span>逐题核对</li><li><span>3</span>确认入库</li></ol>
+      <ol class="pd-workflow" aria-label="录题进度"><li class="done"><span>${ic('check')}</span>上传资料</li><li class="current" aria-current="step"><span>2</span>AI核对</li><li><span>3</span>确认入库</li></ol>
     </header>
     <div class="pd-filter-area">
       <div class="pd-filter-row">
