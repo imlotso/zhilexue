@@ -237,6 +237,31 @@ if(require.main===module && process.argv.includes('--browser')) {
 }
 
 if(require.main===module && process.argv.includes('--browser')) {
+ test('ten toolbar actions collapse together and remain usable across screen widths',async()=>{
+  const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',args:['--no-sandbox']});
+  const groups=[['pd-bedit','pd-bcommit','pd-bmerge','pd-bclassify','pd-bdel'],['pd-breview','pd-bapply-stem','pd-bapply-answer','pd-bai','pd-bfill-review']];
+  try{for(const width of [1440,390,320]){
+   const page=await browser.newPage({viewport:{width,height:width===1440?1058:844}});
+   try{
+    const requests=[];await page.route('**/*',r=>{requests.push(r.request().url());return r.abort()});await page.setContent(buildFixture());await page.waitForFunction(()=>window.fixtureReady);
+    for(const id of groups.flat())assert.equal(await page.locator('#'+id).isVisible(),false,id+' starts collapsed');
+    await page.locator('.pd-advanced>summary').click();assert.equal(await page.locator('.pd-advanced').evaluate(e=>e.open),true);
+    for(const [i,ids] of groups.entries())for(const id of ids){const button=page.locator('#'+id);assert.equal(await button.isVisible(),true,id);assert.equal(await button.evaluate((e,group)=>e.closest('[data-pd-tool-group]').dataset.pdToolGroup===group,i?'ai':'batch'),true);}
+    const geometry=await page.evaluate(()=>{const details=document.querySelector('.pd-advanced').getBoundingClientRect();return {overflow:document.documentElement.scrollWidth-innerWidth,items:[...document.querySelectorAll('[data-pd-tool-group] button')].map(e=>{const b=e.getBoundingClientRect(),p=e.closest('[data-pd-tool-group]').getBoundingClientRect();return {id:e.id,left:b.left,right:b.right,top:b.top,bottom:b.bottom,groupLeft:p.left,groupRight:p.right,detailsBottom:details.bottom}})}});
+    assert(geometry.overflow<=1,JSON.stringify(geometry));assert(geometry.items.every(b=>b.left>=b.groupLeft-1&&b.right<=b.groupRight+1&&b.bottom<=b.detailsBottom+1),JSON.stringify(geometry));
+    await page.locator('#pd-all').check();assert.match(await page.locator('#pd-selcnt').innerText(),/已选 12 题/);assert.match(await page.locator('#pd-tool-selection').innerText(),/已选 12 题/);
+    for(const id of groups.flat())assert.equal(await page.locator('#'+id).isEnabled(),true,id+' retains selected state');
+    if(width===1440){await page.locator('.pd-advanced>summary').scrollIntoViewIfNeeded();await page.screenshot({path:'/home/bobo/Documents/Codex/2026-11-10/task-2/toolbar-expanded-desktop.png'});}
+    if(width===390)await page.locator('.pd-filter-area').screenshot({path:'/home/bobo/Documents/Codex/2026-11-10/task-2/toolbar-expanded-mobile.png'});
+    await page.locator('.pd-advanced>summary').click();for(const id of groups.flat())assert.equal(await page.locator('#'+id).isVisible(),false);
+    assert.equal(await page.locator('[data-review-row] input:checked').count(),12);assert.match(await page.locator('#pd-tool-selection').innerText(),/已选 12 题/);
+    await page.locator('.pd-advanced>summary').click();assert.equal(await page.locator('#pd-all').isChecked(),true);assert.deepEqual(requests,[]);
+   }finally{await page.close()}
+  }}finally{await browser.close()}
+ });
+}
+
+if(require.main===module && process.argv.includes('--browser')) {
  test('no-change review and blocker guidance work in desktop and mobile browser',async()=>{
   const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',args:['--no-sandbox']});
   try{for(const width of [1440,390]){

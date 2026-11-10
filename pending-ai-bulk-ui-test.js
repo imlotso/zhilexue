@@ -28,6 +28,23 @@ async function pendingPage(t){
 }
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 
+test('all ten requested actions are inside the disclosure in two ordered groups with selection intact',async t=>{
+ const f=await pendingPage(t),details=f.document.querySelector('.pd-advanced');
+ const groups=[['pd-bedit','pd-bcommit','pd-bmerge','pd-bclassify','pd-bdel'],['pd-breview','pd-bapply-stem','pd-bapply-answer','pd-bai','pd-bfill-review']];
+ assert.equal(details.open,false);
+ for(const [i,ids] of groups.entries())for(const id of ids){const b=f.document.getElementById(id);assert.ok(details.contains(b),id);assert.equal(b.closest('[data-pd-tool-group]').dataset.pdToolGroup,i===0?'batch':'ai');assert.equal(typeof b.onclick,'function',id);}
+ details.open=true;f.document.querySelector('#pd-all').click();assert.match(f.document.querySelector('#pd-selcnt').textContent,/已选 3 题/);assert.match(f.document.querySelector('#pd-tool-selection').textContent,/已选 3 题/);
+ details.open=false;assert.equal(f.document.querySelectorAll('[data-review-row] input:checked').length,3);details.open=true;assert.equal(f.document.querySelector('#pd-all').checked,true);
+});
+test('rearranged toolbar actions still dispatch to their original handlers for selected questions',async t=>{
+ const f=await pendingPage(t),calls=[];f.document.querySelectorAll('[data-review-row] input')[0].click();f.document.querySelectorAll('[data-review-row] input')[1].click();
+ f.ctx.pdBulkEdit=(ids,_by,_notes,field)=>calls.push(['bulk',field||'edit',ids.length]);f.ctx.pdAiReview=ids=>calls.push(['review',ids.length]);
+ f.ctx.pdBatchCommit=ids=>calls.push(['commit',ids.length]);f.ctx.pdAiClassify=ids=>calls.push(['classify',ids.length]);f.ctx.pdAiFill=ids=>calls.push(['fill',ids.length]);
+ f.ctx.elConfirm=async x=>{calls.push(['confirm',x.title]);return false};
+ for(const id of ['pd-bedit','pd-bcommit','pd-bmerge','pd-bclassify','pd-bdel','pd-breview','pd-bapply-stem','pd-bapply-answer','pd-bai','pd-bfill-review']){f.document.getElementById(id).click();await settle();}
+ assert.deepEqual(calls,[['bulk','edit',2],['commit',2],['confirm','合并两段跨页题'],['classify',2],['confirm','批量删除'],['review',2],['bulk','stem',2],['bulk','answer',2],['fill',2],['bulk','supplement',2]]);assert.equal(f.calls.length,0);
+});
+
 test('double clicking the real single-question AI review sends one request and shows a busy button without importing',async t=>{
  const f=await pendingPage(t),button=f.document.querySelector('[data-act="review-ai"]'),release=f.holdSave();
  assert.equal(f.document.querySelector('#pd-breview').disabled,true,'no selection must not prevent single-question review');

@@ -251,27 +251,35 @@ async function viewPending() {
         <button type="button" class="btn sm" id="pd-word">${ic('upload')} 导入 Word</button>
         <input class="input pd-kw" id="pd-kw" aria-label="搜索待审核题目" placeholder="搜索题干 / 批次 / 知识点" value="${esc(st.kw)}">
       </div>
-    <div class="pd-batchbar">
-      <label><input type="checkbox" id="pd-all"> 全选本页</label>
-      <span class="pd-selcnt" id="pd-selcnt">已选 0 题</span>
-      <button type="button" class="btn sm ghost" id="pd-bedit">批量编辑</button>
-      <button type="button" class="btn sm primary" id="pd-bcommit">批量入库</button>
-      <button type="button" class="btn sm ghost" id="pd-bmerge">合并两段跨页题</button>
-      ${st.mergePins.length ? `<span class="pd-selcnt">已暂存 ${st.mergePins.length}/2 段（可翻页）</span><button type="button" class="btn sm ghost" id="pd-merge-clear">清空片段</button>` : ''}
-      <button type="button" class="btn sm ghost" id="pd-bclassify">AI 分类建议</button>
-      <button type="button" class="btn sm ghost danger" id="pd-bdel">批量删除</button>
-    </div>
-    ${st.batch_id ? `<p class="pd-tip">正在查看所选批次 <button type="button" class="btn ghost xs" id="pd-clear-batch">查看全部批次</button></p>` : ''}
-      </details>
-      <div class="pd-review-ai-actions"><span class="pd-ai-selection" id="pd-ai-selection">本页已选 0 题</span>
-      <div class="pd-ai-tool-group" aria-label="AI 审核修订"><strong>审核现有题目</strong>
-        <button type="button" class="btn sm" id="pd-breview">AI 审核所选</button>
-        <button type="button" class="btn sm ghost" id="pd-bapply-stem">一键批量采用题干修订</button>
-        <button type="button" class="btn sm ghost" id="pd-bapply-answer">一键批量采用答案修订</button></div>
-      <div class="pd-ai-tool-group" aria-label="AI 补充缺失内容"><strong>补充缺失内容</strong>
-        <button type="button" class="btn sm ghost" id="pd-bai" title="只为缺失字段生成建议，不审核或覆盖已有答案">AI 补充缺失答案和解析</button>
-        <button type="button" class="btn sm ghost" id="pd-bfill-review">查看并采用补充建议</button></div>
+      <div class="pd-batchbar pd-selection-row">
+        <label><input type="checkbox" id="pd-all"> 全选本页</label>
+        <span class="pd-selcnt" id="pd-selcnt" aria-live="polite">已选 0 题</span>
+        <span class="pd-selection-limit">AI 操作一次最多 20 题</span>
+        <span class="sr-only" aria-hidden="true" id="pd-ai-selection">本页已选 0 题</span>
       </div>
+      <div class="pd-toolbar-row" data-pd-tool-group="batch" role="group" aria-label="批量操作">
+        <strong class="pd-toolbar-heading">${ic('list')} 批量操作</strong>
+        <div class="pd-toolbar-actions">
+          <button type="button" class="btn sm ghost" id="pd-bedit">批量编辑</button>
+          <button type="button" class="btn sm primary" id="pd-bcommit">批量入库</button>
+          <button type="button" class="btn sm ghost" id="pd-bmerge">合并两段跨页题</button>
+          ${st.mergePins.length ? `<span class="pd-selcnt">已暂存 ${st.mergePins.length}/2 段（可翻页）</span><button type="button" class="btn sm ghost" id="pd-merge-clear">清空片段</button>` : ''}
+          <button type="button" class="btn sm ghost" id="pd-bclassify">AI 分类建议</button>
+          <button type="button" class="btn sm ghost danger" id="pd-bdel">批量删除</button>
+        </div>
+      </div>
+      <div class="pd-toolbar-row" data-pd-tool-group="ai" role="group" aria-label="AI 审核与补充">
+        <strong class="pd-toolbar-heading">${ic('flash')} AI 审核与补充</strong>
+        <div class="pd-toolbar-actions">
+          <button type="button" class="btn sm" id="pd-breview">AI 审核所选</button>
+          <button type="button" class="btn sm ghost" id="pd-bapply-stem">一键批量采用题干修订</button>
+          <button type="button" class="btn sm ghost" id="pd-bapply-answer">一键批量采用答案修订</button>
+          <button type="button" class="btn sm ghost" id="pd-bai" title="只为缺失字段生成建议，不审核或覆盖已有答案">AI 补充缺失答案和解析</button>
+          <button type="button" class="btn sm ghost" id="pd-bfill-review">查看并采用补充建议</button>
+        </div>
+      </div>
+      ${st.batch_id ? `<p class="pd-tip">正在查看所选批次 <button type="button" class="btn ghost xs" id="pd-clear-batch">查看全部批次</button></p>` : ''}
+      </details>
     </div>
     <div class="pd-list r4-review-layout" id="pd-list">${list.length ? `<aside class="r4-review-list" aria-label="待审核题目列表"><div class="pd-list-heading"><h3>${ic('book')} ${st.batch_id ? '本批题目' : '待审队列'}</h3><span>${data.total} 题</span></div><div class="pd-list-rows">${list.map((it, i) => `<div class="r4-review-row ${it.id === st.active ? 'on' : ''}" data-review-row="${esc(it.id)}"><label><input type="checkbox" data-sel="${esc(it.id)}" ${st.sel[it.id] ? 'checked' : ''} aria-label="选择第 ${i + 1} 题"></label><button type="button" data-select-item="${esc(it.id)}"><span class="pd-row-number">${String((data.page-1)*data.size+i+1).padStart(2,'0')}</span><strong>${esc((it.stem || '').slice(0, 70) || `题干缺失${it.qno ? ' · 原题号 ' + it.qno : ''}`)}</strong><span class="pd-row-source">${esc(it.source_label)}</span><small class="${!it.answer || (it.figure_missing || []).length ? 'warn' : ''}">${!it.answer ? '缺答案' : (it.figure_missing || []).length || (it.image_errors || []).length ? '待补图' : pdReviewBlocker(it) ? '待核对' : !it.subject || !it.stage || !it.point ? '缺分类' : '待入库'}</small></button></div>`).join('')}</div>${pagerHTML(data.page, data.size, data.total, 'pdPage')}</aside><div class="r4-review-preview" id="pd-preview">${itemHTML(byId[st.active])}</div>` : `<div class="empty">${st.kw ? '没有符合搜索条件的题目' : '没有待审核的题目'}<div style="margin-top:8px;color:#97a3b8">可从录题中心导入或录入题目</div></div>`}</div>
     ${list.length ? `<footer class="pd-review-footer"><div class="pd-review-navigation"><button type="button" class="btn ghost" id="pd-prev">${ic('arrow-left')} 上一题</button><span id="pd-position" aria-live="polite"></span><button type="button" class="btn ghost" id="pd-next">下一题 ${ic('arrow-right')}</button></div><div class="pd-review-commit"><div class="pd-commit-guidance"><span id="pd-commit-hint" aria-live="polite"></span><button type="button" class="pd-review-next" id="pd-review-next" hidden>查看待处理项</button></div><button type="button" class="btn primary" id="pd-current-commit">核对并入库</button></div></footer>` : ''}
