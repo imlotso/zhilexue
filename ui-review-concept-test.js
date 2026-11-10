@@ -105,6 +105,9 @@ window.fixture.runRegression = async function() {
   const input=async(s,value)=>{const el=$(s);el.value=value;el.dispatchEvent(new Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}));await paint();};
   try {
     await fixture.reset(); await paint();
+    check('入口提示可展开',getComputedStyle($('.pd-tools-open')).display!=='none' && getComputedStyle($('.pd-tools-close')).display==='none');
+    await click('details.pd-advanced summary'); check('展开后提示可收起',$('.pd-advanced').open && getComputedStyle($('.pd-tools-close')).display!=='none' && getComputedStyle($('.pd-tools-open')).display==='none');
+    await click('details.pd-advanced summary'); check('收起后工具隐藏',!$('.pd-advanced').open);
     check('三个审核区域',!!$('.pd-classification') && !!$('.pd-main') && !!$('.r4-review-list'));
     check('没有横向溢出',document.documentElement.scrollWidth-innerWidth<=1);
     check('待核对时禁止直接入库',$('#pd-current-commit').disabled);
@@ -264,6 +267,7 @@ if(require.main===module && !process.argv.includes('--browser') && !process.argv
     assert(html.includes('pd-current-commit'),'guarded bottom commit is missing');
     assert(html.includes('data-act="save-classification"'),'classification must have a persistent save action');
     assert(html.includes('pd-advanced'),'advanced batch tools remain available');
+    assert(html.includes('展开工具') && html.includes('收起工具'), 'disclosure must communicate both states');
     assert(html.includes('data-act="content-review"'),'existing content confirmation retained');
   });
 }

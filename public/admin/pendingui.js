@@ -190,7 +190,7 @@ async function viewPending() {
         <label class="pd-source-label"><span class="sr-only">题目来源</span><select id="pd-source" class="input">${PD_SRC.map(([k,t])=>`<option value="${k}" ${st.source === k ? 'selected' : ''}>${esc(t)} · ${Number(counts[k]) || 0}</option>`).join('')}</select></label>
         <div class="pd-tabs pd-review-tabs" aria-label="按题目完整度筛选">${PD_REVIEW.map(([k,t])=>`<button type="button" class="pd-tab ${(!st.review ? 'all' : st.review) === k ? 'on' : ''}" data-review="${k}" aria-pressed="${(!st.review ? 'all' : st.review) === k}">${esc(k === 'all' ? '全部' : t)}<em>${Number(reviewCounts[k]) || 0}</em></button>`).join('')}</div>
       </div>
-      <details class="pd-advanced"><summary>${ic('setting')} 搜索、导入与批量操作 <span id="pd-tool-selection"></span></summary>
+      <details class="pd-advanced"><summary><span class="pd-tools-icon">${ic('setting')}</span><span class="pd-tools-copy"><strong>搜索、导入与批量操作</strong><small>查找题目、导入文件或处理所选题目</small></span><span id="pd-tool-selection"></span><span class="pd-tools-action"><span class="pd-tools-open">展开工具</span><span class="pd-tools-close">收起工具</span><span class="pd-tools-chevron" aria-hidden="true"></span></span></summary>
       <p class="pd-tip">各种方式录入的题目均先进入待审核；核对、修改后再入库。</p>
       <div class="pd-bar">
         <button type="button" class="btn sm" id="pd-excel">${ic('upload')} 导入 Excel</button>
