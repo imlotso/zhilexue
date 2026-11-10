@@ -31,6 +31,8 @@ const WT = {
   },
 };
 
+const WT_INITIAL_STATE = JSON.stringify(WT);
+
 const WT_SUBS = [
   { k: 'quick', t: '单词速记', i: 'flash', img: '/img/wt/quick.png' },
   { k: 'phrase', t: '短语速记', i: 'book', img: '/img/wt/phrase.png' },
@@ -318,9 +320,10 @@ async function wtRecord(module, correct, wordId) {
   if (typeof FX !== 'undefined') { if (correct) FX.correct(); else FX.wrong(); }
   // 速记流程被「短语速记 / 考纲单词」复用，作答按当前模块单独统计
   if (module === 'quick' && (WT.curSub === 'phrase' || WT.curSub === 'syllabus')) module = WT.curSub;
+  const statsKey = wtSubStateUid() + ':' + WT.bookId;
   try {
     await api('/api/stu/word/record', { method: 'POST', body: { module, bookId: Number(WT.bookId) || 0, wordId: wordId || null, correct: !!correct }, silent: true });
-    if (WT.statsCache) delete WT.statsCache[WT.bookId];   // 有新作答 → 下次渲染重新拉统计
+    if (WT.statsCache) delete WT.statsCache[statsKey];   // 有新作答 → 下次渲染重新拉统计
   } catch (e) { /* 统计失败不影响做题 */ }
 }
 
@@ -341,12 +344,30 @@ function wtModBooks(sub) {
   });
 }
 let WT_SUB_UID = '';
+let WT_SUB_TOKEN;
+let WT_DATA_REQUEST = 0;
+function wtSessionToken() { return typeof Auth !== 'undefined' && Auth ? Auth.token : undefined; }
+function wtCancelDataLoad() {
+  WT_DATA_REQUEST++;
+}
+/** 换账号或退出时清理内存，不删除任何账号已保存的本机学习记录。 */
+function wtResetAccount() {
+  wtCancelDataLoad();
+  wtStopSpeech();
+  wtStageOff();
+  if (WT.listen && WT.listen.timer) clearInterval(WT.listen.timer);
+  Object.keys(WT).forEach((k) => { delete WT[k]; });
+  Object.assign(WT, JSON.parse(WT_INITIAL_STATE), { dataCache: {}, statsCache: {}, pf: false });
+  WT_WORD_DRILL = null; WT_WRONG_DRILL = null; WT_DRILL_REVIEW = false;
+  WT.subState = wtSubStateLoad();
+}
 function wtSubStateUid() {
   const u = (typeof Auth !== 'undefined' && Auth && Auth.user) || {};
   return String(u.id || u.username || 'me');
 }
 function wtSubStateLoad() {
   WT_SUB_UID = wtSubStateUid();
+  WT_SUB_TOKEN = wtSessionToken();
   try { return JSON.parse(localStorage.getItem('xuexi_wtsub:' + WT_SUB_UID) || '{}'); } catch (e) { return {}; }
 }
 function wtSubStateSave() {
@@ -354,7 +375,7 @@ function wtSubStateSave() {
 }
 /** SPA 登录后用户身份才就绪：进入训练模块前核对一遍，身份变了就重读该账号的选择 */
 function wtSubStateSync() {
-  if (wtSubStateUid() !== WT_SUB_UID) WT.subState = wtSubStateLoad();
+  if (wtSubStateUid() !== WT_SUB_UID || wtSessionToken() !== WT_SUB_TOKEN) wtResetAccount();
 }
 WT.subState = wtSubStateLoad();
 
@@ -363,7 +384,9 @@ function wtPrefetchOthers() {
   try {
     if (WT.pf) return;
     WT.pf = true;
+    const uid = wtSubStateUid(), token = wtSessionToken();
     setTimeout(() => {
+      if (uid !== wtSubStateUid() || token !== wtSessionToken()) return;
       ['phrase', 'syllabus'].forEach((s) => {
         const mods = wtModBooks(s);
         if (!mods.length) return;
@@ -381,7 +404,16 @@ function wtPrefetchOthers() {
 }
 
 async function wtEnsureData(sub) {
-  if (!WT.books) WT.books = await api('/api/stu/word/books');
+  wtSubStateSync();
+  const request = ++WT_DATA_REQUEST, uid = wtSubStateUid(), token = wtSessionToken();
+  let bookId = WT.bookId, unit = WT.unit;
+  const current = () => request === WT_DATA_REQUEST && uid === wtSubStateUid() && token === wtSessionToken()
+    && bookId === WT.bookId && unit === WT.unit;
+  if (!WT.books) {
+    const books = await api('/api/stu/word/books', { silent: true });
+    if (!current()) return false;
+    WT.books = books;
+  }
   if (!WT.books || !WT.books.length) return false;   // 接口异常返回 null 时不至于抛错
   if (sub) {
     WT.curSub = sub;  // 当前模块（quick / phrase / pos / context / build），统计与文案都要区分
@@ -394,7 +426,9 @@ async function wtEnsureData(sub) {
       WT.bookId = String((usable || mods[0]).id);
     }
   }
-  const bid = Number(WT.bookId);
+  bookId = WT.bookId; unit = WT.unit;
+  const module = WT.curSub;
+  const bid = Number(bookId);
   /* 一次拉整本书 + 内存缓存（按词书）：切单元 / 切模块 / 答题重渲染不再重复请求，
    * 同一本书 10 分钟内只拉一次；老师后台改了词书数据，刷新页面即可看到最新 */
   if (!WT.dataCache) WT.dataCache = {};
@@ -403,15 +437,16 @@ async function wtEnsureData(sub) {
   const c = WT.dataCache[key];
   const jobs = [];
   if (WT.curSub === 'phrase') {
-    if (!c.phrases) jobs.push(api('/api/stu/word/phrases?book_id=' + bid).then((d) => { c.phrases = d || []; }));
+    if (!c.phrases) jobs.push(api('/api/stu/word/phrases?book_id=' + bid, { silent: true }).then((d) => { if (current()) c.phrases = d || []; }));
   } else if (WT.curSub === 'syllabus') {
-    if (!c.words) jobs.push(api('/api/stu/word/words?book_id=' + bid).then((d) => { c.words = d || []; }));
+    if (!c.words) jobs.push(api('/api/stu/word/words?book_id=' + bid, { silent: true }).then((d) => { if (current()) c.words = d || []; }));
   } else {
-    if (!c.words) jobs.push(api('/api/stu/word/words?book_id=' + bid).then((d) => { c.words = d || []; }));
-    if (!c.sentences) jobs.push(api('/api/stu/word/sentences?book_id=' + bid).then((d) => { c.sentences = d || []; }));
-    if (!c.pos) jobs.push(api('/api/stu/word/pos?book_id=' + bid).then((d) => { c.pos = d || []; }));
+    if (!c.words) jobs.push(api('/api/stu/word/words?book_id=' + bid, { silent: true }).then((d) => { if (current()) c.words = d || []; }));
+    if (!c.sentences) jobs.push(api('/api/stu/word/sentences?book_id=' + bid, { silent: true }).then((d) => { if (current()) c.sentences = d || []; }));
+    if (!c.pos) jobs.push(api('/api/stu/word/pos?book_id=' + bid, { silent: true }).then((d) => { if (current()) c.pos = d || []; }));
   }
   if (jobs.length) await Promise.all(jobs);
+  if (!current() || WT.curSub !== module) return false;
   if (WT.curSub === 'phrase') {
     // 短语速记：拉短语库，别名为 words，整个速记流程（分组/学习/记忆/连连看/默写）原样复用
     const pAll = (c.phrases || []).map((p) => ({ ...p, word: p.phrase }));
@@ -440,7 +475,11 @@ async function wtEnsureData(sub) {
 /** 训练页公共外壳：词书/单元选择 + 模块切换 + 统计条 */
 async function wtShell(sub, inner) {
   wtStageOff();  // 从全屏练习退回模块页（切模块 / 退出练习都会经过这里）
-  const has = await wtEnsureData(sub);
+  const pending = wtEnsureData(sub);
+  const request = WT_DATA_REQUEST, uid = wtSubStateUid(), token = wtSessionToken();
+  const current = () => request === WT_DATA_REQUEST && uid === wtSubStateUid() && token === wtSessionToken();
+  const has = await pending;
+  if (!current()) return { html: '' };
   if (!has) {
     const tip = sub === 'pos' ? '还没有词形转换词书：让老师在管理后台「词书管理」新建一本「词形转换书」，上传或 AI 生成词形数据'
       : (sub === 'context' || sub === 'build' || sub === 'listen') ? '还没有句子词书：让老师在管理后台「词书管理」新建一本「句子书」，上传句子表（可带「分组」列区分大课文 / 小课文）'
@@ -467,11 +506,15 @@ async function wtShell(sub, inner) {
   const units = sub === 'syllabus' ? [] : [...new Set(poolAll.map((x) => String(x.unit || '').trim()).filter(Boolean))];
   // 统计：内存缓存 2 分钟，答题（wtRecord）后失效 → 切单元/切模块不再重复请求
   if (!WT.statsCache) WT.statsCache = {};
-  let stats = WT.statsCache[WT.bookId];
+  const bookId = WT.bookId, unit = WT.unit, statsKey = uid + ':' + bookId;
+  const selected = () => current() && bookId === WT.bookId && unit === WT.unit && sub === WT.curSub;
+  let stats = WT.statsCache[statsKey];
   if (!stats || Date.now() - (stats._t || 0) > 120000) {
-    stats = await api('/api/stu/word/stats?book_id=' + WT.bookId).catch(() => ({}));
+    stats = await api('/api/stu/word/stats?book_id=' + bookId, { silent: true }).catch(() => ({}));
+    if (!selected()) return { html: '' };
+    stats = stats || {};
     stats._t = Date.now();
-    WT.statsCache[WT.bookId] = stats;
+    WT.statsCache[statsKey] = stats;
   }
   const st = stats[sub] || { correct: 0, wrong: 0 };
   const total = st.correct + st.wrong;
@@ -561,6 +604,7 @@ async function wtShell(sub, inner) {
       ${innerHtml}
     </div>`,
     after: () => {
+      if (!selected()) return;
       const b = document.getElementById('wtBook');
       if (b) b.onchange = () => { WT.bookId = b.value; WT.unit = ''; WT.subState[sub] = { book: WT.bookId, unit: '', unitAll: false }; wtSubStateSave(); wtReset(sub); render(); };
       document.querySelectorAll('[data-wu]').forEach((c) => c.onclick = () => {
@@ -600,6 +644,7 @@ async function wtShell(sub, inner) {
 }
 
 function wtReset(sub) {
+  wtCancelDataLoad();
   wtStopSpeech();  // 换词书 / 换单元：停掉旧页面还在排队的朗读
   WT_DRILL_REVIEW = false;
   WT.readGrp = '';  // 换词书 / 换单元后分组回到「全部」
@@ -826,21 +871,21 @@ function wtWrongWordAdd(w, src, extra) {
     list.push({ id: w.id, word: w.word, phonetic: w.phonetic || '', meaning: w.meaning || '', unit: w.unit || WT.unit || '', src: src || '记忆学习', ty: (extra && extra.ty) || '', t: Date.now(), cnt: 1 });
     wtWrongWordSave(list);
   }
-  wtWrongHistAdd(w, src);   // 历史错词累计（只增不减）
+  wtWrongWordHistAdd(w, src);   // 历史错词累计（只增不减）
   wtWrongWordBadge();
 }
 function wtWrongWordRemove(id) { wtWrongWordSave(wtWrongWordAll().filter((x) => String(x.id) !== String(id))); }
 /* ---- 历史错词：纯记录（累计出错次数，拼对移出在册本也不删历史），按 学生+词书 存 localStorage ---- */
-function wtWrongHistKey() {
+function wtWrongWordHistKey() {
   const u = (typeof Auth !== 'undefined' && Auth && Auth.user) || {};
   return 'xuexi_wtwdh:' + (u.id || u.username || 'me') + ':' + WT.bookId;
 }
-function wtWrongHistAll() { try { return JSON.parse(localStorage.getItem(wtWrongHistKey()) || '{}'); } catch (e) { return {}; } }
-function wtWrongHistSave(map) { try { localStorage.setItem(wtWrongHistKey(), JSON.stringify(map)); } catch (e) { /* 隐私模式忽略 */ } }
-function wtWrongHistList() { return Object.values(wtWrongHistAll()).filter((x) => x && x.word); }
-function wtWrongHistAdd(w, src) {
+function wtWrongWordHistAll() { try { return JSON.parse(localStorage.getItem(wtWrongWordHistKey()) || '{}'); } catch (e) { return {}; } }
+function wtWrongWordHistSave(map) { try { localStorage.setItem(wtWrongWordHistKey(), JSON.stringify(map)); } catch (e) { /* 隐私模式忽略 */ } }
+function wtWrongWordHistList() { return Object.values(wtWrongWordHistAll()).filter((x) => x && x.word); }
+function wtWrongWordHistAdd(w, src) {
   if (!w || !w.word) return;
-  const map = wtWrongHistAll();
+  const map = wtWrongWordHistAll();
   const k = String(w.id);
   const e = map[k] || { id: w.id, word: w.word, phonetic: w.phonetic || '', meaning: w.meaning || '', unit: w.unit || WT.unit || '', cnt: 0, first: Date.now(), last: 0 };
   e.word = w.word;
@@ -850,7 +895,7 @@ function wtWrongHistAdd(w, src) {
   e.cnt = (e.cnt || 0) + 1;
   e.last = Date.now();
   map[k] = e;
-  wtWrongHistSave(map);
+  wtWrongWordHistSave(map);
 }
 function wtWrongWordBadge() {
   const n = wtWrongWordToday().length;
@@ -865,20 +910,27 @@ function wtWrongWordOpen() {
   const book = (WT.books || []).find((b) => String(b.id) === String(WT.bookId));
   const isSyl = WT.curSub === 'syllabus';
   // 兜底迁移：老数据没有历史记录 → 把在册错词补进历史（只补缺失的，不动已有的次数）
-  const hist = wtWrongHistAll();
+  const hist = wtWrongWordHistAll();
   let histDirty = false;
+  // 旧版同名函数曾把错词历史写进 build 错句空间；只补回明确的词记录，不改错句原件。
+  Object.values(wtWrongHistAll('build')).forEach((x) => {
+    if (x && x.word && !x.text && !hist[String(x.id)]) {
+      hist[String(x.id)] = { ...x };
+      histDirty = true;
+    }
+  });
   wtWrongWordAll().forEach((x) => {
     if (x && x.word && !hist[String(x.id)]) {
       hist[String(x.id)] = { id: x.id, word: x.word, phonetic: x.phonetic || '', meaning: x.meaning || '', unit: x.unit || '', cnt: x.cnt || 1, first: x.t || Date.now(), last: x.t || Date.now() };
       histDirty = true;
     }
   });
-  if (histDirty) wtWrongHistSave(hist);
+  if (histDirty) wtWrongWordHistSave(hist);
   const all = wtWrongWordAll();                                  // 在册（未清）错词
   const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
   const today = all.filter((x) => (x.t || 0) >= dayStart.getTime());
   const older = all.filter((x) => (x.t || 0) < dayStart.getTime());  // 更早还没清掉的错词
-  const histList = wtWrongHistList();
+  const histList = wtWrongWordHistList();
   const PAGE = 10;                                               // 每页最多 10 条
   const pages = Math.max(1, Math.ceil(today.length / PAGE));
   let page = 0;
@@ -2821,10 +2873,21 @@ function wtBindSpellKeys() {
   if (window.__wtSpellKeysBound) return;
   window.__wtSpellKeysBound = true;
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
-    const inp = document.getElementById('wsInput');
-    if (!inp || inp.disabled || inp.value == null) return;
-    if (!document.getElementById('wsOk')) return;   // 只在默写练习视图生效（词形默写等别的输入框不受影响）
+    if (e.key !== 'Enter' || e.defaultPrevented || e.repeat || e.isComposing || e.keyCode === 229) return;
+    const inp = document.getElementById('wsInput'), submit = document.getElementById('wsOk');
+    if (!inp || inp.disabled || inp.value == null || !submit || submit.disabled) return;
+    const visible = (el) => {
+      for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+        const style = window.getComputedStyle(n);
+        if (n.hidden || n.hasAttribute('inert') || style.display === 'none' || style.visibility === 'hidden') return false;
+      }
+      return !!el.isConnected;
+    };
+    if (!visible(inp)) return;
+    // 包括尚未转移焦点的确认框：前景弹窗存在时，不能提交后方练习。
+    if ([...document.querySelectorAll('.mask, [role="dialog"], dialog[open]')].some((el) => visible(el) && !el.contains(inp))) return;
+    const control = e.target && e.target.closest && e.target.closest('input, textarea, select, button, a[href], [contenteditable], [role="button"], [role="textbox"], math-field');
+    if (control && control !== inp && control !== submit) return;
     e.preventDefault();
     wtSpellSubmit(false);
   }, true);
@@ -2950,7 +3013,7 @@ async function wtPosStart() {
     if (other) {
       WT.bookId = String(other.id); WT.unit = '';
       WT.subState.pos = { book: WT.bookId, unit: '' }; wtSubStateSave();
-      await wtEnsureData();
+      if (!await wtEnsureData()) return;
       const sel = document.getElementById('wtBook');
       if (sel) sel.value = WT.bookId;
       chains = wtPosChains();
@@ -5050,6 +5113,7 @@ function phQuizRun(list, mode, bank) {
 }
 
 async function viewWords(arg) {
+  wtCancelDataLoad();
   const sub = arg || 'quick';
   wtSubStateSync();  // SPA 登录后身份才就绪：进入前核对一遍，恢复「自己上次选的词书 / 单元」
   const st = WT.subState[sub] || {};

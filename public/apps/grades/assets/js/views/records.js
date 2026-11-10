@@ -263,17 +263,17 @@ const ViewRecords = (() => {
 
           <div>
             <div class="mini-title">知识点诊断
-              <span class="small muted" style="font-weight:400">${papers.length ? '已按试卷自动生成' : '未上传本次试卷'}</span></div>
+              <span class="small muted" style="font-weight:400">${papers.length ? '仅依据已确认的逐题数据' : '逐题数据待录入'}</span></div>
             ${papers.length ? papers.map(p => {
               const rep = Knowledge.analyzePaper(p);
               const weak = rep.weak.slice(0, 3), strong = rep.strong.slice(0, 3);
               return `<div class="analysis-box" style="font-size:12px;line-height:1.8;margin-bottom:8px">
                 <b>${U.esc(p.subject)}</b> · 平均得分率 ${U.pct(rep.overall, 1)} · ${rep.items.length} 个知识点
-                ${p.auto ? '<span class="ai-badge">AI 自动生成</span>' : ''}
-                <div style="margin-top:4px">${weak.length ? `薄弱：${weak.map(w => `${U.esc(w.knowledge)} ${U.pct(w.rate, 0)}`).join('、')}` : '无明显薄弱点'}</div>
+                ${!rep.items.length ? '<span class="ai-badge">逐题数据待录入 / 待确认</span>' : ''}
+                <div style="margin-top:4px">${weak.length ? `薄弱：${weak.map(w => `${U.esc(w.knowledge)} ${U.pct(w.rate, 0)}`).join('、')}` : rep.items.length ? '已确认题目中无明显薄弱点' : '暂无足够逐题证据，不能判断强弱'}</div>
                 <div class="muted">${strong.length ? `优势：${strong.map(w => `${U.esc(w.knowledge)} ${U.pct(w.rate, 0)}`).join('、')}` : ''}</div>
               </div>`;
-            }).join('') : `<div class="small muted">在「知识点诊断」Tab 可上传本次试卷照片，系统将自动生成知识点掌握度与 AI 提升建议（个人版见学生档案）。</div>`}
+            }).join('') : `<div class="small muted">请在「知识点诊断」Tab 人工录入并确认逐题数据；照片仅供留档，不能据此生成知识点掌握度。</div>`}
           </div>
         </div>
       </div>
@@ -284,7 +284,7 @@ const ViewRecords = (() => {
   function bindHead(el) {
     const cs = el.querySelector('#rCampus');
     if (cs) cs.onchange = () => {
-      Store.setCurrent(cs.value);
+      if (!Store.attempt(() => Store.setCurrent(cs.value))) { cs.value = Store.currentId(); return; }
       Object.assign(f, { q: '', subject: '', year: '', month: '', stage: '', type: '', comment: '' });
       page = 1; open.clear(); ViewKnowledge.reset(); App.refresh();
     };

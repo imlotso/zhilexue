@@ -296,6 +296,14 @@ CREATE TABLE IF NOT EXISTS guides (
   created_at TEXT NOT NULL
 );
 
+-- Only new server-verified uploads are recorded. Never infer ownership from legacy reports.
+CREATE TABLE IF NOT EXISTS report_uploads (
+  file_key TEXT PRIMARY KEY,
+  created_by INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_report_upload_owner ON report_uploads(created_by);
+
 CREATE TABLE IF NOT EXISTS ai_reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,                     -- 报告标题（默认「某某同学 学情诊断报告」）
@@ -732,6 +740,9 @@ try { db.exec('ALTER TABLE mf_paper_questions ADD COLUMN partial_score REAL DEFA
 try { db.exec('ALTER TABLE records ADD COLUMN match_correct INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
 try { db.exec('ALTER TABLE records ADD COLUMN match_total INTEGER DEFAULT NULL'); } catch (e) { /* 列已存在 */ }
 for (const table of ['paper_tries', 'mf_paper_tries']) {
+  // No inferred backfill: old attempts did not record their original full score.
+  try { db.exec(`ALTER TABLE ${table} ADD COLUMN total_score_snapshot DECIMAL(10,2) DEFAULT NULL`); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.errno !== 1060) throw e; }
   const column = db.prepare('SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=?').get(DB_INFO.database, table, 'score');
   if (column && String(column.DATA_TYPE || column.data_type).toLowerCase() !== 'decimal') db.exec(`ALTER TABLE ${table} MODIFY COLUMN score DECIMAL(10,2) DEFAULT 0`);
 }

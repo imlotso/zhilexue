@@ -301,14 +301,20 @@ function editRow(row) {
   });
 }
 
+let WB_LIST_REQUEST = 0;
 async function loadList() {
+  const request = ++WB_LIST_REQUEST;
   const box = document.getElementById('wdList');
   if (!box) return;
   const bookId = Number(WB.bookId) || 0;
   if (!bookId) { box.innerHTML = '<div class="empty">先新建或选择一本词书</div>'; return; }
   const kind = WB.tab;
+  const auth = typeof Auth !== 'undefined' ? Auth : {};
+  const token = auth.token;
   const apiKind = kind === 'word' ? 'words' : kind === 'phrase' ? 'phrases' : kind === 'sentence' ? 'sentences' : 'pos';
   const data = await api(`/api/admin/word/${apiKind}?book_id=${bookId}&limit=2000`);
+  if (request !== WB_LIST_REQUEST || bookId !== Number(WB.bookId) || kind !== WB.tab
+    || auth.token !== token || document.getElementById('wdList') !== box || box.isConnected === false) return;
   WB.lists[kind] = data || [];
   paintRows();
 }
@@ -625,39 +631,64 @@ async function aiOneExample(btn, done) {
 }
 /**  批量 AI 补全例句：勾选了短语就只补选中的，没勾选则补整本书里还没有例句的。
  *  AI 一次一条（约 3~6 秒），后台慢慢跑，这里轮询进度，完成后自动刷新列表。 */
+const WB_EXAMPLE_JOBS = new Set();
 async function aiFillExamples(btn, ids) {
+  const bookId = Number(WB.bookId);
+  const auth = typeof Auth !== 'undefined' ? Auth : {};
+  const token = auth.token, account = (auth.user || {}).id;
+  const sameAccount = () => auth.token === token && (auth.user || {}).id === account;
+  if (WB_EXAMPLE_JOBS.has(bookId) || (btn && btn.disabled)) return;
+  const book = curBook(), label = book && book.title ? book.title : '词书 ' + bookId;
   const old = btn ? btn.innerHTML : '';
+  let timer = null, polling = false, stopped = false;
+  WB_EXAMPLE_JOBS.add(bookId);
+  if (btn) { btn.disabled = true; btn.innerHTML = '启动中…'; }
+  const finish = () => {
+    stopped = true;
+    if (timer !== null) clearInterval(timer);
+    WB_EXAMPLE_JOBS.delete(bookId);
+    if (btn) { btn.disabled = false; btn.innerHTML = old; }
+  };
+  const refresh = () => String(WB.bookId) === String(bookId) && (!btn || btn.isConnected !== false);
   try {
     const r = await api('/api/admin/word/phrase-examples', {
-      method: 'POST', body: { book_id: Number(WB.bookId), ids: ids || [], scope: 'missing' },
+      method: 'POST', body: { book_id: bookId, ids: ids || [], scope: 'missing' },
     });
+    if (!sameAccount()) { finish(); return; }
     if (!r.started) {
       toast({ done: '这些短语都已经有例句了', running: '正在生成中，请稍候刷新', 'no-ai': 'AI 密钥还没配好，可在「编辑」里手填例句' }[r.reason] || '无需生成', r.reason === 'done' ? 'ok' : 'err');
+      finish();
       return;
     }
-    toast('开始生成 ' + r.pending + ' 条短语的例句（AI 在后台跑，可先做别的）', 'ok');
-    if (!btn) return;
-    btn.disabled = true;
-    const tip = (t) => { btn.innerHTML = t; };
-    tip('AI 生成中…');
-    const t = setInterval(async () => {
+    toast(label + '：开始生成 ' + r.pending + ' 条短语的例句（AI 在后台跑，可先做别的）', 'ok');
+    if (!btn) { finish(); return; }
+    btn.innerHTML = 'AI 生成中…';
+    timer = setInterval(async () => {
+      if (polling || stopped) return;
+      if (!sameAccount()) { finish(); return; }
+      polling = true;
       try {
-        const s = await api('/api/admin/word/phrase-examples/status?book_id=' + encodeURIComponent(WB.bookId));
-        tip(`AI 生成中 ${s.done}/${s.total}`);
+        const s = await api('/api/admin/word/phrase-examples/status?book_id=' + encodeURIComponent(bookId), { silent: true });
+        if (!sameAccount()) { finish(); return; }
+        btn.innerHTML = `AI 生成中 ${s.done}/${s.total}`;
         if (!s.running) {
-          clearInterval(t);
-          btn.disabled = false; btn.innerHTML = old;
-          await loadList();
-          toast(`例句补齐完成：成功 ${s.done} 条${s.fail ? `，失败 ${s.fail} 条（可单行重试或直接手填）` : ''}`, s.fail ? 'err' : 'ok');
+          finish();
+          if (refresh()) await loadList().catch(() => {});
+          if (!sameAccount()) return;
+          toast(`${label}：例句补齐完成：成功 ${s.done} 条${s.fail ? `，失败 ${s.fail} 条（可单行重试或直接手填）` : ''}`, s.fail ? 'err' : 'ok');
         }
       } catch (e) {
-        clearInterval(t); btn.disabled = false; btn.innerHTML = old;
-        await loadList().catch(() => {});
+        finish();
+        if (!sameAccount()) return;
+        toast(`${label}：获取生成进度失败，后台任务可能仍在运行，请稍后回到这本书刷新查看。`, 'err');
+      } finally {
+        polling = false;
       }
     }, 2000);
   } catch (e) {
+    finish();
+    if (!sameAccount()) return;
     toast('启动失败：' + e.message, 'err');
-    if (btn) { btn.disabled = false; btn.innerHTML = old; }
   }
 }
 

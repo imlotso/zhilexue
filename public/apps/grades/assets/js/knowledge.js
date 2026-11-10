@@ -3,8 +3,7 @@
    - 知识点库：江苏地区 苏教版（数学/英语）、苏科版（物理）、沪教版/人教版（化学）
    - 试卷快照 + 题目打点 → 知识点掌握度报告
    - 个人知识点雷达 + 弱项清单 + 提升建议
-   说明：当前识别为「本地规则引擎」（按知识点库与卷面结构生成预填），
-        接入视觉大模型后可自动识别每道题的知识点，接口已预留 remoteRecognize()。
+   说明：照片仅供留档。知识点和逐题得分须人工录入/确认，不从总分推断。
    ========================================================== */
 const Knowledge = (() => {
 
@@ -80,12 +79,20 @@ const Knowledge = (() => {
   }
   const supported = () => Object.keys(LIB);
 
+  const numeric = value => typeof value === 'number' || (typeof value === 'string' && value.trim() !== '');
+  const validScore = (score, full) => numeric(score) && numeric(full) &&
+    Number.isFinite(Number(score)) && Number.isFinite(Number(full)) && Number(full) > 0 && Number(score) >= 0 && Number(score) <= Number(full);
+  function confirmedQuestion(paper, q) {
+    return !!q.knowledge && q.confirmed !== false &&
+      (!(q.auto || (paper && paper.auto)) || q.confirmed === true);
+  }
+
   /* ---------------- 试卷分析（考试级） ---------------- */
   /**
    * paper.questions: [{no, knowledge, full, avgScore, scores:{姓名:得分}}]
    */
   function analyzePaper(paper) {
-    const qs = (paper && paper.questions || []).filter(q => q.knowledge);
+    const qs = (paper && paper.questions || []).filter(q => confirmedQuestion(paper, q) && validScore(q.avgScore, q.full));
     const map = new Map();
     qs.forEach(q => {
       const k = q.knowledge;
@@ -116,43 +123,20 @@ const Knowledge = (() => {
   }
 
   /* ---------------- 个人分析 ---------------- */
-  /**
-   * @param {object} paper
-   * @param {string} name 学生姓名
-   * @param {number} [studentRate] 该生该科得分率（0~1），仅用于把"全班平均"换算到个人水平
-   */
-  function analyzeStudent(paper, name, studentRate) {
-    const qs = (paper && paper.questions || []).filter(q => q.knowledge);
+  /** 个人分析只使用该生有效的逐题得分，不以班均/总分代填。 */
+  function analyzeStudent(paper, name) {
+    const all = paper && paper.questions || [];
+    const qs = all.filter(q => confirmedQuestion(paper, q) && q.scores && validScore(q.scores[name], q.full));
     const map = new Map();
-    let estimated = false;
+    const estimated = false;
     qs.forEach(q => {
       const k = q.knowledge;
-      if (!map.has(k)) map.set(k, { knowledge: k, full: 0, score: 0, nos: [], est: false });
+      if (!map.has(k)) map.set(k, { knowledge: k, full: 0, score: 0, nos: [] });
       const o = map.get(k);
-      const raw = q.scores ? q.scores[name] : null;
-      const miss = (raw == null || raw === '');
-      const sc = miss ? (Number(q.avgScore) || 0) : Number(raw);
-      if (miss) { estimated = true; o.est = true; }
-      o.full += Number(q.full) || 0;
-      o.score += sc;
+      o.full += Number(q.full);
+      o.score += Number(q.scores[name]);
       o.nos.push(q.no);
     });
-
-    // 未录逐题分时，按该生真实得分率相对班均做整体缩放（保持知识点相对强弱）
-    let ratio = 1;
-    if (studentRate != null) {
-      const full = Array.from(map.values()).reduce((s, o) => s + o.full, 0);
-      const base = Array.from(map.values()).reduce((s, o) => s + (o.est ? o.score : 0), 0);
-      const baseFull = Array.from(map.values()).reduce((s, o) => s + (o.est ? o.full : 0), 0);
-      const paperRate = baseFull ? base / baseFull : null;
-      if (paperRate && paperRate > 0) ratio = Math.max(0.35, Math.min(1.6, studentRate / paperRate));
-      else if (full) ratio = 1;
-    }
-    if (ratio !== 1) {
-      map.forEach(o => {
-        if (o.est && o.full) o.score = Math.min(o.full, o.score * ratio);
-      });
-    }
 
     const items = Array.from(map.values()).map(o => {
       const rate = o.full ? o.score / o.full : null;
@@ -167,6 +151,7 @@ const Knowledge = (() => {
       strong: items.filter(i => i.level === 'strong'),
       weak: items.filter(i => i.level === 'weak'),
       estimated,
+      missing: all.length - qs.length,
       radar: {
         labels: items.map(i => i.knowledge),
         values: items.map(i => Math.round((i.rate ?? 0) * 100))
@@ -175,30 +160,8 @@ const Knowledge = (() => {
     };
   }
 
-  /**
-   * 由试卷快照自动生成知识点打点（无需老师逐题录入）
-   * 依据：该科目知识点库 + 本次全班得分率，按确定性波动生成各知识点掌握度
-   */
-  function autoQuestions(subject, rate, count) {
-    const list = flat(subject);
-    if (!list.length) return [];
-    const n = Math.max(6, Math.min(18, count || 12));
-    const base = (rate == null || isNaN(rate)) ? 0.72 : Math.max(0.2, Math.min(0.98, rate));
-    const out = [];
-    for (let i = 0; i < n; i++) {
-      const wave = Math.sin(i * 1.7) * 0.22 + Math.cos(i * 0.9) * 0.1;
-      const r = Math.max(0.12, Math.min(0.98, base + wave * base));
-      out.push({
-        no: i + 1,
-        knowledge: list[i % list.length],
-        full: 10,
-        avgScore: Math.round(10 * r * 10) / 10,
-        scores: {},
-        auto: true
-      });
-    }
-    return out;
-  }
+  /** 兼容旧调用：总分与照片都不是逐题证据，不能自动生成掌握度。 */
+  function autoQuestions() { return []; }
 
   /* ---------------- 建议生成（规则引擎） ---------------- */
   const TIPS = [
@@ -246,39 +209,20 @@ const Knowledge = (() => {
     return out;
   }
 
-  /* ---------------- 本地预识别（规则引擎） ---------------- */
-  /**
-   * 未接入视觉大模型时的兜底：按题量与知识点库生成待确认的题目草稿
-   * @param {string} subject 学科
-   * @param {number} count   题目数量
-   * @param {number} full    单题满分（默认按学科给）
-   */
-  function draftQuestions(subject, count, full) {
-    const list = flat(subject);
-    if (!list.length) return [];
+  /* ---------------- 人工录入草稿 ---------------- */
+  function draftQuestions(subject, count) {
     const n = Math.max(1, Math.min(60, count || 10));
-    const per = full || (/数学/.test(subject) ? 10 : /英语/.test(subject) ? 5 : 6);
-    const out = [];
-    for (let i = 0; i < n; i++) {
-      out.push({
-        no: i + 1,
-        knowledge: list[i % list.length],
-        full: per,
-        avgScore: null,
-        scores: {}
-      });
-    }
-    return out;
+    return Array.from({ length: n }, (_, i) => ({
+      no: i + 1, knowledge: '', full: null, avgScore: null, scores: {}, confirmed: false
+    }));
   }
-
-  /** 预留：接入视觉大模型后自动识别每道题知识点（当前返回未配置） */
   function remoteRecognize() {
-    return Promise.reject(new Error('尚未配置视觉大模型 API，当前使用本地知识点库预填，请老师逐题确认。'));
+    return Promise.reject(new Error('尚未接入试卷识别，请人工录入并确认逐题数据。'));
   }
 
   return {
     LIB, optionsFor, flat, pickSubject, supported,
-    analyzePaper, analyzeStudent, tipFor, buildAdvice,
+    analyzePaper, analyzeStudent, validScore, tipFor, buildAdvice,
     draftQuestions, autoQuestions, remoteRecognize
   };
 })();

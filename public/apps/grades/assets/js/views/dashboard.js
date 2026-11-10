@@ -185,7 +185,7 @@ const ViewDashboard = (() => {
 
     const cs = el.querySelector('#dashCampus');
     if (cs) cs.onchange = () => {
-      Store.setCurrent(cs.value);
+      if (!Store.attempt(() => Store.setCurrent(cs.value))) { cs.value = Store.currentId(); return; }
       state.a = state.b = null; state.moreUp = state.moreDown = state.moreDanger = false; state.subject = '';
       App.refresh();
     };

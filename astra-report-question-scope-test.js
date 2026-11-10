@@ -30,6 +30,9 @@ function fixture(t) {
     CREATE TABLE subjective_responses(id INTEGER PRIMARY KEY,user_id INTEGER,question_id INTEGER,kind TEXT,paper_id INTEGER,try_id INTEGER,my_answer TEXT,score REAL,max_score REAL,review_comment TEXT,reviewed_at TEXT,created_at TEXT,drawing_data TEXT,reviewed_by INTEGER);
     CREATE TABLE papers(id INTEGER,title TEXT,total_score REAL);
     CREATE TABLE paper_tries(id INTEGER PRIMARY KEY,user_id INTEGER,paper_id INTEGER,score REAL,total INTEGER,correct INTEGER,detail TEXT,created_at TEXT);
+    CREATE TABLE mf_paper_tries(id INTEGER PRIMARY KEY,user_id INTEGER,paper_id INTEGER,score REAL,total INTEGER,correct INTEGER,detail TEXT,created_at TEXT);
+    CREATE TABLE mf_papers(id INTEGER,title TEXT);
+    CREATE TABLE mf_paper_questions(paper_id INTEGER,kind TEXT,score REAL);
     CREATE TABLE mistakes(user_id INTEGER,resolved INTEGER);
     INSERT INTO mistakes VALUES(101,0),(101,1);
     CREATE TABLE bank_trees(id INTEGER,kind TEXT,subject TEXT,stage TEXT,sort INTEGER); CREATE TABLE settings(k TEXT,v TEXT); CREATE TABLE kb_units(id INTEGER,subject TEXT,stage TEXT,grade TEXT,sort INTEGER); CREATE TABLE kb_points(id INTEGER,unit_id INTEGER,name TEXT,sort INTEGER);
@@ -46,6 +49,7 @@ function fixture(t) {
   const detail = JSON.stringify([{ question_id: 2, stem: 'foreign private stem', ungraded: true, earned_score: 3, max_score: 10 }]);
   raw.prepare("INSERT INTO paper_tries VALUES(1,101,7,8,5,4,?,'2026-11-07')").run(detail);
   raw.exec("INSERT INTO papers VALUES(7,'historical paper',10)");
+  raw.exec('ALTER TABLE paper_tries ADD COLUMN total_score_snapshot REAL; ALTER TABLE mf_paper_tries ADD COLUMN total_score_snapshot REAL');
   const db = { prepare: sql => raw.prepare(sql.replace(/ FOR UPDATE\b/g, '')), transaction: fn => (...args) => {
     raw.exec('BEGIN'); try { const result = fn(...args); raw.exec('COMMIT'); return result; }
     catch (e) { raw.exec('ROLLBACK'); throw e; }

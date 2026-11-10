@@ -113,3 +113,9 @@ AI 初审沿用原待审核来源 JSON 和 AI 来源元数据，不增表、不�
 ## 2026-11-10 AI 审核草稿
 
 待审核数据的现有 JSON（录题 `mf_recog_runs.drafts`、采集 `mf_capture_batches.payload`、扫码 `paper_uploads.draft_json`）可保存 `draft_node_ids` 与 `draft_node_scope`，记录每题已选择的分类节点及核对时的范围；未新增表或列。最终入库时重新核验并写入 `question_nodes`，之前仅为草稿。AI 审核建议和采纳来源记录允许包含 `stem`，继续保存在既有建议与审核元数据中。
+
+## 2026-11-10 附件归属与历史满分快照
+
+- 新增 `report_uploads(file_key TEXT PRIMARY KEY, created_by INTEGER NOT NULL, created_at TEXT NOT NULL)` 和 `idx_report_upload_owner(created_by)`，经现有适配器将TEXT转为MySQL VARCHAR。只有新上传的服务器验证记录建立归属；不根据旧报告的附件key认领历史文件。
+- `paper_tries`、`mf_paper_tries` 各新增可空 `total_score_snapshot DECIMAL(10,2) DEFAULT NULL`。新交卷与得分/明细同事务记录当时整卷满分，人工评分不改变满分快照。旧行保留NULL，不以只包含已答题的detail或今天的试卷回填猜测历史满分。
+- 迁移均为幂等新增，不删除表、列或历史数据；只有重复列错误被忽略，其他迁移错误明确失败。报告对旧NULL显示“满分未记录”。

@@ -1,3 +1,5 @@
+> 本文是 main 4f60b7a 的历史审查记录。后续修复及验证结果见[修复报告](../2026-11-10-remediation/README.md)。原始复现保持不改。
+
 # 智乐学代码与使用体验审查
 
 日期：2026-11-10。基线：[实际main 4f60b7a](https://github.com/imlotso/zhilexue/commit/4f60b7a9bdc5015323308a21a30dfa76e408c0c8)。先确认main提交，再取得该版本、隔离部署与重跑；候选6f9505f不作为最终基线。

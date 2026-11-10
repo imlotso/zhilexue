@@ -1064,7 +1064,7 @@ function pdEdit(it) {
     const patch = {
       type: v('#pdE-type'), question_subtype: v('#pdE-subtype'), match_prompts: v('#pdE-match').split(/\r?\n/).map((s) => s.trim()).filter(Boolean), subject: v('#pdE-sub'), stage: v('#pdE-stage'), grade: v('#pdE-grade'), difficulty: Number(v('#pdE-diff')), difficulty_score_10: v('#pdE-diff10') ? Number(v('#pdE-diff10')) : null,
       stem: v('#pdE-stem').trim(), answer: v('#pdE-ans').trim(), analysis: v('#pdE-ana').trim(), point: v('#pdE-point').trim(),
-      options: [...w.querySelectorAll('.pd-opt')].map((x, i) => ({ label: String.fromCharCode(65 + i), text: x.value.trim() })).filter((o) => o.text),
+      options: [...w.querySelectorAll('.pd-opt')].map((x, i) => ({ label: String.fromCharCode(65 + i), text: x.value.trim() })),
     };
     if (w.querySelector('#pdE-mat')) patch.material = v('#pdE-mat').trim();
     if (it.type_unconfirmed && w.querySelector('#pdE-type-confirm').checked) patch.type_confirmed = true;
@@ -1140,6 +1140,9 @@ function pdEdit(it) {
         const rows = [...optBox.querySelectorAll('.pd-optrow')];
         const row = del.closest('.pd-optrow'), removedIndex = rows.indexOf(row);
         const selected = selectedLetters();
+        if (['single', 'multi'].includes(w.querySelector('#pdE-type').value) && selected.includes(String.fromCharCode(65 + removedIndex))) {
+          toast('该选项已设为答案，请先修改或清空答案后再删除', 'err'); return;
+        }
         // 只改可以明确识别的字母答案，避免改写导入的自由文本答案。
         if (selected.length && ['single', 'multi'].includes(w.querySelector('#pdE-type').value)) {
           ans.value = selected.map((letter) => letter.charCodeAt(0) - 65).filter((i) => i !== removedIndex).map((i) => String.fromCharCode(65 + i - (i > removedIndex ? 1 : 0))).join(',');

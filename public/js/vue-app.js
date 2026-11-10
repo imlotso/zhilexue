@@ -103,6 +103,10 @@ const WordsPane = {
   template: '<div class="words-pane"></div>',
   mounted() { this.paint(); },
   watch: { sub() { this.paint(); } },
+  beforeUnmount() {
+    this.seq++;
+    if (typeof wtCancelDataLoad === 'function') wtCancelDataLoad();
+  },
   methods: {
     async paint() {
       const seq = ++this.seq;
@@ -333,6 +337,8 @@ const App = {
     async load() {
       this.syncRoute();
       const request = this.loadRequest = (this.loadRequest || 0) + 1;
+      if (this.page !== 'words' && typeof wtCancelDataLoad === 'function') wtCancelDataLoad();
+      if (this.page === 'login' && typeof wtResetAccount === 'function') wtResetAccount();
       this.closeLearningNav();
       const pageScroller = document.querySelector && document.querySelector('.rounded-student');
       if (pageScroller) pageScroller.scrollTop = 0;
@@ -454,7 +460,19 @@ const App = {
     },
     async loadCourse() {
       this.selectedLessonId = null;
-      this.course = await api('/api/stu/course-detail?id=' + encodeURIComponent(this.courseId));
+      const request = this.courseRequest = (this.courseRequest || 0) + 1;
+      const courseId = this.courseId, page = this.page, loadRequest = this.loadRequest;
+      const auth = typeof Auth !== 'undefined' ? Auth : {};
+      const account = (auth.user || {}).id, token = auth.token;
+      const current = () => request === this.courseRequest && this.courseId === courseId
+        && this.page === page && this.loadRequest === loadRequest
+        && (auth.user || {}).id === account && auth.token === token;
+      if (this.course && String(this.course.id) !== String(courseId)) this.course = null;
+      let course;
+      try { course = await api('/api/stu/course-detail?id=' + encodeURIComponent(courseId), { silent: true }); }
+      catch (e) { if (current()) throw e; return; }
+      if (!current()) return;
+      this.course = course;
       if (this.course && this.course.subject) this.subject = this.course.subject;
       // 分组课程：默认选中第一个分组（左侧导航）
       const gs = (this.course && this.course.groups) || [];
@@ -469,6 +487,7 @@ const App = {
         const d = await api('/api/login', { method: 'POST', body: { username: this.username.trim(), password: this.password, role: 'student' } });
         Auth.token = d.token;
         Auth.user = d.user;
+        if (typeof wtResetAccount === 'function') wtResetAccount();
         this.user = d.user;
         this.resetLearningHome();
         this.course = null;
@@ -660,6 +679,7 @@ const App = {
         if (typeof wtStopSpeech === 'function') wtStopSpeech();
         if (typeof wtStageOff === 'function') wtStageOff();
         Auth.clear();
+        if (typeof wtResetAccount === 'function') wtResetAccount();
         this.resetLearningHome();
         this.courses = null; this.course = null; this.cachedSubject = ''; this.mistCount = 0;
         this.user = {};

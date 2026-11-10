@@ -166,7 +166,7 @@ const ViewTracking = (() => {
   function bind(el, rows, rowsAll, examA, examB, cid) {
     const cs = el.querySelector('#tCampus');
     if (cs) cs.onchange = () => {
-      Store.setCurrent(cs.value);
+      if (!Store.attempt(() => Store.setCurrent(cs.value))) { cs.value = Store.currentId(); return; }
       state.a = state.b = null; state.subject = ''; state.only = 'all';
       App.refresh();
     };

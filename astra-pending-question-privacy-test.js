@@ -34,6 +34,7 @@ function fixture(t) {
     CREATE TABLE mf_paper_questions(question_id INTEGER,paper_id INTEGER,kind TEXT,position INTEGER,score REAL,created_at TEXT);
     CREATE TABLE papers(id INTEGER PRIMARY KEY,q_ids TEXT,title TEXT);
     CREATE TABLE mf_papers(id INTEGER PRIMARY KEY,published INTEGER,status TEXT);
+    CREATE TABLE mf_paper_tries(paper_id INTEGER);
     CREATE TABLE mf_recog_runs(drafts TEXT,status TEXT,source_kind TEXT);
     CREATE TABLE chapters(id INTEGER,name TEXT,subject TEXT,grade TEXT,stage TEXT,term TEXT,category TEXT);
     CREATE TABLE video_nodes(video_id INTEGER,node_id INTEGER);

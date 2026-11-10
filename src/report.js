@@ -19,6 +19,7 @@ const crypto = require('crypto');
 const { db } = require('./db');
 const store = require('./storage');
 const ai = require('./ai');
+const reportFiles = require('./report-file-access');
 
 const admin = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 15 * 1024 * 1024 } });
@@ -65,7 +66,8 @@ admin.post('/papers', upload.array('images', 6), async (req, res) => {
       if (!/^(image\/(png|jpe?g|webp)|application\/pdf)$/i.test(f.mimetype || '') && !/\.(png|jpe?g|webp|pdf)$/i.test(name)) {
         return fail(res, '只支持照片（png/jpg/webp）或 PDF');
       }
-      const saved = await store.saveFile(f.buffer, name, 'report');
+      const saved = await store.saveFile(f.buffer, reportFiles.reportUploadName(name, f.mimetype), 'report');
+      reportFiles.recordReportUpload(db, saved.key, req.user.id, now());
       keys.push(saved.key);
     }
     ok(res, { keys });
@@ -84,6 +86,8 @@ admin.post('/', async (req, res) => {
   }
   if (!Array.isArray(paperKeys) || !paperKeys.length) return fail(res, '请先上传试卷照片');
   if (paperKeys.length > 6) return fail(res, '一次最多 6 张照片');
+  try { reportFiles.assertReportKeysOwned(db, paperKeys, req.user && req.user.id); }
+  catch (e) { return fail(res, e.message); }
 
   const student = String(b.student || '').trim();
   const title = String(b.title || '').trim() || (student ? student + ' 学情诊断报告' : '学情诊断报告 ' + now().slice(5, 16));
@@ -105,6 +109,7 @@ async function runAnalysis(id) {
   let keys = [];
   try { keys = JSON.parse(row.paper_keys || '[]'); } catch (e) { keys = []; }
   try {
+    reportFiles.assertReportKeysOwned(db, keys, row.created_by);
     const images = [];
     for (const k of keys) {
       const buf = await store.readBuffer(k);
@@ -139,6 +144,7 @@ admin.post('/export-pdf', upload.array('pages', 20), async (req, res) => {
     const buf = pdfimg.build({ size: A4, pages });
     const name = (String((req.body && req.body.title) || '学情诊断报告').replace(/[\\/:*?"<>|]/g, '').trim() || '学情诊断报告') + '.pdf';
     const saved = await store.saveFile(buf, name, 'report');
+    reportFiles.recordReportUpload(db, saved.key, req.user.id, now());
     ok(res, { key: saved.key, file_name: name }, '已导出');
   } catch (e) {
     fail(res, '导出失败：' + (e.message || e));
@@ -162,22 +168,37 @@ admin.get('/:id', (req, res) => {
 admin.post('/:id/retry', async (req, res) => {
   const row = reportGet(req.user, req.params.id);
   if (!row) return fail(res, '报告不存在');
+  try { reportFiles.assertReportKeysOwned(db, reportFiles.reportKeys(row.paper_keys), row.created_by); }
+  catch (e) { return fail(res, e.message); }
   db.prepare(`UPDATE ai_reports SET status='pending', error='' WHERE id=?`).run(row.id);
   runAnalysis(row.id).catch(() => {});
   ok(res, { id: row.id, status: 'pending' }, '已重新发起分析');
 });
 
-admin.delete('/:id', (req, res) => {
+admin.delete('/:id', async (req, res) => {
   const row = reportGet(req.user, req.params.id);
   if (!row) return fail(res, '报告不存在');
-  let keys = [];
-  try { keys = JSON.parse(row.paper_keys || '[]'); } catch (e) { keys = []; }
-  if (store.CLOUD_READ_ONLY) {
-    try { for (const key of keys) store.assertDeleteAllowed(key); }
-    catch (e) { if (e.code === 'STORAGE_CLOUD_READ_ONLY') return fail(res, e.message); throw e; }
+  const keys = [...new Set(reportFiles.reportKeys(row.paper_keys))];
+  // Preserve shared, historical and unverified attachments. A stored key is not
+  // upload authorization, even when the caller owns the report containing it.
+  const referenced = new Set();
+  for (const other of db.prepare('SELECT paper_keys FROM ai_reports WHERE id<>?').all(row.id)) {
+    for (const key of reportFiles.reportKeys(other.paper_keys)) referenced.add(key);
   }
-  db.prepare('DELETE FROM ai_reports WHERE id=?').run(row.id);
-  Promise.all(keys.map((k) => store.deleteFile(k).catch(() => {}))).finally(() => ok(res, null, '已删除'));
+  const deletable = keys.filter((key) => reportFiles.ownedReportKey(db, key, row.created_by) && !referenced.has(key));
+  try {
+    for (const key of deletable) store.assertDeleteAllowed(key);
+    db.transaction(() => {
+      db.prepare('DELETE FROM ai_reports WHERE id=?').run(row.id);
+      // Revoke reuse before asynchronous storage cleanup begins.
+      for (const key of deletable) db.prepare('DELETE FROM report_uploads WHERE file_key=? AND created_by=?').run(key, row.created_by);
+    })();
+  } catch (e) { return fail(res, '报告未删除：' + e.message); }
+  const results = await Promise.allSettled(deletable.map((key) => store.deleteFile(key)));
+  const failed = results.filter((r) => r.status === 'rejected').length;
+  const retained = keys.length - deletable.length;
+  const note = failed ? '；部分附件清理失败，请联系管理员处理' : '';
+  ok(res, { retained_files: retained, cleanup_failed: failed }, '报告已删除' + (retained ? '；未验证归属或仍被引用的附件已保留' : '') + note);
 });
 
 // ------------------------------------------------------------------ 手机扫码：限时 token + 免登录上传
@@ -215,7 +236,8 @@ scan.post('/', requireScanToken, upload.array('images', 6), async (req, res) => 
       if (!/^(image\/(png|jpe?g|webp)|application\/pdf)$/i.test(f.mimetype || '') && !/\.(png|jpe?g|webp|pdf)$/i.test(name)) {
         return fail(res, '只支持照片（png/jpg/webp）或 PDF');
       }
-      const saved = await store.saveFile(f.buffer, name, 'report');
+      const saved = await store.saveFile(f.buffer, reportFiles.reportUploadName(name, f.mimetype), 'report');
+      reportFiles.recordReportUpload(db, saved.key, hit.adminId, now());
       keys.push(saved.key);
     }
     if (keys.length > 6) return fail(res, '一次最多 6 张照片');

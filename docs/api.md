@@ -330,3 +330,13 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 - `GET /subjective-responses` 增加可空 `self_correct`，页面单独标注“本次自评，不代表老师评分”。旧数据为 NULL，未自评保留原待评规则。
 
 后台 `GET /api/admin/xreport/exercises/:id/detail` 的 `rows` 增加可空 `self_correct`，通过同学生/同题/同结果的精确自评来源关联返回；主观作答列表也返回该值。页面清楚标注学生自评与正式老师分数，原正式评分接口和历史总分保持不变。
+
+## 2026-11-10 审查修复补充
+
+- `POST /api/admin/bank/mf/ext/pending/commit`：`ids` 兼容请求和带 `items` 快照请求均使用固定顺序来源行锁、原子入库与完成标记。快照请求仍检查版本；兼容请求保留逐项业务错误，写标记异常则整批回滚。
+- 待审核编辑与最终选择题入库：依据原选项字母同步重排答案。已删/空白/不存在的正确选项、重复字母或无法对应的重复题补答案均拒绝；明确空答案保留原待补流程，不自动猜答案。
+- Word试卷默认总分按整数十分分配，合计100分；响应 `score_each` 为基础每题分值，新增 `score_total:100`、`score_extra_count` 说明余数分配。
+- 题目单删、批删、扫码拒绝/删除、待审核删除及受保护MF卷内题目行删除：引用保护拒绝时返回HTTP 409和 `{code:409,msg}`。普通试卷引用、已发布或有作答的MF引用受保护；未发布且无作答MF草稿及标题行保持可编辑。
+- 报告附件创建/重试/分析只接受服务器记录为原上传账号所有的report文件。报告删除的成功结果含 `retained_files` 和 `cleanup_failed`，未验证、共用附件保留，清理失败不谎称已清空。
+- 旧学习报告列表/详情与 `/xreport` 同步学生角色、分校归属规则。学生视频列表即使不带 `chapter_id` 也过滤可见课程；`/api/file` 读取/签名视频前校验资源课程权限。
+- `/api/admin/xreport/exercises` 汇总普通卷和MF卷，未评分NULL不参与均分。详情 `papers[]` 新增 `kind:paper|mfpaper`、`paper_id`、`total_score_source:attempt|unknown`。`total_score` 只取当次交卷可信快照；旧记录无快照为NULL，保留真实得分且不推算百分比。

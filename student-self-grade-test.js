@@ -22,12 +22,12 @@ function fixture(t){
  CREATE TABLE papers(id INTEGER PRIMARY KEY,status TEXT,q_ids TEXT,grade TEXT,stage TEXT,term TEXT,due_at TEXT,total_score REAL,question_scores TEXT,question_partial_scores TEXT);
  INSERT INTO papers VALUES(1,'published','[1,2]','四年级','primary','上册','',100,'{"1":60,"2":40}','{}');
  CREATE TABLE paper_assignments(paper_id INTEGER,user_id INTEGER);
- CREATE TABLE paper_tries(id INTEGER PRIMARY KEY,user_id INTEGER,paper_id INTEGER,total INTEGER,correct INTEGER,score REAL,detail TEXT,created_at TEXT);
+ CREATE TABLE paper_tries(id INTEGER PRIMARY KEY,user_id INTEGER,paper_id INTEGER,total INTEGER,correct INTEGER,score REAL,detail TEXT,created_at TEXT,total_score_snapshot REAL);
  CREATE TABLE mf_papers(id INTEGER PRIMARY KEY,published INTEGER,status TEXT);
  INSERT INTO mf_papers VALUES(1,1,'published');
  CREATE TABLE mf_paper_questions(paper_id INTEGER,question_id INTEGER,kind TEXT,score REAL,partial_score REAL);
  INSERT INTO mf_paper_questions VALUES(1,1,'question',60,NULL),(1,2,'question',40,NULL);
- CREATE TABLE mf_paper_tries(id INTEGER PRIMARY KEY,user_id INTEGER,paper_id INTEGER,total INTEGER,correct INTEGER,score REAL,detail TEXT,created_at TEXT);
+ CREATE TABLE mf_paper_tries(id INTEGER PRIMARY KEY,user_id INTEGER,paper_id INTEGER,total INTEGER,correct INTEGER,score REAL,detail TEXT,created_at TEXT,total_score_snapshot REAL);
  CREATE TABLE videos(id INTEGER PRIMARY KEY,chapter_id INTEGER,section_id INTEGER,title TEXT);
  INSERT INTO videos VALUES(20,10,30,'讲解');
  CREATE TABLE chapters(id INTEGER PRIMARY KEY,grade TEXT,stage TEXT,term TEXT,category TEXT);

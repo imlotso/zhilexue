@@ -745,7 +745,7 @@ module.exports = function mountPending(d) {
     const patch = b.patch && typeof b.patch === 'object' ? b.patch : {};
     const has = (k) => Object.prototype.hasOwnProperty.call(patch, k);
     const rawOpts = has('options') ? (Array.isArray(patch.options) ? patch.options : []).map((o, k) => ({ label: str(o && o.label) || LETTERS[k] || '', text: str(o && (o.text != null ? o.text : o.content)) })) : null;
-    const opts = rawOpts ? rawOpts.filter((o) => o.text.trim()) : null;
+    let opts = rawOpts ? rawOpts.filter((o) => o.text.trim()) : null;
     if (opts && opts.length > 10) return fail(res, '最多支持 10 个选项');
     const type = has('type') && TYPES.includes(patch.type) ? patch.type : null;
     if ((rawOpts && rawOpts.length !== opts.length) || has('match_prompts')) {
@@ -753,6 +753,15 @@ module.exports = function mountPending(d) {
       const subtype = has('question_subtype') ? patch.question_subtype : old && old.question_subtype;
       if (QSubtype.isMatch(subtype) && rawOpts && rawOpts.length !== opts.length) return fail(res, '匹配题的右侧选项不能为空');
       if (QSubtype.isMatch(subtype) && has('match_prompts') && (!Array.isArray(patch.match_prompts) || patch.match_prompts.some((v) => !str(v).trim()))) return fail(res, '匹配题的左侧项目不能为空');
+    }
+    if (has('options') || has('answer') || has('type')) {
+      const current = allItems(req).find((x) => x.id === str(b.id));
+      if (current && ['single', 'multi'].includes(type || current.type)) {
+        const normalized = require('./choice-normalize').normalizeChoiceOptions(type || current.type, rawOpts || current.options, has('answer') ? patch.answer : current.answer);
+        if (normalized.error) return fail(res, normalized.error);
+        opts = normalized.options;
+        patch.answer = normalized.answer;
+      }
     }
     // AI 建议确认时携带页面所见快照，避免覆盖别人刚修改的题型、难度或归属。
     if (b.expected && typeof b.expected === 'object') {
@@ -1129,6 +1138,8 @@ module.exports = function mountPending(d) {
       const scanDraft = up.question_id ? db.prepare('SELECT * FROM questions WHERE id=?').get(up.question_id) : parseObj(up.draft_json);
       if (!scanDraft) return failed.push({ id: `up:${upId}`, msg: '关联题目不存在，请先核对' });
       const scanOptions = up.question_id ? parseArr(scanDraft.options) : scanDraft.options;
+      const scanChoice = require('./choice-normalize').normalizeChoiceOptions(scanDraft.type, scanOptions, Object.hasOwn(scanDraft, 'answer') ? scanDraft.answer : up.answer);
+      if (scanChoice.error) return failed.push({ id: `up:${upId}`, msg: scanChoice.error });
       const choiceError = choiceOptionsError(scanDraft.type, scanOptions);
       if (choiceError) return failed.push({ id: `up:${upId}`, msg: choiceError });
       if (scanDraft.question_subtype === 'writing' && (subj !== '英语' || scanDraft.type !== 'answer')) return failed.push({ id: `up:${upId}`, msg: '书面表达须选择英语学科和问答基础题型' });
@@ -1148,7 +1159,7 @@ module.exports = function mountPending(d) {
               ? resolveDifficulty({ difficulty_score_10: draft.difficulty_score_10 }) : resolveDifficulty({}, draft);
             id = db.prepare(`INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,sort,stage,point,material,source,year,video_id,images,audio_key,created_at)
               VALUES (NULL,?,?,?,?,?,?,?,?,0,?,?,?,'学生上传','',NULL,?,?,?)`)
-              .run(subj, grd, TYPES.includes(draft.type) ? draft.type : 'answer', str(draft.stem || up.stem_text || '（纸质错题，看图作答）'), jstr(draft.options || []), str(Object.prototype.hasOwnProperty.call(draft, 'answer') ? draft.answer : up.answer), str(draft.analysis), difficulty.difficulty, stg, str(up.point), str(draft.material), up.images || '[]', audioKeyOf(draft.audio_key), now()).lastInsertRowid;
+              .run(subj, grd, TYPES.includes(draft.type) ? draft.type : 'answer', str(draft.stem || up.stem_text || '（纸质错题，看图作答）'), jstr(scanChoice.options || []), str(scanChoice.answer), str(draft.analysis), difficulty.difficulty, stg, str(up.point), str(draft.material), up.images || '[]', audioKeyOf(draft.audio_key), now()).lastInsertRowid;
             if (draft.ai_answer_review || (Array.isArray(draft.ai_answer_discard_history) && draft.ai_answer_discard_history.length)) db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(AiAnswerReview.withDiscardHistory(draft.ai_answer_review, draft.ai_answer_discard_history)), id);
             if (difficulty.difficulty_score_10 != null) db.prepare('UPDATE questions SET difficulty_score_10=? WHERE id=?').run(difficulty.difficulty_score_10, id);
             if (draft.audio_play_limit) db.prepare('UPDATE questions SET audio_play_limit=? WHERE id=?').run(audioLimitOf(draft.audio_play_limit), id);
@@ -1164,6 +1175,7 @@ module.exports = function mountPending(d) {
               db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(AiAnswerReview.withDiscardHistory(parseObj(existing.ai_review_metadata), history)), id);
             }
           }
+          if (up.question_id && ['single', 'multi'].includes(scanDraft.type)) db.prepare('UPDATE questions SET options=?, answer=? WHERE id=?').run(jstr(scanChoice.options), str(scanChoice.answer), id);
           const insNode = db.prepare('INSERT OR IGNORE INTO question_nodes (question_id, node_id) VALUES (?,?)');
           itemNodes.forEach((node) => insNode.run(id, node.id));
           const insTag = db.prepare('INSERT OR IGNORE INTO question_tags (question_id, tag) VALUES (?,?)');
@@ -1178,23 +1190,26 @@ module.exports = function mountPending(d) {
     if (!questionIds.length && !b.detailed) return fail(res, failed.length ? failed[0].msg : '没有可入库的题目');
     return ok(res, { committed: questionIds.length, question_ids: questionIds, failed }, `已入库 ${questionIds.length} 题${failed.length ? `，${failed.length} 题失败` : ''}`);
     };
-    if (!Object.hasOwn(b, 'items')) return perform(res, false); // 兼容旧调用方
+    const hasSnapshots = Object.hasOwn(b, 'items');
     try {
-      if (!Array.isArray(b.ids) || !Array.isArray(b.items) || b.ids.length !== b.items.length || b.items.some((entry) => !b.ids.includes(entry && entry.id))) throw new Error('入库范围与题目快照不一致，请重新选择');
-      selectedSnapshots(req); // 校验数量、重复和权限后再加锁；事务内再次检查快照。
+      if (hasSnapshots && (!Array.isArray(b.ids) || !Array.isArray(b.items) || b.ids.length !== b.items.length || b.items.some((entry) => !b.ids.includes(entry && entry.id)))) throw new Error('入库范围与题目快照不一致，请重新选择');
+      if (hasSnapshots) selectedSnapshots(req); // 事务内再次检查完整快照。
+      const entries = hasSnapshots ? b.items : (Array.isArray(b.ids) ? b.ids : []).map((id) => ({ id }));
+      const scopeError = scanAccessError(req, entries.map((entry) => entry.id));
+      if (scopeError) return fail(res, scopeError, 403);
       let result;
       db.transaction(() => {
         // 在开始一致性读取前按固定顺序锁定来源及历史扫码题，防止审核与保存覆盖并发修改。
-        const locks = [...new Map(b.items.map((entry) => { const p = entry && parseId(entry.id); if (!p) throw new Error('题目标识无效'); return [`${p.kind}:${p.batch}`, p]; })).entries()].sort(([a], [b]) => a.localeCompare(b));
+        const locks = [...new Map(entries.map((entry) => { const p = entry && parseId(entry.id); if (!p) { if (hasSnapshots) throw new Error('题目标识无效'); return null; } return [`${p.kind}:${p.batch}`, p]; }).filter(Boolean)).entries()].sort(([a], [b]) => a.localeCompare(b));
         const scanQuestions = [];
         for (const [, p] of locks) {
           const table = p.kind === 'run' ? 'mf_recog_runs' : p.kind === 'cap' ? 'mf_capture_batches' : 'paper_uploads';
           const row = db.prepare(`SELECT * FROM ${table} WHERE id=? FOR UPDATE`).get(p.batch);
-          if (!row) throw new Error(STALE);
+          if (!row) { if (hasSnapshots) throw new Error(STALE); continue; }
           if (p.kind === 'up' && row.question_id) scanQuestions.push(Number(row.question_id));
         }
         [...new Set(scanQuestions)].sort((a,b) => a-b).forEach((id) => { if (!db.prepare('SELECT id FROM questions WHERE id=? FOR UPDATE').get(id)) throw new Error(STALE); });
-        selectedSnapshots(req);
+        if (hasSnapshots) selectedSnapshots(req);
         perform({ json(value) { result = value; return value; } }, true);
       })();
       return res.json(result);
@@ -1207,6 +1222,13 @@ module.exports = function mountPending(d) {
     if (scopeError) return fail(res, scopeError, 403);
     const g = groupIds((req.body || {}).ids);
     if (!(g.run.size || g.cap.size || g.up.length)) return fail(res, '请先选择要删除的题目');
+    // Preflight every linked scan before changing any source in a mixed batch.
+    const deletingQuestions = [...new Set(g.up)].map((id) => db.prepare('SELECT * FROM paper_uploads WHERE id=?').get(id))
+      .filter((up) => up && ['pending', 'reviewed'].includes(up.status) && up.question_id).map((up) => up.question_id);
+    if (deletingQuestions.length) {
+      try { require('./question-delete-guard').assertQuestionsDeletable(db, deletingQuestions); }
+      catch (e) { if (e.code === 'QUESTION_IN_USE') return res.status(409).json({ code: 409, msg: e.message }); throw e; }
+    }
     let n = 0, stale = 0;
     g.run.forEach((idxs, runId) => {
       const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(runId);
@@ -1284,8 +1306,8 @@ module.exports = function mountPending(d) {
         VALUES (?,?,?,?,?,'basket','uniform',?,NULL,'',0,?)`).run(title,subject,stage,grade,year,jstr(require('./mfbank').defaultLayout()),now()).lastInsertRowid;
       if (examCategory) db.prepare('UPDATE mf_papers SET exam_category=? WHERE id=?').run(examCategory, pid);
       if (edition || term) db.prepare('UPDATE mf_papers SET edition=?,term=? WHERE id=?').run(edition,term,pid);
-      const score = Math.round(100 / active.length * 10) / 10;
-      active.forEach((c, i) => { c._paper_id=pid; c._paper_position=i+1; c._paper_score=score; });
+      const tenths = Math.floor(1000 / active.length), remainder = 1000 % active.length;
+      active.forEach((c, i) => { c._paper_id=pid; c._paper_position=i+1; c._paper_score=(tenths + (i < remainder ? 1 : 0)) / 10; });
       db.prepare('UPDATE mf_recog_runs SET title=?, subject=?, stage=?, grade=?, source_kind=?, drafts=? WHERE id=?').run(title,subject,stage,grade,'paper',jstr(cards),run.id);
       return { paper_id:pid, count:active.length };
     })();
@@ -1540,7 +1562,8 @@ module.exports = function mountPending(d) {
 
     if (!cards.length) return fail(res, '没有识别到可导入的题目');
     if (!subject || !stage) return fail(res, '请选择学科和学段');
-    const each = Math.round(100 / cards.length * 10) / 10;
+    const tenths = Math.floor(1000 / cards.length), remainder = 1000 % cards.length;
+    const each = tenths / 10;
     const created = db.transaction(() => {
       const pid = db.prepare(`INSERT INTO mf_papers (title, subject, stage, grade, year, status, paper_type, layout_json, folder_id, trashed_from, published, created_at)
         VALUES (?,?,?,?,?,'basket','uniform',?,?,'',0,?)`)
@@ -1551,12 +1574,12 @@ module.exports = function mountPending(d) {
       let pos = 0;
       sections.forEach((sec, i) => {
         insT.run(pid, ++pos, sectionName(sec, i), now());
-        sec.idx.forEach((ci) => { cards[ci]._paper_id = pid; cards[ci]._paper_position = ++pos; cards[ci]._paper_score = each; delete cards[ci]._type; });
+        sec.idx.forEach((ci) => { cards[ci]._paper_id = pid; cards[ci]._paper_position = ++pos; cards[ci]._paper_score = (tenths + (ci < remainder ? 1 : 0)) / 10; delete cards[ci]._type; });
       });
       const runId = createRun({ title, kind: 'paper', name: '真题试卷', subject, stage, grade, cards });
       return { pid, runId };
     })();
-    return ok(res, Object.assign({ paper_id: created.pid, run_id: created.runId, question_ids: [], published: 0, score_each: each }, summary),
+    return ok(res, Object.assign({ paper_id: created.pid, run_id: created.runId, question_ids: [], published: 0, score_each: each, score_total: 100, score_extra_count: remainder }, summary),
       `已创建试卷草稿，${cards.length} 道题已进入待审核；审核入库后会自动加入试卷。`);
   });
 

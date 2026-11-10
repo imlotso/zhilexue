@@ -2,10 +2,16 @@
    导入工具集（已并入「成绩列表」页）
    - 紧凑导入条
    - 批量上传 Excel / 手动添加 / 试卷快照 + 知识点打点
-   - 家长扫码上传（二维码）
+   - 家长本机演示（二维码）
    - 数据管理（示例数据 / 清空 / 考试批次）
    ========================================================== */
 const ViewImport = (() => {
+
+  function saveSnapshot(examId, campusId, subject, images) {
+    const existing = Store.paper(examId, subject);
+    Store.savePaper({ examId, campusId, subject, images,
+      questions: existing ? existing.questions || [] : [], auto: existing ? existing.auto : false });
+  }
 
   /* ---------------- 紧凑导入条 ---------------- */
   function barHtml() {
@@ -17,10 +23,10 @@ const ViewImport = (() => {
       <div class="ib-label">⤓ 成绩录入</div>
       <button class="btn btn-primary btn-sm" id="ibManual">＋ 手动添加成绩</button>
       <div class="ib-sep"></div>
-      <button class="btn btn-sm" id="ibQR">📱 家长扫码上传${pending ? ` <span class="tag tag-down" style="margin-left:4px">${pending} 待审</span>` : ''}</button>
+      <button class="btn btn-sm" id="ibQR">📱 家长本机演示${pending ? ` <span class="tag tag-down" style="margin-left:4px">${pending} 待审</span>` : ''}</button>
       <div class="ib-sep"></div>
       <button class="btn btn-sm" id="ibData">数据管理</button>
-      <span class="ib-note">已有 ${exN} 次考试 · ${recN} 条成绩记录 · 手动添加时可直接附试卷照片，自动生成知识点诊断</span>
+      <span class="ib-note">已有 ${exN} 次考试 · ${recN} 条成绩记录 · 试卷照片仅供留档，知识点诊断需人工录入逐题数据</span>
     </div>`;
   }
 
@@ -60,7 +66,7 @@ const ViewImport = (() => {
         <div id="upPreview"></div>
         <div class="field" id="upPaperWrap">
           <label>试卷快照（选填）
-            <span class="hint">上传即自动生成【知识点诊断】与【AI 提升建议】，无需逐题录入</span></label>
+            <span class="hint">仅保存试卷照片；诊断需人工录入并确认知识点与逐题得分</span></label>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <select id="upPaperSubject" style="width:auto;min-width:130px"></select>
             <button class="btn btn-sm" type="button" id="upPaperAdd">📷 上传试卷照片</button>
@@ -71,7 +77,7 @@ const ViewImport = (() => {
       `,
       foot: `<button class="btn" data-close="1">取消</button><button class="btn btn-primary" id="upOk" disabled>确认导入</button>`,
       onMount(box) {
-        let parsed = null;
+        let parsed = null, fileSequence = 0;
         let paperImages = [];
         const imgInput = document.getElementById('imageInput');
         const fileInput = document.getElementById('fileInput');
@@ -110,11 +116,18 @@ const ViewImport = (() => {
         fileInput.onchange = () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); };
 
         function handleFile(file) {
+          const sequence = ++fileSequence;
+          parsed = null;
+          box.querySelector('#upOk').disabled = true;
           box.querySelector('#upFileTip').textContent = file.name;
           Excel.readFile(file).then(res => {
+            if (!dz.isConnected || sequence !== fileSequence) return;
             parsed = res.error ? null : res;
             renderPreview(res);
-          }).catch(err => { parsed = null; renderPreview({ error: err.message || '解析失败' }); });
+          }).catch(err => {
+            if (!dz.isConnected || sequence !== fileSequence) return;
+            parsed = null; renderPreview({ error: err.message || '解析失败' });
+          });
         }
 
         function renderPreview(res) {
@@ -171,50 +184,47 @@ const ViewImport = (() => {
   }
 
   function doImport(parsed, meta, after, paperOpt) {
-    const exam = Store.addExam({ campusId: meta.campusId, name: meta.name, date: meta.date, type: meta.type });
-    const valid = parsed.rows.filter(r => !r._err || !r._err.length);
-    const skipped = parsed.rows.length - valid.length;
-    if (!valid.length) { U.toast('没有可导入的有效数据', 'err'); return; }
+    let list, replaced, skipped, autoTip;
+    const validRows = parsed.rows.filter(r => !r._err || !r._err.length);
+    if (!validRows.length) { U.toast('没有可导入的有效数据', 'err'); return; }
+    const saved = Store.attempt(() => {
+      const exam = Store.addExam({ campusId: meta.campusId, name: meta.name, date: meta.date, type: meta.type });
+      const valid = validRows;
+      skipped = parsed.rows.length - valid.length;
 
-    const existed = Store.allRecords().filter(r => r.examId === exam.id);
-    const drop = new Set();
-    let replaced = 0;
-    valid.forEach(v => {
-      const hit = existed.find(r => r.studentName === v.studentName && (r.subject || '总分') === (v.subject || '总分'));
-      if (hit) { drop.add(hit.id); replaced++; }
-    });
-    drop.forEach(id => Store.deleteRecord(id));
+      const existed = Store.allRecords().filter(r => r.examId === exam.id);
+      const drop = new Set();
+      replaced = 0;
+      valid.forEach(v => {
+        const hit = existed.find(r => r.studentName === v.studentName && (r.subject || '总分') === (v.subject || '总分'));
+        if (hit) { drop.add(hit.id); replaced++; }
+      });
+      drop.forEach(id => Store.deleteRecord(id));
 
-    const list = valid.map(v => {
-      const old = Store.allRecords().find(r => r.campusId === meta.campusId && r.studentName === v.studentName && !v.stage);
-      return {
-        examId: exam.id, campusId: meta.campusId, date: v.date || meta.date,
-        studentName: v.studentName,
-        stage: v.stage || (old ? old.stage : ''),
-        grade: v.grade || (old ? old.grade : ''),
-        className: v.className || (old ? old.className : ''),
-        subject: v.subject || '总分',
-        type: v.type || meta.type,
-        fullScore: v.fullScore, score: v.score,
-        classRank: v.classRank, gradeRank: v.gradeRank,
-        comment: v.comment || ''
-      };
-    });
-    Store.addRecords(list);
+      list = valid.map(v => {
+        const old = Store.allRecords().find(r => r.campusId === meta.campusId && r.studentName === v.studentName && !v.stage);
+        return {
+          examId: exam.id, campusId: meta.campusId, date: v.date || meta.date,
+          studentName: v.studentName,
+          stage: v.stage || (old ? old.stage : ''),
+          grade: v.grade || (old ? old.grade : ''),
+          className: v.className || (old ? old.className : ''),
+          subject: v.subject || '总分',
+          type: v.type || meta.type,
+          fullScore: v.fullScore, score: v.score,
+          classRank: v.classRank, gradeRank: v.gradeRank,
+          comment: v.comment || ''
+        };
+      });
+      Store.addRecords(list);
 
-    // 试卷快照（选填）→ 自动生成知识点诊断与 AI 提升建议
-    let autoTip = '';
-    if (paperOpt && paperOpt.images && paperOpt.images.length && paperOpt.subject) {
-      const sum = Analytics.examSummary(exam.id, paperOpt.subject);
-      const qs = Knowledge.autoQuestions(paperOpt.subject, sum ? sum.avgRate : null, 12);
-      if (qs.length) {
-        Store.savePaper({
-          examId: exam.id, campusId: meta.campusId, subject: paperOpt.subject,
-          images: paperOpt.images, questions: qs, auto: true
-        });
-        autoTip = `；已按试卷快照自动生成「${paperOpt.subject}」知识点诊断`;
+      autoTip = '';
+      if (paperOpt && paperOpt.images && paperOpt.images.length && paperOpt.subject) {
+        saveSnapshot(exam.id, meta.campusId, paperOpt.subject, paperOpt.images);
+        autoTip = '；试卷照片已留档，知识点与逐题得分待录入';
       }
-    }
+    });
+    if (!saved) return;
 
     U.closeModal();
     U.toast(`导入成功：新增 ${list.length - replaced} 条，覆盖 ${replaced} 条${skipped ? `，跳过异常 ${skipped} 条` : ''}${autoTip}`, 'ok');
@@ -249,7 +259,7 @@ const ViewImport = (() => {
         </div>
         <div class="field">
           <label>试卷快照（选填）
-            <span class="hint">上传后自动生成该科目的知识点诊断与 AI 提升建议</span></label>
+            <span class="hint">照片仅供留档，不会自动识别或生成知识点分数</span></label>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="btn btn-sm" type="button" id="mmAddImg">📷 上传试卷照片</button>
             <span class="small muted">最多 6 张 · 自动压缩 · 学科取上方「科目」字段</span>
@@ -311,7 +321,9 @@ const ViewImport = (() => {
           renderMm();
         };
 
+        let submitted = false;
         box.querySelector('#mOk').onclick = () => {
+          if (submitted) return;
           const g = (id) => box.querySelector('#' + id).value.trim();
           const name = g('mName'), stage = g('mStage'), subject = g('mSubject');
           const full = U.num(box.querySelector('#mFull').value);
@@ -322,37 +334,35 @@ const ViewImport = (() => {
           if (full == null) return U.toast('请填写满分', 'err');
           if (score == null) return U.toast('请填写得分', 'err');
 
-          const campusId = box.querySelector('#mCampus').value;
-          let id = sel.value, date, type;
-          if (id === '__new') {
-            const ename = g('mExamName');
-            if (!ename) return U.toast('请填写考试名称', 'err');
-            const e = Store.addExam({ campusId, name: ename, date: U.monthVal('mDate'), type: box.querySelector('#mType').value });
-            id = e.id;
-          }
-          const e = Store.exam(id);
-          date = e.date; type = e.type;
-          Store.addRecords([{
-            examId: id, campusId, date, studentName: name,
-            stage, grade: g('mGrade'), className: g('mClass'),
-            subject, type, fullScore: full, score,
-            classRank: U.num(box.querySelector('#mCR').value),
-            gradeRank: U.num(box.querySelector('#mGR').value),
-            comment: g('mComment')
-          }]);
-
-          // 附了试卷照片 → 自动生成该科目知识点诊断
           let mtip = '';
-          if (mmImages.length && subject) {
-            const sum = Analytics.examSummary(id, subject);
-            const qs = Knowledge.autoQuestions(subject, sum ? sum.avgRate : score / full, 12);
-            if (qs.length) {
-              Store.savePaper({
-                examId: id, campusId, subject, images: mmImages, questions: qs, auto: true
-              });
-              mtip = '，已按试卷快照生成知识点诊断';
+          if (sel.value === '__new' && !g('mExamName')) return U.toast('请填写考试名称', 'err');
+          const saved = Store.attempt(() => {
+            const campusId = box.querySelector('#mCampus').value;
+            let id = sel.value, date, type;
+            if (id === '__new') {
+              const ename = g('mExamName');
+              if (!ename) return U.toast('请填写考试名称', 'err');
+              const e = Store.addExam({ campusId, name: ename, date: U.monthVal('mDate'), type: box.querySelector('#mType').value });
+              id = e.id;
             }
-          }
+            const e = Store.exam(id);
+            date = e.date; type = e.type;
+            Store.addRecords([{
+              examId: id, campusId, date, studentName: name,
+              stage, grade: g('mGrade'), className: g('mClass'),
+              subject, type, fullScore: full, score,
+              classRank: U.num(box.querySelector('#mCR').value),
+              gradeRank: U.num(box.querySelector('#mGR').value),
+              comment: g('mComment')
+            }]);
+
+            if (mmImages.length && subject) {
+              saveSnapshot(id, campusId, subject, mmImages);
+              mtip = '，试卷照片已留档，逐题数据待录入';
+            }
+          });
+          if (!saved) return;
+          submitted = true;
           U.closeModal(); U.toast('已添加' + mtip, 'ok'); (after || App.refresh)();
         };
       }
@@ -398,7 +408,7 @@ const ViewImport = (() => {
             <select id="ppSubject">${subjectsOfExam.map(s => `<option ${s === subj ? 'selected' : ''}>${U.esc(s)}</option>`).join('') || '<option>数学</option>'}</select></div>
         </div>
         <div class="field">
-          <label>试卷快照 <span class="hint">可选上传，用于留档与后续 AI 识别</span></label>
+          <label>试卷快照 <span class="hint">可选上传，仅供本机留档，不进行自动识别</span></label>
           <div class="paper-thumbs" id="ppThumbs"></div>
           <div style="margin-top:8px;display:flex;gap:8px">
             <button class="btn btn-sm" id="ppAddImg">＋ 上传试卷图片</button>
@@ -406,20 +416,19 @@ const ViewImport = (() => {
           </div>
         </div>
         <div class="analysis-box" style="font-size:12px;line-height:1.8">
-          <b>知识点诊断引擎</b>：当前使用「本地知识点库」预填（江苏地区 苏教版数学/英语、苏科版物理、苏教版化学）。
-          接入视觉大模型后，可实现上传试卷自动识别每道题知识点。识别结果需老师逐题确认后再生成报告。
+          <b>知识点诊断引擎</b>：请依据试卷人工选择知识点、录入满分与全班逐题平均分，并确认数据。
+          图片和总分不能生成知识点掌握度；没有有效逐题证据时显示待录入。
         </div>
         <div class="field">
           <label>题目与知识点打点
             <span class="hint">知识点可下拉选择，也可直接输入</span></label>
           <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-            <button class="btn btn-sm" id="ppDraft">本地预填 10 题</button>
+            <button class="btn btn-sm" id="ppDraft">添加 10 行空白草稿</button>
             <button class="btn btn-sm" id="ppAddQ">＋ 添加一行</button>
-            <button class="btn btn-sm" id="ppFillAvg">按科目平均分率填充全班平均分</button>
           </div>
           <div style="max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:9px">
             <table class="grid" id="ppTable">
-              <thead><tr><th style="width:52px">题号</th><th>知识点（苏教/苏科）</th><th style="width:80px">满分</th><th style="width:100px">全班平均分</th><th style="width:44px"></th></tr></thead>
+              <thead><tr><th style="width:52px">题号</th><th>知识点（苏教/苏科）</th><th style="width:80px">满分</th><th style="width:100px">全班平均分</th><th style="width:56px">已确认</th><th style="width:44px"></th></tr></thead>
               <tbody id="ppBody"></tbody>
             </table>
           </div>
@@ -446,7 +455,10 @@ const ViewImport = (() => {
         const loadPaper = () => {
           const p = curPaper();
           images = p ? (p.images || []).slice() : [];
-          questions = p ? (p.questions || []).map(q => ({ ...q })) : [];
+          questions = p ? JSON.parse(JSON.stringify(p.questions || [])).map(q => {
+            if ((q.auto || p.auto) && q.confirmed !== true) return { ...q, avgScore: null, scores: {}, auto: false, confirmed: false };
+            return q;
+          }) : [];
           renderThumbs(); renderRows(); refreshKn();
         };
         const renderThumbs = () => {
@@ -466,11 +478,12 @@ const ViewImport = (() => {
               <td><input type="text" list="knList" value="${U.esc(q.knowledge || '')}" data-q="knowledge" data-i="${i}" placeholder="选择或输入知识点" style="height:28px" /></td>
               <td><input type="number" value="${q.full ?? ''}" data-q="full" data-i="${i}" style="height:28px;padding:0 6px" /></td>
               <td><input type="number" value="${q.avgScore ?? ''}" data-q="avgScore" data-i="${i}" style="height:28px;padding:0 6px" /></td>
+              <td><input type="checkbox" data-q="confirmed" data-i="${i}" aria-label="第 ${i + 1} 题数据已确认" ${q.confirmed !== false ? 'checked' : ''} /></td>
               <td><button class="btn btn-sm btn-danger" data-del="${i}" style="height:26px;padding:0 6px">✕</button></td>
-            </tr>`).join('') || `<tr><td colspan="5"><div class="small muted" style="padding:12px;text-align:center">暂无题目，点击「本地预填」或「添加一行」</div></td></tr>`;
+            </tr>`).join('') || `<tr><td colspan="6"><div class="small muted" style="padding:12px;text-align:center">逐题数据待录入，点击「添加 10 行空白草稿」或「添加一行」</div></td></tr>`;
           body.querySelectorAll('[data-q]').forEach(inp => inp.onchange = () => {
             const i = Number(inp.dataset.i), k = inp.dataset.q;
-            questions[i][k] = (k === 'no' || k === 'full' || k === 'avgScore') ? U.num(inp.value) : inp.value.trim();
+            questions[i][k] = k === 'confirmed' ? inp.checked : (k === 'no' || k === 'full' || k === 'avgScore') ? U.num(inp.value) : inp.value.trim();
           });
           body.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
             questions.splice(Number(b.dataset.del), 1); renderRows();
@@ -503,40 +516,24 @@ const ViewImport = (() => {
           const s = box.querySelector('#ppSubject').value;
           questions = Knowledge.draftQuestions(s, 10, null);
           renderRows();
-          U.toast('已按知识点库预填 10 题，请逐题核对', 'ok');
+          U.toast('已添加 10 行空白草稿，请填写并逐题确认');
         };
         box.querySelector('#ppAddQ').onclick = () => {
           questions.push({ no: questions.length + 1, knowledge: '', full: 10, avgScore: null, scores: {} });
           renderRows();
         };
-        box.querySelector('#ppFillAvg').onclick = () => {
-          const s = box.querySelector('#ppSubject').value;
-          const sum = Analytics.examSummary(box.querySelector('#ppExam').value, s);
-          if (!sum || sum.avgRate == null) return U.toast('该考试暂无该科目成绩，无法计算', 'err');
-          questions.forEach(q => { if (q.full) q.avgScore = Math.round(q.full * sum.avgRate * 10) / 10; });
-          renderRows();
-          U.toast(`已按全班平均得分率 ${U.pct(sum.avgRate, 1)} 填充`, 'ok');
-        };
         box.querySelector('#ppSave').onclick = () => {
           const eid = box.querySelector('#ppExam').value;
           const subj = box.querySelector('#ppSubject').value;
-          let valid = questions.filter(q => q.knowledge && q.full);
-          let autoMade = false;
-          if (!valid.length) {
-            if (!images.length) return U.toast('请至少填写 1 道有知识点与满分的题目，或直接上传试卷照片由系统自动生成', 'err');
-            const sum = Analytics.examSummary(eid, subj);
-            valid = Knowledge.autoQuestions(subj, sum ? sum.avgRate : null, 12);
-            autoMade = true;
-            if (!valid.length) return U.toast('该学科暂无对应知识点库，无法自动生成', 'err');
-          }
-          Store.savePaper({
+          const valid = questions.filter(q => q.knowledge && Number(q.full) > 0);
+          if (!valid.length && !images.length) return U.toast('请录入题目数据或选择试卷照片留档', 'err');
+          if (valid.some(q => q.avgScore != null && (!Number.isFinite(Number(q.avgScore)) || Number(q.avgScore) < 0 || Number(q.avgScore) > Number(q.full)))) return U.toast('逐题平均分应在 0 到该题满分之间', 'err');
+          if (!Store.attempt(() => Store.savePaper({
             examId: eid, campusId: Store.currentId(), subject: subj,
-            images, questions: valid, auto: autoMade || undefined
-          });
+            images, questions: valid, auto: false
+          }))) return;
           U.closeModal();
-          U.toast(autoMade
-            ? `已保存：${images.length} 张试卷图，并按试卷自动生成 ${valid.length} 个知识点诊断`
-            : `已保存：${images.length} 张试卷图、${valid.length} 道题目`, 'ok');
+          U.toast(`已保存：${images.length} 张试卷图、${valid.length} 道题目；未确认或缺少得分的题目不参与诊断`, 'ok');
           (after || App.refresh)();
         };
 
@@ -545,7 +542,7 @@ const ViewImport = (() => {
     });
   }
 
-  /* ================= 家长扫码上传 ================= */
+  /* ================= 家长本机演示 ================= */
   function openQRModal() {
     const cid = Store.currentId();
     const base = location.origin && location.origin !== 'null'
@@ -554,21 +551,20 @@ const ViewImport = (() => {
     const url = `${base}parent-upload.html?c=${encodeURIComponent(cid)}&n=${encodeURIComponent(Store.campusName())}`;
 
     U.modal({
-      title: '家长扫码上传成绩',
+      title: '家长本机演示成绩',
       body: `
         <div class="qr-wrap">
           <div class="qr-box" id="qrBox"></div>
           <div class="qr-info">
-            <div style="font-weight:700;color:var(--text);font-size:13.5px;margin-bottom:6px">家长扫码 → 填写 → 提交，后台待审核</div>
-            <div>家长用微信扫码打开上传页，填写学生姓名、考试、科目与得分；提交后进入「待审核」，老师确认后才计入成绩。</div>
+            <div style="font-weight:700;color:var(--text);font-size:13.5px;margin-bottom:6px">本机演示：填写后仅保存到填写者的浏览器</div>
+            <div>二维码仅供体验填写流程，数据不会发送给老师，也不会进入老师电脑的待审核列表。请勿用作正式收集学生成绩。</div>
             <div class="qr-link" style="margin-top:8px">${U.esc(url)}</div>
             <div class="small muted" style="margin-top:8px">
-              提示：本地测试时请用「局域网地址」打开本系统（如 http://192.168.x.x:8123），手机与电脑需在同一 WiFi；
-              上线到服务器后，二维码将指向正式域名，家长提交的数据由后端写入数据库，多端实时可见。
+              当前没有服务器收件或跨设备同步。部署到服务器也不会自动获得收件能力；正式成绩请通过已约定的方式交给老师。
             </div>
             <div style="margin-top:10px;display:flex;gap:8px">
-              <button class="btn btn-sm" id="qrOpen">预览上传页</button>
-              <button class="btn btn-sm" id="qrList">查看待审核（${Store.pendingUploads(cid).length}）</button>
+              <button class="btn btn-sm" id="qrOpen">预览本机演示</button>
+              <button class="btn btn-sm" id="qrList">查看当前账号旧待审记录（${Store.pendingUploads(cid).length}）</button>
             </div>
           </div>
         </div>
@@ -617,19 +613,19 @@ const ViewImport = (() => {
         </div>
         <div class="small muted">通过后会自动写入该生该次考试的成绩记录（若同科目已存在则覆盖）。</div>`
         : `<div class="empty-state"><div class="es-ico">📱</div><div class="es-main">暂无家长上传</div>
-           <div class="es-sub">点击「家长扫码上传」生成二维码发给家长</div></div>`,
+           <div class="es-sub">当前无待审记录。本机演示不会向老师发送成绩。</div></div>`,
       onMount(box) {
         box.querySelectorAll('[data-ok]').forEach(b => b.onclick = () => {
           const u = Store.parentUploads(cid).find(x => x.id === b.dataset.ok);
-          if (u) approveUpload(u);
+          if (u && !approveUpload(u)) return;
           U.closeModal(); showPendingUploads(); App.refresh();
         });
         box.querySelectorAll('[data-no]').forEach(b => b.onclick = () => {
-          Store.setUploadStatus(b.dataset.no, 'rejected');
+          if (!Store.attempt(() => Store.setUploadStatus(b.dataset.no, 'rejected'))) return;
           U.closeModal(); showPendingUploads();
         });
         box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => {
-          Store.removeUpload(b.dataset.rm);
+          if (!Store.attempt(() => Store.removeUpload(b.dataset.rm))) return;
           U.closeModal(); showPendingUploads();
         });
       }
@@ -637,35 +633,31 @@ const ViewImport = (() => {
   }
 
   function approveUpload(u) {
-    let examId = u.examId;
-    if (!examId) {
-      const e = Store.addExam({ campusId: u.campusId, name: u.examName || '家长上传考试', date: u.date || U.today(), type: u.type || '其他' });
-      examId = e.id;
-    }
-    const dup = Store.allRecords().find(r => r.examId === examId && r.studentName === u.studentName && r.subject === u.subject);
-    if (dup) Store.deleteRecord(dup.id);
-    Store.addRecords([{
-      examId, campusId: u.campusId, date: u.date || U.today(),
-      studentName: u.studentName, stage: u.stage || '', grade: u.grade || '', className: u.className || '',
-      subject: u.subject || '总分', type: u.type || '其他',
-      fullScore: u.fullScore, score: u.score,
-      classRank: u.classRank ?? null, gradeRank: u.gradeRank ?? null, comment: ''
-    }]);
-    // 家长附了试卷照片 → 自动生成该科知识点诊断
+    if (u.status !== 'pending') return true;
     let tip = '';
-    if (u.images && u.images.length && u.subject) {
-      const sum = Analytics.examSummary(examId, u.subject);
-      const qs = Knowledge.autoQuestions(u.subject, sum ? sum.avgRate : null, 12);
-      if (qs.length) {
-        Store.savePaper({
-          examId, campusId: u.campusId, subject: u.subject,
-          images: u.images, questions: qs, auto: true
-        });
-        tip = '，已按试卷照片生成知识点诊断';
+    if (!Store.attempt(() => {
+      let examId = u.examId;
+      if (!examId) {
+        const e = Store.addExam({ campusId: u.campusId, name: u.examName || '家长上传考试', date: u.date || U.today(), type: u.type || '其他' });
+        examId = e.id;
       }
-    }
-    Store.setUploadStatus(u.id, 'approved');
+      const dup = Store.allRecords().find(r => r.examId === examId && r.studentName === u.studentName && r.subject === u.subject);
+      if (dup) Store.deleteRecord(dup.id);
+      Store.addRecords([{
+        examId, campusId: u.campusId, date: u.date || U.today(),
+        studentName: u.studentName, stage: u.stage || '', grade: u.grade || '', className: u.className || '',
+        subject: u.subject || '总分', type: u.type || '其他',
+        fullScore: u.fullScore, score: u.score,
+        classRank: u.classRank ?? null, gradeRank: u.gradeRank ?? null, comment: ''
+      }]);
+      if (u.images && u.images.length && u.subject) {
+        saveSnapshot(examId, u.campusId, u.subject, u.images);
+        tip = '，试卷照片已留档，逐题数据待录入';
+      }
+      Store.setUploadStatus(u.id, 'approved');
+    })) return false;
     U.toast('已通过并写入成绩' + tip, 'ok');
+    return true;
   }
 
   /* ================= 编辑本次记录 ================= */
@@ -709,19 +701,21 @@ const ViewImport = (() => {
           b.disabled = true;
         });
         box.querySelector('#erOk').onclick = () => {
-          box.querySelectorAll('tbody tr').forEach(tr => {
-            const i = Number(tr.dataset.i);
-            if (removed.has(recs[i].id)) return;
-            const val = (f) => { const el = tr.querySelector(`[data-f="${f}"]`); return el ? el.value : ''; };
-            Store.updateRecord(recs[i].id, {
-              fullScore: U.num(val('fullScore')),
-              score: U.num(val('score')),
-              classRank: U.num(val('classRank')),
-              gradeRank: U.num(val('gradeRank')),
-              comment: String(val('comment') || '').trim()
+          if (!Store.attempt(() => {
+            box.querySelectorAll('tbody tr').forEach(tr => {
+              const i = Number(tr.dataset.i);
+              if (removed.has(recs[i].id)) return;
+              const val = (f) => { const el = tr.querySelector(`[data-f="${f}"]`); return el ? el.value : ''; };
+              Store.updateRecord(recs[i].id, {
+                fullScore: U.num(val('fullScore')),
+                score: U.num(val('score')),
+                classRank: U.num(val('classRank')),
+                gradeRank: U.num(val('gradeRank')),
+                comment: String(val('comment') || '').trim()
+              });
             });
-          });
-          removed.forEach(id => Store.deleteRecord(id));
+            removed.forEach(id => Store.deleteRecord(id));
+          })) return;
           U.closeModal();
           U.toast('已保存修改', 'ok');
           (after || App.refresh)();
@@ -763,18 +757,18 @@ const ViewImport = (() => {
       `,
       onMount(box) {
         box.querySelector('#dmSample').onclick = () => U.confirmBox('将清空现有数据并载入示例成绩（两个校区），是否继续？', () => {
-          Store.seed(true); U.closeModal(); (after || App.refresh)();
+          if (!Store.attempt(() => Store.seed(true))) return false; U.toast('示例数据已载入', 'ok'); U.closeModal(); (after || App.refresh)();
         }, '载入示例数据');
         box.querySelector('#dmClearCampus').onclick = () => U.confirmBox(`确定清空「<b>${U.esc(Store.campusName())}</b>」的全部考试与成绩？`, () => {
-          Store.clearCampus(); U.closeModal(); U.toast('已清空该校区数据', 'ok'); (after || App.refresh)();
+          if (!Store.attempt(() => Store.clearCampus())) return false; U.closeModal(); U.toast('已清空该校区数据', 'ok'); (after || App.refresh)();
         }, '清空校区数据');
         box.querySelector('#dmClearAll').onclick = () => U.confirmBox('确定清空所有校区的全部数据？', () => {
-          Store.reset(); U.closeModal(); U.toast('已清空', 'ok'); (after || App.refresh)();
+          if (!Store.attempt(() => Store.reset())) return false; U.closeModal(); U.toast('已清空', 'ok'); (after || App.refresh)();
         }, '清空全部');
         box.querySelectorAll('[data-delexam]').forEach(b => b.onclick = () => {
           const e = Store.exam(b.dataset.delexam);
           U.confirmBox(`删除考试「<b>${U.esc(e ? e.name : '')}</b>」及其全部成绩与试卷打点？`, () => {
-            Store.deleteExam(b.dataset.delexam); U.closeModal(); U.toast('已删除', 'ok'); (after || App.refresh)();
+            if (!Store.attempt(() => Store.deleteExam(b.dataset.delexam))) return false; U.closeModal(); U.toast('已删除', 'ok'); (after || App.refresh)();
           }, '删除考试');
         });
       }

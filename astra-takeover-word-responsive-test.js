@@ -162,7 +162,9 @@ function runNode() {
     assert.equal(vm.runInContext(readState, f.context).read, 0);
     f.context.wtStopSpeech = () => {};
     f.context.WT_DRILL_REVIEW = false;
-    vm.runInContext(functionSource('wtReset') + '\nwtReset("quick");', f.context);
+    f.context.WT_DATA_REQUEST = 0;
+    vm.runInContext(functionSource('wtCancelDataLoad') + '\n' + functionSource('wtReset') + '\nwtReset("quick");', f.context);
+    assert.equal(f.context.WT_DATA_REQUEST, 1, 'reset also invalidates pending word data');
     f.context.document.body.classList.contains = () => false;
     const state = vm.runInContext(readState, f.context);
     assert.equal(state.stage, false);

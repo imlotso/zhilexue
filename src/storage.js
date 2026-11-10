@@ -438,28 +438,52 @@ async function readBuffer(key) {
   return null;
 }
 
+/** Validate destructive keys before touching cloud objects, local files or metadata. */
+function assertStorageKey(key) {
+  if (typeof key !== 'string' || !/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*(?:\.[A-Za-z0-9]{1,8})?$/.test(key)) {
+    const error = new Error('文件路径无效，已拒绝删除'); error.code = 'INVALID_STORAGE_KEY'; throw error;
+  }
+}
+function localDeletePath(key) {
+  const abs = localFilePath(key);
+  if (abs) return abs;
+  // Missing normal files are idempotent. Existing symlink/directory targets are
+  // not missing and must fail closed instead of following localPath().
+  if (fs.existsSync(localPath(key))) {
+    const error = new Error('文件路径不安全，已拒绝删除'); error.code = 'UNSAFE_STORAGE_PATH'; throw error;
+  }
+  return null;
+}
+
 /** Preflight destructive callers before they remove database rows or retained local copies.
  * Uses the unchanged cloud-write policy, never the local-first read routing. */
 function assertDeleteAllowed(key) {
-  if (key && (qiniuCovers(key) || (ossClient && !LOCAL_FOLDERS.includes(folderOf(key))))) assertCloudWritable();
+  if (!key) return;
+  assertStorageKey(key);
+  if (qiniuCovers(key) || (ossClient && !LOCAL_FOLDERS.includes(folderOf(key)))) assertCloudWritable();
+  else localDeletePath(key);
 }
 
 /** 删除文件 */
 async function deleteFile(key) {
   if (!key) return;
+  assertDeleteAllowed(key);
   if (qiniuCovers(key)) {
-    assertCloudWritable();
-    try {
-      await new Promise((resolve) => qiniuCtx.bucketMgr.delete(qiniuCtx.bucket, key, () => resolve()));
-    } catch (e) { /* ignore */ }
+    await new Promise((resolve, reject) => qiniuCtx.bucketMgr.delete(qiniuCtx.bucket, key, (err, body, info) => {
+      if (err) return reject(err);
+      if (info && info.statusCode !== 200 && info.statusCode !== 612) return reject(new Error('云端文件删除失败'));
+      resolve();
+    }));
     return;
   }
   if (ossClient && !LOCAL_FOLDERS.includes(folderOf(key))) {
-    assertCloudWritable();
-    try { await ossClient.delete(key); } catch (e) { /* ignore */ }
+    await ossClient.delete(key);
     return;
   }
-  unlinkLocal(localPath(key));
+  const abs = localDeletePath(key);
+  if (abs && !unlinkLocal(abs)) {
+    const error = new Error('文件删除失败，请稍后重试'); error.code = 'STORAGE_DELETE_FAILED'; throw error;
+  }
 }
 
 /** 生成可直接下载/播放的 URL（本地为后端代理地址，OSS/七牛为签名 URL，配了 CDN 则为 CDN 直链） */

@@ -31,6 +31,8 @@ jobs:
         env:
           FORMULA_EVIDENCE_DIR: formula-component-evidence
         if: ${{ !cancelled() }}
+      - name: Check audit remediation regressions
+        run: npm run test:audit:regressions
       - run: node bank-test.js
       - name: Check Word bugfix regressions
         run: npm run test:bugfix
@@ -130,6 +132,11 @@ jobs:
         run: |
           nohup npm start > server.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://localhost:3000/ >/dev/null && break; sleep 1; done
+      - name: Check synthetic data-integrity API regressions
+        run: node scripts/audit/20261110-fixes/live-data-regressions.cjs
+        env:
+          BASE: http://127.0.0.1:3000
+          ZLX_AUDIT_ALLOW_SYNTHETIC_HTTP: '1'
       - run: node smoke.js
       - run: node word-test.js
         if: ${{ !cancelled() }}   # smoke 失败时也要跑出结果，不能被跳过

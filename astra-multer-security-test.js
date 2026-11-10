@@ -99,7 +99,8 @@ async function reportFixture(t) {
   const wrappedMulter = options => { const real = multer(options); return { array(...args) { const middleware = real.array(...args); return (req, res, next) => { parsed++; middleware(req, res, err => { if (expireDuringParse) clockOffset += 31 * 60 * 1000; next(err); }); }; } }; }; wrappedMulter.memoryStorage = multer.memoryStorage;
   const mod = { exports: {} };
   vm.runInNewContext(source('report.js'), { module: mod, exports: mod.exports, Buffer, Date: Clock, Map, Set, console, process: { env: {} }, require(name) {
-    if (name === './db') return { db }; if (name === './storage') return { saveFile: async () => { saves++; return { key: 'synthetic' }; } }; if (name === './ai' || name === './pdfimg') return {};
+    if (name === './db') return { db }; if (name === './storage') return { saveFile: async () => { saves++; return { key: 'report/202611/1111111111111111.png' }; } }; if (name === './ai' || name === './pdfimg') return {};
+    if (name === './report-file-access') return require('./src/report-file-access');
     if (name === 'multer') return wrappedMulter; if (name === 'express' || name === 'crypto') return require(name); throw new Error('Unexpected fixture dependency ' + name);
   } }, { filename: 'src/report.js' });
   const app = express(); app.use('/admin', (req, res, next) => { req.user = { id: 7 }; next(); }, mod.exports); app.use('/scan', mod.exports.scan); app.use((err, req, res, next) => res.status(400).json({ code: 1, msg: 'parser error' }));

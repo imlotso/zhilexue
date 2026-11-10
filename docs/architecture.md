@@ -118,3 +118,10 @@ zhilexue/
 题干多图选择复用原 T8 上传与图号机制，入口紧邻公式，批量顺序上传并处理部分失败/重试。正式保存等待上传队列完成；修改题干时清理旧 `stem_html`，防止富文本遮住新题干。
 
 后端 `compose.planStudentScan` 为计数与出卷提供同一覆盖计划。`bank.js` 区分个人自评与正式试卷评分；`accuracy.js` 仅接纳有精确自评来源的主观记录。`mfpending.js` 管理独立 AI 初审和快照保护的批量人工编辑。
+
+## 2026-11-10 数据与访问边界补充
+
+- `choice-normalize.js` 统一选择题原字母到新字母的映射及重复采集的可验证答案补全；`question-content.js` 区分题目纯文本与可靠HTML结构，保留数学不等式并延续渲染净化。
+- `report-file-access.js` 管理服务器确认的报告上传归属；`student-report-access.js` 统一旧新报告的学生/分校范围；`video-file-access.js` 统一视频列表和文件读取的课程可见性；`question-delete-guard.js` 统一试卷引用删除保护。
+- MySQL工作线程保持事务连接身份直到COMMIT/ROLLBACK完成；连接丢失时不跨连接提交并假报成功，错误或不确定结果由调用方处理。
+- 成绩小应用先验证账号与花名册，再读取 `campus_grade_db_v2:<role>:<id>`。旧无主v1数据保留原位，不自动认领。写入失败回滚内存并保留编辑输入；本机演示和真实发送明确区分。知识点诊断只使用有效、已确认逐题证据。

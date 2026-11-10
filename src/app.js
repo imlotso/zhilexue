@@ -375,6 +375,8 @@ app.get('/api/file', fileAuth, async (req, res) => {
   if (!key || key.includes('..') || key.includes('\\') || !FILE_KEY_RE.test(key)) {
     return res.status(400).send('bad request');
   }
+  const viewer = req.user && (req.user.role === 'student' ? db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id) : req.user);
+  if (!require('./video-file-access').canReadVideoFile(db, viewer, key, canSeeChapter)) return res.status(403).send('无权访问该课程视频');
   if (careAudio.protectFile(store.localPath(key), res)) return;
   const ext = key.slice(key.lastIndexOf('.') + 1).toLowerCase();
   const wantInline = String(req.query.inline || '') === '1';
@@ -931,6 +933,8 @@ admin.put('/questions/:id', (req, res) => {
 });
 admin.delete('/questions/:id', (req, res) => {
   if (!require('./qmeta').questionsAllowed(db, req.user, [Number(req.params.id)])) return fail(res, '无权访问题目', 403);
+  try { require('./question-delete-guard').assertQuestionsDeletable(db, [Number(req.params.id)]); }
+  catch (e) { if (e.code === 'QUESTION_IN_USE') return res.status(409).json({ code: 409, msg: e.message }); throw e; }
   db.prepare('DELETE FROM questions WHERE id=?').run(Number(req.params.id));
   ok(res, null, '已删除');
 });
@@ -1370,19 +1374,21 @@ admin.get('/students/recent', (req, res) => {
 });
 
 admin.get('/reports/students', (req, res) => {
+  const scope = require('./student-report-access').studentScope(req.user, 'u', req.query.branch || 'all');
   const rows = db.prepare(`
     SELECT u.id, u.name, u.username, u.grade,
       (SELECT COUNT(*) FROM progress p WHERE p.user_id=u.id AND p.video_done=1) AS done,
       (SELECT COUNT(*) FROM progress p WHERE p.user_id=u.id AND p.handout_done=1) AS handout_done,
       (SELECT MAX(updated_at) FROM progress p WHERE p.user_id=u.id) AS last_time
-    FROM users u WHERE u.role='student' ORDER BY done DESC`).all();
+    FROM users u WHERE ${scope.sql} ORDER BY done DESC`).all(...scope.args);
   ok(res, rows);
 });
 
 admin.get('/reports/student/:id', (req, res) => {
   const id = Number(req.params.id);
-  const u = db.prepare('SELECT * FROM users WHERE id=?').get(id);
+  const u = db.prepare("SELECT * FROM users WHERE id=? AND role='student'").get(id);
   if (!u) return fail(res, '学生不存在');
+  if (!require('./student-report-access').canReadStudent(req.user, u)) return fail(res, '无权查看该学生', 403);
   ok(res, studentReport(id, u));
 });
 
@@ -1810,6 +1816,9 @@ stu.get('/videos', (req, res) => {
     if (!ensureChapterVisible(u, chapter_id, res)) return;
     sql += ' AND v.chapter_id=?'; args.push(Number(chapter_id));
   }
+  const scope = visibleChapterWhere(u, 'c');
+  sql += ` AND (v.chapter_id IS NULL OR v.chapter_id=0 OR (c.id IS NOT NULL${scope.sql}))`;
+  args.push(...scope.args);
   sql += ' ORDER BY v.sort, v.id';
   ok(res, db.prepare(sql).all(...args));
 });
