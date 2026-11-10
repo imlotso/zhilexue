@@ -280,7 +280,7 @@ async function viewPending() {
         $('pd-ai-selection').textContent = `本页已选 ${n} 题（最多 20 题）`;
         if ($('pd-tool-selection')) $('pd-tool-selection').textContent = n ? `已选 ${n} 题` : '';
         $('pd-all').checked = list.length > 0 && n === list.length;
-        ['pd-breview', 'pd-bedit', 'pd-bapply-stem', 'pd-bapply-answer', 'pd-bai', 'pd-bfill-review'].forEach((id) => { $(id).disabled = n === 0 || n > 20; $(id).title = '请选择 1 到 20 道题'; });
+        ['pd-breview', 'pd-bedit', 'pd-bapply-stem', 'pd-bapply-answer', 'pd-bai', 'pd-bfill-review'].forEach((id) => { const button = $(id); button.disabled = n === 0 || n > 20; button.title = button.disabled ? '请选择 1 到 20 道题' : id === 'pd-bai' ? '只为缺失字段生成建议，不审核或覆盖已有答案' : ''; });
         pdPaintAiReviewButtons($('pd-breview').closest('.pd-workspace'));
       };
       paintSel();

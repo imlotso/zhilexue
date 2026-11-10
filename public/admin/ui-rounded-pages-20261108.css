@@ -474,5 +474,6 @@ body.t11 .pd-ai-selection{font-size:12px;color:#536c5e;white-space:nowrap}
 @media(max-width:820px){body.t11 .pd-review-footer{position:static}}
 @media(max-width:820px){body.t11 .ui-review-shell .pd-workspace{flex:0 0 auto}body.t11 .pd-workspace .pd-list{flex:0 0 auto}}
 @media(max-width:820px){body.t11 .pd-workspace .pd-main,body.t11 .pd-workspace .pd-classification{min-width:0;max-width:100%;box-sizing:border-box}body.t11 .pd-preview-heading>div{min-width:0;max-width:100%;flex-wrap:wrap}}
-body.t11 .pd-ai-tool-group button:not(:disabled){border-color:#8abca0;color:#075b46;background:#fff}
-body.t11 .pd-ai-tool-group button:not(:disabled):hover{background:#e0f2e6}
+body.t11 .ui-review-shell .pd-review-ai-actions .pd-ai-tool-group .btn:not(:disabled){border-color:#8abca0;color:#075b46;background:#fff}
+body.t11 .ui-review-shell .pd-review-ai-actions .pd-ai-tool-group .btn:not(:disabled):hover{background:#dcefe2}
+body.t11 .ui-review-shell .pd-review-ai-actions #pd-bapply-stem:not(:disabled),body.t11 .ui-review-shell .pd-review-ai-actions #pd-bapply-answer:not(:disabled){background:#e5f4e9;border-color:#80b89a;font-weight:600}

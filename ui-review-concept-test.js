@@ -217,7 +217,11 @@ if(require.main===module && process.argv.includes('--browser')) {
         if(width===390){
           const panels=await page.evaluate(()=>['.pd-main','.pd-classification','.pd-preview-heading'].map(s=>{const e=document.querySelector(s),r=e.getBoundingClientRect();return {selector:s,left:r.left,right:r.right,overflow:e.scrollWidth-e.clientWidth};}));
           assert(panels.every(p=>p.left>=-1 && p.right<=width+1 && p.overflow<=1),JSON.stringify(panels));
-          const checkbox=page.locator('[data-sel="fixture-1"]').first();await checkbox.check({timeout:3000});await checkbox.uncheck({timeout:3000});
+          const checkbox=page.locator('[data-sel="fixture-1"]').first();await checkbox.check({timeout:3000});
+          await page.waitForFunction(()=>['pd-bapply-stem','pd-bapply-answer'].every(id=>getComputedStyle(document.getElementById(id)).color==='rgb(7, 91, 70)'));
+          const controls=await page.evaluate(()=>['pd-bapply-stem','pd-bapply-answer'].map(id=>{const b=document.getElementById(id);return {disabled:b.disabled,title:b.title,color:getComputedStyle(b).color,opacity:getComputedStyle(b).opacity};}));
+          assert(controls.every(b=>!b.disabled&&!b.title&&b.color==='rgb(7, 91, 70)'&&b.opacity==='1'),JSON.stringify(controls));
+          await checkbox.uncheck({timeout:3000});
         }
         await page.screenshot({path:path.join(evidence,`admin-review-${width}.png`)});
         if(width===390) await page.screenshot({path:path.join(evidence,'admin-review-390-full.png'),fullPage:true});
