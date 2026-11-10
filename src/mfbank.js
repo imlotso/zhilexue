@@ -2087,6 +2087,13 @@ admin.post('/intake/runs/:id/aifill', singleIntakeJob('aifill'), async (req, res
     .filter((x) => x.card && !x.card.committed && !x.card._merged_into && (!selected || selected.has(x.index)) && x.values.stem.trim());
   if (!targets.length) return fail(res, '没有可处理的题卡（题干为空或已经入库）');
   if (targets.length > 100) return fail(res, '一次最多生成 100 道题的建议');
+  // 待审核页传入页面所见快照，避免下标对应的题在请求到达前被编辑或移动。
+  if (Object.hasOwn(req.body || {}, 'expected')) {
+    const expected = req.body.expected;
+    if (!Array.isArray(expected) || !selected || expected.length !== selected.size || targets.length !== selected.size || expected.some((x) => !x || !Number.isInteger(x.index) || typeof x.signature !== 'string') || new Set(expected.map((x) => x.index)).size !== expected.length) return fail(res, '选择的题目已变化，请刷新后重新选择');
+    const byIndex = new Map(expected.map((x) => [Number(x.index), x]));
+    if (targets.some(({index, signature, values}) => { const e = byIndex.get(index); return !e || e.signature !== signature || ['subject','stage','grade'].some((key) => String(e[key] || '') !== String(values[key] || run[key] || '')); })) return fail(res, '题目或分类已变化，请刷新后重新选择；未生成补充建议');
+  }
   // 不覆盖尚未处理的建议；老师可以先采纳或明确舍弃，历史记录随题保留。
   const existingSuggestions = targets.filter((x) => x.card.ai_answer_suggestion).length;
   const needed = targets.filter((x) => !x.card.ai_answer_suggestion && (!x.values.answer.trim() || !x.values.analysis.trim()));

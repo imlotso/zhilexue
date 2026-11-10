@@ -63,6 +63,8 @@ function fixture(t, captureModel = false, allowCommit = false) {
     TYPE_MAP:{'填空':'fill','单选':'single','解答':'answer','排序':'sort'},TYPES:['single','multi','judge','fill','sort','answer'],store:{getUrlSync:key=>'/api/file?key='+key},bankFolder:()=> 'bank',
     commitRunCards:()=>{if(!allowCommit)throw new Error('Review and edit must not import'); raw.prepare("INSERT INTO questions(id,subject,stage,stem) VALUES(42,'数学','primary','合成测试')").run(); return [42];},commitCaptureItems:()=>{throw new Error('Review and edit must not import');}});
   const mfbank = fs.readFileSync(path.join(__dirname, 'src/mfbank.js'), 'utf8');
+  const fillStart = mfbank.indexOf("admin.post('/intake/runs/:id/aifill',"), fillEnd = mfbank.indexOf('\n});', fillStart) + 4;
+  vm.runInNewContext(mfbank.slice(fillStart, fillEnd), { admin, db, AiAnswerReview: Review, int: Number, parseArr, jstr: JSON.stringify, singleIntakeJob: () => (_q,_s,next)=>next(), require: name => { if (name === './mfcollect') return {mfAiInvoke: async request => { modelRequests.push(request); return {text:JSON.stringify({items:[]})}; }}; return require(name); }, ok: (res,data,msg)=>res.json({code:0,data,msg}), fail:(res,msg)=>res.json({code:1,msg}) });
   const confirmStart = mfbank.indexOf("admin.post('/intake/runs/:id/aifill/confirm',"), confirmEnd = mfbank.indexOf('\n});', confirmStart) + 4;
   vm.runInNewContext(mfbank.slice(confirmStart, confirmEnd), { admin, db, AiAnswerReview: Review, int: Number, parseArr, jstr: JSON.stringify, now: () => '2026-11-09 10:00:00', ok: (res, data, msg) => res.json({ code: 0, data, msg }), fail: (res, msg) => res.json({ code: 1, msg }) });
   const call=async (route,body={},user=principal) => {
@@ -214,4 +216,21 @@ test('keeping one original field persists that decision without changing its tex
 
 test('stored classification refuses final commit if grade changes after selecting nodes',async t=>{
  const f=fixture(t,false,true),item=(await f.list()).find(x=>x.kind==='run'&&x.index===1);assert.equal((await f.edit([f.entry(item,{draft_node_ids:[11]})])).code,0);let current=(await f.list()).find(x=>x.id===item.id);assert.equal((await f.edit([f.entry(current,{grade:'五年级'})])).code,0);current=(await f.list()).find(x=>x.id===item.id);const r=await f.call('POST /ext/pending/commit',{ids:[current.id]});assert.notEqual(r.code,0);assert.match(r.msg,/分类.*变化/);assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+});
+
+test('supplement generation rejects stale selected question snapshots before invoking a model',async t=>{
+ const f=fixture(t,true),item=(await f.list()).find(x=>x.kind==='cap'),before=f.snapshot();const r=await f.call('POST /ext/pending/ai-answer',{ids:[item.id],items:[{id:item.id,expected:'outdated'}]});assert.notEqual(r.code,0);assert.equal(f.modelRequests.length,0);assert.equal(f.snapshot(),before);
+});
+
+
+test('run supplement generation checks the selected snapshot before calling the model',async t=>{
+ const f=fixture(t,true),item=(await f.list()).find(x=>x.kind==='run'&&x.index===1),before=f.snapshot();const r=await f.call('POST /intake/runs/:id/aifill',{indexes:[1],expected:[{index:1,signature:'outdated',subject:item.subject,stage:item.stage,grade:item.grade}]});assert.notEqual(r.code,0);assert.equal(f.modelRequests.length,0);assert.equal(f.snapshot(),before);
+});
+
+test('run supplement rejects malformed expected snapshots without reaching the model',async t=>{
+ const f=fixture(t,true),before=f.snapshot();const r=await f.call('POST /intake/runs/:id/aifill',{indexes:[0],expected:[null]});assert.notEqual(r.code,0);assert.equal(f.modelRequests.length,0);assert.equal(f.snapshot(),before);
+});
+
+test('AI adoption cannot silently remove unnumbered image or table placeholders',async t=>{
+ const f=fixture(t,true),cards=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);cards[0].stem='看[图]及【表格1】，求值';f.raw.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=1').run(JSON.stringify(cards));const old=(await f.list()).find(x=>x.kind==='run'&&x.index===0);await f.review([old]);const item=(await f.list()).find(x=>x.id===old.id),s=item.ai_answer_suggestion,before=f.snapshot();const result=await f.edit([{...f.entry(item,{stem:s.stem}),ai_fields:['stem'],ai_token:s.token,ai_confirmed:true}]);assert.notEqual(result.code,0);assert.match(result.msg,/图.*标记/);assert.equal(f.snapshot(),before);
 });

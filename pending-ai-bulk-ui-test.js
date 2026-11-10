@@ -158,7 +158,7 @@ test('inline suggestion diff marks changed characters and preserves newlines wit
 });
 test('bulk apply fills only untouched valid suggestions and permits further manual edits',t=>{
  const f=fixture(t);f.rows[0].ai_answer_suggestion.stem='新题干';f.rows[1].ai_answer_suggestion={source:'review',token:'two',stale:true,answer:'不能覆盖'};const w=f.open();
- const answer=w.querySelector('[data-pd-bulk-index="0"] [data-pd-field="answer"]');answer.value='我手写的';answer.dispatchEvent(new f.ctx.window.Event('input',{bubbles:true}));w.querySelector('[data-pd-apply-all]').click();
+ const answer=w.querySelector('[data-pd-bulk-index="0"] [data-pd-field="answer"]');answer.value='我手写的';answer.dispatchEvent(new f.ctx.window.Event('input',{bubbles:true}));w.querySelector('[data-pd-apply-field="stem"]').click();w.querySelector('[data-pd-apply-field="answer"]').click();
  assert.equal(answer.value,'我手写的');assert.equal(w.querySelector('[data-pd-bulk-index="0"] [data-pd-field="stem"]').value,'新题干');assert.equal(w.querySelector('[data-pd-bulk-index="1"] [data-pd-field="answer"]').value,'原答案 1');assert.match(w.textContent,/跳过/);
 });
 
@@ -170,7 +170,7 @@ test('classification select-all saves selected nodes and fields to draft in one 
 });
 
 test('a deliberate bulk confirmation confirms only rows with adopted suggestions',t=>{
- const f=fixture(t),w=f.open();w.querySelector('[data-pd-apply-all]').click();w.querySelector('[data-pd-confirm-all]').click();assert.equal(w.querySelector('[data-pd-bulk-index="0"] [data-pd-ai-confirm]').checked,true);assert.equal(w.querySelectorAll('[data-pd-ai-confirm]:checked').length,1);
+ const f=fixture(t),w=f.open();w.querySelector('[data-pd-apply-field="answer"]').click();w.querySelector('[data-pd-confirm-all]').click();assert.equal(w.querySelector('[data-pd-bulk-index="0"] [data-pd-ai-confirm]').checked,true);assert.equal(w.querySelectorAll('[data-pd-ai-confirm]:checked').length,1);
 });
 test('character diff preserves text, whitespace, formula and image markers on both sides',t=>{
  const f=fixture(t),a='甲\n$x+1$ [图1]。',b='甲\n$x+2$ [图1]！',el=f.document.createElement('div');el.innerHTML=f.ctx.pdDiffHTML(a,b);let old='',now='';for(const node of el.childNodes){if(node.nodeName!=='INS')old+=node.textContent;if(node.nodeName!=='DEL')now+=node.textContent;}assert.equal(old,a);assert.equal(now,b);assert.equal(el.querySelector('script'),null);
@@ -188,4 +188,36 @@ test('keeping a single suggestion is an explicit persistent decision without cha
 test('changed classification scope requires explicit confirmation before retaining draft nodes',async t=>{
  const f=fixture(t);Object.assign(f.rows[0],{draft_node_ids:[11],draft_node_stale:true});f.ctx.document.querySelector('.pd-workspace').insertAdjacentHTML('beforeend','<button id="pd-bclassify"></button>');const call=f.ctx.api;f.ctx.api=async(url,options)=>url.endsWith('/ai-classify')?{mock:false,list:[{id:f.rows[0].id,nodes:[],current_nodes:[{id:11,kind:'knowledge',name:'加法',path:'加法'}]}]}:call(url,options);
  await f.ctx.pdAiClassify([f.rows[0].id],Object.fromEntries(f.rows.map(x=>[x.id,x])));const w=f.document.querySelector('.mask');await w.querySelector('#mOk').onclick();assert.equal(f.calls.length,0);assert.ok(f.messages.some(m=>/范围已变化/.test(m.message)));w.querySelector('[data-ai-scope-confirm]').click();await w.querySelector('#mOk').onclick();assert.deepEqual(f.calls[0].options.body.items[0].patch.draft_node_ids,[11]);
+});
+
+test('preview places review diffs inside original stem and answer instead of separate suggestion cards',async t=>{
+ const f=await pendingPage(t);f.rows[0].ai_answer_suggestion.stem='修订题 0';await f.ctx.render();
+ const stem=f.document.querySelector('.pd-stem'),answer=f.document.querySelector('.pd-answer-line');
+ assert.ok(stem.querySelector('del') && stem.querySelector('ins'),'题干原位置包含差异');assert.ok(answer.querySelector('del') && answer.querySelector('ins'),'答案原位置包含差异');assert.equal(stem.nextElementSibling?.classList.contains('pd-suggestion'),false);
+});
+test('editor starts with inline comparison and switches to editing without losing manual text',t=>{
+ const f=fixture(t);f.rows[0].ai_answer_suggestion.stem='合成新题';const w=f.open(),row=w.querySelector('[data-pd-bulk-index="0"]');const input=row.querySelector('[data-pd-field="stem"]'),view=row.querySelector('[data-pd-field-view="stem"]');
+ assert.equal(input.hidden,true);assert.ok(view.querySelector('del')&&view.querySelector('ins'));row.querySelector('[data-pd-edit-field="stem"]').click();assert.equal(input.hidden,false);assert.equal(view.hidden,true);input.value='老师手动题干';input.dispatchEvent(new f.ctx.window.Event('input',{bubbles:true}));row.querySelector('[data-pd-view-field="stem"]').click();row.querySelector('[data-pd-edit-field="stem"]').click();assert.equal(input.value,'老师手动题干');
+});
+test('separate review bulk controls only fill corresponding field and skip stale or supplemental suggestions',t=>{
+ const f=fixture(t);f.rows[0].ai_answer_suggestion.stem='修订题干';f.rows[1].ai_answer_suggestion={source:'review',token:'two',stale:true,stem:'过期题干',answer:'过期答案'};f.rows[2].ai_answer_suggestion={token:'fill',stale:false,answer:'补充答案'};
+ f.ctx.pdBulkEdit(f.rows.map(x=>x.id),Object.fromEntries(f.rows.map(x=>[x.id,x])));const w=f.document.querySelector('.mask'),r0=w.querySelector('[data-pd-bulk-index="0"]'),r1=w.querySelector('[data-pd-bulk-index="1"]'),r2=w.querySelector('[data-pd-bulk-index="2"]');
+ w.querySelector('[data-pd-apply-field="stem"]').click();assert.equal(r0.querySelector('[data-pd-field="stem"]').value,'修订题干');assert.equal(r0.querySelector('[data-pd-field="answer"]').value,'原答案 0');assert.equal(r1.querySelector('[data-pd-field="stem"]').value,'合成题 1');assert.match(w.querySelector('[data-pd-apply-status]').textContent,/过期/);
+ w.querySelector('[data-pd-apply-field="answer"]').click();assert.equal(r0.querySelector('[data-pd-field="answer"]').value,'AI参考答案');assert.equal(r0.querySelector('[data-pd-field="analysis"]').value,'原解析 0');assert.equal(r2.querySelector('[data-pd-field="answer"]').value,'原答案 2');
+});
+test('review bulk does not override text touched by a person even when reverted to original',t=>{
+ const f=fixture(t),w=f.open(),row=w.querySelector('[data-pd-bulk-index="0"]'),field=row.querySelector('[data-pd-field="answer"]');row.querySelector('[data-pd-edit-field="answer"]').click();field.value='临时';field.dispatchEvent(new f.ctx.window.Event('input',{bubbles:true}));field.value='原答案 0';field.dispatchEvent(new f.ctx.window.Event('input',{bubbles:true}));w.querySelector('[data-pd-apply-field="answer"]').click();assert.equal(field.value,'原答案 0');assert.match(w.querySelector('[data-pd-apply-status]').textContent,/人工/);
+});
+
+test('supplemental flow only fills blank fields and never fills review proposals',t=>{
+ const f=fixture(t);f.rows[1].answer='';f.rows[1].analysis='';f.rows[1].ai_answer_suggestion={token:'supplement',answer:'补充答案',analysis:'补充解析',stale:false};const w=f.open();w.querySelector('[data-pd-apply-supplement]').click();const a=w.querySelector('[data-pd-bulk-index="0"]'),b=w.querySelector('[data-pd-bulk-index="1"]');assert.equal(a.querySelector('[data-pd-field="answer"]').value,'原答案 0');assert.equal(b.querySelector('[data-pd-field="answer"]').value,'补充答案');assert.equal(b.querySelector('[data-pd-field="analysis"]').value,'补充解析');assert.match(w.querySelector('[data-pd-apply-status]').textContent,/补充/);
+});
+
+test('supplement generation sends the selected snapshot, reports skips, and does not touch review suggestions',async t=>{
+ const f=fixture(t),r=f.rows[1];Object.assign(r,{answer:'',analysis:'',ai_review_signature:'signature-one'});f.document.querySelector('.pd-workspace').insertAdjacentHTML('beforeend','<button id="pd-bai"></button>');f.ctx.api=async(url,options)=>{f.calls.push({url,options:JSON.parse(JSON.stringify(options))});return {suggested:1,stale:0,pending_suggestions:0}};
+ await f.ctx.pdAiFill([f.rows[0].id,r.id],Object.fromEntries(f.rows.map(x=>[x.id,x])));assert.equal(f.calls.length,1);assert.ok(f.calls[0].url.endsWith('/aifill'));assert.deepEqual(f.calls[0].options.body.indexes,[1]);assert.equal(f.calls[0].options.body.expected[0].signature,'signature-one');assert.ok(f.messages.some(m=>/已生成 1 题/.test(m.message)&&/已有/.test(m.message)));
+});
+
+test('inline review retains image markers and escapes untrusted AI text; stale text stays original',t=>{
+ const f=fixture(t),item={stem:'算 $x+1$ [图1]。',images:['/safe.png'],ai_answer_suggestion:{source:'review',stem:'算 $x+2$ [图1]。<script>bad()</script>',stale:false}},el=f.document.createElement('div');el.innerHTML=f.ctx.pdInlineReview(item,'stem','原题');assert.equal(el.querySelectorAll('img').length,1);assert.equal(el.querySelectorAll('script').length,0);assert.ok(el.textContent.includes('[图1]'));assert.ok(el.textContent.includes('<script>'));item.ai_answer_suggestion.stale=true;el.innerHTML=f.ctx.pdInlineReview(item,'stem','原题');assert.equal(el.querySelector('del,ins'),null);assert.match(el.textContent,/过期/);
 });

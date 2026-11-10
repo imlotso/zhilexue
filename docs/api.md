@@ -203,7 +203,7 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 - `GET /api/admin/dashboard` 返回当日/本周聚合及 14 日趋势，学生统计按分校隔离。试卷可保存 `question_scores`（题目 ID 到整数分值的对象）和 `due_at`（ISO 时间）；下发时可设置截止时间。
 - 旧的 `/intake/runs/:id/commit`、`/capture/batches/:id/commit` 不再直接入库，统一使用 `/ext/pending/commit`。外站辅助代理默认关闭，书签采集仍可使用。
 - 待审核入库的 `node_ids` 必须为现存分类节点，且节点所属树的学科、学段须与题目一致（树上留空表示不限）。批量中不匹配的题目留在待审核并返回失败原因；复用既有题目时也会检查既有题的分类。
-- `POST /api/admin/bank/mf/ext/pending/ai-classify` 接收 `{ids}`（1–20 条待审核项），返回 `{list:[{id,type,difficulty_score_10,nodes,error?}],mock}`；无法判断的题型或十级难度为 `null`。生成仅返回建议，不修改待审核题目、答案、解析或入库状态。老师确认题型或难度后先保存审核草稿；勾选节点才入库，并校验题目和教材范围未变化。演示模式明确标注，真实模型仍需实测。
+- `POST /api/admin/bank/mf/ext/pending/ai-classify` 接收 `{ids}`（1–20 条待审核项），返回 `{list:[{id,type,difficulty_score_10,nodes,error?}],mock}`；无法判断的题型或十级难度为 `null`。生成仅返回建议，不修改待审核题目、答案、解析或入库状态。老师确认题型、难度或节点后先保存待审核草稿；最终入库另行操作，并校验题目和教材范围未变化。演示模式明确标注，真实模型仍需实测。
 - Excel 导入 `POST /api/admin/bank/mf/ext/import-excel` 可选传入 `edition`、`term`、`material_type`，批次保存这些资料信息；教材版本需属于所选学科和学段，册别支持上册、下册和全一册，资料类型支持 `textbook`、`exercise`、`paper`、`other`。题目仍进入待审核，版本不会自动挂分类节点。
 - 待审核列表在指定具体 `source` 时可传 `batch_id`，仅显示该批次的待审核题目。
 - `GET /api/admin/bank/mf/ext/pending/batches?source=&kw=` 返回录题、采集及扫码批次的题数、待核对数和状态，各来源读取最近 300 条，最多返回 200 条；`GET /ext/pending/original?id=` 仅对确有页码和页图的识别题返回原页地址。
@@ -215,7 +215,7 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 ### 录题 AI 答案和解析建议
 
 - 录题批次、技能包、网络采集及扫码题进入正式题库时，单选/多选须至少有两个非空选项；未填答案可保留空白并按未评分处理。即使老师已确认识别内容，缺选项仍不能入库。旧题库直接新增/编辑也允许客观题答案留空，非空时仍校验格式和选项范围。
-- `POST /api/admin/bank/mf/intake/runs/:id/aifill` 保留旧路径，改为仅对原题缺失的答案或解析生成独立的 AI 建议，不自动改写正式字段或分类。可传 `{indexes:[...]}` 选择题卡；建议需老师审核后逐项采纳。
+- `POST /api/admin/bank/mf/intake/runs/:id/aifill` 保留旧路径，改为仅对原题缺失的答案或解析生成独立的 AI 建议，不自动改写正式字段或分类。可传 `{indexes:[...]}` 选择题卡；待审核页同时传 `expected:[{index,signature,subject,stage,grade}]`，在调用模型前校验所选题目的快照和范围，旧调用不传时保持兼容；建议需老师审核后逐项采纳。
 - 未采纳建议不会因再次生成而被自动覆盖。老师可在待审核显式舍弃：录题批次调用 `POST /intake/runs/:id/aifill/discard`（`{index,token,expected}`），采集和扫码调用 `POST /ext/pending/ai-answer/discard`（`{id,token,expected}`）；`expected` 使用待审核项 `ai_discard_signature`，与当前题目和批次范围绑定。只有 token 和快照均匹配才会舍弃，已填写的正式答案和解析不变。被舍弃建议原内容、来源、操作人、时间和事件 ID 保存在 `ai_answer_discard_history`；人工合并保留记录，入库时写入题目 `ai_review_metadata.discarded_suggestions`。
 - `POST /api/admin/bank/mf/intake/runs/:id/aifill/confirm` 接收 `{index,token,fields:["answer"]}` 或 `{index,token,fields:["analysis"]}`；每次必须且只能确认一项。建议的题目内容或批次学科、学段、年级改变后需重新生成。已采纳建议对应的题面变更时保留原值并禁止直接入库，老师须分别提交 `{index,recheck:true,expected,fields:[字段]}` 重新核对。采纳后题卡仍需经过待审核入库。
 - 历史 `ai_filled` 和来源不明的历史识别题卡必须由老师逐项核对当前答案和解析，分别提交 `{index,legacy:true,expected,fields:["answer"]}`、`{index,legacy:true,expected,fields:["analysis"]}` 后才能入库。旧版 AI 补全记录若含章节、知识点、难度或标签，还需单独提交 `fields:["classification"]` 核对分类。每项确认绑定题目及分类快照，变化后须重新核对。升级前已经核对的旧记录保留原状态；保存工作台题卡不能直接伪造审核状态。已入库且缺少来源标识的旧记录无法可靠判断是否曾由 AI 补全。

@@ -287,6 +287,12 @@ module.exports = function mountPending(d) {
   admin.post('/ext/pending/ai-answer', async (req, res) => {
     const ids = [...new Set(Array.isArray((req.body || {}).ids) ? req.body.ids.map(str) : [])];
     if (!ids.length || ids.length > 20) return fail(res, '请选择 1 到 20 道待审核题目');
+    if (Object.hasOwn(req.body || {}, 'items')) {
+      try {
+        const checked = selectedSnapshots(req);
+        if (checked.length !== ids.length || checked.some(({item}) => !ids.includes(item.id))) throw new Error('所选题目与快照不一致，请刷新后重试');
+      } catch (e) { return fail(res, e.message, e.code || 1); }
+    }
     const scopeError = scanAccessError(req, ids);
     if (scopeError) return fail(res, scopeError, 403);
     const current = new Map(allItems(req).map((x) => [x.id, x]));
@@ -887,7 +893,7 @@ module.exports = function mountPending(d) {
           if (!Array.isArray(explicit) || explicit.some((field) => !['stem', 'answer', 'analysis'].includes(field) || !Object.hasOwn(patch, field))) throw new Error('请选择本题要使用的 AI 题干、答案或解析');
           const aiFields = [...new Set([...explicit, ...['stem', 'answer', 'analysis'].filter((field) => suggestion && str(suggestion[field]).trim() && Object.hasOwn(patch, field) && patch[field] === suggestion[field])])];
           if ((aiFields.length || kept.length) && (!suggestion || suggestion.stale || entry.ai_token !== suggestion.token || entry.ai_confirmed !== true || [...aiFields, ...kept].some((field) => !str(suggestion[field]).trim()))) throw new Error('使用 AI 建议前，请逐题核对并确认；过期建议须重新生成');
-          const figureMarkers = (value) => (str(value).match(/\[图\d+\]/g) || []).sort().join('|');
+          const figureMarkers = (value) => (str(value).match(/\[(?:图片|图像|图表|表格|示意图|图(?=[0-9a-zA-Z\s:：\]])|表(?=[0-9a-zA-Z\s:：\]]))[^\]\n]{0,2000}\]|【(?:图片|图像|图表|表格|示意图|图(?=[0-9a-zA-Z\s:：】])|表(?=[0-9a-zA-Z\s:：】]))[^】\n]{0,2000}】/g) || []).sort().join('|');
           if (aiFields.some((field) => figureMarkers(item[field]) !== figureMarkers(patch[field]))) throw new Error('AI 修改改变了题图标记，请人工核对并保留原有图号');
           if (item.kind === 'scan' && item.qid && (aiFields.length || kept.length || entry.ai_classification)) throw new Error('历史扫码题关联正式题库，不能批量采用 AI 建议；本批未保存');
           if (Object.hasOwn(patch, 'type') && (item.question_subtype && !QSubtype.compatible(item.question_subtype, item.subject, patch.type) || ['single','multi','sort'].includes(patch.type) && (item.options || []).length < 2)) throw new Error('建议题型与题目内容不兼容，请先人工核对');

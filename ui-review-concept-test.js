@@ -214,6 +214,11 @@ if(require.main===module && process.argv.includes('--browser')) {
         await page.route('**/*',route=>{requests.push(route.request().url());return route.abort();});
         await page.setContent(buildFixture()); await page.waitForFunction(()=>window.fixtureReady); await page.evaluate(()=>document.fonts.ready);
         const geometry=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth-innerWidth,regions:['.r4-review-list','.pd-main','.pd-classification','.pd-review-footer'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return {selector:s,x:r.x,y:r.y,width:r.width,height:r.height};})}));
+        if(width===390){
+          const panels=await page.evaluate(()=>['.pd-main','.pd-classification','.pd-preview-heading'].map(s=>{const e=document.querySelector(s),r=e.getBoundingClientRect();return {selector:s,left:r.left,right:r.right,overflow:e.scrollWidth-e.clientWidth};}));
+          assert(panels.every(p=>p.left>=-1 && p.right<=width+1 && p.overflow<=1),JSON.stringify(panels));
+          const checkbox=page.locator('[data-sel="fixture-1"]').first();await checkbox.check({timeout:3000});await checkbox.uncheck({timeout:3000});
+        }
         await page.screenshot({path:path.join(evidence,`admin-review-${width}.png`)});
         if(width===390) await page.screenshot({path:path.join(evidence,'admin-review-390-full.png'),fullPage:true});
         const regression=await page.evaluate(()=>fixture.runRegression());
