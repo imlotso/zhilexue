@@ -148,3 +148,26 @@ test('I1 rich text attributes containing quoted angle brackets do not leak into 
  const result=questionStemFields('',input);assert.equal(result.stem,'若a<b>c，求值。');
  const {JSDOM}=require('jsdom');const dom=new JSDOM(result.stem_html);try{assert.equal(dom.window.document.body.textContent,'若a<b>c，求值。');assert.equal(dom.window.document.querySelector('p').title,'x > 2 & y < 4');}finally{dom.window.close();}
 });
+function legacyStringScan(t, linked) {
+ const f=pendingFixture(t),options=JSON.stringify(['甲','乙']);
+ if(linked){f.raw.prepare("INSERT INTO questions(id,subject,stage,grade,stem,type,options,answer,point) VALUES(99,'数学','primary','四年级','旧扫码题','single',?,'','旧知识点')").run(options);f.raw.exec('UPDATE paper_uploads SET question_id=99 WHERE id=3');}
+ else f.raw.prepare('UPDATE paper_uploads SET draft_json=? WHERE id=3').run(JSON.stringify({type:'single',stem:'旧扫码题',options:JSON.parse(options),answer:'',point:'旧知识点'}));
+ return f;
+}
+for(const linked of [false,true])test(`I2 legacy string scan options retain labels/text in the real pending list (linked=${linked})`,async t=>{
+ const f=legacyStringScan(t,linked),item=(await f.list()).find(x=>x.id==='up:3');
+ assert.deepEqual(Array.from(item.options,o=>({label:o.label,text:o.text})),[{label:'A',text:'甲'},{label:'B',text:'乙'}]);
+});
+for(const linked of [false,true])test(`I2 legacy string scan accepts valid B editing without relaxing invalid C rejection (linked=${linked})`,async t=>{
+ const f=legacyStringScan(t,linked);
+ const edited=await f.call('PUT /ext/pending/item',{id:'up:3',patch:{stem:'合法修改',answer:'B',point:'新知识点'}});
+ assert.equal(edited.code,0,edited.msg);const item=(await f.list()).find(x=>x.id==='up:3');assert.equal(item.stem,'合法修改');assert.equal(item.answer,'B');
+ assert.deepEqual(Array.from(item.options,o=>({label:o.label,text:o.text})),[{label:'A',text:'甲'},{label:'B',text:'乙'}]);
+ const before=f.snapshot();const invalid=await f.call('PUT /ext/pending/item',{id:'up:3',patch:{stem:'不应保存',answer:'C',point:'不应修改'}});
+ assert.notEqual(invalid.code,0);assert.match(invalid.msg,/答案/);assert.equal(f.snapshot(),before);
+});
+test('I2 snapshot-bound bulk editor accepts an unchanged legacy string option list with a valid new answer',async t=>{
+ const f=legacyStringScan(t,true),item=(await f.list()).find(x=>x.id==='up:3');
+ const result=await f.edit([f.entry(item,{answer:'B'})]);assert.equal(result.code,0,result.msg);
+ const row=f.raw.prepare('SELECT answer, options FROM questions WHERE id=99').get();assert.equal(row.answer,'B');assert.deepEqual(JSON.parse(row.options),[{label:'A',text:'甲'},{label:'B',text:'乙'}]);
+});

@@ -155,7 +155,10 @@ module.exports = function mountPending(d) {
     return rows.map((r) => {
       const draft = parseObj(r.pu_draft);
       const ups = parseArr(r.up_images); const qimgs = parseArr(r.q_images);
-      const opts = (r.qid ? parseArr(r.options) : (draft.options || [])).map((o) => ({ label: str(o.label), text: str(o.text != null ? o.text : o.content) }));
+      const opts = (r.qid ? parseArr(r.options) : (draft.options || [])).map((o, i) => {
+        const object = o && typeof o === 'object';
+        return { label: str(object && o.label || LETTERS[i] || ''), text: str(object ? (o.text != null ? o.text : o.content) : o) };
+      });
       const item = {
         id: `up:${r.up_id}`, kind: 'scan', source: 'scan', source_label: SRC_LABEL.scan,
         batch_id: r.up_id, batch_title: `${r.student_name || '学生'} 扫码上传`, index: 0, qid: r.qid, up_status: r.up_status,

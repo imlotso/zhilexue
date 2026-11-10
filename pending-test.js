@@ -236,9 +236,13 @@ function buildDocx(paras) {
   }
   const capEd = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: `cap:${batchCap}:1`, patch: { stem: 'T3采集二改' + uniq, point: '甲、乙' } } });
   log(capEd.code === 0 && capEd.data.stem === 'T3采集二改' + uniq && capEd.data.point === '甲、乙', '编辑采集的题', capEd.msg);
-  const scEd = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: `up:${upId}`, patch: { stem: 'T3扫码题改' + uniq, answer: 'C', point: '扫码点' } } });
+  const scanBeforeInvalid = db.prepare('SELECT * FROM questions WHERE id=?').get(qScan);
+  const scInvalid = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: `up:${upId}`, patch: { stem: '不应保存的扫码题' + uniq, answer: 'C', point: '不应保存的知识点' } } });
+  const scanAfterInvalid = db.prepare('SELECT * FROM questions WHERE id=?').get(qScan);
+  log(scInvalid.code !== 0 && /答案/.test(scInvalid.msg) && JSON.stringify(scanAfterInvalid) === JSON.stringify(scanBeforeInvalid), '旧扫码字符串选项仅有 A/B：拒绝不存在的 C，原题全部字段保持不变', scInvalid.msg);
+  const scEd = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: `up:${upId}`, patch: { stem: 'T3扫码题改' + uniq, answer: 'B', point: '扫码点' } } });
   const scRow = db.prepare('SELECT stem, answer, point FROM questions WHERE id=?').get(qScan);
-  log(scEd.code === 0 && scRow.stem === 'T3扫码题改' + uniq && scRow.answer === 'C' && scRow.point === '扫码点', '编辑手机扫码的题：直接改库里的题目', scEd.msg);
+  log(scEd.code === 0 && scRow.stem === 'T3扫码题改' + uniq && scRow.answer === 'B' && scRow.point === '扫码点', '编辑手机扫码的题：合法 B 答案与题干、知识点保存到库', scEd.msg);
   log((await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: 'bad', patch: {} } })).code !== 0 && (await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: 'run:99999999:0', patch: {} } })).code !== 0, '题目标识不对 / 批次不存在被拒绝');
 
   // ================= 逐题入库 =================
