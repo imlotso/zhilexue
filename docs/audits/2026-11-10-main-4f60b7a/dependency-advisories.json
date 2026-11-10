@@ -1,0 +1,83 @@
+{
+  "commit": "4f60b7a9bdc5015323308a21a30dfa76e408c0c8",
+  "date": "2026-11-10",
+  "source": "registry.npmjs.org",
+  "authorized": true,
+  "production_only": true,
+  "counts": {
+    "info": 0,
+    "low": 0,
+    "moderate": 1,
+    "high": 3,
+    "critical": 0,
+    "total": 4
+  },
+  "entries": [
+    {
+      "package": "body-parser",
+      "installed_version": "1.20.8",
+      "severity": "high",
+      "affected_range": "<1.20.9",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "body-parser vulnerable to Denial of Service via trailing bytes after a compressed request body",
+          "url": "https://github.com/advisories/GHSA-27r3-jxmh-p828",
+          "severity": "high"
+        }
+      ]
+    },
+    {
+      "package": "qs",
+      "installed_version": "6.16.0",
+      "severity": "moderate",
+      "affected_range": "6.7.0 - 6.16.0",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "qs : qs.stringify with arrayFormat 'comma' throws an uncaught TypeError on array elements carrying a non-callable own toString (DoS)",
+          "url": "https://github.com/advisories/GHSA-6pq8-jhm2-2vcw",
+          "severity": "moderate"
+        }
+      ]
+    },
+    {
+      "package": "ws",
+      "installed_version": "8.17.1",
+      "severity": "high",
+      "affected_range": "8.0.0 - 8.20.1",
+      "fixAvailable": true,
+      "advisories": [
+        {
+          "title": "ws: Uninitialized memory disclosure",
+          "url": "https://github.com/advisories/GHSA-58qx-3vcg-4xpx",
+          "severity": "moderate"
+        },
+        {
+          "title": "ws: Memory exhaustion DoS from tiny fragments and data chunks",
+          "url": "https://github.com/advisories/GHSA-96hv-2xvq-fx4p",
+          "severity": "high"
+        }
+      ]
+    },
+    {
+      "package": "xlsx",
+      "installed_version": "0.18.5",
+      "severity": "high",
+      "affected_range": "*",
+      "fixAvailable": false,
+      "advisories": [
+        {
+          "title": "Prototype Pollution in sheetJS",
+          "url": "https://github.com/advisories/GHSA-4r6h-8v6p-xvw6",
+          "severity": "high"
+        },
+        {
+          "title": "SheetJS Regular Expression Denial of Service (ReDoS)",
+          "url": "https://github.com/advisories/GHSA-5pgg-2g8v-p4x9",
+          "severity": "high"
+        }
+      ]
+    }
+  ]
+}

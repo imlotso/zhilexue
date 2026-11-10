@@ -1,0 +1,522 @@
+{
+  "commit": "4f60b7a9bdc5015323308a21a30dfa76e408c0c8",
+  "runtime": {
+    "node": "24.22.1",
+    "database": "MariaDB 11.8.6 MySQL protocol",
+    "production": false,
+    "ai": "mock",
+    "browser": "blocked"
+  },
+  "commands": [
+    {
+      "job": "unit",
+      "command": "npm run test:formula:browser",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node bank-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "npm run test:bugfix",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "npm run test:ci-contracts",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "npm run test:bugfix:browser",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node ci-isolation-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "npm run test:takeover",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node astra-takeover-word-responsive-test.js --browser",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node astra-takeover-admin-responsive-test.js --browser",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node wordq-test.js",
+      "status": "not_run_original_fixtures_excluded",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node excel-test.js",
+      "status": "not_run_original_fixtures_excluded",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node --test astra-word-import-integrity-test.js astra-excel-import-integrity-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node choices-ten-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node matching-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node multi-partial-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node recognition-pages-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node pending-merge-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node pending-merge-pagination-ui-test.js",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node image-review-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node question-images-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node image-review-ui-test.js",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node pending-empty-stem-ui-test.js",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node choice-bank-ui-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node quiz-layout-test.js",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node content-review-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node math-render-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node drawing-answer-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node question-ticket-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node mfpack-adapter-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node english-workflow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node intake-recovery-ui-test.js",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node writing-translation-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node match-export-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node docx-solution-images-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "unit",
+      "command": "node group-basket-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node storage-test.js",
+      "status": "blocked_cloud_config",
+      "note": "No real cloud config copied; read-only cloud initialization fails closed."
+    },
+    {
+      "job": "api",
+      "command": "node smoke.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node word-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node wrong-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node kbtree-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node pending-test.js",
+      "status": "not_run_original_fixtures_excluded",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node choices-ten-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node excel-no-answer-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node match-partial-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node match-no-answer-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node multi-partial-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node recognition-pages-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node pending-merge-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node image-review-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node pending-empty-stem-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node choice-intake-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node question-images-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node content-review-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node ai-answer-review-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node compose-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node intake-scope-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node import-receipt-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node intake-job-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node upload-recovery-ui-test.js",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node admin-pages-ui-test.js",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node admin-interactions-test.js",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node english-workflow-flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node group-compose-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node lessonq-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node aiclient-test.js",
+      "status": "not_run_external_network_probe",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node aiproxy-test.js",
+      "status": "not_run_external_network_probe",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node mistake-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node paper-test.js",
+      "status": "passed_after_synthetic_fixture_structure_corrected",
+      "note": "54/54 in fresh isolated rerun; first fixture had 3 rather than expected 7 type sections."
+    },
+    {
+      "job": "api",
+      "command": "node word-paper-order-flow-test.js",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node listening-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node formula-test.js",
+      "status": "passed_nonbrowser_part_browser_blocked",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node bankstore-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node bank-image-test.js",
+      "status": "blocked_cloud_config",
+      "note": "No real cloud config copied; read-only cloud initialization fails closed."
+    },
+    {
+      "job": "api",
+      "command": "node theme-test.js",
+      "status": "passed_nonbrowser_part_browser_blocked",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node flow-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node r0-test.js",
+      "status": "not_run_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node r8-test.js",
+      "status": "passed_nonbrowser_part_browser_blocked",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node tree-edition-test.js",
+      "status": "passed",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node r1-test.js",
+      "status": "passed_nonbrowser_part_browser_blocked",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node browser-audit-test.js",
+      "status": "blocked_browser_environment",
+      "note": ""
+    },
+    {
+      "job": "api",
+      "command": "node astra-retest-test.js",
+      "status": "blocked_browser_environment",
+      "note": ""
+    }
+  ],
+  "verified_app_text_files": 187,
+  "application_js_syntax_checks": 143,
+  "syntax_failures": 0,
+  "synthetic_flow": {
+    "passed": 33,
+    "failed": 0
+  },
+  "smoke": {
+    "passed": 191,
+    "failed": 0,
+    "deployment_checks_skipped": 28
+  },
+  "mistake": {
+    "passed": 60,
+    "failed": 0
+  },
+  "synthetic_paper": {
+    "passed": 54,
+    "failed": 0
+  },
+  "listening": {
+    "passed": 34,
+    "failed": 0
+  }
+}
