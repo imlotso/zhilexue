@@ -14,6 +14,7 @@ let inTx = false;
 let cfg = null;
 let dead = false;
 let connecting = null;
+let readOnly = false;
 
 function assertDbName(name) {
   if (!/^[A-Za-z0-9_]+$/.test(String(name || ''))) {
@@ -25,11 +26,16 @@ function assertDbName(name) {
 async function connect(config) {
   cfg = config;
   const database = assertDbName(config.database);
+  const restored = process.env.RESTORED_DB_MODE === '1';
+  if (restored && config.socketPath !== undefined && config.socketPath !== '/run/db/mysql.sock') throw new Error('RESTORED_DB_SOCKET_MISMATCH');
+  if (restored && (config.host !== '127.0.0.1' || Number(config.port) !== 13307 || config.user !== 'zx_restore_20261108' || database !== 'zhilexue_original_restore_20261108')) throw new Error('RESTORED_DB_TARGET_MISMATCH');
   if (conn) {
     try { await conn.end(); } catch (e) { /* 旧连接已断开 */ }
     conn = null;
   }
-  conn = await mysql.createConnection({
+  const next = await mysql.createConnection({
+    ...(readOnly || restored ? { database } : {}),
+    ...(restored && config.socketPath ? { socketPath: config.socketPath } : {}),
     host: config.host,
     port: config.port,
     user: config.user,
@@ -50,20 +56,28 @@ async function connect(config) {
       return next();
     },
   });
-  await conn.query(
-    'CREATE DATABASE IF NOT EXISTS `' + database + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
-  );
-  await conn.query('USE `' + database + '`');
-  await conn.query(
-    'ALTER DATABASE `' + database + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
-  );
-  dead = false;
-  const c = conn;
-  conn.on('error', (e) => { if (c === conn && e && e.fatal) dead = true; });
-  // 去掉 ONLY_FULL_GROUP_BY，让原来按 SQLite 写的分组查询能直接跑
-  await conn.query(
-    "SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'"
-  );
+  try {
+    if (restored) {
+      const [rows] = await next.query('SELECT DATABASE() AS db, CURRENT_USER() AS account, @@server_uuid AS server_uuid');
+      if (rows.length !== 1 || rows[0].db !== database || rows[0].account !== 'zx_restore_20261108@172.17.0.1' || rows[0].server_uuid !== 'c2460962-da9c-11f1-a7bd-0afb9d5ba49c') throw new Error('RESTORED_DB_IDENTITY_MISMATCH');
+    }
+    if (readOnly) {
+      // Applies to every transaction, including autocommit and reconnects.
+      // Failure is fatal: never fall back to the initializing connection path.
+      await next.query('SET SESSION TRANSACTION READ ONLY');
+    } else if (!restored) {
+      await next.query('CREATE DATABASE IF NOT EXISTS `' + database + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+      await next.query('USE `' + database + '`');
+      await next.query('ALTER DATABASE `' + database + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    }
+    await next.query("SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
+    conn = next;
+    dead = false;
+    next.on('error', (e) => { if (next === conn && e && e.fatal) dead = true; });
+  } catch (e) {
+    try { await next.end(); } catch (_) { /* preserve setup error */ }
+    throw e;
+  }
 }
 
 function plain(value) {
@@ -114,7 +128,20 @@ async function ensureConn() {
   }
 }
 
+function assertReadQuery(sql) {
+  if (!readOnly) return;
+  // Deliberately narrow guard for these internal preview SELECTs, not a SQL
+  // parser or a security boundary for arbitrary/untrusted SQL. The server's
+  // read-only session also enforces data protection. No multi-statements,
+  // comments, SELECT INTO, locking reads or session changes are accepted.
+  const text = String(sql || '');
+  if (!/^\s*SELECT\b/i.test(text) || /;|\/\*|\*\/|--|#|:=|\bINTO\b|\bFOR\s+UPDATE\b|\bLOCK\s+IN\s+SHARE\b/i.test(text)) {
+    throw new Error('只读预检连接仅允许 SELECT 查询');
+  }
+}
+
 async function query(sql, params) {
+  assertReadQuery(sql);
   if (!inTx) await ensureConn();
   else if (connecting) await connecting;
   try {
@@ -143,18 +170,22 @@ parentPort.on('message', async (msg) => {
   let error = null;
   try {
     if (msg.type === 'init') {
+      if (replyPort) throw new Error('MySQL 工作线程已初始化');
       replyPort = msg.reply;
+      readOnly = msg.config.readOnly === true;
       await connect(msg.config);
       const [rows] = await conn.query('SELECT VERSION() AS version, DATABASE() AS db');
       data = { version: rows[0].version, database: rows[0].db };
     } else if (!replyPort) {
       throw new Error('MySQL 工作线程尚未初始化');
     } else if (msg.type === 'query') {
+      assertReadQuery(msg.sql);
       const upper = String(msg.sql || '').trim().toUpperCase();
       if (upper.startsWith('START TRANSACTION') || upper === 'BEGIN') { await ensureConn(); inTx = true; }
       if (upper === 'COMMIT' || upper === 'ROLLBACK') inTx = false;
       data = await query(msg.sql, msg.params);
     } else if (msg.type === 'batch') {
+      assertReadQuery(msg.sql);
       let changes = 0;
       let lastInsertRowid = 0;
       for (const params of msg.rows || []) {

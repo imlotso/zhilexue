@@ -46,7 +46,7 @@ const ViewStudents = (() => {
               const tl = s.timeline;
               const covN = tl.filter(t => t.hasComment).length;
               return `<tr class="clickable" data-go="${U.esc(s.name)}">
-                <td><div class="name-cell"><span class="avatar">${U.esc(U.avatarText(s.name))}</span>${U.esc(s.name)}</div></td>
+                <td><a class="name-cell student-profile-link" href="#/student/${encodeURIComponent(s.name)}"><span class="avatar">${U.esc(U.avatarText(s.name))}</span>${U.esc(s.name)}</a></td>
                 <td>${U.esc(s.grade || s.stage || '—')}</td>
                 <td class="num mono"><b>${s.lastTotal != null ? Math.round(s.lastTotal) : '—'}</b>
                   <span class="small muted">${s.lastRate != null ? U.pct(s.lastRate, 0) : ''}</span></td>
@@ -271,8 +271,8 @@ const ViewProfile = (() => {
         labels,
         datasets: [{
           label: '总分', data: tl.map(t => Number(t.total.toFixed(1))),
-          borderColor: '#2f5cff', backgroundColor: 'rgba(47,92,255,.10)',
-          tension: .3, fill: true, pointRadius: 4, pointBackgroundColor: '#2f5cff'
+          borderColor: '#0c5947', backgroundColor: 'rgba(12,89,71,.10)',
+          tension: .3, fill: true, pointRadius: 4, pointBackgroundColor: '#0c5947'
         }]
       },
       options: {
@@ -312,8 +312,8 @@ const ViewProfile = (() => {
         labels: knRep.radar.labels.map(l => l.length > 10 ? l.slice(0, 10) + '…' : l),
         datasets: [{
           label: '掌握度(%)', data: knRep.radar.values,
-          borderColor: '#2f5cff', backgroundColor: 'rgba(47,92,255,.16)',
-          pointBackgroundColor: '#2f5cff', pointRadius: 3, borderWidth: 2
+          borderColor: '#0c5947', backgroundColor: 'rgba(12,89,71,.16)',
+          pointBackgroundColor: '#0c5947', pointRadius: 3, borderWidth: 2
         }]
       },
       options: {

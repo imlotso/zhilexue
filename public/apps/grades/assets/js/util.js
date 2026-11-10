@@ -100,33 +100,78 @@ const U = (() => {
     if (!root) return;
     const el = document.createElement('div');
     el.className = 'toast ' + type;
+    el.setAttribute('role', type === 'err' ? 'alert' : 'status');
     el.innerHTML = (type === 'ok' ? '✓ ' : type === 'err' ? '✕ ' : '') + esc(msg);
     root.appendChild(el);
     setTimeout(() => { el.style.opacity = '0'; el.style.transition = '.3s'; }, 2000);
     setTimeout(() => el.remove(), 2400);
   };
 
+  let fieldSequence = 0;
+  function bindFieldLabels(root) {
+    root.querySelectorAll('.field').forEach(field => {
+      const label = field.querySelector(':scope > label');
+      const controls = Array.from(field.querySelectorAll('input:not([type="hidden"]), select, textarea'));
+      if (!label || !controls.length) return;
+      if (controls.length === 1) {
+        if (!controls[0].id) controls[0].id = 'grades-field-' + (++fieldSequence);
+        label.htmlFor = controls[0].id;
+      } else {
+        if (!label.id) label.id = 'grades-field-label-' + (++fieldSequence);
+        controls.forEach(control => {
+          const unit = control.nextElementSibling;
+          let described = label.id;
+          if (unit && unit.classList.contains('mp-unit')) {
+            if (!unit.id) unit.id = 'grades-field-unit-' + (++fieldSequence);
+            described += ' ' + unit.id;
+          }
+          control.setAttribute('aria-labelledby', described);
+        });
+      }
+    });
+  }
+
+  let modalReturnFocus = null;
+  function modalKey(e) {
+    const root = document.getElementById('modalRoot'), box = document.getElementById('modalBox');
+    if (!root || root.hidden || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeModal(); }
+    if (e.key !== 'Tab') return;
+    const items = Array.from(box.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')).filter(el => !el.disabled && el.type !== 'hidden' && el.tabIndex >= 0 && !el.closest('[hidden]') && getComputedStyle(el).display !== 'none');
+    const first = items[0], last = items[items.length - 1];
+    if (!items.length) { e.preventDefault(); box.focus(); }
+    else if (e.shiftKey && (document.activeElement === first || !box.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || !box.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+  }
   /** 弹窗 */
   const modal = (opts) => {
     const root = document.getElementById('modalRoot');
     const box = document.getElementById('modalBox');
+    if (root.hidden) modalReturnFocus = document.activeElement;
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-labelledby', 'grades-dialog-title'); box.tabIndex = -1;
+    document.removeEventListener('keydown', modalKey); document.addEventListener('keydown', modalKey);
     box.innerHTML = `
       <div class="modal-head">
-        <div class="modal-title">${esc(opts.title || '')}</div>
-        <button class="modal-close" data-close="1">✕</button>
+        <div class="modal-title" id="grades-dialog-title">${esc(opts.title || '')}</div>
+        <button class="modal-close" type="button" aria-label="关闭" data-close="1">✕</button>
       </div>
       <div class="modal-body">${opts.body || ''}</div>
       ${opts.foot === false ? '' : `<div class="modal-foot">${opts.foot || '<button class="btn" data-close="1">关闭</button>'}</div>`}
     `;
     root.hidden = false;
     if (opts.onMount) opts.onMount(box);
+    bindFieldLabels(box);
     box.querySelectorAll('[data-close]').forEach(b => b.onclick = closeModal);
+    Promise.resolve().then(() => { if (!root.hidden) (box.querySelector('[autofocus], input:not([type="hidden"]), select, textarea, button') || box).focus(); });
     return box;
   };
   const closeModal = () => {
     const root = document.getElementById('modalRoot');
     root.hidden = true;
+    document.removeEventListener('keydown', modalKey);
     document.getElementById('modalBox').innerHTML = '';
+    if (modalReturnFocus && modalReturnFocus.isConnected) modalReturnFocus.focus();
+    modalReturnFocus = null;
   };
 
   const confirmBox = (msg, onOk, okText = '确认') => {
@@ -138,5 +183,5 @@ const U = (() => {
     });
   };
 
-  return { uid, esc, num, fmtNum, signNum, pct, fmtDate, today, yearOf, monthOf, fmtMonth, curMonth, monthField, monthVal, byDateAsc, avatarText, clip, debounce, downloadBlob, toast, modal, closeModal, confirmBox };
+  return { uid, esc, num, fmtNum, signNum, pct, fmtDate, today, yearOf, monthOf, fmtMonth, curMonth, monthField, monthVal, byDateAsc, avatarText, clip, debounce, downloadBlob, toast, bindFieldLabels, modal, closeModal, confirmBox };
 })();

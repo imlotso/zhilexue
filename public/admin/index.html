@@ -4,39 +4,66 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>智学课堂 · 校长后台</title>
-<link rel="stylesheet" href="../css/app.css?v=20261104r0">
+<link rel="stylesheet" href="../css/app.css?v=20261106-client3">
 <link rel="stylesheet" href="../css/ali-icons.css">
 <link rel="stylesheet" href="../vendor/element-ui.css">
 <script src="../vendor/vue2.min.js"></script>
 <script src="../vendor/element-ui.js"></script>
 <link rel="stylesheet" href="../css/ruoyi.css?v=20261028a">
-<link rel="stylesheet" href="./theme.css?v=20261104r8r2">
+<link rel="stylesheet" href="./theme.css?v=20261106-client3">
+<link rel="stylesheet" href="./r3.css?v=20261105">
+<link rel="stylesheet" href="./ktree.css?v=20261105">
+<link rel="stylesheet" href="./intake-center.css?v=20261106">
+<link rel="stylesheet" href="./intake-skill.css?v=20261105">
+<link rel="stylesheet" href="./intake-teacher.css?v=20261105">
+<link rel="stylesheet" href="./intake-manual.css?v=20261106">
+<link rel="stylesheet" href="./r6-compose.css?v=20261105">
+<link id="r10Styles" rel="stylesheet" href="./r10.css?v=20261109-bugfix">
+<link rel="stylesheet" href="./ui-review-20261108.css?v=20261108">
+<link rel="stylesheet" href="./ui-rounded-shell-20261108.css?v=20261108r1">
+<link rel="stylesheet" href="./ui-rounded-pages-20261108.css?v=20261110-commit-flow">
 <link rel="icon" href="../img/logo.jpg" type="image/jpeg">
 <script>window.STORAGE_PREFIX = 'xuexi_admin';
 /* MathJax 3 配置：题库题干 LaTeX 分隔符；按需排版（mtxTypeset），不自动扫全页 */
-window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]'], ['$$', '$$$']] }, svg: { fontCache: 'global' }, options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'input'] }, startup: { typeset: false } };</script>
+window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]'], ['$$', '$$']] }, svg: { fontCache: 'global' }, options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'input'] }, startup: { typeset: false } };</script>
 <script defer src="../vendor/mathjax-tex-svg.js"></script>
 </head>
 <body class="t11">
 <div id="app"><div class="loading-page">加载中…</div></div>
 <script src="../js/api.js?v=20261104r0"></script>
-<script src="../js/mathlib.js?v=20261028a"></script>
+<script src="../js/mathlib.js?v=20261105b"></script>
+<script src="../js/question-subtypes.js?v=20261106"></script>
 <script src="../js/pdfpages.js"></script>
 <script src="../vendor/html2canvas.min.js"></script>
 <script src="./vcodec.js?v=20261102a"></script>
-<script src="./admin.js?v=20261104r1"></script>
+<script src="./admin.js?v=20261108-rounded"></script>
 <script src="./treepick.js?v=20261104r2m"></script>
+<script src="./treepanel.js?v=20261105"></script>
+<script src="./qcard.js?v=20261105"></script>
+<script src="./qbasket.js?v=20261105"></script>
 <script src="./bankui.js?v=20261104r8r2"></script>
-<script src="./mfbankui.js?v=20261104r8r2"></script>
-<script src="./mfui2.js?v=20261104r8r2"></script>
-<script src="./ktreeui.js?v=20261104r2m"></script>
-<script src="./pendingui.js?v=20261104r2m"></script>
+<script src="./intake-flow.js?v=20261106"></script>
+<script src="./mfbankui.js?v=20261110-commit-flow"></script>
+<script src="./capture-sites/zujuan.js?v=20261105"></script>
+<script src="./capture-sites/jyeoo.js?v=20261105"></script>
+<script src="./capture-sites/21cnjy.js?v=20261105"></script>
+<script src="./capture-rules.js?v=20261105"></script>
+<script src="./capture-tree-import.js?v=20261105"></script>
+<script src="./mfui2.js?v=20261106"></script>
+<script src="./ktreeui.js?v=20261105"></script>
+<script src="./pending-figure.js?v=20261105"></script>
+<script src="./pendingui.js?v=20261110-commit-flow"></script>
+<script src="./intake-center.js?v=20261108-rounded"></script>
+<script src="./intake-skill.js?v=20261106"></script>
+<script src="./intake-teacher.js?v=20261106"></script>
+<script src="./intake-manual.js?v=20261106"></script>
+<script src="./r6-compose.js?v=20261108-rounded"></script>
 <script src="./audioui.js?v=1"></script>
 <script src="../js/mlive.js?v=1"></script>
 <script src="./formulaui.js?v=1"></script>
 <script src="./phonics.js?v=20261102a"></script>
 <script src="./words.js?v=20261029c"></script>
-<script src="./reportui.js?v=20261104r1"></script>
+<script src="./reportui.js?v=20261108-rounded"></script>
 <script src="./paper.js?v=20261026a"></script>
 <script src="../vendor/qrcode.min.js"></script>
 <script src="./aireport.js?v=20261026d"></script>

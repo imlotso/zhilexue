@@ -45,7 +45,7 @@ const XREP_TABS = [
 let XREP_TAB = 'w';
 /** 旧「知识点正确率」（#/acc[?user_id=]）并入习题学习报告：切到该页签，有 user_id 时直接打开该学生的详情 */
 function xrepOpenExercise(uid) { XREP_TAB = 'e'; EREP.openUid = Number(uid) || 0; }
-const xrepTabs = () => `<div class="toolbar" style="gap:6px;margin-bottom:14px">
+const xrepTabs = () => `<div class="toolbar r1-report-tabs" aria-label="学习报告类型">
   ${XREP_TABS.map((t) => `<button class="btn ${XREP_TAB === t.k ? 'primary-sm' : 'ghost'}" data-xrep="${t.k}">${ic(t.i)} ${t.t}</button>`).join('')}</div>`;
 
 async function viewXReport() {
@@ -58,7 +58,7 @@ async function viewXReport() {
   }
   const map = { w: viewWReport, v: viewVReport, e: viewEReport, m: viewMistakeLog };
   const out = await (map[XREP_TAB] || viewWReport)();
-  out.html = xrepTabs() + out.html;
+  out.html = '<section class="r1-rounded-report"><header class="r1-report-heading"><h2>学习报告</h2><p>从视频学习、练习表现到错题，看到完整学习过程。</p></header>' + xrepTabs() + out.html + '</section>';
   const oldAfter = out.after;
   out.after = () => {
     document.querySelectorAll('[data-xrep]').forEach((b) => b.onclick = () => { XREP_TAB = b.dataset.xrep; render(); });
@@ -237,7 +237,7 @@ function vrepDetail(d) {
    ============================================================ */
 const EREP = { branch: 'all', kw: '', openUid: 0 };
 
-const QT_NAME = { single: '单选', multi: '多选', judge: '判断', fill: '填空', sort: '排序', compound: '组合', cloze: '完形', reading: '阅读' };
+const QT_NAME = { answer: '解答', single: '单选', multi: '多选', judge: '判断', fill: '填空', sort: '排序', compound: '组合', cloze: '完形', reading: '阅读' };
 
 async function viewEReport() {
   const st = EREP;
@@ -254,7 +254,9 @@ async function viewEReport() {
         <button class="btn ghost" id="erSearch">查询</button>
         <button class="btn ghost" id="erReset">重置</button>
       </div>
-      <p class="w-tip" style="margin:0 0 12px">统计学生端「做练习 / 试卷」的作答数据：做题数与正确率来自练习作答，错题按错题本（含复习进度）统计，试卷取自智能组卷的交卷记录。点「详情」看试卷成绩和最近的作答明细。</p>
+      <p class="w-tip" style="margin:0 0 12px">统计学生端「做练习 / 试卷」的作答数据：做题数与正确率来自客观判分和学生自评，自评不代表老师评分；错题按错题本（含复习进度）统计，试卷取自智能组卷的交卷记录。点「详情」看试卷成绩和最近的作答明细。</p>
+      <div class="r1-student-cards">${list.length ? list.map(s => `<article class="r1-student-card"><header><span class="r1-student-avatar" aria-hidden="true">${ic('user')}</span><div><h3>${esc(s.name || s.username)}</h3><p>${esc([s.grade,s.branch || '总校'].filter(Boolean).join(' · '))}</p></div><button type="button" class="btn ghost sm" data-edetail="${s.id}">查看报告 ${ic('arrow-right')}</button></header><div class="r1-student-metrics"><div><span>已做习题</span><strong>${Number(s.answered) || 0}</strong><small>作答记录</small></div><div><span>习题正确率</span><strong>${s.rate == null ? '—' : esc(s.rate) + '%'}</strong><small>${s.rate == null ? '暂无可统计作答' : '客观判分 / 学生自评'}</small></div><div><span>待复习错题</span><strong>${Number(s.wrong_open) || 0}</strong><small>已掌握 ${Number(s.mastered) || 0} 题</small></div></div><footer><span>${s.last_at ? '最近练习 ' + esc(s.last_at.slice(0,16)) : '暂无可统计的练习或试卷记录'}</span><button type="button" class="link-btn" data-edocx="${s.id}">导出错题 Word</button></footer></article>`).join('') : '<div class="r1-report-empty"><span class="r1-empty-book" aria-hidden="true">'+ic('book')+'</span><h3>完成练习后生成报告</h3><p>暂未产生可统计的练习记录，或当前筛选下没有学生。</p><small>暂无数据不代表正确率为 0%。</small></div>'}</div>
+      <details class="r1-all-fields"><summary>查看全部统计字段</summary>
       ${list.length ? `<div style="overflow-x:auto"><table>
         <thead><tr><th>姓名</th><th>账号</th><th>年级</th><th>校区</th><th>学科做题（对/总）</th><th>做题数</th><th>正确率</th><th>待复习错题</th><th>已掌握</th><th>试卷</th><th>平均分</th><th>最高分</th><th>最近做题</th><th>到期</th><th>状态</th><th class="r1-act-cell">操作</th></tr></thead>
         <tbody>${list.map((s) => `<tr>
@@ -274,7 +276,7 @@ async function viewEReport() {
           <td>${s.status ? '<span class="tag ok">正常</span>' : '<span class="tag gray">停用</span>'}</td>
           <td class="r1-act-cell"><div class="r1-acts"><button class="link-btn" data-edetail="${s.id}">详情</button><button class="link-btn" data-edocx="${s.id}" title="导出该学生未掌握的错题（可编辑的 Word）">导出错题 Word</button></div></td>
         </tr>`).join('')}</tbody></table></div>`
-      : '<div class="empty">暂无记录</div>'}
+      : '<div class="empty">暂无记录</div>'}</details>
     </div>`,
     after: () => {
       reportBranchBind('erBranch', st);
@@ -328,12 +330,16 @@ async function r1DownloadMistakes(stu, opts, btn) {
   btn.disabled = false; btn.innerHTML = old;
 }
 
-/** ② 课程 → 小分组 → 视频 树。closed：被折叠的节点 key；onlyWeak：只留未掌握（正确率 < 80%）的视频及其上级 */
+/** ② 课程 → 小分组 → 视频/分组习题。onlyWeak保留正确率低于80%的视频、独立分组习题及其上级。 */
 function r1TreeHTML(courses, onlyWeak, closed) {
   const caret = (key) => `aria-expanded="${closed.has(key) ? 'false' : 'true'}" data-tog="${key}"`;
   const out = [];
   courses.forEach((c) => {
-    const groups = c.groups.map((g) => ({ ...g, videos: onlyWeak ? g.videos.filter((v) => r1Weak(v.acc)) : g.videos })).filter((g) => g.videos.length);
+    const groups = c.groups.map((g) => ({
+      ...g,
+      videos: onlyWeak ? g.videos.filter((v) => r1Weak(v.acc)) : g.videos,
+      showOwn: !!g.own_acc && g.own_acc.total > 0 && (!onlyWeak || r1Weak(g.own_acc)),
+    })).filter((g) => g.videos.length || g.showOwn);
     if (!groups.length) return;
     const ck = 'c' + c.id;
     out.push(`<div class="r1-course">
@@ -342,7 +348,7 @@ function r1TreeHTML(courses, onlyWeak, closed) {
     const gk = `g${c.id}-${g.id}`;
     return `<div class="r1-group">
         <button type="button" class="r1-row r1-lv2" ${caret(gk)}><i class="r1-caret"></i><span class="r1-name">${esc(g.name)}</span><span class="r1-rate">${r1RateHTML(g.acc)}</span></button>
-        <div class="r1-kids" ${closed.has(gk) ? 'hidden' : ''}>${g.videos.map((v) => `<div class="r1-row r1-lv3" data-vid="${v.id}"><span class="r1-name">${ic('video')}${esc(v.title)}</span><span class="r1-rate">${r1RateHTML(v.acc)}</span></div>`).join('')}</div>
+        <div class="r1-kids" ${closed.has(gk) ? 'hidden' : ''}>${g.videos.map((v) => `<div class="r1-row r1-lv3" data-vid="${v.id}"><span class="r1-name">${ic('video')}${esc(v.title)}</span><span class="r1-rate">${r1RateHTML(v.acc)}</span></div>`).join('')}${g.showOwn ? `<div class="r1-row r1-lv3 r1-own"><span class="r1-name">${ic('doc')}分组习题</span><span class="r1-rate">${r1RateHTML(g.own_acc)}</span></div>` : ''}</div>
       </div>`;
   }).join('')}</div>
     </div>`);
@@ -356,8 +362,8 @@ function r1Esc(e) { if (e.key === 'Escape') r1Close(); }
 async function r1OpenDrawer(uid) {
   r1Close();
   const wrap = document.createElement('div');
-  wrap.className = 'r1-mask';
-  wrap.innerHTML = `<aside class="r1-drawer" role="dialog" aria-label="习题学习报告详情">
+  wrap.className = 'r1-mask r1-rounded-mask';
+  wrap.innerHTML = `<aside class="r1-drawer r1-rounded-drawer" role="dialog" aria-label="习题学习报告详情">
     <header class="r1-dh"><div class="r1-dt"><h3>习题学习报告</h3><p class="r1-sub">加载中…</p></div>
       <button type="button" class="r1-x" aria-label="关闭"><i class="el-icon-close"></i></button></header>
     <div class="r1-body"><div class="loading-page">加载中…</div></div>
@@ -384,6 +390,8 @@ async function r1OpenDrawer(uid) {
   // ① 学科总览
   const subs = det.subjects || [];
   const totalN = subs.reduce((t, x) => t + x.n, 0); const totalC = subs.reduce((t, x) => t + x.correct, 0);
+  const hasPractice = totalN > 0 || (det.rows || []).length > 0 || (det.subjective || []).length > 0 || (det.papers || []).length > 0;
+  const hasPendingGrading = (det.subjective || []).some(r => r.score == null) || (det.papers || []).some(p => Number(p.ungraded_count) > 0);
   const subCards = subs.map((x) => {
     const rate = x.n ? Math.round(x.correct / x.n * 100) : null;
     return `<div class="r1-subj ${x.n ? '' : 'empty'}" data-subj="${esc(x.subject)}">
@@ -403,14 +411,19 @@ async function r1OpenDrawer(uid) {
   // ③ 试卷成绩 / 最近作答
   const paperRows = (det.papers || []).map((p) => {
     const full = Number(p.total_score) || 100;                      // 试卷满分；score 已按满分折算
+    if (p.ungraded_count) {
+      const objective = p.objective_score_total ? `客观题 ${p.objective_score} / ${p.objective_score_total}` : '暂无客观题';
+      return `<tr><td><b>${esc(p.title || '试卷已删除')}</b></td><td>${esc(objective)} · ${p.ungraded_count} 题未评分</td><td>${p.correct} / ${p.total} 题</td><td>—</td><td class="r1-time">${esc((p.created_at || '').slice(0, 16))}</td></tr>`;
+    }
     const rate = Math.round(Number(p.score) / full * 100);
     return `<tr><td><b>${esc(p.title || '试卷已删除')}</b></td><td><b class="r1-c-${r1RateCls(rate)}">${p.score}</b> / ${full}</td><td>${p.correct} / ${p.total} 题</td><td>${rate}%</td><td class="r1-time">${esc((p.created_at || '').slice(0, 16))}</td></tr>`;
   }).join('');
   const recRows = (det.rows || []).map((r) => `<tr>
     <td>${esc(QT_NAME[r.type] || r.type || '—')}</td><td>${esc(r.subject || '—')}</td>
     <td title="${esc(r.stem || '')}">${esc(String(r.stem || '').slice(0, 40))}${String(r.stem || '').length > 40 ? '…' : ''}</td>
-    <td>${Number(r.is_correct) === 1 ? '<span class="tag ok">对</span>' : '<span class="tag no">错</span>'}</td>
+    <td>${r.self_correct === 0 || r.self_correct === 1 ? `<span class="tag ${r.self_correct ? 'ok' : 'no'}">学生自评${r.self_correct ? '正确' : '错误'}</span>` : r.match_total ? `<span class="tag ${Number(r.is_correct) === 1 ? 'ok' : 'no'}">连对 ${Number(r.match_correct)} / ${Number(r.match_total)} 项</span>` : Number(r.is_correct) === 1 ? '<span class="tag ok">对</span>' : '<span class="tag no">错</span>'}</td>
     <td class="r1-time">${esc((r.created_at || '').slice(0, 16))}</td></tr>`).join('');
+  const subjectiveRows = (det.subjective || []).map((r) => `<tr><td>${esc(({ writing: '书面表达', translation: '翻译', calculation: '计算题', drawing: '作图题' })[r.question_subtype] || '问答题')}</td><td>${esc(r.subject || '—')}</td><td>${esc(r.stem || '题目已删除')}</td><td>${r.has_drawing ? `<button type="button" class="btn ghost xs" data-subjective-drawing="${Number(r.id)}">查看作图</button>` : esc(r.my_answer || '未作答').replace(/\n/g, '<br>')}</td><td>${r.score == null ? '未评分' : `${Number(r.score)} / ${r.max_score == null ? 100 : Number(r.max_score)} 分`}${r.self_correct === 0 || r.self_correct === 1 ? `<div>学生自评${r.self_correct ? '正确' : '错误'}（不代表老师评分）</div>` : ''}${r.review_comment ? `<div>${esc(r.review_comment).replace(/\n/g, '<br>')}</div>` : ''}</td><td class="r1-time">${esc((r.created_at || '').slice(0, 16))}</td><td><button type="button" class="btn ghost xs" data-subjective-grade="${Number(r.id)}">${r.score == null ? '评分' : '修改评分'}</button></td></tr>`).join('');
 
   const body = wrap.querySelector('.r1-body');
   body.innerHTML = `
@@ -422,30 +435,60 @@ async function r1OpenDrawer(uid) {
       <button type="button" class="btn sm" id="r1Docx">${ic('download')} 导出错题 Word</button>
     </div>
     <section class="r1-sec"><h4><span class="r1-n">1</span>学科总览</h4>${sum}<div class="r1-subjs">${subCards}</div></section>
-    <section class="r1-sec"><h4><span class="r1-n">2</span>课程 → 小分组 → 视频 正确率
+    <div class="r1-report-grid"><section class="r1-sec r1-knowledge-panel"><h4><span class="r1-n">2</span>知识点与小分组
         <span class="r1-tools"><label class="r1-chk"><input type="checkbox" id="r1Weak"> 只看未掌握（&lt; ${R1_WEAK}%）</label>
         <button type="button" class="link-btn" id="r1Open">全部展开</button><button type="button" class="link-btn" id="r1Fold">全部收起</button></span></h4>
-      <p class="r1-note">每道题取学生<b>最近一次</b>作答的对错；小分组 = 组内所有视频的题合在一起算。问答题不自动判分，不计入。</p>
+      <p class="r1-note">每道题取学生<b>最近一次</b>作答的对错；小分组 = 组内所有视频的题合在一起算。已自评的问答题计入个人掌握度，未自评不计入；学生自评不代表老师评分。</p>
       ${acc ? `<div class="r1-accsum">全部课程合计 ${r1RateHTML(acc.acc)}</div>` : ''}
       <div class="r1-tree" id="r1Tree">${accErr ? `<div class="empty">${esc(accErr)}</div>` : ''}</div>
-    </section>
+    </section><aside class="r1-feedback"><h4>${ic('chat')} 学习反馈</h4><div class="r1-empty-book" aria-hidden="true">${ic('book')}</div><h3>${hasPractice ? (hasPendingGrading && !totalN ? '已有作答，等待人工评分' : '每一步练习，都看得见') : '完成练习后生成报告'}</h3><p>${hasPractice ? (hasPendingGrading && !totalN ? '已收到主观题或试卷作答，人工评分完成后可查看相应结果。' : '结合知识点正确率与最近作答，了解需要巩固的内容。') : '这里会呈现题目结果、知识点掌握情况和需要复习的内容。'}</p><div class="r1-feedback-note">${hasPendingGrading ? '有作答待人工评分，请在下方试卷与作答记录中单独查看。' : '暂无可统计数据不代表正确率为 0%。'}<br>正确率与学习进度分别呈现。</div></aside></div>
     <section class="r1-sec"><h4><span class="r1-n">3</span>试卷成绩</h4>
       ${paperRows ? `<div class="r1-scroll"><table><thead><tr><th>试卷</th><th>得分</th><th>答对</th><th>得分率</th><th>交卷时间</th></tr></thead><tbody>${paperRows}</tbody></table></div>` : '<p class="r1-note">还没有参加过试卷</p>'}
       <h4 class="r1-h4b">最近作答（最近 100 条）</h4>
       ${recRows ? `<div class="r1-scroll r1-scroll-tall"><table><thead><tr><th>题型</th><th>学科</th><th>题目</th><th>结果</th><th>时间</th></tr></thead><tbody>${recRows}</tbody></table></div>` : '<p class="r1-note">还没有做题记录</p>'}
+      <h4 class="r1-h4b">主观题作答（每次作答单独评分）</h4>${subjectiveRows ? `<div class="r1-scroll r1-scroll-tall"><table><thead><tr><th>题型</th><th>学科</th><th>题目</th><th>学生作答</th><th>评分与评语</th><th>时间</th><th>操作</th></tr></thead><tbody>${subjectiveRows}</tbody></table></div>` : '<p class="r1-note">还没有主观题作答</p>'}
     </section>`;
 
   // 交互：导出 / 树折叠 / 只看未掌握
   body.querySelector('#r1Docx').onclick = (e) => r1DownloadMistakes(s, {
     subject: body.querySelector('#r1Subj').value, bucket: body.querySelector('#r1Bucket').value, days: Number(body.querySelector('#r1Days').value) || 0,
   }, e.currentTarget);
+  const loadDrawing = async (id, image, status) => {
+    try {
+      const res = await fetch('/api/admin/xreport/subjective/' + id + '/drawing', { headers: { Authorization: 'Bearer ' + Auth.token } });
+      if (!res.ok || !(res.headers.get('content-type') || '').startsWith('image/png')) throw new Error('作图加载失败');
+      const url = URL.createObjectURL(await res.blob());
+      if (!image.isConnected) { URL.revokeObjectURL(url); return; }
+      image.onload = () => URL.revokeObjectURL(url); image.onerror = () => { URL.revokeObjectURL(url); status.textContent = '作图加载失败'; };
+      image.src = url; status.textContent = '';
+    } catch (_) { status.textContent = '作图加载失败，请重试'; }
+  };
+  body.querySelectorAll('[data-subjective-drawing]').forEach((button) => { button.onclick = () => {
+    const id = Number(button.dataset.subjectiveDrawing);
+    modal({ title: '学生作图', body: '<p data-drawing-status>正在加载…</p><img class="r4-drawing-image" data-drawing-image alt="学生作图">', onMount: (w) => loadDrawing(id, w.querySelector('[data-drawing-image]'), w.querySelector('[data-drawing-status]')) });
+  }; });
+  body.querySelectorAll('[data-subjective-grade]').forEach((button) => {
+    button.onclick = () => {
+      const response = (det.subjective || []).find((r) => String(r.id) === button.dataset.subjectiveGrade); if (!response) return;
+      const max = response.max_score == null ? 100 : Number(response.max_score);
+      modal({ title: '主观题评分', okText: '保存评分', wide: true,
+        body: `<p class="pd-tip">此评分只作用于 ${esc((response.created_at || '').slice(0, 16))} 的这次作答。满分 ${max} 分。${!response.try_id && ['paper', 'mfpaper'].includes(response.kind) ? ' 这条历史作答未关联具体试卷记录，评分不会修改旧试卷总分。' : ''}</p><p><b>题目：</b>${esc(response.stem || '题目已删除')}</p><p><b>学生作答：</b>${response.has_drawing ? '<span data-drawing-status>正在加载作图…</span><img class="r4-drawing-image" data-drawing-image alt="学生作图">' : esc(response.my_answer || '未作答').replace(/\n/g, '<br>')}</p><div class="field"><label>分数（0–${max}）<input class="input" type="number" min="0" max="${max}" step="0.01" id="r1SubjScore" value="${response.score == null ? '' : Number(response.score)}"></label></div><div class="field"><label>评语（选填）<textarea class="input" id="r1SubjComment" rows="3">${esc(response.review_comment || '')}</textarea></label></div>`,
+        onMount: (w) => { if (response.has_drawing) loadDrawing(response.id, w.querySelector('[data-drawing-image]'), w.querySelector('[data-drawing-status]')); },
+        onOk: async (w, showErr) => {
+          const raw = w.querySelector('#r1SubjScore').value;
+          if (raw === '' || !Number.isFinite(Number(raw)) || Number(raw) < 0 || Number(raw) > max) return showErr(`分数应在 0 至 ${max} 之间`);
+          await api('/api/admin/xreport/subjective/' + response.id + '/grade', { method: 'POST', body: { score: Number(raw), comment: w.querySelector('#r1SubjComment').value } });
+          toast('已保存本次作答评分', 'ok'); setTimeout(() => r1OpenDrawer(uid), 0);
+        } });
+    };
+  });
   if (!acc) return;
   const closed = new Set();
   const tree = body.querySelector('#r1Tree');
   const draw = () => {
     const only = body.querySelector('#r1Weak').checked;
     const html = r1TreeHTML(acc.courses || [], only, closed);
-    tree.innerHTML = html || `<div class="empty">${only ? `没有正确率低于 ${R1_WEAK}% 的视频，继续保持` : '还没有给任何视频绑定习题（课文习题里绑定后这里才有数据）'}</div>`;
+    tree.innerHTML = html || `<div class="empty">${only ? `没有正确率低于 ${R1_WEAK}% 的视频或分组习题，继续保持` : '还没有给视频或小分组绑定习题（课文习题里绑定后这里才有数据）'}</div>`;
   };
   tree.onclick = (e) => {
     const t = e.target.closest('[data-tog]'); if (!t) return;

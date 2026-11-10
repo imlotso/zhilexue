@@ -14,10 +14,10 @@ function t7Src(u) {
 
 function t7AudioWidget(root, init) {
   let key = (init && init.key) || '';
-  let url = (init && init.url) || '';
+  let url = (init && init.url) || (key ? '/api/file?key=' + encodeURIComponent(key) : '');
   let label = key ? '已有音频' : '';
   root.innerHTML = `<div class="t7-adm">
-    <div style="font-weight:700;font-size:13px;margin-bottom:6px">🎧 听力音频（选填：听力题上传音频，学生端题目上方会出现播放条）</div>
+    <div style="font-weight:700;font-size:13px;margin-bottom:6px">听力音频（选填：听力题上传音频）</div>
     <div class="t7-adm-row">
       <input type="file" class="t7-file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac,.webm" style="display:none">
       <button type="button" class="btn ghost xs t7-up">上传音频</button>
@@ -34,14 +34,16 @@ function t7AudioWidget(root, init) {
       </div>
     </div>
     <div class="t7-player"></div>
+    <label style="display:block;margin-top:8px">每次练习可播放次数 <select class="inp t7-limit"><option value="0">不限制</option>${[1, 2, 3, 4, 5].map((n) => `<option value="${n}">${n} 次</option>`).join('')}</select></label>
   </div>`;
   const $ = (s) => root.querySelector(s);
+  $('.t7-limit').value = String(Math.min(5, Math.max(0, Number(init && init.limit) || 0)));
   const paint = () => {
     $('.t7-name').textContent = key ? '✓ ' + label : '还没有音频';
     $('.t7-del').style.display = key ? '' : 'none';
     $('.t7-player').innerHTML = key ? `<audio controls preload="none" playsinline src="${esc(t7Src(url))}"></audio>` : '';
   };
-  const set = (r, name) => { key = r.key; url = r.url; label = name || r.name || '音频'; paint(); };
+  const set = (r, name) => { key = r.key; url = r.url; label = name || r.name || '音频'; paint(); root.dispatchEvent(new Event('change',{bubbles:true})); };
   $('.t7-up').onclick = () => $('.t7-file').click();
   $('.t7-file').onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -60,7 +62,7 @@ function t7AudioWidget(root, init) {
     catch (err) { /* api 已提示 */ }
     btn.disabled = false; btn.textContent = '生成朗读';
   };
-  $('.t7-del').onclick = () => { key = ''; url = ''; label = ''; paint(); };
+  $('.t7-del').onclick = () => { key = ''; url = ''; label = ''; paint(); root.dispatchEvent(new Event('change',{bubbles:true})); };
   paint();
-  return { get: () => key, url: () => url };
+  return { get: () => key, url: () => url, getLimit: () => Number($('.t7-limit').value) || 0 };
 }

@@ -1,0 +1,438 @@
+{
+  "date": "2026-11-06T16:09:48.765911+00:00",
+  "baseline_commit": "09140cb23bcca78b173089dfa907b228263c4fe7",
+  "branch": "feat/t14-browser-audit-fixes",
+  "environment": {
+    "node": "v24.22.1",
+    "chromium": "Chromium 155.0.8059.79 built on Debian GNU/Linux 13 (trixie)",
+    "database": "new local Docker MySQL8 database zhilexue_audit",
+    "storage": "local",
+    "AI_MOCK": "1",
+    "TTS_MOCK": "1"
+  },
+  "summary": {
+    "scripts": 73,
+    "exit_zero": 73,
+    "new_real_browser_cases": 3,
+    "previous_audit_browser_cases": 18
+  },
+  "scripts": [
+    {
+      "script": "bank-test.js",
+      "exit": 0,
+      "seconds": 0.2
+    },
+    {
+      "script": "ci-isolation-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "wordq-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "excel-test.js",
+      "exit": 0,
+      "seconds": 0.3
+    },
+    {
+      "script": "choices-ten-test.js",
+      "exit": 0,
+      "seconds": 0.2
+    },
+    {
+      "script": "matching-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "multi-partial-test.js",
+      "exit": 0,
+      "seconds": 0.0
+    },
+    {
+      "script": "recognition-pages-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "pending-merge-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "pending-merge-pagination-ui-test.js",
+      "exit": 0,
+      "seconds": 1.1
+    },
+    {
+      "script": "image-review-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "question-images-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "image-review-ui-test.js",
+      "exit": 0,
+      "seconds": 1.1
+    },
+    {
+      "script": "pending-empty-stem-ui-test.js",
+      "exit": 0,
+      "seconds": 0.9
+    },
+    {
+      "script": "choice-bank-ui-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "quiz-layout-test.js",
+      "exit": 0,
+      "seconds": 5.5
+    },
+    {
+      "script": "content-review-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "math-render-test.js",
+      "exit": 0,
+      "seconds": 0.0
+    },
+    {
+      "script": "drawing-answer-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "question-ticket-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "mfpack-adapter-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "english-workflow-test.js",
+      "exit": 0,
+      "seconds": 0.2
+    },
+    {
+      "script": "intake-recovery-ui-test.js",
+      "exit": 0,
+      "seconds": 4.2
+    },
+    {
+      "script": "writing-translation-test.js",
+      "exit": 0,
+      "seconds": 0.2
+    },
+    {
+      "script": "match-export-test.js",
+      "exit": 0,
+      "seconds": 0.3
+    },
+    {
+      "script": "docx-solution-images-test.js",
+      "exit": 0,
+      "seconds": 0.3
+    },
+    {
+      "script": "group-basket-test.js",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "script": "storage-test.js",
+      "exit": 0,
+      "seconds": 0.7
+    },
+    {
+      "script": "smoke.js",
+      "exit": 0,
+      "seconds": 3.1
+    },
+    {
+      "script": "word-test.js",
+      "exit": 0,
+      "seconds": 0.8
+    },
+    {
+      "script": "wrong-test.js",
+      "exit": 0,
+      "seconds": 1.4
+    },
+    {
+      "script": "kbtree-test.js",
+      "exit": 0,
+      "seconds": 0.9
+    },
+    {
+      "script": "pending-test.js",
+      "exit": 0,
+      "seconds": 1.8
+    },
+    {
+      "script": "choices-ten-flow-test.js",
+      "exit": 0,
+      "seconds": 0.9
+    },
+    {
+      "script": "excel-no-answer-flow-test.js",
+      "exit": 0,
+      "seconds": 0.7
+    },
+    {
+      "script": "match-partial-flow-test.js",
+      "exit": 0,
+      "seconds": 1.0
+    },
+    {
+      "script": "match-no-answer-flow-test.js",
+      "exit": 0,
+      "seconds": 1.1
+    },
+    {
+      "script": "multi-partial-flow-test.js",
+      "exit": 0,
+      "seconds": 1.0
+    },
+    {
+      "script": "recognition-pages-flow-test.js",
+      "exit": 0,
+      "seconds": 1.3
+    },
+    {
+      "script": "pending-merge-flow-test.js",
+      "exit": 0,
+      "seconds": 1.5
+    },
+    {
+      "script": "image-review-flow-test.js",
+      "exit": 0,
+      "seconds": 0.8
+    },
+    {
+      "script": "pending-empty-stem-flow-test.js",
+      "exit": 0,
+      "seconds": 0.7
+    },
+    {
+      "script": "choice-intake-flow-test.js",
+      "exit": 0,
+      "seconds": 0.7
+    },
+    {
+      "script": "question-images-flow-test.js",
+      "exit": 0,
+      "seconds": 0.6
+    },
+    {
+      "script": "content-review-flow-test.js",
+      "exit": 0,
+      "seconds": 0.7
+    },
+    {
+      "script": "ai-answer-review-test.js",
+      "exit": 0,
+      "seconds": 2.5
+    },
+    {
+      "script": "compose-test.js",
+      "exit": 0,
+      "seconds": 1.8
+    },
+    {
+      "script": "intake-scope-flow-test.js",
+      "exit": 0,
+      "seconds": 0.7
+    },
+    {
+      "script": "import-receipt-flow-test.js",
+      "exit": 0,
+      "seconds": 1.2
+    },
+    {
+      "script": "intake-job-flow-test.js",
+      "exit": 0,
+      "seconds": 1.4
+    },
+    {
+      "script": "upload-recovery-ui-test.js",
+      "exit": 0,
+      "seconds": 4.1
+    },
+    {
+      "script": "admin-pages-ui-test.js",
+      "exit": 0,
+      "seconds": 42.8
+    },
+    {
+      "script": "admin-interactions-test.js",
+      "exit": 0,
+      "seconds": 6.9
+    },
+    {
+      "script": "english-workflow-flow-test.js",
+      "exit": 0,
+      "seconds": 1.5
+    },
+    {
+      "script": "group-compose-test.js",
+      "exit": 0,
+      "seconds": 0.8
+    },
+    {
+      "script": "lessonq-test.js",
+      "exit": 0,
+      "seconds": 1.4
+    },
+    {
+      "script": "aiclient-test.js",
+      "exit": 0,
+      "seconds": 1.1
+    },
+    {
+      "script": "aiproxy-test.js",
+      "exit": 0,
+      "seconds": 0.6
+    },
+    {
+      "script": "mistake-test.js",
+      "exit": 0,
+      "seconds": 4.8
+    },
+    {
+      "script": "paper-test.js",
+      "exit": 0,
+      "seconds": 2.9
+    },
+    {
+      "script": "word-paper-order-flow-test.js",
+      "exit": 0,
+      "seconds": 3.6
+    },
+    {
+      "script": "listening-test.js",
+      "exit": 0,
+      "seconds": 1.8
+    },
+    {
+      "script": "formula-test.js",
+      "exit": 0,
+      "seconds": 11.4
+    },
+    {
+      "script": "bankstore-test.js",
+      "exit": 0,
+      "seconds": 1.2
+    },
+    {
+      "script": "bank-image-test.js",
+      "exit": 0,
+      "seconds": 0.6
+    },
+    {
+      "script": "theme-test.js",
+      "exit": 0,
+      "seconds": 28.2
+    },
+    {
+      "script": "flow-test.js",
+      "exit": 0,
+      "seconds": 1.8
+    },
+    {
+      "script": "r0-test.js",
+      "exit": 0,
+      "seconds": 14.3
+    },
+    {
+      "script": "r8-test.js",
+      "exit": 0,
+      "seconds": 22.5
+    },
+    {
+      "script": "tree-edition-test.js",
+      "exit": 0,
+      "seconds": 4.8
+    },
+    {
+      "script": "r1-test.js",
+      "exit": 0,
+      "seconds": 13.1
+    },
+    {
+      "script": "browser-audit-test.js",
+      "exit": 0,
+      "seconds": 19.1
+    },
+    {
+      "script": "astra-retest-test.js",
+      "exit": 0,
+      "seconds": 8.7
+    }
+  ],
+  "real_browser_cases": [
+    {
+      "name": "UI06-complete-localization",
+      "pass": true
+    },
+    {
+      "name": "UI07-new-subjective-real-submit",
+      "pass": true
+    },
+    {
+      "name": "UI09-wrong-answer-close-real-submit",
+      "pass": true
+    }
+  ],
+  "assertion_scope": {
+    "UI06": "real menu/submenu and static control names, en-US browser, 1180/500px, twice close/reopen each",
+    "UI07": "real assigned paper, MathLive input, HTTP check/submit, feedback/report/history, exact stored answer, score NULL, one POST",
+    "UI09": "real wrong A vs correct C, confirm submit, report X, task 0/retry immediately, same after reload, one attempt and POST"
+  },
+  "first_reproduction": {
+    "localization": "failed English host/icon label assertion at 09140cb",
+    "UI07": "passed real endpoint flow at baseline",
+    "UI09": "passed real endpoint flow at baseline",
+    "CI_isolation": "failed global STORAGE_DRIVER assertion before workflow fix"
+  },
+  "retained_skips": [
+    {
+      "script": "smoke.js",
+      "detail": "28 deployment-package checks skipped; absent deploy and bat material are not counted as passed"
+    }
+  ],
+  "review": {
+    "kind": "independent read-only code review",
+    "important_issues": 0,
+    "not_tested": "reviewer did not write database or perform final Astra acceptance"
+  },
+  "remaining": [
+    "D01/D02 missing authoritative curriculum",
+    "UI02 account-policy scope",
+    "UI04 first-screen fixed action suggestion",
+    "dynamic mathematical speech remains the library’s English speech",
+    "ENV02 restricted browser file acquisition/WPS/printing unverified",
+    "real recognition/model switching paused, no video retest",
+    "parent desktop Astra acceptance still required"
+  ],
+  "old_remote_CI": {
+    "run": 42221059078,
+    "unit": "success",
+    "api": "failure at image-review-flow-test.js",
+    "exact_log": "HTTP403, stack unavailable; no retry/workaround",
+    "root_cause_claim": "independently proven CI isolation mismatch; not claimed sole cause of old failure"
+  }
+}

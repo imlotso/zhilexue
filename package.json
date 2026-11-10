@@ -13,21 +13,44 @@
     "test:storage": "node storage-test.js",
     "test:word": "node word-test.js",
     "test:ui": "node ui-test.js",
-    "make-template": "node src/excel.js"
+    "test:formula:browser": "node mlive-keyboard-browser-test.js",
+    "test:audit": "node browser-audit-test.js",
+    "test:astra": "node astra-retest-test.js",
+    "make-template": "node src/excel.js",
+    "test:takeover": "npm run test:multer && npm run test:access && node --test t13-font-fit-test.js && node --test astra-readonly-tree-cli-test.js && node --test astra-tree-cli-offline-e2e-test.js && node --test astra-paper-library-search-test.js && node --test astra-page-api-lifecycle-test.js && node --test astra-mistake-action-lifecycle-test.js && node --test astra-primary-grade-coverage-test.js && node --test astra-review-calendar-test.js && node --test astra-paper-preview-content-test.js && node --test astra-paper-deadline-test.js && node --test astra-review-legacy-sentinel-test.js && node --test astra-assignment-deadline-test.js && node --test astra-pending-review-filter-test.js && node --test astra-lesson-rich-preview-test.js && node --test astra-admin-paper-rich-preview-test.js && node --test astra-student-edition-select-test.js && node --test astra-teacher-intake-lifecycle-test.js astra-manual-intake-draft-test.js && node --test astra-takeover-treeio-test.js && node astra-takeover-accuracy-test.js && node astra-takeover-word-layout-test.js && node astra-takeover-password-safety-test.js && node --test astra-takeover-sort-import-test.js && node --test astra-takeover-course-cache-test.js && node --test astra-takeover-course-entry-test.js && node --test astra-takeover-binding-scope-test.js && node --test astra-takeover-role-scope-test.js && node --test astra-assignment-idempotency-test.js && node --test astra-takeover-paper-transaction-test.js && node astra-takeover-word-responsive-test.js && node astra-takeover-admin-responsive-test.js && node --test astra-care-store-test.js astra-reassignment-entry-test.js",
+    "test:access": "node --test astra-session-account-scope-test.js astra-upload-campus-scope-test.js ticket-account-test.js astra-pending-question-privacy-test.js astra-pending-dedup-privacy-test.js student-review-quarantine-test.js astra-access-edgecases-test.js astra-upload-shared-question-test.js astra-mistake-export-scope-test.js astra-report-question-scope-test.js astra-care-audio-security-test.js astra-care-audio-ui-test.js",
+    "test:multer": "node --test astra-multer-security-test.js",
+    "dev": "node scripts/ui-concept-preview.js",
+    "test:ui-concepts:unit": "node --test astra-ui-learning-space-test.js ui-review-concept-test.js",
+    "test:ui-concepts:browser": "node --test astra-ui-learning-browser-test.js astra-ui-quiz-workbench-test.js && node ui-review-concept-test.js --browser",
+    "test:ui-rounded:unit": "node --test astra-ui-rounded-student-test.js rounded-shell-test.js rounded-quiz-test.js ui-rounded-admin-pages-test.js",
+    "test:ui-rounded:browser": "node --test astra-ui-rounded-student-browser-test.js rounded-shell-browser-test.js astra-ui-quiz-workbench-test.js ui-rounded-admin-pages-browser-test.js ui-rounded-admin-review-height-test.js && node ui-review-concept-test.js --browser",
+    "test:bugfix": "node --test astra-batch-image-upload-test.js astra-legacy-student-layout-test.js astra-subjective-self-schema-test.js pending-ai-bulk-review-test.js pending-ai-bulk-ui-test.js rounded-three-pages-dom-test.js student-point-scan-test.js student-self-grade-test.js student-self-grade-ui-test.js astra-self-assessment-report-ui-test.js astra-admin-script-boot-test.js",
+    "test:bugfix:browser": "node --test student-scan-self-grade-browser-test.js astra-ui-rounded-student-browser-test.js",
+    "test:ci-contracts": "node --test astra-formula-word-ci-regression-test.js legacy-ui-contract-test.js && node mistake-test.js --ui-only && node theme-test.js --ui-only"
   },
   "dependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.5.0",
     "docx": "^8.5.0",
     "express": "^4.21.1",
+    "http-proxy-agent": "7.0.2",
+    "https-proxy-agent": "7.0.6",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^1.4.5-lts.1",
+    "mathjax-full": "3.2.2",
+    "multer": "2.5.0",
     "mysql2": "^3.24.5",
+    "proxy-from-env": "1.1.0",
     "ws": "^8.17.1",
     "xlsx": "^0.18.5"
   },
   "optionalDependencies": {
     "ali-oss": "^6.21.0",
     "qiniu": "^7.15.2"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "playwright": "1.62.1"
   }
 }

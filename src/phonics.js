@@ -41,7 +41,7 @@ function fixFileName(name) {
 
 /* ============================================================ 管理端 */
 const admin = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 200 * 1024 * 1024 } });
 const COLS = `id, kind, code, title, type, grp, group_name, sub, len, cue, mnemonic, emoji, tip, spell,
   audio, stroke, video_mouth, video_teach, samples, files, sort, updated_at`;
 

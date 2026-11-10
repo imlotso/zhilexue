@@ -34,7 +34,7 @@ async function main() {
   console.log('\n=== AI 试卷分析测评报告自测 ===');
   const uniq = Date.now() % 100000;
 
-  const adminLogin = await req('/api/login', { method: 'POST', body: { username: '15152099970', password: '123456', role: 'admin' } });
+  const adminLogin = await req('/api/login', { method: 'POST', body: { username: 'zlx-ci-admin', password: '123456', role: 'admin' } });
   const AT = adminLogin.data && adminLogin.data.token;
   log(!!AT, '校长登录');
 

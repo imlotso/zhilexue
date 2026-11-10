@@ -5,10 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>班主任工作台 · 谈话谈心与家校沟通</title>
 <link rel="stylesheet" href="assets/css/app.css?v=20261022c">
+<style>[hidden] { display: none !important; }</style>
+<link rel="stylesheet" href="assets/css/rounded-workspace.css?v=20261109a">
 </head>
-<body>
+<body class="rounded-care">
 
-<div class="app">
+<div id="careStartup" role="status" aria-live="polite" style="padding:24px">正在验证账号并加载工作台。若长时间未显示，请刷新或联系管理员。</div>
+<div class="app" id="careWorkbench" hidden>
   <!-- ============ 内容（左侧导航已去除，入口移至顶栏） ============ -->
   <main class="main">
     <header class="topbar">
@@ -33,6 +36,7 @@
     </header>
 
     <div class="content" id="content">
+      <div id="careLegacyNotice" role="status" hidden class="card pad">检测到旧版本未标明所属账号的本机数据，原数据已保留，但不会自动导入当前账号。请先由原记录负责人核对归属后再恢复备份。</div>
 
       <!-- ---------- 谈话谈心 ---------- -->
       <section class="page" id="page-talks">
@@ -279,11 +283,11 @@
         </div>
 
         <div class="card">
-          <div class="card-head"><div class="card-title">数据管理</div><div class="card-meta">全部数据保存在本机浏览器</div></div>
+          <div class="card-head"><div class="card-title">数据管理</div><div class="card-meta">记录仅保存在本机浏览器，并按当前账号分开；不跨设备同步</div></div>
           <div class="pad row-gap">
             <button class="btn" id="setBackup">导出 JSON 备份</button>
             <button class="btn" id="setRestore">导入 JSON 备份</button>
-            <button class="btn" id="setDemo">载入示例数据</button>
+            <button class="btn" id="setDemo" disabled title="未核实的个人资料样例不随本版本分发">示例数据不可用</button>
             <button class="btn btn-danger" id="setClear">清空全部数据</button>
             <input type="file" id="setFile" accept="application/json" hidden>
           </div>
@@ -301,12 +305,12 @@
 <div id="printRoot"></div>
 
 <script src="assets/js/xlsx.js?v=20261022c"></script>
-<script src="assets/js/store.js?v=20261022c"></script>
-<script src="assets/js/common.js?v=20261022c"></script>
+<script src="assets/js/store.js?v=20261107-issue002"></script>
+<script src="assets/js/common.js?v=20261109a"></script>
 <script src="assets/js/ai.js?v=20261022c"></script>
 <script src="assets/js/students.js?v=20261022c"></script>
-<script src="assets/js/talks.js?v=20261022c"></script>
-<script src="assets/js/contacts.js?v=20261022c"></script>
-<script src="assets/js/app.js?v=20261022c"></script>
+<script src="assets/js/talks.js?v=20261109a"></script>
+<script src="assets/js/contacts.js?v=20261109a"></script>
+<script src="assets/js/app.js?v=20261107-issue002"></script>
 </body>
 </html>

@@ -8,8 +8,8 @@ const TP = { defaults: {} };
 const TP_STAGE_NAMES = { primary: '小学', junior: '初中', senior: '高中' };
 
 /** 拉全部目录树，同时缓存默认版本表（GET /trees 一并返回 defaults） */
-async function tpTrees(kind) {
-  const r = await api('/api/admin/bank/mf/trees' + (kind ? '?kind=' + encodeURIComponent(kind) : ''), { silent: true }).catch(() => ({ list: [] }));
+async function tpTrees(kind, {strict = false} = {}) {
+  const r = await api('/api/admin/bank/mf/trees' + (kind ? '?kind=' + encodeURIComponent(kind) : ''), { silent: true }).catch(e => {if(strict)throw e;return {list:[]};});
   if (r && r.defaults) TP.defaults = r.defaults;
   return (r && r.list) || [];
 }

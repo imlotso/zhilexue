@@ -8,11 +8,11 @@ const { log, done } = (() => {
     if (ok) pass++; else failN++;
     console.log(`  ${ok ? '✅' : '❌'} ${name}${detail ? '  →  ' + detail : ''}`);
   };
-  const done = () => console.log(`\n=== 结果： 通过 ${pass} 项，失败 ${failN} 项 ===` + (failN ? '（有失败项）' : ''));
+  const done = () => { if(failN)process.exitCode=1;console.log(`\n=== 结果： 通过 ${pass} 项，失败 ${failN} 项 ===` + (failN ? '（有失败项）' : '')); };
   return { log, done };
 })();
 
-const BASE = 'http://127.0.0.1:3000';
+const BASE = process.env.BASE || 'http://127.0.0.1:3000';
 const fs = require('fs');
 const path = require('path');
 const tp = require('./src/tableparse');
@@ -142,7 +142,7 @@ const fdNew = () => new FormData();
   log(!!emptyErr, '空工作表给出可读报错', emptyErr && emptyErr.message);
 
   /* ---------------- 3. 登录 + 管理端上传流程 ---------------- */
-  const aLogin = await req('/api/login', { method: 'POST', body: { username: '15152099970', password: '123456', role: 'admin' } });
+  const aLogin = await req('/api/login', { method: 'POST', body: { username: 'zlx-ci-admin', password: '123456', role: 'admin' } });
   const AT = aLogin.data.token;
   // 学生账号：优先用 seed 里的固定测试学生（13800000001），被删了就自建临时学生（跑完清理）
   let sLogin = await req('/api/login', { method: 'POST', body: { username: '13800000001', password: '123456', role: 'student' } });

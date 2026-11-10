@@ -10,10 +10,71 @@
   let running = false;
   const pending = []; // 待排版元素
 
+  // 历史公式键盘作答保存的是裸 LaTeX。只在只读答案中补定界符，
+  // 不改存储/判分文本；已有定界符的混排保留原样，所有 HTML 先转义。
+  window.mtxAnswerHTML = function (value, subject) {
+    let text = String(value == null ? '' : value);
+    const script = ['数学', '物理', '化学'].includes(subject) && /[a-zA-Z0-9)}]\s*[_^](?:\{[^{}]+\}|[a-zA-Z0-9](?![a-zA-Z0-9]))/.test(text);
+    if (!/\\\(|\\\[|\$/.test(text) && (/\\[a-zA-Z]+/.test(text) || script)) text = '\\(' + text + '\\)';
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, '<br>');
+  };
+
+  // 题目展示通常将换行转为 <br>。MathJax 无法跨 DOM 节点匹配一组公式定界符；
+  // 仅在完整的块公式或 \(…\) 内将 <br> 还原为文本换行，普通文本换行不变。
+  // 不跨图片、链接等其他元素合并，也不改编辑区、代码或尚未闭合的公式。
+  function restoreFormulaBreaks(root) {
+    const pairs = [['$$', '$$'], ['\\[', '\\]'], ['\\(', '\\)']];
+    const escaped = (s, i) => { let n = 0; while (i > 0 && s[--i] === '\\') n++; return n % 2 === 1; };
+    const ranges = (s) => {
+      const out = [];
+      for (let i = 0; i < s.length;) {
+        const pair = pairs.find((p) => s.startsWith(p[0], i) && !escaped(s, i));
+        if (!pair) { i++; continue; }
+        let j = i + pair[0].length;
+        while (j < s.length && (!s.startsWith(pair[1], j) || escaped(s, j))) j++;
+        if (j === s.length) { i += pair[0].length; continue; }
+        out.push([i, j + pair[1].length]); i = j + pair[1].length;
+      }
+      return out;
+    };
+    const parents = [root, ...root.querySelectorAll('*')];
+    parents.forEach((parent) => {
+      if (parent.closest && parent.closest('pre,code,textarea,script,style,input,[contenteditable],mjx-container')) return;
+      let group = [];
+      const finish = () => {
+        if (!group.some((node) => node.nodeType === 1)) { group = []; return; }
+        let text = '';
+        const breaks = [];
+        group.forEach((node) => {
+          if (node.nodeType === 3) text += node.nodeValue;
+          else { breaks.push([node, text.length]); text += '\n'; }
+        });
+        const spans = ranges(text);
+        let changed = false;
+        breaks.forEach(([node, at]) => {
+          if (spans.some(([start, end]) => at >= start && at < end)) {
+            parent.replaceChild(parent.ownerDocument.createTextNode('\n'), node); changed = true;
+          }
+        });
+        if (changed) parent.normalize();
+        group = [];
+      };
+      Array.from(parent.childNodes).forEach((node) => {
+        if (node.nodeType === 3 || (node.nodeType === 1 && node.tagName === 'BR')) group.push(node);
+        else finish();
+      });
+      finish();
+    });
+  }
+
+  // 独立打印窗口复用相同预处理，再等待自己的 MathJax 排版完成。
+  window.mtxPrepareFormulaBreaks = restoreFormulaBreaks;
+
   function flush() {
     const my = ++seq;
     const list = pending.splice(0, pending.length);
     if (!list.length || typeof MathJax === 'undefined' || !MathJax.typesetPromise) return;
+    list.forEach(restoreFormulaBreaks);
     running = true;
     MathJax.typesetPromise(list).catch(() => { /* 公式语法错误时保留原文，不抛出 */ }).finally(() => {
       running = false;

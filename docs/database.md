@@ -43,9 +43,26 @@
 
 `mf_papers.year VARCHAR(8) DEFAULT ''`（4 位年份，如 `2024`；真题试卷用，学生端试卷库按年份搜索），在 `src/db.js` 里幂等 `ALTER TABLE … ADD COLUMN`。题目的 `questions.year` 本来就有，上传真题试卷时也一并写入。
 
+`mf_papers.exam_category VARCHAR(16) DEFAULT ''` 保存单元 / 期中 / 期末 / 真题类型，用于学生端筛选；与 `paper_type` 的统一卷 / 一人一卷区分。旧卷保持未分类，由老师补充。
+
+`mf_recog_runs.edition`、`term` 和 `material_type` 保存 Excel、Word 规则导入及拍照／PDF 录题时选择的版本、册别及资料类型，旧批次留空。导入题目节点仍需人工审核确认。
+`mf_papers.edition VARCHAR(80)` 和 `mf_papers.term VARCHAR(16)` 保存试卷教材版本、册别，旧卷默认为空；这两个字段本身不会自动给试题挂分类。
+
 ## T7 听力题：`questions` 加一列
 
 `questions.audio_key VARCHAR(255) DEFAULT ''`（听力音频的存储 key，目录前缀 `bank/audio/`，空串 = 没有音频），在 `src/db.js` 里幂等 `ALTER TABLE … ADD COLUMN`。题型不新增：音频是现有题型（单选 / 多选 / 判断 / 填空…）上附加的"听力材料"。
+
+`questions.audio_play_limit INTEGER DEFAULT 0` 记录每次练习的音频播放次数，0 为不限制，1–5 为限定次数。后台编辑及待审核入库保留这个设置；学生端在当前练习内执行，刷新或重新开始练习会重置。
+
+`questions.question_subtype VARCHAR(50) DEFAULT ''` 是英语单题细分分类编码，和用于学生作答判分的 `type` 分开存储；分类仅允许与基础题型匹配的英语题。组合小题等未实现的题型不能靠分类字段替代。
+
+`questions.match_prompts MEDIUMTEXT` 保存听力匹配题和数学连线题左侧项目的 JSON 数组；右侧候选项使用 `options`，正确答案按左侧顺序保存右侧序号。`listen_match` 支持 2–7 项一对一匹配；`math_match` 支持左右各 2–7 项、数量不同，右侧选项可被多个左项使用。基础题型仍为 `sort`；一个左项连接多个右项以及多对多尚不支持。
+
+`records.match_correct`、`records.match_total` 记录当次连线正确项数与总项数，历史记录和非连线题为空。`paper_tries.score`、`mf_paper_tries.score` 为 `DECIMAL(10,2)`，连线题的每题部分得分及逐项结果保存在对应作答的 `detail`；待人工评分试卷在评分完成后据原明细重新汇总。
+
+`subjective_responses` 单独保存计算题、问答题及书面表达的学生作答和提交上下文，不写入客观题对错记录。新增 `try_id`、`max_score`、`score`、`review_comment`、`reviewed_by`、`reviewed_at` 保存单次交卷关联与人工评分；旧记录没有 `try_id` 时保留为未关联历史。含未评分题的 `paper_tries` / `mf_paper_tries` 以 `score=NULL` 表示无最终成绩，`detail` 保存各客观题分值和主观题单次作答；全部主观题评分后写入该次卷面总分，原有非空成绩记录维持原语义。
+
+`subjective_responses.drawing_data MEDIUMTEXT` 专门保存有界 PNG 作图，不放入试卷 `detail` 或题目响应。服务端限定单张解码后文件不超过 384 KiB、宽高不超过 1600×1200、总像素不超过 160 万，并校验 PNG 结构、校验和及解压长度；学生本人和有权查看该学生的老师通过专用接口读取。
 
 ## R2 目录树的教材版本：`bank_trees` / `bank_tree_nodes` 加列、`settings` 加一个 key
 
@@ -60,3 +77,39 @@
 - `video_nodes(video_id INTEGER, node_id INTEGER, PRIMARY KEY(video_id,node_id))`（索引 `idx_vnode_node`）：视频关联的知识点树节点（`bank_tree_nodes.id`，多选）。学生端视频卡显示成知识点标签；统计某个知识点的掌握情况时，绑在「关联了该知识点的视频」上的题自动算进来（**不写 `question_nodes`**，见 D31）。删视频时一并删掉它的 `video_nodes`。
 - 两者都在 `src/db.js` 里幂等建：`ALTER TABLE … ADD COLUMN` + `CREATE TABLE IF NOT EXISTS`，只加不删。
 - 正确率口径（`src/accuracy.js`）：小分组 = 组内视频的题 + 小分组自己的题合并后再算；课程 = 全部视频的题 + 全部小分组自己的题。新增 `sectionOwnStats`（按 `section_id` 聚合）、`lastAnswers`（一组题各自最近一次作答），仍然只读 `records`，不新增作答表。
+
+## 二轮整改进行中的数据结构
+
+- `bank_tree_node_mappings` 保存章节节点与知识点节点的多对多映射，删除节点时级联清除映射。
+- `papers.question_scores` 保存逐题分值 JSON；`papers.due_at` 保存截止时间。旧试卷保留原有平均分计算。
+- `questions.difficulty_score_10` 为可空整数，仅保存明确提供或经老师确认的 1–10 难度；原 `difficulty` 仍为 1–5 星，十级值存在时对应 `ceil(difficulty_score_10 / 2)`。旧题不回填十级值；旧接口改动星级时会清除不再可靠的十级值。
+- `paper_uploads.draft_json` 保存手机上传题目的审核草稿，新上传在审核通过前不创建正式题目；历史已入库记录仍兼容。
+- 试卷识别批次的题卡保存回挂试卷和顺序信息，课文习题批次保存回挂视频信息；待审核通过时才写入正式题库。
+- `questions.ai_review_metadata` 为可空 JSON 文本，记录题目入库前老师采纳 AI 答案、解析的字段、确认人和时间，或旧版 AI 补全题卡的核对确认；旧题不回填。AI 未采纳建议仅保存在待审核批次题卡中，不写入正式题目。
+- 网络采集批次的题项和学生扫码 `draft_json` 同样保存 `ai_answer_suggestion` 与老师逐项确认记录；题目入库时保留确认记录。历史已入库扫码题在老师确认后写入题目及其确认元数据。
+
+`papers.question_partial_scores` 保存普通试卷各多选题明确设置的少选分 JSON 映射；`mf_paper_questions.partial_score` 为真题卷单题对应值。未设置为缺失 / NULL，与显式设置 0 区分。该配置作用于本卷，既不改题目标准答案，也不回写历史作答得分；每次作答实际得分已保存在试卷记录 `detail`，后续老师评分按本次明细汇总。
+
+识别题目经老师确认图文归属后，`questions.source_detail` 中可含 `question_image_public`（经确认的题面图号）和 `question_image_public_basis`（题面、选项、材料、匹配项及图片的快照哈希）。这两个字段只作用于学生作答前显示，修改题面或图片后旧快照不再生效；正文/解析明确的 `[图N]` 引用按当前内容判断。旧题未回填，所有正文与解析都不带图号的历史图片仍按旧方式显示，具体归属无法自动追溯。
+
+## 录题保存结果与采集范围（2026-11-06）
+
+`mf_recog_runs`、`paper_uploads`、`mf_capture_batches` 各增加三列：`intake_request_key VARCHAR(64) NULL`（账号+入口+客户端凭据的 SHA-256）、`intake_input_hash VARCHAR(64) NULL`（请求输入摘要）、`intake_result MEDIUMTEXT`（已保存结果）。各表在 request_key 上建唯一索引，历史行保持 NULL，多个历史 NULL 不冲突；同一次事务创建/填写批次并保存结果，已有记录不猜测回填。客户端原始恢复凭据不存入该列。
+
+`mf_recog_runs.pages` 的页对象可带 `upload_request_key/upload_input_hash`，用于同批次同账号页图重复上传保护；保留原来的图片 key、url、name。没有凭据的历史页不猜测合并。
+
+`mf_capture_batches` 增加 `edition/term/material_type VARCHAR(80) DEFAULT ''`，与录题批次已有的资料范围对应。技能包可在题卡保存这些范围，避免不同学科题包使用一个批次版本；手动与教师扫码保存到 `mf_recog_runs` 既有范围列。均由 `src/db.js` 幂等只加不删，旧记录保持空值；没有新增示例目录内容，也没有改正式题目的答案字段。
+
+## 2026-11-09 学生自评来源
+
+`src/db.js` 增加两条幂等、可空列，保留全部旧数据，不改原列类型和正式成绩：
+
+- `subjective_responses.self_correct INTEGER DEFAULT NULL`：NULL 未自评，0 自评错误，1 自评正确。与 `score`、`reviewed_at`、`reviewed_by` 分离，老师批阅后仍保留这次自评。
+- `records.self_response_id INTEGER DEFAULT NULL`：本次自评关联的 `subjective_responses.id`，在同一交卷事务中写入；普通客观题及历史记录保持 NULL。个人主观题正确率仅接纳对应 response 的学生、题目、自评值均吻合的记录，不能把旧问答题记录当成自评。为兼容现有迁移未追加强制外键约束，查询显式核对关联。
+
+AI 初审沿用原待审核来源 JSON 和 AI 来源元数据，不增表、不自动迁移/覆盖正式题目。
+
+
+## 2026-11-10 AI 审核草稿
+
+待审核数据的现有 JSON（录题 `mf_recog_runs.drafts`、采集 `mf_capture_batches.payload`、扫码 `paper_uploads.draft_json`）可保存 `draft_node_ids` 与 `draft_node_scope`，记录每题已选择的分类节点及核对时的范围；未新增表或列。最终入库时重新核验并写入 `question_nodes`，之前仅为草稿。AI 审核建议和采纳来源记录允许包含 `stem`，继续保存在既有建议与审核元数据中。

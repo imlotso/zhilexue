@@ -161,7 +161,7 @@ const errors = [];
 async function boot(hash) {
   const login = await (await fetch(BASE + '/api/login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: '15152099970', password: '123456', role: 'admin' }),
+    body: JSON.stringify({ username: 'zlx-ci-admin', password: '123456', role: 'admin' }),
   })).json();
   const token = login.data && login.data.token;
   const vc = new VirtualConsole();

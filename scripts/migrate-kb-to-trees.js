@@ -10,7 +10,7 @@
  * 复制到哪：该 学科+学段 已有的知识点树下新建一级分支「教材单元知识点」→ 年级 → 单元 → 知识点；没有知识点树时新建一棵。
  */
 const dry = process.argv.includes('--dry-run');
-const { db, DB_INFO } = require('../src/db');
+const { db, DB_INFO } = dry ? require('../src/db-connection').openReadOnly() : require('../src/db');
 const { migrateAll, BRANCH } = require('../src/kbtree');
 
 console.log(`目标库：${DB_INFO.user}@${DB_INFO.host}:${DB_INFO.port}/${DB_INFO.database}${dry ? '（dry-run：不写库）' : ''}`);

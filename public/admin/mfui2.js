@@ -1,6 +1,6 @@
 /* 魔方助教复刻 UI 第二期（2026-10-29）
  * 覆盖 mfbankui.js 里的 viewMfBank / viewMfCapture，并新增 viewMfSet（设置）。
- *  - 题库管理：左栏「挑题方式 + 树 + 知识节点折叠树」一比一复刻；右栏筛选 + 批量条（删除/标签/AI 整理/AI 建议/标记错题/加入试题篮）+ 题卡。
+ *  - 题库管理（R3 重做）：左栏 treePanel（学段/学科/版本级联 + 章节|知识点 + 多层折叠树）；右栏胶囊筛选 + 批量条（批量挂分类/试题篮/标签/AI/删除）+ 题卡（qcard.js）。
  *  - 网络采集：浏览器 / 试题采集 / 整卷下载 三个标签；代理内嵌浏览器（组卷网 / 菁优网 / 二一组卷网快捷入口）。
  *  - 设置：AI 配置管理（学生端+管理后台全部 AI 能力按可共用模型分组配置）/ 字典树映射。
  * 依赖：mfbankui.js 的 mfState / mfCommitForm / MF_API / MF_TYPES 常量；admin.js 的 api/esc/toast/modal/ic/elConfirm/render。
@@ -15,293 +15,315 @@ const MF_SITES = [
 const MF_STAGE_NAMES = { primary: '小学', junior: '初中', senior: '高中' };
 const MF_DIFF_NAMES = { 1: '很容易', 2: '较易', 3: '中等', 4: '较难', 5: '很难' };
 
-/* ================================================================ 题库管理（知识树一比一） */
+/* ================================================================ 题库管理（R3：洋葱式左栏 + 标签式筛选 + 题卡）
+ * 左栏：treePanel（public/admin/treepanel.js）——「学段 / 学科 / 版本」级联 + 章节 | 知识点 + 多层可折叠树（含子孙题数、搜索、多选）
+ * 右栏：胶囊筛选（题型 / 难度 / 来源 / 年份 / 完整度，可多选）+ 关键字 + 已选节点标签条 + 排序；题卡见 qcard.js；批量挂分类用树形选择器
+ * 只局部刷新右栏（r3Main），左树不重绘，展开状态和滚动位置都保留。 */
+const R3_SRC = [['capture', '网络采集'], ['local', '本地录入'], ['recog', '录题识别']];
+const R3_COMP = [['full', '答案解析齐全'], ['noans', '缺答案'], ['noana', '缺解析'], ['nocat', '缺分类']];
 async function viewMfBank() {
   const st = mfState('mfq');
-  ['kw', 'stage', 'subject', 'type', 'difficulty', 'source', 'complete', 'node', 'grade', 'volume', 'edition'].forEach((k) => { st[k] = st[k] == null ? '' : st[k]; });
-  st.pmode = st.pmode === 'chapter' ? 'chapter' : 'knowledge';
-  if (!st.special) st.special = ''; // '' | 'uncat' | 'review'
-  if (!Array.isArray(st.units)) st.units = [];
-  if (!st.open) st.open = {};
-  if (!st.uexp) st.uexp = {};
+  if (!st.tp) st.tp = { stage: st.stage || 'primary', subject: st.subject || '数学', edition: st.edition || '', kind: st.pmode === 'knowledge' ? 'knowledge' : 'textbook', sel: [], open: {}, multi: false, q: '' };
+  if (!st.f) st.f = { type: [], diff: [], src: [], year: [], comp: [] };
+  if (!st.f.subtype) st.f.subtype = [];
+  if (st.kw == null) st.kw = '';
+  if (!st.sort) st.sort = 'new';
+  if (!st.pg) st.pg = 1;
   if (!st.sel) st.sel = {};
-  if (!st.stage) st.stage = 'primary';
-  if (!st.subject) st.subject = '数学';
-  // 学段决定科目：物理/化学只有初中才有
-  const PC_SUBJ = st.stage === 'junior' ? ['英语', '数学', '物理', '化学'] : ['英语', '数学'];
-  if (!PC_SUBJ.includes(st.subject)) st.subject = '数学';
-  const page = Math.max(1, Number(ADM.page.mfqPage) || 1);
-  const size = 20;
-
-  // 派生树：章节树(textbook) / 知识点树(knowledge) 由 学段+科目 唯一确定（启动时种子自动建好）
-  const trees = await tpTrees();
-  // R2：同 学段+学科 可以有多个教材版本（每个版本一棵章节树）。版本下拉只列该 学段+学科 下存在的版本，默认选默认版本
-  const edKind = st.pmode === 'chapter' ? 'textbook' : 'knowledge';
-  const edOpts = tpEditions(trees, { kind: edKind, subject: st.subject, stage: st.stage });
-  const chapTree = pickTree(trees, { kind: 'textbook', subject: st.subject, stage: st.stage, edition: st.edition });
-  const knowTree = pickTree(trees, { kind: 'knowledge', subject: st.subject, stage: st.stage, edition: st.edition });
-  const activeTree = st.pmode === 'chapter' ? chapTree : knowTree;
-  const curEdition = activeTree ? String(activeTree.edition || '') : '';
-  let nodes = [];
-  if (activeTree) nodes = (await api(`${MF_API}/trees/${activeTree.id}/nodes`, { silent: true }).catch(() => ({ list: [] }))).list || [];
-  const kids = {};
-  nodes.forEach((n) => { const p = n.parent_id || 0; (kids[p] = kids[p] || []).push(n); });
-  // 章节模式：年级 → 册别 → 单元（多选，可展开小知识点）
-  const gradeNodes = kids[0] || [];
-  const curGrade = gradeNodes.find((g) => String(g.id) === String(st.grade)) || gradeNodes[0] || null;
-  if (curGrade) st.grade = String(curGrade.id);
-  const volNodes = curGrade ? (kids[curGrade.id] || []) : [];
-  const curVol = volNodes.find((v) => String(v.id) === String(st.volume)) || volNodes[0] || null;
-  if (curVol) st.volume = String(curVol.id);
-  const unitNodes = curVol ? (kids[curVol.id] || []) : [];
-  const nodeIdSet = new Set(nodes.map((n) => String(n.id)));
-  st.units = st.units.filter((id) => nodeIdSet.has(String(id)));
-  const totalQ = (await api(`${MF_API}/questions?page=1&size=1`, { silent: true }).catch(() => ({ total: 0 }))).total || 0;
+  if (st.special === 'uncat') { st.special = ''; st.f.comp = ['nocat']; }   // 旧入口「未分类题目」= 完整度里的「缺分类」
   const badges = await api(`${MFX}/badge-counts`, { silent: true }).catch(() => ({ uncat: 0, review: 0 }));
 
-  let data;
-  if (st.special === 'review') {
-    data = await api(`${MFX}/review-list?page=${page}&size=${size}${st.kw ? '&kw=' + encodeURIComponent(st.kw) : ''}`);
-  } else {
-    const qs = Object.entries({
-      stage: st.stage, subject: st.subject, type: st.type, difficulty: st.difficulty,
-      source_type: st.source, complete: st.complete, kw: st.kw,
-      node: (!st.special && st.pmode === 'knowledge') ? st.node : '',
-      nodes: (!st.special && st.pmode === 'chapter' && st.units.length) ? st.units.join(',') : '',
-      uncat: st.special === 'uncat' ? '1' : '',
-    }).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
-    data = await api(`${MF_API}/questions?page=${page}&size=${size}${qs ? '&' + qs : ''}`);
-  }
-  ADM.page.mfqPage = data.page;
-  const selCount = Object.values(st.sel).filter(Boolean).length;
-
-  const nodeName = (id) => { const n = nodes.find((x) => String(x.id) === String(id)); return n ? n.name : ''; };
-  const selNames = st.special ? [] : (st.pmode === 'chapter' ? st.units : (st.node ? [st.node] : [])).map(nodeName).filter(Boolean);
-
-  const unitRow = (n) => {
-    const secs = kids[n.id] || [];
-    const on = st.units.includes(String(n.id));
-    const exp = !!st.uexp[n.id];
-    return `<div style="padding:3px 0;border-bottom:1px dashed #f1f5f9">
-      <label style="display:flex;gap:6px;align-items:center;font-size:13px;cursor:pointer;line-height:1.8">
-        <input type="checkbox" data-unit="${n.id}" ${on ? 'checked' : ''}>
-        <span style="flex:1;overflow-wrap:anywhere">${esc(n.name)}<i class="mf-nq"> ${n.qcount || 0}</i></span>
-        ${secs.length ? `<a href="javascript:;" class="mf-tw" data-ux="${n.id}" style="color:#94a3b8">${exp ? '▾' : '▸'}</a>` : ''}
-      </label>
-      ${exp && secs.length ? secs.map((sc) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;color:#475569;cursor:pointer;padding-left:26px;margin:2px 0"><input type="checkbox" data-unit="${sc.id}" ${st.units.includes(String(sc.id)) ? 'checked' : ''}><span style="flex:1;overflow-wrap:anywhere">${esc(sc.name)}<i class="mf-nq"> ${sc.qcount || 0}</i></span></label>`).join('') : ''}
-    </div>`;
-  };
-  const treeRow = (n, depth) => {
-    const children = kids[n.id] || [];
-    const isOpen = !!st.open[n.id];
-    const on = String(st.node) === String(n.id);
-    return `<div class="mf-node" style="padding-left:${depth * 16 + 4}px">
-      <a href="javascript:;" class="mf-tw ${children.length ? '' : 'leaf'}" data-tw="${n.id}">${children.length ? (isOpen ? '▾' : '▸') : '·'}</a>
-      <a href="javascript:;" class="${on ? 'on' : ''}" data-node="${n.id}" title="${esc(n.name)}">${esc(n.name)}</a>
-      <span class="mf-nq">${n.qcount || 0}</span></div>`
-      + (isOpen ? children.map((c) => treeRow(c, depth + 1)).join('') : '');
-  };
-  const treeHtml = (kids[0] || []).map((n) => treeRow(n, 0)).join('')
-    || '<div class="empty" style="padding:18px 0">这棵树还没有节点，点「加子节点」或用浏览器采集知识树</div>';
-
-  const typeSel = (id, label, opts, cur) => `<select id="${id}" class="mf-fsel"><option value="">${label}</option>${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
-  const srcOpts = [['capture', '网络采集'], ['local', '本地录入'], ['recog', '录题']];
-  const compOpts = [['full', '齐全'], ['noans', '缺答案'], ['noana', '缺解析']];
-
-  const qCard = (q, i) => {
-    const tags = q.tags || [];
-    const meta = [
-      MF_TYPE_NAME[q.type] || q.type,
-      MF_STAGE_NAMES[q.stage] || '',
-      q.grade || '',
-      q.difficulty ? (MF_DIFF_NAMES[q.difficulty] || q.difficulty) : '',
-      (MF_SRC_NAME[q.source_type || 'local'] || '') + ((q.source_detail && q.source_detail.site) ? ('·' + (({ zujuan: '组卷网', jyeoo: '菁优网', '21cnjy': '二一' })[q.source_detail.site] || '')) : ''),
-    ].filter(Boolean).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
-    const tagHtml = tags.length ? `<span class="mf-qtags">${tags.map((t) => `<span class="tag ok">${esc(t)}</span>`).join('')}</span>` : '';
-    const mt = q.mount || {};
-    const missTxt = `${mt.chapter ? '' : '缺章节'}${(!mt.chapter && !mt.knowledge) ? '+' : ''}${mt.knowledge ? '' : '缺知识点'}`;
-    const missHtml = (!mt.chapter || !mt.knowledge) ? `<span class="tag" style="background:#fef2f2;color:#dc2626">${missTxt}</span>` : '';
-    const stemHtml = (q.stem_html && q.stem_html.trim()) ? q.stem_html : esc(q.stem || '').replace(/\n/g, '<br>');
-    const optsHtml = (q.options || []).length && !/class=["'][^"']*options/.test(stemHtml)
-      ? `<div class="mf-qopts">${q.options.map((o) => `<span>${esc(optDisplay(o))}</span>`).join('')}</div>` : '';
-    const nodeHtml = selNames.length ? `<div class="hint" style="margin-top:4px">归属：${esc(selNames.join(' / '))}</div>` : '';
-    return `<div class="mf-qitem" data-id="${q.id}">
-      <div class="mf-qhead">
-        <input type="checkbox" class="mf-qck" data-id="${q.id}" ${st.sel[q.id] ? 'checked' : ''}>
-        <b class="mf-qno">${(data.page - 1) * size + i + 1}.</b>
-        <div class="mf-qstem">${stemHtml}${optsHtml}${nodeHtml}</div>
-      </div>
-      <div class="mf-qmeta">${meta}${missHtml}${tagHtml}
-        <span class="mf-qacts">
-          ${(!mt.chapter || !mt.knowledge) ? `<a href="javascript:;" data-hang="${q.id}" style="color:#d97706">挂分类</a>` : ''}
-          <a href="javascript:;" data-edit="${q.id}">编辑</a>
-          <a href="javascript:;" data-del="${q.id}">删除</a>
-        </span></div>
-      <div class="mf-qfold">
-        <details><summary ${q.answer && q.answer.trim() ? '' : 'class="dim"'}>答案</summary><div class="mf-qans">${esc(q.answer || '（无）')}</div></details>
-        <details><summary ${q.analysis && q.analysis.trim() ? '' : 'class="dim"'}>解析</summary><div class="mf-qans">${esc(q.analysis || '（无）')}</div></details>
-      </div></div>`;
-  };
-
-  const revCard = (it, i) => {
-    const meta = [
-      it.subject || it.pu_subject,
-      MF_STAGE_NAMES[it.stage || it.pu_stage] || '',
-      it.grade || it.pu_grade,
-      it.point || it.pu_point,
-      it.up_status === 'reviewed' ? '已核对' : '待审核',
-    ].filter(Boolean).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
-    const stemHtml = esc(it.stem || it.up_stem_text || '（无题干，看图核对）').replace(/\n/g, '<br>');
-    const imgs = it.up_images || [];
-    const imgHtml = imgs.length ? `<div class="mf-rvimgs">${imgs.map((u) => `<img src="${esc(u)}" data-upimg="${esc(u)}" title="点击看大图">`).join('')}</div>` : '';
-    return `<div class="mf-qitem">
-      <div class="mf-qhead">
-        <b class="mf-qno">${(data.page - 1) * size + i + 1}.</b>
-        <div class="mf-qstem">
-          <div class="hint" style="margin-bottom:4px">学生：${esc(it.student_name || '')}${it.student_grade ? ' · ' + esc(it.student_grade) : ''} · ${(it.up_created || '').slice(0, 16).replace('T', ' ')}</div>
-          ${stemHtml}${imgHtml}
-        </div>
-      </div>
-      <div class="mf-qmeta">${meta}
-        <span class="mf-qacts"><a href="javascript:;" data-rev="${it.up_id}" style="color:#d97706">✏️ 核对</a></span></div>
-    </div>`;
-  };
-
   const html = `
-  <div class="bk-mods" style="padding:0 0 10px">
-    <button class="bk-mod" data-mod="mfc"><span class="bm-ico">${ic('link')}</span><span class="bm-tt">网络采集<em>组卷网等题库一键采集</em></span></button>
-    <button class="bk-mod" data-mod="mfi"><span class="bm-ico">${ic('upload')}</span><span class="bm-tt">录题上传<em>Word / 图片批量录题</em></span></button>
-    <button class="bk-mod" data-mod="bkfb"><span class="bm-ico">${ic('chat')}</span><span class="bm-tt">错题反馈<em>学生反馈的题目核对</em><i class="bm-badge" id="bkFbBadge" style="display:none"></i></span></button>
-  </div>
-  <div class="mf-wrap" style="align-items:stretch">
-    <div class="card mf-card" style="width:320px;flex:0 0 320px">
-      <div class="card-b">
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <select id="mfbStage" class="mf-fsel" style="flex:1">
-            <option value="primary" ${st.stage === 'primary' ? 'selected' : ''}>小学</option>
-            <option value="junior" ${st.stage === 'junior' ? 'selected' : ''}>初中</option>
-          </select>
-          <select id="mfbSubject" class="mf-fsel" style="flex:1">
-            ${PC_SUBJ.map((sp) => `<option ${st.subject === sp ? 'selected' : ''}>${sp}</option>`).join('')}
-          </select>
-          <select id="mfbEdition" class="mf-fsel r2-edsel" style="flex:1 1 100%" title="教材版本" aria-label="教材版本" ${edOpts.length ? '' : 'disabled'}>
-            ${edOpts.map((e) => `<option value="${esc(e)}" ${curEdition === e ? 'selected' : ''}>${esc(e || '通用')}${e && e === tpDefaultEdition(st.subject, st.stage) ? '（默认）' : ''}</option>`).join('') || '<option value="">无版本</option>'}
-          </select>
+  <div class="r3-bank">
+    <aside class="card r3-side" aria-label="章节 / 知识点目录"><div id="r3Tree"><div class="r3-tp-loading">目录加载中…</div></div></aside>
+    <section class="card r3-main">
+      <div class="card-h r3-mainh">
+        <h3>${ic('doc')} <span id="r3Title">${st.special === 'review' ? '待审核题目' : '题库管理'}</span></h3>
+        <div class="card-h-r r3-hbtns">
+          <button class="btn ghost sm ${badges.review ? 'mf-revhot' : ''}" id="mfReviewBtn">${st.special === 'review' ? '返回题库' : '待审核题目'}<b class="rev-n">${badges.review || 0}</b></button>
+          <button class="btn primary sm" id="mfIntakeBtn">${ic('upload')} 录题中心</button>
         </div>
-        <div class="mf-segbox">
-          <button type="button" class="mf-segit ${st.pmode === 'chapter' ? 'on' : ''}" id="mfbModeChapter"><b>章节</b></button>
-          <button type="button" class="mf-segit ${st.pmode === 'knowledge' ? 'on' : ''}" id="mfbModeKnow"><b>知识点</b></button>
-        </div>
-        ${st.pmode === 'chapter' ? `
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <select id="mfbGrade" class="mf-fsel" style="flex:1">${gradeNodes.map((g) => `<option value="${g.id}" ${String(st.grade) === String(g.id) ? 'selected' : ''}>${esc(g.name)}</option>`).join('') || '<option value="">（无年级）</option>'}</select>
-            <select id="mfbVolume" class="mf-fsel" style="flex:1">${volNodes.map((v) => `<option value="${v.id}" ${String(st.volume) === String(v.id) ? 'selected' : ''}>${esc(v.name)}</option>`).join('') || '<option value="">（无册别）</option>'}</select>
-          </div>
-          <div class="hint" style="margin:6px 0 2px">${unitNodes.length} 个单元 · 勾选单元或小知识点（可多选）</div>
-          <div class="mf-treebox" style="max-height:390px">${unitNodes.map(unitRow).join('') || '<div class="empty" style="padding:18px 0">该年级 / 册别下还没有单元数据</div>'}</div>
-        ` : `
-          <div class="hint" style="margin:8px 0 2px">${nodes.length} 个知识点节点 · 题库共 ${totalQ} 题</div>
-          <div class="mf-treebox" style="max-height:410px">${treeHtml}</div>
-          <div class="hint" style="margin-top:6px;line-height:1.6">点击知识点筛选（含子级挂的题）；点 ▸ 折叠/展开</div>
-        `}
-        ${activeTree ? '' : '<div class="empty" style="padding:10px 0">该学段 + 科目暂无' + (st.pmode === 'chapter' ? '教材章节' : '知识点') + '树</div>'}
       </div>
-    </div>
-    <div class="card mf-card grow">
-      <div class="card-h"><h3>${ic('doc')} ${st.special === 'uncat' ? '未分类题目' : st.special === 'review' ? '待审核题目' : '题库管理'}${st.special ? '<a href="javascript:;" id="mfSpcExit" style="font-size:12px;color:#6366f1;text-decoration:none;margin-left:10px;font-weight:400">✕ 退出</a>' : ''}</h3>
-        <div class="card-h-r" style="display:flex;gap:8px;align-items:center"><span class="hint">题库共 ${data.total} 题</span><button class="btn ghost xs ${badges.review ? 'mf-revhot' : ''}" id="mfReviewBtn">待审核题目<b class="rev-n">${badges.review || 0}</b></button><button class="btn ghost xs" id="mfImportBtn">导入题库</button><button class="btn xs" id="mfNewQBtn">新建题</button></div></div>
-      <div class="card-b">
-        <div class="mf-fbar">
-          <input id="mfbKw" class="inp" style="width:200px;flex:0 1 200px" placeholder="搜题干关键词..." value="${esc(st.kw)}">
-          ${typeSel('mfbType', '全部题型', Object.entries(MF_TYPE_NAME), st.type)}
-          ${typeSel('mfbDiff', '全部难度', Object.entries(MF_DIFF_NAMES), st.difficulty)}
-          ${typeSel('mfbSrc', '全部来源', srcOpts, st.source)}
-          ${typeSel('mfbComp', '齐全度', compOpts, st.complete)}
-        </div>
-        ${st.special === 'review' ? '' : `<div class="mf-batchbar">
-          <b>已选 ${selCount} 项</b>
-          <button class="btn ghost xs" data-batch="del" ${selCount ? '' : 'disabled'}>批量删除</button>
-          <button class="btn ghost xs" data-batch="tag" ${selCount ? '' : 'disabled'}>批量添加标签</button>
-          <button class="btn ghost xs" data-batch="aiclean" ${selCount ? '' : 'disabled'}>AI 整理</button>
-          <button class="btn ghost xs" data-batch="aisug" ${selCount ? '' : 'disabled'}>AI 建议</button>
-          <button class="btn ghost xs" data-batch="wrong" ${selCount ? '' : 'disabled'}>批量标记错题</button>
-          <button class="btn ghost xs" data-batch="basket" ${selCount ? '' : 'disabled'}>批量加入试题篮</button>
-          <button class="btn ghost xs" data-batch="clear" ${selCount ? '' : 'disabled'}>取消选择</button>
-        </div>`}
-        ${st.special === 'review'
-          ? (data.list.length ? data.list.map(revCard).join('') : '<div class="mf-empty"><div style="font-size:40px">✅</div>没有待核对的学生上传题目</div>')
-          : (data.list.length ? data.list.map(qCard).join('') : `<div class="mf-empty"><div style="font-size:40px">🧊</div>${st.special === 'uncat' ? '太棒了，没有未分类的题目' : '暂无题目，去采集或新建题开始积累题库'}</div>`)}
-        ${data.total > size ? pagerHTML(data.page, size, data.total, 'mfqPage') : ''}
-      </div>
-    </div></div>`;
+      <div id="r3Main"><div class="r3-loading">题目加载中…</div></div>
+    </section>
+  </div>`;
 
   return {
     html,
     after: () => {
-      mtxTypeset(document.getElementById('app'));
-      const rerender = () => render();
+      const main = document.getElementById('r3Main');
+      let tp = null;
+      let data = { list: [], total: 0, page: 1 };
+      let facetKey = ''; let years = [];
+      const size = 20;
+      let seq = 0;
 
-      /* —— 顶部模块入口：网络采集 / 录题上传 / 错题反馈（集合进题库管理） —— */
-      document.querySelectorAll('.bk-mod[data-mod]').forEach((b) => b.onclick = () => { location.hash = '#/' + b.dataset.mod; });
-      api('/api/admin/bank/feedback?status=pending&size=1', { silent: true })
-        .then((d) => {
-          const n = (d && d.total) || 0;
-          const el = document.getElementById('bkFbBadge');
-          if (el && n > 0) { el.textContent = n > 99 ? '99+' : n; el.style.display = ''; }
-        }).catch(() => {});
+      const reloadAll = async () => { if (tp) await tp.reload(); await loadMain(); };
+      document.getElementById('mfIntakeBtn').onclick = () => { location.hash = '#/intake'; };
+      document.getElementById('mfReviewBtn').onclick = () => { st.special = st.special === 'review' ? '' : 'review'; st.pg = 1; render(); };
 
-      /* —— 导入题库 / 新建题 —— */
-      document.getElementById('mfImportBtn').onclick = () => mfImportDialog(rerender);
-      document.getElementById('mfNewQBtn').onclick = () => mfNewQDialog(rerender);
+      qbFab({ pages: ['mfq'] });
 
-      /* —— 待审核（右上角入口） —— */
-      document.getElementById('mfReviewBtn').onclick = () => { st.special = st.special === 'review' ? '' : 'review'; ADM.page.mfqPage = 1; rerender(); };
-      const spcExit = document.getElementById('mfSpcExit');
-      if (spcExit) spcExit.onclick = () => { st.special = ''; ADM.page.mfqPage = 1; rerender(); };
-      document.querySelectorAll('[data-rev]').forEach((a) => { a.onclick = () => mfReviewDialog(data.list.find((x) => x.up_id === Number(a.dataset.rev)), rerender); });
-      document.querySelectorAll('[data-upimg]').forEach((im) => { im.onclick = () => mfImgView(im.dataset.upimg); });
-      document.querySelectorAll('[data-hang]').forEach((a) => { a.onclick = () => mfHangDialog(Number(a.dataset.hang), rerender); });
-
-      /* —— 左栏联动（学段 → 科目 → 模式 → 年级/册别/单元 / 知识点树） —— */
-      document.getElementById('mfbEdition').onchange = (e) => { st.edition = e.target.value; st.grade = ''; st.volume = ''; st.units = []; st.node = ''; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      document.getElementById('mfbStage').onchange = (e) => { st.stage = e.target.value; st.edition = ''; st.grade = ''; st.volume = ''; st.units = []; st.node = ''; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      document.getElementById('mfbSubject').onchange = (e) => { st.subject = e.target.value; st.edition = ''; st.grade = ''; st.volume = ''; st.units = []; st.node = ''; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      const switchMode = (m) => { st.pmode = m; st.edition = ''; st.node = ''; st.units = []; st.open = {}; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      document.getElementById('mfbModeChapter').onclick = () => { if (st.pmode !== 'chapter') switchMode('chapter'); };
-      document.getElementById('mfbModeKnow').onclick = () => { if (st.pmode !== 'knowledge') switchMode('knowledge'); };
-      const mfbG = document.getElementById('mfbGrade');
-      if (mfbG) mfbG.onchange = (e) => { st.grade = e.target.value; st.volume = ''; st.units = []; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      const mfbV = document.getElementById('mfbVolume');
-      if (mfbV) mfbV.onchange = (e) => { st.volume = e.target.value; st.units = []; st.uexp = {}; ADM.page.mfqPage = 1; rerender(); };
-      document.querySelectorAll('[data-unit]').forEach((ck) => { ck.onchange = () => { const id = ck.dataset.unit; if (ck.checked) { if (!st.units.includes(id)) st.units.push(id); } else st.units = st.units.filter((x) => x !== id); ADM.page.mfqPage = 1; rerender(); }; });
-      document.querySelectorAll('[data-ux]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const id = a.dataset.ux; st.uexp[id] = !st.uexp[id]; rerender(); }; });
-      document.querySelectorAll('[data-tw]').forEach((a) => { a.onclick = (e) => { e.stopPropagation(); const id = a.dataset.tw; st.open[id] = !st.open[id]; rerender(); }; });
-      document.querySelectorAll('[data-node]').forEach((a) => { a.onclick = () => { st.node = st.node === a.dataset.node ? '' : a.dataset.node; ADM.page.mfqPage = 1; rerender(); }; });
-
-      /* —— 筛选 —— */
-      const bindSel = (id, key) => { const el = document.getElementById(id); if (el) el.onchange = () => { st[key] = el.value; ADM.page.mfqPage = 1; rerender(); }; };
-      bindSel('mfbType', 'type');
-      bindSel('mfbDiff', 'difficulty'); bindSel('mfbSrc', 'source'); bindSel('mfbComp', 'complete');
-      const kwEl = document.getElementById('mfbKw');
-      let kwTimer = null;
-      kwEl.oninput = () => { clearTimeout(kwTimer); kwTimer = setTimeout(() => { st.kw = kwEl.value.trim(); ADM.page.mfqPage = 1; rerender(); }, 400); };
-
-      /* —— 题卡勾选 —— */
-      document.querySelectorAll('.mf-qck').forEach((ck) => { ck.onchange = () => { st.sel[ck.dataset.id] = ck.checked; if (!ck.checked) delete st.sel[ck.dataset.id]; rerender(); }; });
-      document.querySelectorAll('[data-edit]').forEach((a) => { a.onclick = () => mfQEdit(a.dataset.edit, rerender); });
-      document.querySelectorAll('[data-del]').forEach((a) => { a.onclick = async () => {
-        if (!(await elConfirm({ title: '删除题目', message: '删除后不可恢复（试卷里引用它的行会一并移除）。确定？', okText: '删除', danger: true }))) return;
-        await api(`${MF_API}/questions/${a.dataset.del}`, { method: 'DELETE' }); toast('已删除', 'ok'); rerender();
-      }; });
-
-      /* —— 批量操作 —— */
-      bindPager('mfqPage');
       const selIds = () => Object.keys(st.sel).filter((k) => st.sel[k]).map(Number);
-      document.querySelectorAll('[data-batch]').forEach((b) => {
-        b.onclick = () => mfBatch(b.dataset.batch, selIds(), st, rerender);
+
+      /* —— 右栏 —— */
+      const chipRow = (key, label, opts) => {
+        const cur = st.f[key] || [];
+        return `<div class="r3-frow"><span class="r3-fk">${label}</span><div class="r3-chips" role="group" aria-label="${label}">
+          <button type="button" class="r3-chip ${cur.length ? '' : 'on'}" data-fk="${key}" data-fv="" aria-pressed="${!cur.length}">全部</button>
+          ${opts.map(([v, t]) => `<button type="button" class="r3-chip ${cur.includes(String(v)) ? 'on' : ''}" data-fk="${key}" data-fv="${esc(v)}" aria-pressed="${cur.includes(String(v))}">${esc(t)}</button>`).join('')}
+        </div></div>`;
+      };
+
+      async function loadFacets(ctx) {
+        const k = ctx.stage + '|' + ctx.subject;
+        if (k === facetKey) return;
+        facetKey = k;
+        const f = await api(`${MF_API}/questions-facets?stage=${encodeURIComponent(ctx.stage)}&subject=${encodeURIComponent(ctx.subject)}`, { silent: true }).catch(() => ({ years: [] }));
+        years = (f.years || []).map((y) => y.v);
+        st.f.year = (st.f.year || []).filter((y) => years.includes(y));
+      }
+
+      function query(ctx) {
+        const p = {
+          page: st.pg, size, stage: ctx.stage, subject: ctx.subject,
+          nodes: ctx.sel.join(','), type: st.f.type.join(','), question_subtype: st.f.subtype.filter((code) => QSubtype.matchesSubject(QSubtype.find(code), ctx.subject)).join(','), difficulty: st.f.diff.join(','), source_type: st.f.src.join(','),
+          year: st.f.year.join(','), complete: st.f.comp.join(','), kw: st.kw, sort: st.sort === 'used' ? 'used' : '',
+        };
+        return Object.entries(p).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+      }
+
+      async function loadMain() {
+        const my = ++seq;
+        if (!tp) return;
+        const ctx = tp.ctx();
+        if (st.special === 'review') {
+          const d = await api(`${MFX}/review-list?page=${st.pg}&size=${size}`).catch(() => ({ list: [], total: 0, page: 1 }));
+          if (my !== seq) return;
+          renderReview(d);
+          return;
+        }
+        await loadFacets(ctx);
+        const d = await api(`${MF_API}/questions?${query(ctx)}`).catch(() => null);
+        if (my !== seq || !d) return;
+        data = d; st.pg = d.page;
+        renderMain(ctx);
+      }
+
+      function renderMain(ctx) {
+        const selCount = selIds().length;
+        const pageIds = data.list.map((q) => q.id);
+        const allOn = pageIds.length && pageIds.every((id) => st.sel[id]);
+        const anyF = Object.values(st.f).some((a) => a.length) || st.kw;
+        const selChips = ctx.sel.map((id) => {
+          const path = ctx.pathOf(id);
+          return `<span class="r3-selchip" title="${esc(path.join(' / '))}">${esc(path.slice(-2).join(' › '))}<button type="button" data-unsel="${id}" aria-label="移除">${TPN_SVG.close}</button></span>`;
+        }).join('');
+        const acts = (q) => {
+          const inB = QB.has(q.id);
+          return `<button type="button" class="r3-abtn" data-qedit="${q.id}">编辑</button>
+            <button type="button" class="r3-abtn" data-qhang="${q.id}">挂分类</button>
+            <button type="button" class="r3-abtn danger" data-qdel="${q.id}">删除</button>
+            <button type="button" class="r3-bbtn ${inB ? 'in' : ''}" data-qbask="${q.id}">${inB ? '已加入试题篮' : '+ 加入试题篮'}</button>${qbGroupKey(q) ? ` <button type="button" class="r3-bbtn" data-qgroup="${q.id}">整组加入</button>` : ''}`;
+        };
+        main.innerHTML = `
+          <div class="r3-filter">
+            ${chipRow('type', '题型', (typeof MF_TYPES !== 'undefined' ? MF_TYPES : Object.entries(QC_TYPE_FALLBACK)))}
+            ${QSubtype.list.some((x) => QSubtype.matchesSubject(x, ctx.subject)) ? chipRow('subtype', '细分题型', QSubtype.list.filter((x) => QSubtype.matchesSubject(x, ctx.subject)).map((x) => [x.code, x.label])) : ''}
+            ${chipRow('diff', '难度', Object.entries(QC_DIFF))}
+            ${chipRow('src', '来源', R3_SRC)}
+            ${years.length ? chipRow('year', '年份', years.map((y) => [y, y])) : ''}
+            ${chipRow('comp', '完整度', R3_COMP)}
+            <div class="r3-frow r3-kwrow"><span class="r3-fk">关键字</span>
+              <label class="r3-kw-inp">${TPN_SVG.search}<input type="search" id="r3Kw" placeholder="搜题干 / 答案 / 解析 / 来源 / 题号" value="${esc(st.kw)}"></label>
+              ${anyF ? '<button type="button" class="r3-link" id="r3Reset">清空筛选</button>' : ''}
+            </div>
+          </div>
+          ${ctx.sel.length ? `<div class="r3-selbar"><span class="r3-fk">已选${ctx.kind === 'textbook' ? '章节' : '知识点'}</span><div class="r3-selchips">${selChips}</div><button type="button" class="r3-link" id="r3SelClear">清空</button><span class="r3-hintx">含下级节点的题</span></div>` : ''}
+          <div class="r3-resbar">
+            <label class="r3-allck"><input type="checkbox" id="r3All" ${allOn ? 'checked' : ''} ${pageIds.length ? '' : 'disabled'}>全选本页</label>
+            <span class="r3-total">筛选到题目 <b id="r3Total">${data.total}</b> 道</span>
+            <div class="r3-sort" role="group" aria-label="排序">
+              <button type="button" class="${st.sort !== 'used' ? 'on' : ''}" data-sort="new">最新录入</button>
+              <button type="button" class="${st.sort === 'used' ? 'on' : ''}" data-sort="used">组卷最多</button>
+            </div>
+          </div>
+          <div class="r3-batch ${selCount ? 'on' : ''}">
+            <span class="r3-batch-n">已选 <b>${selCount}</b> 题</span>
+            <button class="btn sm" data-batch="hang" ${selCount ? '' : 'disabled'}>批量挂分类</button>
+            <button class="btn ghost sm" data-batch="qb" ${selCount ? '' : 'disabled'}>加入试题篮</button>
+            <button class="btn ghost sm" data-batch="tag" ${selCount ? '' : 'disabled'}>打标签</button>
+            <button class="btn ghost sm" data-batch="aiclean" ${selCount ? '' : 'disabled'}>AI 整理</button>
+            <button class="btn ghost sm" data-batch="aisug" ${selCount ? '' : 'disabled'}>AI 建议</button>
+            <button class="btn ghost sm" data-batch="wrong" ${selCount ? '' : 'disabled'}>标记错题</button>
+            <button class="btn danger sm" data-batch="del" ${selCount ? '' : 'disabled'}>删除</button>
+            ${selCount ? '<button type="button" class="r3-link" data-batch="clear">取消选择</button>' : ''}
+          </div>
+          <div class="r3-list" id="r3List">
+            ${data.list.length ? data.list.map((q, i) => qcCard(q, { no: (data.page - 1) * size + i + 1, checked: !!st.sel[q.id], acts: acts(q), hangBtn: true })).join('')
+              : `<div class="r3-empty"><b>没有符合条件的题目</b><span>${ctx.sel.length || anyF ? '换个节点或放宽筛选条件试试' : '到 <a href="#/intake">录题中心</a> 导入或手动创建题目'}</span></div>`}
+          </div>
+          ${data.total > size ? pagerHTML(data.page, size, data.total, 'r3pg') : ''}`;
+        bindMain(ctx);
+      }
+
+      function bindMain(ctx) {
+        const reload = () => { st.pg = 1; loadMain(); };
+        main.querySelectorAll('[data-fk]').forEach((b) => {
+          b.onclick = () => {
+            const k = b.dataset.fk; const v = b.dataset.fv;
+            if (!v) st.f[k] = [];
+            else st.f[k] = st.f[k].includes(v) ? st.f[k].filter((x) => x !== v) : [...st.f[k], v];
+            reload();
+          };
+        });
+        const kw = main.querySelector('#r3Kw');
+        let tm = null;
+        kw.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { st.kw = kw.value.trim(); reload(); }, 400); };
+        kw.onkeydown = (e) => { if (e.key === 'Enter') { clearTimeout(tm); st.kw = kw.value.trim(); reload(); } };
+        const rs = main.querySelector('#r3Reset');
+        if (rs) rs.onclick = () => { st.f = { type: [], subtype: [], diff: [], src: [], year: [], comp: [] }; st.kw = ''; reload(); };
+        main.querySelectorAll('[data-unsel]').forEach((b) => { b.onclick = () => tp.remove(b.dataset.unsel); });
+        const sc = main.querySelector('#r3SelClear');
+        if (sc) sc.onclick = () => tp.clear();
+        main.querySelectorAll('[data-sort]').forEach((b) => { b.onclick = () => { if (st.sort !== b.dataset.sort) { st.sort = b.dataset.sort; reload(); } }; });
+        const all = main.querySelector('#r3All');
+        all.onchange = () => { data.list.forEach((q) => { if (all.checked) st.sel[q.id] = true; else delete st.sel[q.id]; }); renderMain(ctx); };
+        main.querySelectorAll('[data-qck]').forEach((ck) => {
+          ck.onchange = () => {
+            if (ck.checked) st.sel[ck.dataset.qck] = true; else delete st.sel[ck.dataset.qck];
+            renderBatch(); const card = ck.closest('.r3-qcard'); if (card) card.classList.toggle('sel', ck.checked);
+            const ids = data.list.map((q) => q.id); all.checked = ids.length && ids.every((id) => st.sel[id]);
+          };
+        });
+        main.querySelectorAll('[data-qedit]').forEach((b) => { b.onclick = () => mfQEdit(b.dataset.qedit, reloadAll); });
+        main.querySelectorAll('[data-qhang]').forEach((b) => {
+          b.onclick = () => { const q = data.list.find((x) => String(x.id) === b.dataset.qhang); r3HangDialog([Number(b.dataset.qhang)], { q, ctx: tp.ctx(), done: reloadAll }); };
+        });
+        main.querySelectorAll('[data-qdel]').forEach((b) => {
+          b.onclick = async () => {
+            if (!(await elConfirm({ title: '删除题目', message: '删除后不可恢复（试卷里引用它的行会一并移除）。确定？', okText: '删除', danger: true }))) return;
+            await api(`${MF_API}/questions/${b.dataset.qdel}`, { method: 'DELETE' }); QB.remove(b.dataset.qdel); delete st.sel[b.dataset.qdel]; toast('已删除', 'ok'); reloadAll();
+          };
+        });
+        main.querySelectorAll('[data-qbask]').forEach((b) => {
+          b.onclick = () => {
+            const q = data.list.find((x) => String(x.id) === b.dataset.qbask);
+            const on = QB.toggle(q);
+            b.classList.toggle('in', on); b.textContent = on ? '已加入试题篮' : '+ 加入试题篮';
+            toast(on ? '已加入试题篮（去「智能组卷」生成试卷）' : '已移出试题篮', 'ok');
+          };
+        });
+        main.querySelectorAll('[data-qgroup]').forEach(b => b.onclick = async () => { if (await qbAddWholeGroup(b.dataset.qgroup)) renderMain(ctx); });
+        main.querySelectorAll('[data-page="r3pg"]').forEach((b) => {
+          b.onclick = () => { if (b.disabled) return; const to = Number(b.dataset.to); if (!to) return; st.pg = to; loadMain().then(() => { const top = document.querySelector('.r3-main'); if (top) top.scrollIntoView({ block: 'start', behavior: 'smooth' }); }); };
+        });
+        const ps = main.querySelector('[data-psize="r3pg"]');
+        if (ps) ps.style.display = 'none';
+        bindBatch();
+        qcBind(main.querySelector('#r3List'));
+      }
+
+      function renderBatch() {
+        const n = selIds().length;
+        const bar = main.querySelector('.r3-batch');
+        if (!bar) return;
+        bar.classList.toggle('on', n > 0);
+        bar.querySelector('.r3-batch-n b').textContent = n;
+        bar.querySelectorAll('button[data-batch]').forEach((b) => { if (b.dataset.batch !== 'clear') b.disabled = !n; });
+        let clr = bar.querySelector('[data-batch="clear"]');
+        if (n && !clr) { clr = document.createElement('button'); clr.type = 'button'; clr.className = 'r3-link'; clr.dataset.batch = 'clear'; clr.textContent = '取消选择'; bar.appendChild(clr); bindBatch(); }
+        if (!n && clr) clr.remove();
+      }
+      function bindBatch() {
+        main.querySelectorAll('[data-batch]').forEach((b) => {
+          b.onclick = async () => {
+            const ids = selIds();
+            const op = b.dataset.batch;
+            if (op === 'clear') { st.sel = {}; renderMain(tp.ctx()); return; }
+            if (!ids.length) return toast('先勾选题目', 'err');
+            if (op === 'hang') return r3HangDialog(ids, { ctx: tp.ctx(), done: async () => { st.sel = {}; await reloadAll(); } });
+            if (op === 'qb') {
+              const qs = ids.map((id) => data.list.find((q) => q.id === id) || { id, type: 'single' });
+              const n = QB.addMany(qs);
+              toast(n ? `已把 ${n} 题加入试题篮` : '这些题已经都在试题篮里了', 'ok');
+              renderMain(tp.ctx());
+              return;
+            }
+            return mfBatch(op, ids, st, reloadAll);
+          };
+        });
+      }
+
+      function renderReview(d) {
+        const card = (it, i) => {
+          const meta = [it.subject || it.pu_subject, MF_STAGE_NAMES[it.stage || it.pu_stage] || '', it.grade || it.pu_grade, it.point || it.pu_point, it.up_status === 'reviewed' ? '已核对' : '待审核']
+            .filter(Boolean).map((t) => `<span class="r3-badge">${esc(t)}</span>`).join('');
+          const imgs = it.up_images || [];
+          return `<article class="r3-qcard"><header class="r3-qhead"><b class="r3-qno">${(d.page - 1) * size + i + 1}</b><div class="r3-badges">${meta}</div></header>
+            <div class="r3-qbody"><div class="r3-hintx">学生：${esc(it.student_name || '')}${it.student_grade ? ' · ' + esc(it.student_grade) : ''} · ${(it.up_created || '').slice(0, 16).replace('T', ' ')}</div>
+              <div class="r3-stem">${esc(it.stem || it.up_stem_text || '（无题干，看图核对）').replace(/\n/g, '<br>')}</div>
+              ${imgs.length ? `<div class="r3-qfigs">${imgs.map((u, k) => qcFig(u, k)).join('')}</div>` : ''}</div>
+            <footer class="r3-qfoot"><div class="r3-qmeta"></div><div class="r3-qacts"><button type="button" class="r3-bbtn" data-rev="${it.up_id}">核对</button></div></footer></article>`;
+        };
+        main.innerHTML = `<div class="r3-resbar"><span class="r3-total">学生上传待核对 <b>${d.total || 0}</b> 道</span></div>
+          <div class="r3-list" id="r3List">${(d.list || []).length ? d.list.map(card).join('') : '<div class="r3-empty"><b>没有待核对的学生上传题目</b><span>学生在错题本里上传的题会出现在这里</span></div>'}</div>
+          ${(d.total || 0) > size ? pagerHTML(d.page, size, d.total, 'r3pg') : ''}`;
+        main.querySelectorAll('[data-rev]').forEach((a) => { a.onclick = () => mfReviewDialog(d.list.find((x) => x.up_id === Number(a.dataset.rev)), reloadAll); });
+        main.querySelectorAll('[data-page="r3pg"]').forEach((b) => { b.onclick = () => { if (b.disabled) return; st.pg = Number(b.dataset.to) || 1; loadMain(); }; });
+        qcBind(main.querySelector('#r3List'));
+      }
+
+      tp = treePanel(document.getElementById('r3Tree'), {
+        state: st.tp,
+        onScope: () => { st.pg = 1; },
+        onChange: () => { st.pg = 1; loadMain(); },
       });
     },
   };
+}
+
+/** 批量挂分类（R3）：左右两个树形选择器（章节 / 知识点），选好节点一次挂上；单题「挂分类」也用它（默认替换原分类）
+ *  ids：题目 id；opt.q：单题时传入题目（预先勾上它已挂的节点）；opt.ctx：当前左栏的 学段 / 学科 / 版本 */
+function r3HangDialog(ids, opt = {}) {
+  const q = opt.q || null;
+  const c = opt.ctx || {};
+  const base = { stage: (q && q.stage) || c.stage, subject: (q && q.subject) || c.subject, edition: (q && q.edition) || c.edition || '' };
+  const preC = q ? (q.chapters || []).map((x) => String(x.id)) : [];
+  const preK = q ? (q.knows || []).map((x) => String(x.id)) : [];
+  const stC = { ...base, kind: 'textbook', sel: preC, open: {}, q: '' };
+  const stK = { ...base, kind: 'knowledge', sel: preK, open: {}, q: '' };
+  let tc = null; let tk = null;
+  const chips = (t, box) => {
+    const cx = t.ctx();
+    box.innerHTML = cx.sel.length ? cx.sel.map((id) => `<span class="r3-selchip" title="${esc(cx.pathOf(id).join(' / '))}">${esc(cx.pathOf(id).slice(-2).join(' › '))}<button type="button" data-x="${id}" aria-label="移除">${TPN_SVG.close}</button></span>`).join('')
+      : '<span class="r3-hintx">还没有选择</span>';
+    box.querySelectorAll('[data-x]').forEach((b) => { b.onclick = () => t.remove(b.dataset.x); });
+  };
+  modal({
+    title: ids.length > 1 ? `批量挂分类 · 已选 ${ids.length} 题` : `挂分类 · 题目 #${ids[0]}`,
+    wide: true, okText: '挂上分类',
+    body: `<div class="r3-hang">
+      <div class="r3-hang-col"><div class="r3-hang-h"><b>章节分类</b><span>教材目录 · 年级 › 册别 › 章 › 节</span></div><div id="r3HgC"></div><div class="r3-hang-sel" id="r3HgCs"></div></div>
+      <div class="r3-hang-col"><div class="r3-hang-h"><b>知识点分类</b><span>知识点树</span></div><div id="r3HgK"></div><div class="r3-hang-sel" id="r3HgKs"></div></div>
+    </div>
+    <div class="r3-hang-mode" role="radiogroup" aria-label="挂法">
+      <label><input type="radio" name="r3hgm" value="1" ${q ? 'checked' : ''}> 替换原有分类<em>先清掉这些题原来挂的章节 / 知识点，再挂上面选的</em></label>
+      <label><input type="radio" name="r3hgm" value="0" ${q ? '' : 'checked'}> 追加到原有分类<em>保留原来的挂载，再多挂上面选的</em></label>
+    </div>`,
+    onMount: (w) => {
+      tc = treePanel(w.querySelector('#r3HgC'), { state: stC, kinds: ['textbook'], pick: true, maxHeight: '300px', onChange: () => chips(tc, w.querySelector('#r3HgCs')) });
+      tk = treePanel(w.querySelector('#r3HgK'), { state: stK, kinds: ['knowledge'], pick: true, maxHeight: '300px', onChange: () => chips(tk, w.querySelector('#r3HgKs')) });
+    },
+    onOk: async (w, showErr) => {
+      const cs = tc ? tc.ctx().sel : []; const ks = tk ? tk.ctx().sel : [];
+      if (!cs.length && !ks.length) return showErr('请至少勾选一个章节或知识点节点');
+      const replace = (w.querySelector('input[name="r3hgm"]:checked') || {}).value === '1';
+      const r = await api(`${MF_API}/questions/batch`, { method: 'POST', body: { ids, op: 'node', nodes: [...cs, ...ks], replace: replace ? 1 : 0 } });
+      toast(`已给 ${ids.length} 题挂上 ${cs.length ? cs.length + ' 个章节' : ''}${cs.length && ks.length ? ' + ' : ''}${ks.length ? ks.length + ' 个知识点' : ''}`, 'ok');
+      if (typeof opt.done === 'function') opt.done(r);
+    },
+  });
 }
 
 /** 图片查看大图 */
@@ -407,7 +429,7 @@ async function mfReviewDialog(it, done) {
     w.remove(); if (typeof done === 'function') done();
   };
   modal({
-    title: `核对学生错题（学生：${it.student_name || ''}）`, wide: true, okText: '✅ 审核通过',
+    title: `核对学生错题（学生：${it.student_name || ''}）`, wide: true, okText: ' 审核通过',
     body: `
       ${imgs.length ? `<div class="mf-rvimgs" style="margin-bottom:10px">${imgs.map((u) => `<img src="${esc(u)}" data-rvimg="${esc(u)}" title="点击看大图">`).join('')}</div>` : ''}
       <div class="mf-form">
@@ -426,8 +448,8 @@ async function mfReviewDialog(it, done) {
             <div id="rvNodes" class="mf-pick" style="margin-top:6px;max-height:180px"></div></div>
         </div></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
-        <button class="btn ghost xs" id="rvSave">💾 仅保存核对</button>
-        <button class="btn ghost xs" id="rvReject" style="color:#dc2626">❌ 拒绝并删除</button>
+        <button class="btn ghost xs" id="rvSave"> 仅保存核对</button>
+        <button class="btn ghost xs" id="rvReject" style="color:#dc2626"> 拒绝并删除</button>
       </div>`,
     onOk: async (w, showErr) => { await reviewSave(w, 'approved', showErr); },
     onMount: (w) => {
@@ -468,17 +490,21 @@ async function mfQEdit(id, done, opts) {
   const curNodes = q.nodes || [];
   const chapOrd = tpOrder(chapTrees, q.subject, q.stage), knowOrd = tpOrder(knowTrees, q.subject, q.stage);   // R2：同学科学段的排前面、默认版本第一
   const defC = chapOrd[0] || null; const defK = knowOrd[0] || null;
+  let imageEditor = null;
   let aud = null;   // 听力音频字段（T7）
   modal({
     title: `编辑题目 #${q.id}`, wide: true, okText: '保存',
     body: `<div class="mf-form" style="flex-direction:column;align-items:stretch">
       <div class="mf-form">
         <div class="field"><label>题型</label><select id="qeType">${Object.entries(MF_TYPE_NAME).map(([k, t]) => `<option value="${k}" ${q.type === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+        <div class="field"><label>细分题型（选填）</label><select id="qeSubtype"><option value="">不细分</option></select></div>
         <div class="field"><label>学科</label><select id="qeSub">${MF_SUBJECTS.map((s) => `<option ${q.subject === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
         <div class="field"><label>学段</label><select id="qeStage">${Object.entries(MF_STAGE_NAMES).map(([k, t]) => `<option value="${k}" ${q.stage === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-        <div class="field"><label>难度(1-5)</label><input id="qeDiff" class="inp" type="number" min="1" max="5" value="${q.difficulty || 3}"></div>
+        <div class="field"><label for="qeDiff">难度（五星）</label><input id="qeDiff" class="inp" type="number" min="1" max="5" value="${q.difficulty || 3}"></div>
+        <div class="field"><label for="qeDiff10">难度（1–10，可空）</label><input id="qeDiff10" class="inp" type="number" min="1" max="10" step="1" placeholder="未细分" value="${q.difficulty_score_10 == null ? '' : Number(q.difficulty_score_10)}"></div>
       </div>
       <div class="field wide"><label>题干（支持 $...$ LaTeX，换行分段）</label><textarea id="qeStem" class="inp" rows="5">${esc(q.stem || '')}</textarea></div>
+      <div class="field wide" id="qeMatchWrap" style="display:none"><label>匹配左侧项目（每行一项）</label><textarea id="qeMatch" class="inp" rows="3">${esc((q.match_prompts || []).join('\n'))}</textarea><small>下方选项填写右侧候选项；答案按左侧顺序填写右侧序号，如 2,1,3。</small></div>
       <div class="field wide"><label>选项（一行一个，可空）</label><textarea id="qeOpts" class="inp" rows="3">${esc((q.options || []).map(optText).join('\n'))}</textarea></div>
       <div class="mf-form">
         <div class="field wide"><label>答案</label><textarea id="qeAns" class="inp" rows="2">${esc(q.answer || '')}</textarea></div>
@@ -494,9 +520,16 @@ async function mfQEdit(id, done, opts) {
         </div></div>
     </div>`,
     onMount: (w) => {
-      aud = t7AudioWidget(w.querySelector('#qeAudio'), { key: q.audio_key, url: q.audio_url });
+      aud = t7AudioWidget(w.querySelector('#qeAudio'), { key: q.audio_key, url: q.audio_url, limit: q.audio_play_limit });
+      qcBindDifficultyInputs(w.querySelector('#qeDiff'), w.querySelector('#qeDiff10'));
+      const showMatch = () => { w.querySelector('#qeMatchWrap').style.display = QSubtype.isMatch(w.querySelector('#qeSubtype').value) ? '' : 'none'; };
+      const subtypeUpdate = (current) => { QSubtype.fillSelect(w.querySelector('#qeSubtype'), w.querySelector('#qeSub').value, w.querySelector('#qeType').value, current); showMatch(); };
+      subtypeUpdate(q.question_subtype);
+      w.querySelector('#qeSub').addEventListener('change', () => subtypeUpdate());
+      w.querySelector('#qeType').addEventListener('change', () => subtypeUpdate());
+      w.querySelector('#qeSubtype').addEventListener('change', showMatch);
       if (!Array.isArray(q.images)) q.images = [];
-      t8Enhance(w, { fields: ['#qeStem', '#qeOpts', '#qeAns', '#qeAna'], images: q.images });   // 公式输入 + 粘贴 / 拖拽图片（T8）
+      imageEditor = t8Enhance(w, { uploadFields: ['#qeStem'], fields: ['#qeStem', '#qeOpts', '#qeAns', '#qeAna'], images: q.images });   // 公式输入 + 粘贴 / 拖拽图片（T8）
       const loadNodes = async (selId, boxId, cls) => {
         const tid = w.querySelector('#' + selId).value;
         if (!tid) { w.querySelector('#' + boxId).innerHTML = '<span class="hint">暂无可用分类树</span>'; return; }
@@ -513,6 +546,12 @@ async function mfQEdit(id, done, opts) {
       bindTree('qeKTree', 'qeKNodes', 'qe-knd');
     },
     onOk: async (w, showErr) => {
+      if (imageEditor) {
+        await imageEditor.whenIdle();
+        if (imageEditor.hasFailures()) return showErr('有图片上传失败，请重试或点击“忽略失败图片”后再保存。');
+      }
+      const score10 = w.querySelector('#qeDiff10').value;
+      if (score10 !== '' && (!Number.isInteger(Number(score10)) || Number(score10) < 1 || Number(score10) > 10)) return showErr('十级难度须为 1 至 10 的整数');
       const chapIds = [...w.querySelectorAll('.qe-cnd:checked')].map((c) => Number(c.value));
       const knowIds = [...w.querySelectorAll('.qe-knd:checked')].map((c) => Number(c.value));
       if (!chapTrees.length || !knowTrees.length) return showErr('缺少章节树或知识点树，请先建树');
@@ -520,14 +559,17 @@ async function mfQEdit(id, done, opts) {
       if (!knowIds.length) return showErr('知识点分类至少勾一项');
       const body = {
         type: w.querySelector('#qeType').value, subject: w.querySelector('#qeSub').value, stage: w.querySelector('#qeStage').value,
-        difficulty: Number(w.querySelector('#qeDiff').value) || 3,
+        question_subtype: w.querySelector('#qeSubtype').value,
+        match_prompts: w.querySelector('#qeMatch').value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+        difficulty: Number(w.querySelector('#qeDiff').value) || 3, difficulty_score_10: score10 === '' ? null : Number(score10),
         stem: w.querySelector('#qeStem').value,
-        stem_html: q.stem_html || '',
+        stem_html: w.querySelector('#qeStem').value === (q.stem || '') ? (q.stem_html || '') : '',
         options: w.querySelector('#qeOpts').value.split('\n').map((s) => s.trim()).filter(Boolean),
         answer: w.querySelector('#qeAns').value, analysis: w.querySelector('#qeAna').value,
         grade: q.grade || '', point: q.point || '', material: q.material || '', source: q.source || '',
         year: q.year || '', images: q.images || [], tags: q.tags || [],
         audio_key: aud ? aud.get() : (q.audio_key || ''),
+        audio_play_limit: aud ? aud.getLimit() : (q.audio_play_limit || 0),
         source_type: q.source_type || 'local', source_detail: q.source_detail || {},
         nodes: [...new Set([...chapIds, ...knowIds])],
       };
@@ -653,53 +695,33 @@ async function mfBatchAiSuggest(ids, st, done) {
 /* ================================================================ 网络采集（内嵌浏览器） */
 async function viewMfCapture() {
   const st = mfState('mfc');
-  st.tab = st.tab || 'browser';
+  st.tab = st.tab || 'capture';
   st.hist = st.hist || [];
   st.hi = st.hi || 0;
   if (!st.url) st.url = MF_SITES[0].url;
-  const batches = (await api(MF_API + '/capture/batches?questions=1', { silent: true }).catch(() => ({ list: [] }))).list || [];
+  let batchLoadError = false;
+  const batches = (await api(MF_API + '/capture/batches?questions=1', { silent: true }).catch(() => { batchLoadError = true; return { list: [] }; })).list || [];
   const stName = { zujuan: '组卷网', jyeoo: '菁优网', '21cnjy': '二一组卷网', generic: '通用' };
-
-  const batchesTable = (list, paperMode) => list.length ? `<table class="tb"><thead><tr><th style="min-width:180px">批次</th><th style="width:100px">来源</th><th style="width:64px">题数</th><th style="width:80px">状态</th><th style="width:${paperMode ? 210 : 200}px">操作</th></tr></thead>
-    <tbody>${list.map((b) => `<tr><td>${esc(b.title)}</td><td>${stName[b.site] || b.site}</td><td>${b.count}</td>
-      <td><span class="tag ${b.status === 'done' ? 'ok' : ''}">${b.status === 'done' ? '已入库' : '待入库'}</span></td>
-      <td><button class="btn ghost xs" data-view="${b.id}">查看</button>
-          <button class="btn ghost xs" data-commit="${b.id}">入库</button>
-          ${paperMode ? `<button class="btn ghost xs" data-mkpaper="${b.id}">建卷导出</button>` : ''}
-          <button class="btn ghost xs" data-delb="${b.id}">删</button></td></tr>`).join('')}</tbody></table>`
-    : `<div class="mf-empty"><div style="font-size:36px">🧺</div>${paperMode ? '还没有整卷批次' : '还没有采集批次，去「浏览器」标签逛一逛，或用一键采集'}</div>`;
-
-  const basketBatches = batches.filter((b) => !Number(b.paper_mode));
+  const remaining = (b) => b.status === 'pending' && Array.isArray(b.questions) ? b.questions.filter(q => q && !q._done && String(q.stem || q.stemHtml || '').trim()).length : 0;
+  const batchesTable = (list) => batchLoadError ? '<div class="r4-empty">采集批次加载失败，请刷新页面重试。</div>' : list.length ? `<div class="r4-capture-history-list">${list.map((b) => {
+    const left = remaining(b), status = b.status === 'done' ? '已处理' : left ? `待核对 ${left} 题` : '无待核对题';
+    return `<div class="r4-history-row"><span><strong>${esc(b.title)}</strong><small>${esc(stName[b.site] || b.site || '网络采集')} · 共 ${Number(b.count) || 0} 题 · ${esc(String(b.created_at || '').slice(0,16))}</small></span><span class="r4-status">${esc(status)}</span><div class="r4-capture-history-actions"><button type="button" class="btn ghost xs" data-view="${Number(b.id)}">查看</button>${left ? `<button type="button" class="btn primary xs" data-review-cap="${Number(b.id)}">去核对</button>` : ''}<button type="button" class="btn ghost xs" data-delb="${Number(b.id)}">删除</button></div></div>`;
+  }).join('')}</div>` : '<div class="r4-empty">还没有采集批次，完成采集后会显示在这里。</div>';
   const paperBatches = batches.filter((b) => Number(b.paper_mode));
-  const TYPE_CN = { single: '单选', multi: '多选', judge: '判断', fill: '填空', answer: '解答' };
-  const basketCards = [];
-  basketBatches.forEach((b) => {
-    (b.questions || []).forEach((q, i) => {
-      basketCards.push(`<div class="mf-qcard">
-        <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
-          <input type="checkbox" class="bkck" data-bid="${b.id}" data-idx="${i}" checked style="margin-top:3px">
-          <span><b>#${basketCards.length + 1}</b>（${TYPE_CN[q.type] || '解答'}）
-            <span class="tag">${stName[b.site] || b.site || '网页'}</span> <span class="hint">${esc(b.title)}</span></span>
-        </label>
-        <div class="mf-qtext">${esc(String(q.stem || q.stemHtml || '').replace(/<[^>]+>/g, ' ').slice(0, 220))}</div>
-        ${q.answer ? `<div class="hint">答案：${esc(String(q.answer).slice(0, 120))}</div>` : ''}
-        <a href="javascript:;" class="bk-del hint" data-bid="${b.id}" data-idx="${i}" style="color:#dc2626">移除</a>
-      </div>`);
-    });
-  });
-  const basketCount = basketBatches.reduce((s, b) => s + (b.questions ? b.questions.length : b.count), 0);
 
-  const html = `<div style="max-width:1200px;margin:0 auto">
-    <div style="margin-bottom:8px"><a href="#/paper" style="color:#6b7280;font-size:13px;text-decoration:none">← 返回</a></div>
+
+  const html = `<div class="r4-intake r4-capture">
+    <a class="r4-back" href="#/intake">‹ 返回录题中心</a>
+    <div class="r4-intake-head"><div><span class="r4-kicker">录题中心</span><h2>网络采集</h2><p>使用 AI 转写或浏览器书签采集，题目送入待审核后再分类入库。</p></div><button type="button" class="btn primary" id="capReviewAll">查看采集待审核</button></div>
+    <div class="r4-steps" aria-label="网络采集步骤"><div><b>1</b><span><strong>准备资料</strong><small>选择网页、试卷或题目截图</small></span></div><div><b>2</b><span><strong>采集或导入</strong><small>使用书签或 AI 题目包</small></span></div><div><b>3</b><span><strong>核对入库</strong><small>检查内容和分类</small></span></div></div>
     <div class="card">
-      <div class="card-h"><h3>${ic('link')} 网络采集</h3>
+      <div class="card-h"><h3>${ic('link')} 选择采集方式</h3>
         <div class="card-h-r row" style="gap:8px">
           <div class="mf-segs">
-            <button class="btn sm ${st.tab === 'browser' ? 'primary' : 'ghost'}" data-tab="browser">浏览器</button>
-            <button class="btn sm ${st.tab === 'capture' ? 'primary' : 'ghost'}" data-tab="capture">试题采集</button>
-            <button class="btn sm ${st.tab === 'paper' ? 'primary' : 'ghost'}" data-tab="paper">整卷下载</button>
+            <button class="btn sm ${st.tab === 'capture' ? 'primary' : 'ghost'}" data-tab="capture">采集题目</button>
+            <button class="btn sm ${st.tab === 'browser' ? 'primary' : 'ghost'}" data-tab="browser">辅助浏览</button>
+            <button class="btn sm ${st.tab === 'paper' ? 'primary' : 'ghost'}" data-tab="paper">整卷解析</button>
           </div>
-          <button class="btn ghost sm" data-go-paper>返回组卷</button>
         </div></div>
     <div class="card-b">
       ${st.tab === 'browser' ? `
@@ -710,76 +732,100 @@ async function viewMfCapture() {
           <input id="mfUrlBar" class="inp" style="flex:1;height:34px" placeholder="输入网址，回车打开" value="${esc(st.url)}">
           <span class="mf-dot" id="mfSiteDot">● ${esc((MF_SITES.find((s) => st.url.includes(s.host)) || {}).t || '网页')}</span>
           ${MF_SITES.map((s) => `<button class="btn sm ${st.url.includes(s.host) ? 'primary' : 'ghost'}" data-site="${s.url}">${s.t}</button>`).join('')}
-          <button class="btn ghost sm" data-tab="capture" id="mfExport">导出试题篮</button>
-          <button class="btn ghost sm" data-tab="paper" id="mfWhole">整卷下载</button>
+          <button class="btn ghost sm" data-tab="capture" id="mfExport">返回采集</button>
+          <button class="btn ghost sm" data-tab="paper" id="mfWhole">整卷解析</button>
           <button class="btn ghost sm" id="mfClose">关闭浏览器</button>
         </div>
+        <div id="mfFrameStatus" class="r4-capture-notice" role="status">辅助浏览依赖服务器代理。网站拒绝访问或代理关闭时，请使用浏览器书签采集。</div>
         <div class="mf-browser">
           <iframe id="mfFrame" src="about:blank" sandbox="allow-scripts allow-forms allow-downloads allow-modals" style="width:100%;height:calc(100vh - 250px);min-height:520px;border:0;border-radius:8px;background:#fff"></iframe>
         </div>
-        <div class="hint" style="margin-top:8px">页面右下角有「魔方采集」悬浮球：逛到有题的页面点「采集本页题目」，题进试题篮 → 到「试题采集」选学段学科入库；组卷网知识树页面会出现「采集本页知识树」。</div>
+        <div class="hint" style="margin-top:8px">代理页面可用时可尝试采集；采集结果会进入待审核。如页面为空，请回到「采集题目」使用老师本人浏览器中的书签。</div>
       ` : ''}
       ${st.tab === 'capture' ? `
-        <div class="mf-box" style="margin-bottom:16px">
-          <h4 style="margin:0 0 8px">⚡ 直链采集 · 粘贴试卷网址一键解析入库</h4>
+        <div class="r4-capture-choices">
+          <div class="r4-capture-choice"><span class="r4-capture-choice-icon">${ic('code')}</span><div><h4>AI 转写导入</h4><p>把网页、试卷或截图交给 AI 助手，导入返回的 JSON / ZIP 题目包。</p><button type="button" class="btn primary sm" id="mfOpenImport">打开技能包导入</button></div></div>
+          <div class="r4-capture-choice"><span class="r4-capture-choice-icon">${ic('link')}</span><div><h4>浏览器书签采集</h4><p>在自己的浏览器登录题目网站，打开题目页面后使用采集书签。</p><button type="button" class="btn ghost sm" id="mfOpenBookmark">查看书签使用方法</button></div></div>
+          <div class="r4-capture-choice"><span class="r4-capture-choice-icon">${ic('list')}</span><div><h4>导入采集的知识树</h4><p>选择学段、学科和教材版本，预览后合并采集到的节点。</p><button type="button" class="btn ghost sm" id="mfOpenTreeImport">导入知识树 JSON</button></div></div>
+        </div>
+        <details style="margin-bottom:16px"><summary style="cursor:pointer;color:#46566d;font-weight:600">辅助方式：服务器直链解析</summary>
+        <div class="mf-box" style="margin-top:10px">
+          <h4 style="margin:0 0 8px">直链解析</h4>
           <div class="row" style="gap:10px">
             <input id="mfAutoUrl" class="inp" style="flex:1;height:36px" placeholder="粘贴试卷网址，如 https://zujuan.xkw.com/xxxxx">
-            <button class="btn primary" id="mfAutoGo" style="height:36px;padding:0 20px">⚡ 解析试卷</button>
-            <button class="btn ghost" id="mfLogin" style="height:36px;padding:0 14px" title="需要登录的网站先在这里登录一次">🔑 登录 / 扫码</button>
+            <button class="btn primary" id="mfAutoGo" style="height:36px;padding:0 20px">解析试卷</button>
+            <button class="btn ghost" id="mfLogin" style="height:36px;padding:0 14px" title="需要登录的网站先在这里登录一次">登录 / 扫码</button>
           </div>
-          <div class="hint" style="margin-top:6px">解析后先<b>预览题目</b>，确认无误点「直接入库」；需要登录的网站点「登录 / 扫码」在代理浏览器里登录一次（账号密码或扫码都行），cookie 自动保存，之后解析免登录。</div>
-          <div id="mfParsed" style="margin-top:10px"></div>
-        </div>
-        <div class="row" style="gap:10px;margin-bottom:12px">
-          <span style="color:#374151">学段:</span>
-          <select id="bkStage" class="inp" style="width:130px;height:34px">
+          <div class="hint" style="margin-top:6px">解析后保存至待审核。网站可能拒绝服务器访问，此时请使用技能包或浏览器书签采集。</div>
+          <div class="r4-capture-message" id="mfAutoStatus" aria-live="polite"></div>
+        </div></details>
+        <div class="r4-capture-scope"><div><strong>直链或粘贴解析的题目</strong><p>先选择默认学段和学科，解析后勾选要送审的题目。书签采集可在待审核时补充。</p></div>
+          <label for="bkStage">学段
+          <select id="bkStage" class="inp">
             <option value="">请选择</option>
             ${Object.entries(MF_STAGE_NAMES).map(([k, t]) => `<option value="${k}" ${st.bStage === k ? 'selected' : ''}>${t}</option>`).join('')}
-          </select>
-          <span style="color:#374151">学科:</span>
-          <select id="bkSub" class="inp" style="width:130px;height:34px">
+          </select></label>
+          <label for="bkSub">学科
+          <select id="bkSub" class="inp">
             <option value="">请选择</option>
             ${MF_SUBJECTS.map((s) => `<option ${st.bSub === s ? 'selected' : ''}>${s}</option>`).join('')}
-          </select>
-          <button class="btn primary" id="bkCommit" style="height:34px;padding:0 24px">入库</button>
-          <button class="btn ghost sm" id="bkNew">＋ 新建试题篮</button>
+          </select></label>
         </div>
-        <h4 style="margin:2px 0 8px">试题篮 · ${basketCount} 题</h4>
-        <div id="bkList">${basketCards.join('') || '<div class="mf-empty"><div style="font-size:36px">🧺</div>试题篮是空的：去「浏览器」逛题目页点悬浮球采集，或在上方用直链采集收题</div>'}</div>
-        <details style="margin:14px 0 0"><summary style="cursor:pointer;color:#6b7280;font-size:13px">更多采集方式：书签小工具 / 粘贴网页源码或题目文本</summary>
+        <div id="mfParsed" aria-live="polite"></div>
+        <details id="mfBookmarkHelp" style="margin:14px 0 0"><summary style="cursor:pointer;color:#46566d;font-weight:600">浏览器书签采集 / 粘贴网页源码或题目文本</summary>
         <div class="mf-grid2" style="margin-top:10px">
           <div class="mf-box"><h4>书签小工具</h4>
-            <p class="hint">在组卷网/菁优网把题加进试题篮，点收藏夹里的书签自动回传。</p>
+            <p class="hint">先生成票据和书签脚本，创建浏览器书签并将脚本粘贴到网址栏。然后在自己的浏览器登录题目网站，打开题目页，点击书签并按提示粘贴票据。回传后在待审核核对题目。</p>
+            <label for="mfBmPage">目标页面类型</label>
+            <select id="mfBmPage" class="inp"><option value="chapter">章节选题</option><option value="knowledge">知识点选题</option><option value="paper">试卷详情</option></select>
             <button class="btn sm" id="mfBmToken">生成采集票据</button>
             <button class="btn ghost sm" id="mfBmJs">复制书签脚本</button>
-            <textarea id="mfBmBox" class="inp" rows="3" placeholder="点上面按钮后出现内容"></textarea></div>
+            <textarea id="mfBmBox" class="inp" rows="3" placeholder="点上面按钮后出现内容"></textarea><div class="r4-capture-message" id="mfBmStatus" aria-live="polite"></div></div>
           <div class="mf-box"><h4>粘贴网页源码 / 题目文本</h4>
             <textarea id="mfRaw" class="inp" rows="4" placeholder="网页源代码 HTML 或纯文字题"></textarea>
-            <div class="row"><input id="mfUrl" class="inp" placeholder="来源网址（选填）"><button class="btn sm" id="mfParse">解析</button></div></div>
+            <div class="row"><input id="mfUrl" class="inp" placeholder="来源网址（选填）"><button class="btn sm" id="mfParse">解析</button></div><div class="r4-capture-message" id="mfParseStatus" aria-live="polite"></div></div>
         </div></details>
-        <h4 style="margin:14px 0 8px">暂存批次</h4>
-        ${batchesTable(basketBatches, false)}
+        <details style="margin:14px 0 0"><summary style="cursor:pointer;color:#46566d;font-weight:600">站点规则自检</summary>
+          <div class="mf-box" style="margin-top:10px">
+            <p class="hint">粘贴已保存的页面源码，对照书签使用的同一套规则检查题干、选项、答案、解析和图片链接。源码只在当前浏览器解析，不会发送或执行。</p>
+            <div class="row" style="gap:8px;flex-wrap:wrap">
+              <label for="mfRuleSite">站点</label><select id="mfRuleSite" class="inp"><option value="zujuan">组卷网</option><option value="jyeoo">菁优网</option><option value="21cnjy">二一教育</option></select>
+              <label for="mfRulePage">页面类型</label><select id="mfRulePage" class="inp"><option value="chapter">章节选题</option><option value="knowledge">知识点选题</option><option value="paper">试卷详情</option></select>
+              <label for="mfRuleUrl">来源网址</label><input id="mfRuleUrl" class="inp" placeholder="用于还原相对图片地址">
+            </div>
+            <label for="mfRuleHtml" style="display:block;margin-top:10px">网页源码</label>
+            <textarea id="mfRuleHtml" class="inp" rows="5" placeholder="粘贴网页 HTML 源码"></textarea>
+            <button type="button" class="btn sm" id="mfRuleTest" style="margin-top:8px">检查规则</button>
+            <div id="mfRuleOut" aria-live="polite" style="margin-top:10px"></div>
+          </div>
+        </details>
+        <div class="r4-capture-history"><div class="r4-history-head"><div><h3>最近采集批次</h3><p>显示最近 100 个采集批次中的前 8 个，可继续核对未完成的题目。</p></div><button type="button" class="btn ghost sm" id="bkCommit">查看采集待审核</button></div>${batchesTable(batches.slice(0,8))}</div>
       ` : ''}
       ${st.tab === 'paper' ? `
         <div class="mf-box" style="max-width:780px">
-          <h4 style="margin:0 0 10px">整卷下载（组卷网）</h4>
+          <h4 style="margin:0 0 10px">整卷链接解析（辅助方式）</h4>
           <div class="row" style="gap:10px">
             <input id="wpUrl" class="inp" style="flex:1;height:36px" placeholder="https://zujuan.xkw.com/4p2338916.html">
-            <button class="btn primary" id="wpGo" style="height:36px;padding:0 18px">整卷下载</button>
+            <button class="btn primary" id="wpGo" style="height:36px;padding:0 18px">解析试卷</button>
           </div>
-          <div class="hint" style="margin-top:6px">粘贴组卷整卷详情页 URL（(bankId)p(paperId).html），不占试题篮</div>
+          <div class="hint" style="margin-top:6px">粘贴组卷网整卷详情页网址。网站可能拒绝服务器访问，失败时可使用书签或技能包采集。</div>
           <div id="wpOut" style="margin-top:10px"></div>
         </div>
         <h4 style="margin:14px 0 8px">整卷批次</h4>
-        ${batchesTable(paperBatches, true)}
+        ${batchesTable(paperBatches)}
       ` : ''}
     </div></div></div>`;
 
   return {
     html,
     after: () => {
+      const captureRoot = document.getElementById('capReviewAll'); if (captureRoot) R4Flow.bind(captureRoot.closest('.card') || captureRoot.parentElement, 'capture');
+      R4Flow.prepare(document.getElementById('view'), 'capture', ['mfRaw','mfUrl','bkSub','mfRuleHtml','mfRulePage','mfRuleSite']);
+      const captureScopeHost = document.querySelector('.r4-capture-scope');
+      const captureScope = captureScopeHost ? R4Flow.scope(document.getElementById('view'), 'capture', captureScopeHost, {subject:'bkSub',stage:'bkStage'}) : () => ({});
+      const openReview = (batchId = 0) => { pdSelectBatch('capture', batchId); location.hash = '#/pending'; };
+      document.getElementById('capReviewAll').onclick = () => openReview();
       document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { st.tab = b.dataset.tab; render(); }; });
-      document.querySelectorAll('[data-go-paper]').forEach((b) => { b.onclick = () => { location.hash = '#/paper'; }; });
       const rerender = () => render();
 
       /* —— 浏览器标签 —— */
@@ -790,7 +836,8 @@ async function viewMfCapture() {
         const nav = async (url, push = true) => {
           if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
           const t = await api(MFX + '/proxy-ticket', { method: 'POST', silent: false }).catch(() => null);
-          if (!t) return toast('拿不到代理票据，请重新登录', 'err');
+          if (!t) { document.getElementById('mfFrameStatus').textContent = '辅助代理当前不可用。请返回「采集题目」，使用浏览器书签或技能包。'; return; }
+          document.getElementById('mfFrameStatus').textContent = '正在尝试加载网页；如果网页空白或拒绝访问，请使用浏览器书签或技能包。';
           st.k = t.k; st.cap = t.capture;
           st.url = url;
           if (push) { st.hist = st.hist.slice(0, st.hi + 1); st.hist.push(url); st.hi = st.hist.length - 1; }
@@ -821,47 +868,29 @@ async function viewMfCapture() {
 
       /* —— 试题采集标签 —— */
       if (st.tab === 'capture') {
-        /* 试题篮：勾选题 → 选学段学科 → 入库 */
-        document.getElementById('bkCommit').onclick = async () => {
-          const stage = document.getElementById('bkStage').value, subject = document.getElementById('bkSub').value;
-          if (!stage || !subject) return toast('先选好学段和学科再入库', 'err');
-          st.bStage = stage; st.bSub = subject;
-          const sel = {};
-          document.querySelectorAll('.bkck:checked').forEach((c) => { (sel[c.dataset.bid] = sel[c.dataset.bid] || []).push(Number(c.dataset.idx)); });
-          const keys = Object.keys(sel);
-          if (!keys.length) return toast('试题篮里没有勾选题目', 'err');
-          let created = 0, updated = 0;
-          for (const bid of keys) {
-            const d = await api(`${MF_API}/capture/batches/${bid}/commit`, { method: 'POST', body: { selected: sel[bid], subject, stage, grade: '' } });
-            created += d.created || 0; updated += d.updated || 0;
-          }
-          toast(`入库完成：新增 ${created} 题、补缺 ${updated} 题，都进「题库管理」了`, 'ok'); rerender();
-        };
-        document.getElementById('bkNew').onclick = async () => {
-          await api(MF_API + '/capture/batches', { method: 'POST', body: { basket: 1, title: `试题篮 ${new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` } });
-          toast('新试题篮已建好：接下来用悬浮球「采集本页题目」或一键采集，题会收进最新的空篮', 'ok');
-          rerender();
-        };
-        document.querySelectorAll('.bk-del').forEach((a) => { a.onclick = async () => {
-          await api(`${MF_API}/capture/batches/${a.dataset.bid}/q/${a.dataset.idx}`, { method: 'DELETE' });
-          toast('已移除', 'ok'); rerender();
-        }; });
+        document.getElementById('mfOpenTreeImport').onclick = () => mfTreeImportDialog();
+        document.getElementById('mfOpenImport').onclick = () => { location.hash = '#/intake-skill'; };
+        document.getElementById('mfOpenBookmark').onclick = () => { const d = document.getElementById('mfBookmarkHelp'); d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+        document.getElementById('bkCommit').onclick = () => openReview();
         document.getElementById('bkStage').onchange = (e) => { st.bStage = e.target.value; };
         document.getElementById('bkSub').onchange = (e) => { st.bSub = e.target.value; };
 
         const showParsed = (d, url) => {
           const parsed = d.questions || [];
+          if (!parsed.length) { document.getElementById('mfParsed').innerHTML = '<div class="r4-capture-notice">没有识别到题目，请检查内容，或改用浏览器书签、AI 转写后再试。</div>'; return; }
           document.getElementById('mfParsed').innerHTML = `<div class="mf-parsed">
             <div class="row" style="justify-content:space-between">
-              <b>解析出 ${parsed.length} 题（${stName[d.site] || d.site}${d.via === 'ai' ? ' · AI 识别' : ''}）</b>
+              <b>解析出 ${parsed.length} 题（${esc(stName[d.site] || d.site || '未知来源')}${d.via === 'ai' ? ' · AI 识别' : ''}）</b>
               <span>
-                <button class="btn primary sm" id="mfDirectCommit">✅ 直接入库</button>
-                <button class="btn sm" id="mfSaveBatch">存进试题篮</button></span></div>
+                <button class="btn primary sm" id="mfDirectCommit">送入待审核</button></span></div>
+            ${d.unassigned_images ? `<p class="hint" style="color:#9a6700">发现 ${Number(d.unassigned_images)} 张图片，无法可靠判断所属题目；请在审核时对照原页补图。</p>` : ''}
             ${parsed.map((q, i) => `<div class="mf-qcard">
               <label><input type="checkbox" class="mfpck" value="${i}" checked> 第 ${i + 1} 题（${({ single: '单选', multi: '多选', judge: '判断', fill: '填空', answer: '解答' })[q.type] || '解答'}）</label>
-              <div class="mf-qtext">${esc((q.stem || '').slice(0, 200))}</div>
-              ${q.answer ? `<div class="hint">答案：${esc(q.answer)}</div>` : ''}</div>`).join('')}
-            <div class="hint" style="margin-top:6px">直接入库用上方的学段/学科选择；默认全部勾选，去掉勾选的题不入库。</div></div>`;
+              ${q.material ? `<div class="hint">材料：${esc(q.material)}</div>` : ''}
+              <div class="mf-qtext">${esc(q.stem || q.stemHtml || '')}</div>
+              ${(q.options || []).length ? `<div class="hint">选项：${esc((q.options || []).map(optText).join(' / '))}</div>` : ''}
+              <div class="hint">答案：${esc(q.answer || '待补充')} · 解析：${esc(q.analysis || '待补充')}</div></div>`).join('')}
+            <div class="hint" style="margin-top:6px">选择题目并保存到待审核，在审核页确认分类后入库。</div></div>`;
           const selIdx = () => [...document.querySelectorAll('.mfpck:checked')].map((c) => Number(c.value));
           document.getElementById('mfDirectCommit').onclick = async (ev) => {
             const btn = ev.currentTarget;
@@ -869,60 +898,76 @@ async function viewMfCapture() {
             if (!sel.length) return toast('至少勾一题', 'err');
             const stage = (document.getElementById('bkStage') || {}).value || st.bStage || '';
             const subject = (document.getElementById('bkSub') || {}).value || st.bSub || '';
-            if (!stage || !subject) return toast('先在上面的「学段 / 学科」里选好再直接入库', 'err');
+            if (!stage || !subject) return toast('先在上面的「学段 / 学科」里选好', 'err');
             st.bStage = stage; st.bSub = subject;
-            btn.disabled = true; btn.textContent = '入库中…';
+            btn.disabled = true; btn.textContent = '保存中…';
             try {
-              const b = await api(MF_API + '/capture/batches', { method: 'POST', body: { title: `直链采集 ${stName[d.site] || d.site} ${sel.length} 题`, site: d.site, url, questions: sel.map((i) => parsed[i]) } });
-              const r = await api(`${MF_API}/capture/batches/${b.id}/commit`, { method: 'POST', body: { selected: sel, subject, stage, grade: '' } });
-              toast(`入库完成：新增 ${r.created || 0} 题、补缺 ${r.updated || 0} 题，都进「题库管理」了`, 'ok');
-              rerender();
-            } catch (e) { btn.disabled = false; btn.textContent = '✅ 直接入库'; }
-          };
-          document.getElementById('mfSaveBatch').onclick = async () => {
-            const sel = selIdx();
-            if (!sel.length) return toast('至少勾一题', 'err');
-            await api(MF_API + '/capture/batches', { method: 'POST', body: { title: `${stName[d.site] || d.site}采集 ${sel.length} 题`, site: d.site, url, questions: sel.map((i) => parsed[i]) } });
-            toast('已存进试题篮', 'ok'); rerender();
+              const saved = await R4Flow.post(MF_API + '/capture/batches', 'capture', { ...captureScope(), title: `采集 ${stName[d.site] || d.site} ${sel.length} 题`, site: d.site, url, subject, stage, questions: sel.map((i) => parsed[i]) });
+              toast(saved.image_errors ? `已保存到待审核，${saved.image_errors} 张图片需要补充` : '已保存到待审核', saved.image_errors ? 'err' : 'ok'); openReview(saved.id);
+            } catch (e) { btn.disabled = false; btn.textContent = '送入待审核'; }
           };
         };
         const autoBtn = document.getElementById('mfAutoGo');
         autoBtn.onclick = async () => {
           const url = document.getElementById('mfAutoUrl').value.trim();
           if (!url) { document.getElementById('mfAutoUrl').focus(); return toast('先粘贴网址', 'err'); }
+          const status = document.getElementById('mfAutoStatus');
+          status.textContent = '正在解析，请稍候…';
           autoBtn.disabled = true; autoBtn.textContent = '解析中…';
           try {
             const d = await api(MF_API + '/capture/auto', { method: 'POST', body: { url } });
             showParsed(d, url);
-          } catch (e) { /* api 已提示 */ }
-          autoBtn.disabled = false; autoBtn.textContent = '⚡ 解析试卷';
+            status.textContent = (d.questions || []).length ? `已解析 ${(d.questions || []).length} 题，请核对下方结果。` : '没有识别到题目，可以改用浏览器书签或 AI 转写。';
+          } catch (e) { status.textContent = `解析失败：${e.message || '请检查网址或稍后重试'}。也可使用浏览器书签或 AI 转写。`; }
+          autoBtn.disabled = false; autoBtn.textContent = '解析试卷';
         };
         document.getElementById('mfAutoUrl').onkeydown = (e) => { if (e.key === 'Enter') autoBtn.click(); };
         document.getElementById('mfLogin').onclick = () => {
           const raw = document.getElementById('mfAutoUrl').value.trim();
           if (raw) { try { st.url = new URL(/^https?:\/\//i.test(raw) ? raw : 'https://' + raw).origin; } catch (e) { /* 保持原网址 */ } }
           st.tab = 'browser';
-          toast('已在「浏览器」标签打开该网站：在页面里登录账号或扫码，完成后 cookie 自动保存，回「试题采集」直接解析即可', 'ok');
+          toast('已切换到辅助浏览；若代理不可用，请改用本人浏览器中的书签', 'ok');
           render();
         };
         document.getElementById('mfBmToken').onclick = async () => {
-          const d = await api(MF_API + '/capture/token');
-          document.getElementById('mfBmBox').value = d.token;
-          toast('票据已生成（90 天有效）', 'ok');
+          const status = document.getElementById('mfBmStatus');
+          status.textContent = '正在生成票据…';
+          try { const d = await api(MF_API + '/capture/token'); document.getElementById('mfBmBox').value = d.token; status.textContent = '票据已生成（90 天有效），请复制后在书签首次运行时粘贴。'; }
+          catch (e) { status.textContent = `票据生成失败：${e.message || '请稍后重试'}`; }
         };
         document.getElementById('mfBmJs').onclick = async () => {
-          const d = await api(`${MF_API}/capture/bookmarklet?base=${encodeURIComponent(location.origin)}`);
-          const box = document.getElementById('mfBmBox');
-          box.value = d.js; box.select();
-          try { document.execCommand('copy'); toast('脚本已复制：新建书签，网址填它即可', 'ok'); } catch (e) { toast('已生成，请手动复制', 'ok'); }
+          const page = document.getElementById('mfBmPage').value;
+          const status = document.getElementById('mfBmStatus'); status.textContent = '正在生成书签脚本…';
+          try {
+            const d = await api(`${MF_API}/capture/bookmarklet?base=${encodeURIComponent(location.origin)}&page=${encodeURIComponent(page)}`);
+            const box = document.getElementById('mfBmBox'); box.value = d.js; box.select();
+            let copied = false; try { copied = document.execCommand('copy'); } catch (e) { /* 手动复制 */ }
+            status.textContent = copied ? '脚本已复制，请新建书签并粘贴到网址栏。' : '脚本已生成并选中，请手动复制后粘贴到书签网址栏。';
+          } catch (e) { status.textContent = `书签生成失败：${e.message || '请稍后重试'}`; }
         };
-        document.getElementById('mfParse').onclick = async () => {
+        document.getElementById('mfRuleTest').onclick = () => {
+          const raw = document.getElementById('mfRuleHtml').value.trim();
+          const out = document.getElementById('mfRuleOut');
+          if (!raw) { out.textContent = '请先粘贴网页源码'; return; }
+          if (raw.length > 5 * 1024 * 1024) { out.textContent = '源码超过 5 MB，请缩小范围后重试'; return; }
+          const fragment = document.createElement('template');
+          fragment.innerHTML = raw;
+          const site = document.getElementById('mfRuleSite').value;
+          const page = document.getElementById('mfRulePage').value;
+          const url = document.getElementById('mfRuleUrl').value.trim();
+          const result = MFCaptureRules.extract(fragment.content, site, page, url, MFCaptureRules.configs);
+          if (!result.questions.length) { out.textContent = result.message; return; }
+          out.innerHTML = `<p>匹配到 ${result.questions.length} 题；结果需与原网页逐项核对。${esc(result.message || '')}</p>${result.questions.map((q, i) => `<div class="mf-qcard"><b>第 ${i + 1} 题</b><div>${esc(q.stem)}</div><div class="hint">选项：${esc(q.options.join(' / ') || '未匹配')}</div><div class="hint">答案：${esc(q.answer || '未匹配')} · 解析：${esc(q.analysis || '未匹配')}</div><div class="hint">图片：${esc(q.images.join(' / ') || '未匹配')}</div></div>`).join('')}`;
+        };
+        document.getElementById('mfParse').onclick = async (event) => {
           const raw = document.getElementById('mfRaw').value;
           if (!raw.trim()) return toast('先粘贴内容', 'err');
           const url = document.getElementById('mfUrl').value.trim();
           const isHtml = /<[a-z][\s\S]*>/i.test(raw);
-          const d = await api(MF_API + '/capture/parse', { method: 'POST', body: { [isHtml ? 'html' : 'text']: raw, url } });
-          showParsed(d, url);
+          const btn = event.currentTarget, status = document.getElementById('mfParseStatus'); btn.disabled = true; status.textContent = '正在解析，请稍候…';
+          try { const d = await api(MF_API + '/capture/parse', { method: 'POST', body: { [isHtml ? 'html' : 'text']: raw, url } }); showParsed(d, url); status.textContent = (d.questions || []).length ? `已解析 ${(d.questions || []).length} 题，请核对下方结果。` : '没有识别到题目，请检查内容后重试。'; }
+          catch (e) { status.textContent = `解析失败：${e.message || '请稍后重试'}`; }
+          finally { btn.disabled = false; }
         };
       }
 
@@ -932,20 +977,20 @@ async function viewMfCapture() {
         go.onclick = async () => {
           const url = document.getElementById('wpUrl').value.trim();
           if (!/^https?:\/\//i.test(url)) { document.getElementById('wpUrl').focus(); return toast('先粘贴整卷详情页网址', 'err'); }
-          go.disabled = true; go.textContent = '下载中…';
+          go.disabled = true; go.textContent = '解析中…';
           try {
             const d = await api(MF_API + '/capture/auto', { method: 'POST', body: { url } });
             const qs = d.questions || [];
             if (!qs.length) {
               toast('抓到了页面，但没认出题目：可能要登录（去「浏览器」登录后再试）或页面是图片卷', 'err');
             } else {
-              await api(MF_API + '/capture/batches', { method: 'POST', body: { paper_mode: 1, site: d.site, url, title: `整卷 ${d.site_name || d.site || ''} ${qs.length} 题`, questions: qs } });
-              document.getElementById('wpOut').innerHTML = `<div class="mf-tip">✅ 解析出 <b>${qs.length}</b> 题${d.via === 'ai' ? '（AI 识别）' : ''}，已存为整卷批次 —— 在下方列表「入库」选学段学科，或「建卷导出」直接成卷。</div>`;
-              toast(`整卷下载完成：解析出 ${qs.length} 题`, 'ok');
+              await R4Flow.post(MF_API + '/capture/batches', 'capture', { ...captureScope(), paper_mode: 1, site: d.site, url, title: `整卷 ${d.site_name || d.site || ''} ${qs.length} 题`, questions: qs });
+              document.getElementById('wpOut').innerHTML = `<div class="mf-tip">解析出 <b>${qs.length}</b> 题${d.via === 'ai' ? '（AI 识别）' : ''}，已送入待审核。审核通过后，题目进入题库；需要在组卷中另外创建试卷。</div>`;
+              toast(`已解析 ${qs.length} 题并送入待审核`, 'ok');
               setTimeout(rerender, 800);
             }
-          } catch (e) { /* api 已提示 */ }
-          go.disabled = false; go.textContent = '整卷下载';
+          } catch (e) { document.getElementById('wpOut').textContent = `解析失败：${e.message || '请检查网址或稍后重试'}。也可使用浏览器书签或 AI 转写。`; }
+          go.disabled = false; go.textContent = '解析试卷';
         };
         document.getElementById('wpUrl').onkeydown = (e) => { if (e.key === 'Enter') go.click(); };
       }
@@ -958,23 +1003,7 @@ async function viewMfCapture() {
           ${(q.options || []).length ? `<div class="hint">${esc((q.options || []).map(optText).join(' / ').slice(0, 200))}</div>` : ''}
           ${q.answer ? `<div class="hint">答案：${esc(q.answer)}</div>` : ''}</div>`).join('') });
       }; });
-      document.querySelectorAll('[data-commit]').forEach((b) => { b.onclick = () => mfCommitForm(Number(b.dataset.commit)); });
-      document.querySelectorAll('[data-mkpaper]').forEach((b) => {
-        b.onclick = () => {
-          modal({ title: '整卷建卷', body: `<div class="mf-form">
-            <div class="field wide"><label>试卷名</label><input id="mpTitle" class="inp"></div>
-            <div class="field"><label>学科</label><select id="mpSub">${MF_SUBJECTS.map((s) => `<option>${s}</option>`).join('')}</select></div>
-            <div class="field"><label>学段</label><select id="mpStage">${Object.entries(MF_STAGE_NAMES).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div></div>`,
-            onOk: async (w) => {
-              const d = await api(MF_API + '/capture/batches/' + b.dataset.mkpaper);
-              const title = w.querySelector('#mpTitle').value.trim() || d.batch.title;
-              await api(MF_API + '/papers', { method: 'POST', body: { title, subject: w.querySelector('#mpSub').value, stage: w.querySelector('#mpStage').value, status: 'basket' } });
-              toast(`试卷《${title}》已建好，入库时「加入试卷」选它即可`, 'ok');
-              // 打开入库表单（复用弹层），入库完成题就进了题库和这份卷
-              mfCommitForm(Number(b.dataset.mkpaper));
-            } });
-        };
-      });
+      document.querySelectorAll('[data-review-cap]').forEach((b) => { b.onclick = () => openReview(b.dataset.reviewCap); });
       document.querySelectorAll('[data-delb]').forEach((b) => { b.onclick = async () => {
         if (!(await elConfirm({ title: '删除批次', message: '只删暂存，不影响已入库的题目。确定？', okText: '删除', danger: true }))) return;
         await api(`${MF_API}/capture/batches/${b.dataset.delb}`, { method: 'DELETE' }); toast('已删除', 'ok'); rerender();
@@ -986,13 +1015,12 @@ async function viewMfCapture() {
 /* ================================================================ 设置（AI 配置管理 / 字典映射） */
 async function viewMfSet() {
   const prof = await api(MFX + '/profiles', { silent: true }).catch(() => ({ list: [], roles: [], presets: [], total: 0, enabled_count: 0 }));
-  const dict = await api(MFX + '/dict', { silent: true }).catch(() => ({ counts: { total: 0, unknown: 0, trees: 0 } }));
   const cur = await api('/api/admin/ai/config', { silent: true }).catch(() => null);   // 现在实际生效的配置（T2）
 
   // AI 能力清单：学生端 + 管理后台所有用到 AI 大模型的接口，按「可共用一个模型」分组
   const AI_GROUPS = [
     {
-      role: 'reasoning', icon: '💬', name: '文本生成（共用一个对话模型）',
+      role: 'reasoning', icon: 'chat', name: '文本生成（共用一个对话模型）',
       desc: '所有文字类 AI 能力共用这一个模型，配置一次全部生效。',
       feats: [
         ['AI 学情诊断 / 学习报告分析', '管理后台 · AI学情诊断，学生端 · 学习报告'],
@@ -1002,7 +1030,7 @@ async function viewMfSet() {
       ],
     },
     {
-      role: 'vision', icon: '📷', name: '图像识别（共用一个视觉模型）',
+      role: 'vision', icon: 'video', name: '图像识别（共用一个视觉模型）',
       desc: '所有拍照识图类 AI 能力共用这一个模型（需勾选「支持图片输入」）。',
       feats: [
         ['录题上传整页识别', '管理后台 · 录题上传（整页试卷图 → 题卡）'],
@@ -1010,7 +1038,7 @@ async function viewMfSet() {
       ],
     },
     {
-      role: '', icon: '🔊', name: '语音 / 图像生成（内置，无需配置）',
+      role: '', icon: 'volume', name: '语音 / 图像生成（内置，无需配置）',
       desc: '走服务器内置的阿里云百炼通道，已配好 Key，不占用上面的对话 / 视觉模型。',
       feats: [
         ['发音合成 TTS（音标 / 单词 / 例句朗读）', '学生端 · 音标训练 / 词书跟读 / 听写'],
@@ -1034,28 +1062,24 @@ async function viewMfSet() {
       <div class="mf-setcard">
         <div class="mf-sett"><b>AI 配置（全站唯一入口）</b></div>
         <div class="hint">学生端 + 管理后台<b>所有用到 AI 大模型的能力</b>都读这里启用的档案，按「能不能共用一个模型」分组 —— 配置一次全部生效，切换档案后立即全站切换。一个档案 = 一个接口：选<b>格式</b>（OpenAI 兼容 / Anthropic / Gemini）→ 填接口地址、密钥、模型 → 测试连接 → 启用。密钥保存在服务器数据库里，界面只写不回显。</div>
-        <div class="mf-prole" style="margin-top:10px"><div class="mf-prole-t"><b>⚡ 当前生效</b>　${cur ? (cur.mock ? '<span class="tag warn">演示模式（AI_MOCK=1，不调外部接口）</span>' : (cur.hasKey ? `<span class="tag ok">${esc(cur.via === 'builtin' ? '内置配置（没有启用任何档案）' : cur.via)} · ${esc(cur.model)} · ${esc({ openai: 'OpenAI 兼容', anthropic: 'Anthropic', gemini: 'Gemini' }[cur.format] || cur.format)}</span>` : '<span class="tag err">没有可用配置</span>')) : '<span class="tag">读取失败</span>'}
-          <button class="btn ghost xs" id="mfTestCur" style="margin-left:8px">测试当前配置</button><span id="mfTestCurMsg" class="hint" style="margin-left:8px"></span></div></div>
+        <div class="mf-prole" style="margin-top:10px"><div class="mf-prole-t"><b>${ic('flash')} 当前生效</b>　${cur ? (cur.mock ? '<span class="tag warn">演示模式（AI_MOCK=1，不调外部接口）</span>' : (cur.hasKey ? `<span class="tag ok">${esc(cur.via === 'builtin' ? '内置配置（没有启用任何档案）' : cur.via)} · ${esc(cur.model)} · ${esc({ openai: 'OpenAI 兼容', anthropic: 'Anthropic', gemini: 'Gemini' }[cur.format] || cur.format)}</span>` : '<span class="tag err">没有可用配置</span>')) : '<span class="tag">读取失败</span>'}
+          <button class="btn ghost xs" id="mfTestCur" style="margin-left:8px">测试当前配置</button> <button class="btn ghost xs" id="mfTestAll">一键测试全部档案</button><span id="mfTestAllMsg" class="hint" aria-live="polite"></span><span id="mfTestCurMsg" class="hint" style="margin-left:8px"></span></div></div>
         ${AI_GROUPS.map((g) => `
           <div class="mf-prole" style="margin-top:10px">
-            <div class="mf-prole-t"><b>${g.icon} ${g.name}</b>　${roleStatus(g.role)}</div>
+            <div class="mf-prole-t"><b>${ic(g.icon)} ${g.name}</b>　${roleStatus(g.role)}</div>
             <div class="hint" style="margin:2px 0 6px">${g.desc}</div>
-            <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px;background:#fafbff">
-              ${g.feats.map(([t, w]) => `<div style="display:flex;gap:10px;font-size:13px;line-height:1.9"><span style="flex:0 0 auto">· ${esc(t)}</span><span style="flex:1;color:#94a3b8;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w)}</span></div>`).join('')}
+            <div class="r10-ai-features">
+              ${g.feats.map(([t, w]) => `<div class="r10-ai-feature"><span>· ${esc(t)}</span><span>${esc(w)}</span></div>`).join('')}
             </div>
             ${g.role ? `<div style="margin-top:8px"><button class="btn primary sm" data-aigroup="${g.role}">配置${g.role === 'vision' ? '视觉' : '对话'}模型</button>
               <span class="hint">　新建档案 / 快捷设置 / 测试 / 启用</span></div>` : ''}
           </div>`).join('')}
         <div class="hint" style="margin-top:12px;border-top:1px dashed #e5e7eb;padding-top:10px">
           某个角色没有启用的档案时，会自动用别的已启用档案（所以只配一个模型也能全站通用）；一个档案都没启用时才用服务器内置配置。
-          <a href="javascript:;" id="mfAiHelp" style="color:#6366f1;margin-left:8px">📖 配置教程（去哪个网站、怎么拿 Key）</a></div>
+          <a href="javascript:;" id="mfAiHelp" style="color:#6366f1;margin-left:8px">${ic('book')} 配置教程（去哪个网站、怎么拿 Key）</a></div>
       </div>
 
-      <div class="mf-setcard">
-        <div class="mf-sett"><b>字典 / 树映射</b><button class="btn ghost sm" id="mfOpenDict">查看映射</button></div>
-        <div class="hint">采集来源同义值 → 标准码映射、知识树站点来源的只读查看；未识别的字典值可在此指认归位。</div>
-        <div class="mf-setnum">字典 ${dict.counts.total} 行 · 未知值 ${dict.counts.unknown} · 树 ${dict.counts.trees} 棵</div>
-      </div>
+
 
     </div></div>`;
 
@@ -1063,11 +1087,23 @@ async function viewMfSet() {
     html,
     after: () => {
       document.querySelectorAll('[data-aigroup]').forEach((b) => { b.onclick = () => mfProfileDialog(b.dataset.aigroup); });
-      document.getElementById('mfOpenDict').onclick = () => mfDictDialog();
       document.getElementById('mfTestCur').onclick = async () => {
         const box = document.getElementById('mfTestCurMsg'); box.style.color = ''; box.textContent = '测试中…';
-        try { const r = await api('/api/admin/ai/test', { method: 'POST', silent: true }); box.style.color = '#0e9f5f'; box.textContent = '✅ ' + ((r && r.message) || '连接正常'); }
-        catch (e) { box.style.color = '#e0343f'; box.textContent = '❌ ' + (e.message || '连接失败'); }
+        try { const r = await api('/api/admin/ai/test', { method: 'POST', silent: true }); box.style.color = '#0e9f5f'; box.textContent = ' ' + ((r && r.message) || '连接正常'); }
+        catch (e) { box.style.color = '#e0343f'; box.textContent = ' ' + (e.message || '连接失败'); }
+      };
+      document.getElementById('mfTestAll').onclick = async (event) => {
+        const button = event.currentTarget, box = document.getElementById('mfTestAllMsg');
+        if (!prof.list.length) { box.textContent = '没有已保存的档案'; return; }
+        button.disabled = true; const results = [];
+        try {
+          for (const p of prof.list) {
+            box.textContent = `正在测试 ${results.length + 1}/${prof.list.length}：${p.name}`;
+            try { await api(`${MFX}/profiles/${p.id}/test`, { method: 'POST', silent: true }); results.push(`${p.name}：通过`); }
+            catch (e) { results.push(`${p.name}：失败（${e.message || '连接失败'}）`); }
+          }
+          box.textContent = results.join('；');
+        } finally { button.disabled = false; }
       };
       document.getElementById('mfAiHelp').onclick = () => mfHelpDialog();
     },
@@ -1083,7 +1119,7 @@ async function mfProfileDialog(onlyRole) {
     const ps = d.list.filter((p) => p.role === rk);
     const on = ps.find((p) => p.is_enabled);
     return `<div class="mf-prole" data-role="${rk}">
-      <div class="mf-prole-t"><b>${rt}</b> <span class="hint">${rd}</span></div>
+      <div class="mf-prole-t"><b>${esc(MF_ROLE_NAME[rk] || rt)}</b></div>
       <div class="mf-prole-b">
         ${on ? `<span class="tag ok">已启用：${esc(on.name)} · ${esc(on.model)}</span>` : `<span class="tag">${ps.length ? '未启用（测通后启用）' : '未配置'}</span>`}
         <button class="btn ghost xs" data-new="${rk}">新建档案</button>
@@ -1094,9 +1130,9 @@ async function mfProfileDialog(onlyRole) {
   };
   modal({
     title: onlyRole ? `AI 配置 · ${MF_ROLE_NAME[onlyRole] || onlyRole}` : '模型配置', wide: true, okText: '关闭',
-    body: `<div class="mf-tip" style="margin-bottom:10px">五个角色各管一摊，多用一个档多一份 capability；新档案须先测连通才能启用。Key 加密存本机，编辑时留空即不换 Key。</div>
+    body: `<div class="mf-tip" style="margin-bottom:10px">按用途维护模型档案，新档案须先测试连通才能启用。编辑时密钥留空即不更换。</div>
       ${roles.map(roleRow).join('')}
-      <div style="text-align:right;margin-top:14px"><a href="javascript:;" id="mfHelp" style="color:#6366f1;font-size:13px">📖 配置教程（去哪个网站、怎么拿 Key）</a></div>`,
+      <div style="text-align:right;margin-top:14px"><a href="javascript:;" id="mfHelp" style="color:#6366f1;font-size:13px"> 配置教程（去哪个网站、怎么拿 Key）</a></div>`,
     onMount: (w) => {
       const hp = w.querySelector('#mfHelp'); if (hp) hp.onclick = () => mfHelpDialog();
       w.querySelectorAll('[data-new]').forEach((b) => { b.onclick = () => mfProfileForm(b.dataset.new, null, onlyRole); });
@@ -1107,7 +1143,7 @@ async function mfProfileDialog(onlyRole) {
       w.querySelectorAll('[data-quick]').forEach((b) => { b.onclick = () => {
         const role = b.dataset.quick;
         const presets = d.presets.filter((p) => p.role === role);
-        modal({ title: `快捷设置（${{ reasoning: 'R1 推理', vision: 'R2 OCR', light: 'R3 轻', embedding: 'R4 向量', specialty: 'R5 专用' }[role]}）——填入 API Key 一键接入`,
+        modal({ title: `快捷设置（${MF_ROLE_NAME[role] || role}）——填入 API Key 一键接入`,
           body: `<div class="mf-form" style="flex-direction:column;align-items:stretch">
             <div class="field"><label>推荐项</label><select id="qsPre">${presets.map((p, i) => `<option value="${i}">${esc(p.label)}</option>`).join('')}</select></div>
             <div class="field"><label>API Key</label><input id="qsKey" class="inp" type="password" placeholder="粘贴 Key"></div>
@@ -1138,101 +1174,93 @@ async function mfProfileDialog(onlyRole) {
   });
 }
 
-/** 五角色 AI 配置教程（模型配置弹窗右下角入口） */
+/** AI 配置帮助 */
 function mfHelpDialog() {
-  const step = (n, t) => `<div style="display:flex;gap:8px;margin:6px 0"><span style="flex:0 0 22px;height:22px;border-radius:50%;background:#6366f1;color:#fff;font-size:12px;display:inline-flex;align-items:center;justify-content:center">${n}</span><div style="flex:1;font-size:13px;line-height:1.7">${t}</div></div>`;
-  const card = (t, inner) => `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:10px"><div style="font-weight:700;margin-bottom:4px;font-size:14px">${t}</div>${inner}</div>`;
-  modal({
-    title: '五角色 AI 配置教程（跟着点就行）', wide: true, okText: '我知道了',
-    body: `
-    <div class="mf-tip" style="margin-bottom:10px">每个角色 = 一条独立通道。配置套路都一样：<b>① 去平台注册 → ② 创建 API Key 并复制 → ③ 回这里点「快捷设置」粘贴 Key → 确定</b>（自动建档+测连通+启用）。不配也能用：系统会自动回落内置 AI。</div>
-
-    ${card('R1 推理 — 推荐用 DeepSeek（便宜、讲题强）', `
-      ${step(1, '打开官网：<b>platform.deepseek.com</b>（开放平台，注意不是聊天版 chat.deepseek.com），手机号注册登录。')}
-      ${step(2, '左侧菜单点「<b>API keys</b>」→「创建 API key」→ 随便起个名 → 复制弹出的 Key（<b>只显示这一次</b>，当场复制）。')}
-      ${step(3, '左侧「<b>充值</b>」→ 微信/支付宝充值（10 元起，够用很久）。没余额调用会报错。')}
-      ${step(4, '回到本页 → R1 那行点「<b>快捷设置</b>」→ 推荐项选「DeepSeek 推理」→ 粘贴 Key → 确定。')}`)}
-
-    ${card('R2 OCR（看图识题）— 推荐硅基流动（有免费档）', `
-      ${step(1, '打开官网：<b>cloud.siliconflow.cn</b>，注册登录（手机号/微信都行）。')}
-      ${step(2, '左侧「<b>API 密钥</b>」→「新建 API 密钥」→ 复制。新用户送额度，部分小模型长期免费。')}
-      ${step(3, '回到本页 → R2 那行点「<b>快捷设置</b>」→ 选「硅基流动 OCR」→ 粘贴 Key → 确定。')}
-      <div style="font-size:12.5px;color:#6b7280;margin-top:6px">备选：阿里百炼 bailian.console.aliyun.com → 开通百炼 →「API-KEY 管理」创建 Key → 快捷设置选「阿里百炼视觉」。</div>`)}
-
-    ${card('R3 轻（打标/分类）— 直接复用 R1 的 DeepSeek Key', `
-      ${step(1, '<b>不用再去注册</b>。R3 干的是轻活，用 deepseek-chat 就够。')}
-      ${step(2, 'R3 那行点「<b>快捷设置</b>」→ 选「DeepSeek 轻」→ 粘贴 <b>和 R1 同一个 Key</b> → 确定。')}`)}
-
-    ${card('R4 向量（相似题检索）— 用硅基流动（免费），手动建档', `
-      ${step(1, 'R4 没有「快捷设置」，点「<b>新建档案</b>」。')}
-      ${step(2, '档案名称：填「硅基向量」；接口地址：<b>https://api.siliconflow.cn/v1</b>；模型名：<b>BAAI/bge-m3</b>（免费）；API Key：粘贴 <b>和 R2 同一个硅基流动 Key</b> → 保存。')}
-      ${step(3, '回到列表点该档案的「<b>测试</b>」→ 测通后点「<b>启用</b>」。')}`)}
-
-    ${card('R5 专用 — 预留位，平时不用管', `
-      <div style="font-size:13px;line-height:1.7">留给以后接特殊第三方接口（非 openai-chat 协议）。现在空着完全不影响使用。</div>`)}
-
-    ${card('测不通常见原因', `
-      <div style="font-size:13px;line-height:1.9">
-      ① Key 复制时带了空格或少了字符 → 删掉档案重新粘贴；<br>
-      ② 账户没余额（DeepSeek 必须充值后才 能调用）；<br>
-      ③ 手动填接口地址时没填到 <b>/v1</b> 为止；<br>
-      ④ Key 被平台封禁（去平台后台看调用日志）。<br>
-      Key 加密存在你这台服务器上，不会上传别处；编辑档案时 Key 留空 = 不修改原 Key。</div>`)}
-    `,
-  });
+  modal({ title: 'AI 配置教程', wide: true, okText: '我知道了',
+    body: `<div class="mf-tip">向所选服务商获取 API Key，并确认模型支持需要的文本或图片输入。回到对应用途新建档案，填写接口格式、地址和模型，测试成功后启用。编辑档案时留空密钥可保留原值。各档案的连接测试会调用对应服务。</div>` });
 }
 
-/** 导入题库（mofang-question-pack v1：JSON 或 ZIP，技能包可下载） */
+/** 技能包和题卡导入：文件、拖放或粘贴 JSON 均进入待审核。 */
 function mfImportDialog(done) {
+  const prompts = {
+    paper: '请把我提供的整卷逐题转写成 JSON 题目包。保留题号、题干、选项、答案、解析、图片位置和公式；原文没有答案或解析时留空，不要编造。输出 questions 数组，每题包含 problem_text、options、answer、analysis、knowledge_points、difficulty_score_10。',
+    image: '请转写我提供的单题截图，输出 JSON 题目包。保留原题干、选项、答案、解析、图片位置和公式；无法辨认的内容说明缺失，原文没有的答案和解析留空，不要编造。输出 questions 数组，每题包含 problem_text、options、answer、analysis、knowledge_points、difficulty_score_10。',
+    web: '请根据我提供的网页内容逐题转写成 JSON 题目包。保留来源、题干、选项、答案、解析、图片位置和公式；网页没有答案或解析时留空，不要编造。输出 questions 数组，每题包含 problem_text、options、answer、analysis、knowledge_points、difficulty_score_10。',
+  };
+  const groupGuide = ' 英语题目请在 question_type 中保留原题型名称；对于共用材料和多个小题，请用一个对象包含 material（原文）和 children（小题数组），每个小题单独保留 problem_text、options、answer、analysis 和 question_type。音频由老师在待审核时上传，未提供的内容不要编造。';
   modal({
-    title: '导入题库',
-    body: `<div style="font-size:13.5px;line-height:1.7">选择转写 <b>JSON</b> 或 <b>ZIP</b> 开始导入，也可以先获取技能包。</div>
-      <div style="display:flex;gap:10px;justify-content:flex-end;margin:14px 0 4px">
-        <input type="file" id="mfImpFile" accept=".json,.zip" style="display:none">
-        <button class="btn xs" id="mfImpPick">选择文件</button>
-        <button class="btn ghost xs" id="mfImpCancel">取消</button></div>
-      <div id="mfImpResult" style="font-size:13px;line-height:1.8"></div>
-      <div style="border-top:1px solid #e5e7eb;margin-top:12px;padding-top:12px;font-size:13px;line-height:2">
-        <b>还没有可导入的转写结果？先获取「魔方录题转写」技能包：</b><br>
-        1、点【获取转写skill】，把技能包 ZIP 保存到电脑；<br>
-        2、按技能包内的说明，把它装入你自己的 AI 助手；<br>
-        3、把题目材料（截图 / 文档 / 文字）交给它转写；<br>
-        4、回到本面板，把它生成的 JSON 或 ZIP 导入。<br>
-        <button class="btn ghost xs" id="mfImpSkill" style="margin-top:6px">获取转写skill</button></div>`,
+    title: 'AI 转写题目包', wide: true,
+    body: `<p class="hint">选择适合材料的提示词，或下载技能包交给 AI 助手。转写结果导入后进入待审核，核对分类和内容后入库。</p>
+      <div class="mf-box" style="margin:12px 0"><b>1. 准备转写</b>
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button type="button" class="btn ghost sm" id="mfImpSkill">下载转写技能包</button>
+          <button type="button" class="btn ghost sm" data-prompt="paper">复制整卷提示词</button>
+          <button type="button" class="btn ghost sm" data-prompt="image">复制单题截图提示词</button>
+          <button type="button" class="btn ghost sm" data-prompt="web">复制网页提示词</button>
+        </div></div>
+      <div class="mf-box" style="margin:12px 0"><b>2. 导入转写结果</b>
+        <div id="mfDrop" style="border:1px dashed #9aaac0;border-radius:10px;padding:18px;text-align:center;margin-top:10px">
+          <div>拖放 JSON / ZIP 文件到这里，或选择文件</div>
+          <input type="file" id="mfImpFile" accept=".json,.zip" style="display:none">
+          <button type="button" class="btn ghost sm" id="mfImpPick" style="margin-top:10px">选择文件</button>
+        </div>
+        <label for="mfImpJson" style="display:block;margin:12px 0 5px">也可粘贴 JSON 内容</label>
+        <textarea id="mfImpJson" class="inp" rows="4" placeholder='例如 {"questions":[{"problem_text":"题干"}]}'></textarea>
+        <button type="button" class="btn primary sm" id="mfImpPaste" style="margin-top:8px">导入粘贴内容</button>
+        <div id="mfImpResult" aria-live="polite" style="font-size:13px;line-height:1.8;margin-top:10px"></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn ghost sm" id="mfImpClose">关闭</button><button type="button" class="btn primary sm" id="mfImpReview">查看待审核</button></div>`,
     onMount: (w) => {
-      w.querySelector('#mfImpCancel').onclick = () => w.remove();
+      const out = w.querySelector('#mfImpResult');
+      let busy = false;
+      w.querySelector('#mfImpClose').onclick = () => w.remove();
+      w.querySelector('#mfImpReview').onclick = () => { w.remove(); location.hash = '#/pending'; };
       w.querySelector('#mfImpSkill').onclick = async () => {
         try {
           const r = await fetch(MF_API + '/import-skill', { headers: { Authorization: 'Bearer ' + Auth.token } });
           if (!r.ok) throw new Error('HTTP ' + r.status);
           const b = await r.blob();
           const u = URL.createObjectURL(b);
-          const a = document.createElement('a'); a.href = u; a.download = 'mofang-question-transcribe.zip'; a.click();
+          const a = document.createElement('a'); a.href = u; a.download = 'zhilexue-question-transcribe.zip'; a.click();
           setTimeout(() => URL.revokeObjectURL(u), 4000);
           toast('技能包已开始下载', 'ok');
         } catch (e) { toast('下载失败：' + e.message, 'err'); }
       };
-      w.querySelector('#mfImpPick').onclick = () => w.querySelector('#mfImpFile').click();
-      w.querySelector('#mfImpFile').onchange = async (e) => {
-        const f = e.target.files[0]; if (!f) return;
-        const out = w.querySelector('#mfImpResult');
-        out.innerHTML = '<span style="color:#6366f1">导入中，请稍候…</span>';
+      w.querySelectorAll('[data-prompt]').forEach((b) => { b.onclick = async () => {
+        const value = prompts[b.dataset.prompt] + groupGuide;
+        try { await navigator.clipboard.writeText(value); toast('提示词已复制', 'ok'); }
+        catch (e) { w.querySelector('#mfImpJson').value = value; toast('请手动复制下方提示词，再清空输入框', 'err'); }
+      }; });
+      const upload = async (file) => {
+        if (!file || busy) return;
+        if (!/\.(json|zip)$/i.test(file.name)) { out.textContent = '请选择 JSON 或 ZIP 文件'; return; }
+        busy = true; out.textContent = '正在导入，请稍候…';
         try {
-          const fd = new FormData(); fd.append('file', f);
+          const fd = new FormData(); fd.append('file', file);
           const r = await fetch(MF_API + '/import-pack', { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
           const j = await r.json();
           if (j.code !== 0) throw new Error(j.msg || '导入失败');
           const d = j.data || {};
-          let html = `<b style="color:#16a34a">✅ ${esc(j.msg || '导入完成')}</b>（共 ${d.total} 题）`;
-          if (d.warnings && d.warnings.length) html += `<div style="color:#d97706">${d.warnings.map(esc).join('<br>')}</div>`;
-          if (d.errors && d.errors.length) html += `<div style="color:#dc2626;margin-top:4px">失败明细：<br>${d.errors.map((x) => esc((x.recordKey || '') + '：' + x.msg)).join('<br>')}</div>`;
+          let html = `<b style="color:#15803d">${esc(j.msg || '导入完成')}</b>（共 ${Number(d.total) || 0} 题）`;
+          if (d.warnings && d.warnings.length) html += `<div style="color:#9a6700">${d.warnings.map(esc).join('<br>')}</div>`;
+          if (d.errors && d.errors.length) html += `<div style="color:#b91c1c;margin-top:4px">失败明细：<br>${d.errors.map((x) => esc((x.recordKey || '') + '：' + x.msg)).join('<br>')}</div>`;
           out.innerHTML = html;
-          toast(j.msg, 'ok');
           if (typeof done === 'function') done();
-        } catch (er) {
-          out.innerHTML = `<span style="color:#dc2626">❌ ${esc(er.message)}</span>`;
-        }
-        e.target.value = '';
+        } catch (er) { out.textContent = '导入失败：' + er.message; }
+        finally { busy = false; }
+      };
+      const fileInput = w.querySelector('#mfImpFile');
+      w.querySelector('#mfImpPick').onclick = () => fileInput.click();
+      fileInput.onchange = async () => { await upload(fileInput.files[0]); fileInput.value = ''; };
+      const drop = w.querySelector('#mfDrop');
+      drop.ondragover = (e) => { e.preventDefault(); drop.style.borderColor = '#4169e1'; };
+      drop.ondragleave = () => { drop.style.borderColor = '#9aaac0'; };
+      drop.ondrop = (e) => { e.preventDefault(); drop.style.borderColor = '#9aaac0'; upload(e.dataTransfer.files[0]); };
+      w.querySelector('#mfImpPaste').onclick = () => {
+        const raw = w.querySelector('#mfImpJson').value.trim();
+        if (!raw) { out.textContent = '请先粘贴 JSON 内容'; return; }
+        try { JSON.parse(raw); } catch (e) { out.textContent = 'JSON 格式不正确：' + e.message; return; }
+        upload(new File([raw], 'questions.json', { type: 'application/json' }));
       };
     },
   });
@@ -1248,7 +1276,7 @@ async function mfNewQDialog(done) {
   let chapNodes = [], knowNodes = [];
   let gradeName = ''; let volName = '上册'; let unitId = '';
   let katExp = '';
-  const GRADES = { primary: ['三年级', '四年级', '五年级', '六年级'], junior: ['七年级', '八年级', '九年级'] };
+  const GRADES = { primary: ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'], junior: ['七年级', '八年级', '九年级'] };
   const SUBJECTS4 = ['英语', '数学', '物理', '化学'];
 
   const loadTrees = async () => {
@@ -1268,7 +1296,7 @@ async function mfNewQDialog(done) {
         <div class="field"><label>学段</label><select id="nqStage" class="inp"><option value="primary">小学</option><option value="junior">初中</option></select></div>
         <div class="field"><label>学科</label><select id="nqSub" class="inp">${SUBJECTS4.map((x) => `<option ${x === '数学' ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
         <div class="field"><label>题型（可空）</label><select id="nqType" class="inp"><option value="">未设置</option>${Object.entries(MF_TYPE_NAME).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
-        <div class="field"><label>难度（可空）</label><select id="nqDiff" class="inp"><option value="">未设置</option>${Object.entries(MF_DIFF_NAMES).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
+        <div class="field"><label>难度（五星，可空）</label><select id="nqDiff" class="inp"><option value="">未设置</option>${Object.entries(MF_DIFF_NAMES).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select><label for="nqDiff10">十级难度（可空）</label><input id="nqDiff10" class="inp" type="number" min="1" max="10" step="1" placeholder="未细分"></div>
       </div>
       <div class="field"><label>章节分类 *（年级 → 册别 → 单元 → 小知识点）</label>
         <div style="display:flex;gap:8px">
@@ -1286,13 +1314,13 @@ async function mfNewQDialog(done) {
       <div class="field"><label>题面（必填）</label>
         <div style="display:flex;gap:6px;margin-bottom:6px">
           <button class="btn ghost xs" id="nqFx" title="插入公式（计算器）">∑ fx</button>
-          <button class="btn ghost xs" id="nqImg" title="插入图片">🖼</button>
+          <button class="btn ghost xs" id="nqImg" title="插入图片"></button>
           <button class="btn ghost xs" id="nqTbl" title="插入表格">▦</button>
           <button class="btn ghost xs" id="nqLst" title="插入列表">≡</button>
           <input type="file" id="nqImgFile" accept="image/*" style="display:none">
         </div>
         <div id="nqFpad" style="display:none;margin-bottom:6px"></div>
-        <textarea id="nqStem" class="inp" rows="5" style="width:100%" placeholder="题干，公式点 ∑ fx 用公式计算器插入，图片点 🖼 上传"></textarea>
+        <textarea id="nqStem" class="inp" rows="5" style="width:100%" placeholder="题干，公式点 ∑ fx 用公式计算器插入，图片点  上传"></textarea>
         <div id="nqImgs" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"></div></div>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin:2px 0 8px">
         <div style="display:flex;gap:8px">
@@ -1301,7 +1329,7 @@ async function mfNewQDialog(done) {
         </div>
         <span style="display:flex;gap:10px;align-items:center">
           <span class="hint" style="line-height:1.5">点 AI 归属建议：<br>AI 自动判断学段 / 年级 / 知识点 / 难度</span>
-          <button class="btn ghost xs" id="nqAI" style="white-space:nowrap">✨ AI 归属建议</button>
+          <button class="btn ghost xs" id="nqAI" style="white-space:nowrap"> AI 归属建议</button>
         </span>
       </div>
       <div id="nqAnsWrap" style="display:none;margin-bottom:8px"><textarea id="nqAns" class="inp" rows="3" style="width:100%" placeholder="答案，支持公式；留空则入库为「缺答案」"></textarea></div>
@@ -1315,6 +1343,8 @@ async function mfNewQDialog(done) {
     onOk: async (w, showErr) => {
       const stem = w.querySelector('#nqStem').value.trim();
       if (!stem) return showErr('题面（题干）必填');
+      const score10 = w.querySelector('#nqDiff10').value;
+      if (score10 !== '' && (!Number.isInteger(Number(score10)) || Number(score10) < 1 || Number(score10) > 10)) return showErr('十级难度须为 1 至 10 的整数');
       const secIds = [...w.querySelectorAll('[data-sec]')].filter((x) => x.checked).map((x) => Number(x.dataset.sec)).filter(Boolean);
       const chapIds = secIds.length ? secIds : (unitId ? [Number(unitId)] : []);
       if (!chapIds.length) return showErr('请选择章节分类（年级 / 册别 / 单元）——每道题都必须归属章节');
@@ -1327,12 +1357,13 @@ async function mfNewQDialog(done) {
         stage: dStage,
         subject: dSub,
         grade: gradeSel.value || '',
-        difficulty: w.querySelector('#nqDiff').value || 3,
+        difficulty: w.querySelector('#nqDiff').value || 3, difficulty_score_10: score10 === '' ? null : Number(score10),
         answer: w.querySelector('#nqAns').value.trim(),
         analysis: w.querySelector('#nqAna').value.trim(),
         options: [],
         images: imgs,
         audio_key: nqAud ? nqAud.get() : '',
+        audio_play_limit: nqAud ? nqAud.getLimit() : 0,
         tags,
         nodes: nodeIds,
       } });
@@ -1340,6 +1371,7 @@ async function mfNewQDialog(done) {
     },
     onMount: (w) => {
       nqAud = t7AudioWidget(w.querySelector('#nqAudio'), {});
+      qcBindDifficultyInputs(w.querySelector('#nqDiff'), w.querySelector('#nqDiff10'));
       t8Enhance(w, { fields: ['#nqStem', '#nqAns', '#nqAna'], images: imgs, onImage: () => renderImgs() });   // 公式输入 + 粘贴 / 拖拽图片（T8）
       const ta = w.querySelector('#nqStem');
       const renderTags = () => { w.querySelector('#nqTags').innerHTML = tags.map((t, i) => `<span class="mf-pitem">${esc(t)}<a href="javascript:;" data-ti="${i}">✕</a></span>`).join(''); };
@@ -1454,7 +1486,7 @@ async function mfNewQDialog(done) {
       aiBtn.onclick = async () => {
         const stem = ta.value.trim();
         if (!stem) return toast('先填题干再点 AI 归属建议', 'err');
-        aiBtn.disabled = true; const oldTxt = aiBtn.textContent; aiBtn.textContent = '✨ AI 判断中…';
+        aiBtn.disabled = true; const oldTxt = aiBtn.textContent; aiBtn.textContent = ' AI 判断中…';
         try {
           const r = await api(MFX + '/ai-attrib', { method: 'POST', body: { stem, subject: dSub } });
           let filled = [];
@@ -1491,7 +1523,7 @@ async function mfNewQDialog(done) {
             if (nn.tree === 'knowledge' && !katChips.some((x) => String(x.id) === String(nn.id))) katChips.push({ id: Number(nn.id), name: nn.name });
           });
           if (katChips.length) filled.push('知识点');
-          if (r.difficulty) { w.querySelector('#nqDiff').value = String(r.difficulty); filled.push('难度'); }
+          if (r.difficulty && !w.querySelector('#nqDiff10').value) { w.querySelector('#nqDiff').value = String(r.difficulty); filled.push('难度'); }
           renderKnowledge();
           toast(filled.length ? `AI 建议已回填：${filled.join(' / ')}，检查后保存` : 'AI 没能判断出归属，请手动选择', filled.length ? 'ok' : 'err');
         } catch (er) { toast(er.message, 'err'); }
@@ -1600,7 +1632,7 @@ function mfNodePickMulti(nodes, onDone) {
 }
 
 /** 新建 / 编辑模型档案（魔方式：可拉取平台模型列表自由接入任何 OpenAI 兼容模型） */
-const MF_ROLE_NAME = { reasoning: 'R1 推理', vision: 'R2 OCR', light: 'R3 轻', embedding: 'R4 向量', specialty: 'R5 专用' };
+const MF_ROLE_NAME = { reasoning: '文本生成', vision: '图像识别', light: '分类整理', embedding: '相似度检索', specialty: '其他用途' };
 /** 档案格式（与 src/ai-client.js 的 FORMATS / FORMAT_HINTS 对应）：不绑定厂商，只给各协议标准的地址写法做提示 */
 const MF_FORMATS = [
   ['openai', 'OpenAI 兼容', 'https://你的服务商/v1', '填到 /v1 为止，系统自动补 /chat/completions。通义、DeepSeek、智谱、Moonshot、OpenAI 等都选这一类。'],
@@ -1624,7 +1656,7 @@ function mfProfileForm(role, prof, fromRole) {
         <button type="button" class="btn ghost xs" id="pfFetch" style="flex:0 0 auto">获取模型列表</button></div>
         <datalist id="pfModelList"></datalist>
         <div class="hint">点「获取模型列表」从平台拉取该 Key 可用的全部模型，也可直接手输模型 id。</div></div>
-      <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-top:2px"><input type="checkbox" id="pfVision" ${((isEdit ? (prof.capability || '') : '') || (role === 'vision' ? 'vision' : '')) ? 'checked' : ''}> 该模型支持图片输入（R2 OCR 需要）</label>
+      <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-top:2px"><input type="checkbox" id="pfVision" ${((isEdit ? (prof.capability || '') : '') || (role === 'vision' ? 'vision' : '')) ? 'checked' : ''}> 该模型支持图片输入（图像识别需要）</label>
     </div>`,
     onOk: async (w, showErr) => {
       const name = w.querySelector('#pfName').value.trim();
@@ -1665,8 +1697,8 @@ function mfProfileForm(role, prof, fromRole) {
         const body = { role, id: isEdit ? prof.id : undefined, name: w.querySelector('#pfName').value.trim(), format: w.querySelector('#pfFormat').value,
           base_url: w.querySelector('#pfBase').value.trim(), model: w.querySelector('#pfModel').value.trim(), api_key: w.querySelector('#pfKey').value.trim() };
         msgEl.style.color = ''; msgEl.textContent = '测试中…';
-        try { const r = await api(MFX + '/profiles/test-draft', { method: 'POST', body, silent: true }); msgEl.style.color = '#0e9f5f'; msgEl.textContent = '✅ ' + (r && r.ms != null ? `连接成功（${r.ms} ms）` : '连接成功'); }
-        catch (e) { msgEl.style.color = '#e0343f'; msgEl.textContent = '❌ ' + (e.message || '连接失败'); }
+        try { const r = await api(MFX + '/profiles/test-draft', { method: 'POST', body, silent: true }); msgEl.style.color = '#0e9f5f'; msgEl.textContent = ' ' + (r && r.ms != null ? `连接成功（${r.ms} ms）` : '连接成功'); }
+        catch (e) { msgEl.style.color = '#e0343f'; msgEl.textContent = ' ' + (e.message || '连接失败'); }
       };
       w.querySelector('#pfFetch').onclick = async () => {
         const base = w.querySelector('#pfBase').value.trim();

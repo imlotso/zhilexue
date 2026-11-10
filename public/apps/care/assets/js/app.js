@@ -81,6 +81,7 @@
     $('#setAiModel').value = cfg.aiModel || 'gpt-4o-mini';
 
     $('#setAiSave').addEventListener('click', function () {
+      try {
       store.settings({
         aiMode: $('#setAiMode').value,
         aiUrl: $('#setAiUrl').value.trim(),
@@ -88,6 +89,7 @@
         aiModel: $('#setAiModel').value.trim() || 'gpt-4o-mini'
       });
       ui.toast('AI 设置已保存', 'ok');
+      } catch (e) { ui.toast(e.message || '设置保存失败', 'err'); }
     });
 
     // ASR 设置
@@ -96,12 +98,14 @@
     $('#setAsrModel').value = cfg.asrModel || 'whisper-1';
 
     $('#setAsrSave').addEventListener('click', function () {
+      try {
       store.settings({
         asrUrl: $('#setAsrUrl').value.trim(),
         asrKey: $('#setAsrKey').value.trim(),
         asrModel: $('#setAsrModel').value.trim() || 'whisper-1'
       });
       ui.toast('ASR 设置已保存', 'ok');
+      } catch (e) { ui.toast(e.message || '设置保存失败', 'err'); }
     });
 
     $('#setBackup').addEventListener('click', function () {
@@ -128,18 +132,6 @@
       e.target.value = '';
     });
 
-    $('#setDemo').addEventListener('click', function () {
-      ui.confirm({
-        title: '载入示例数据',
-        message: '示例数据会覆盖当前全部记录，确定继续吗？建议先导出备份。',
-        okText: '覆盖并载入'
-      }).then(function (ok) {
-        if (!ok) return;
-        store.loadDemo();
-        ui.toast('示例数据已载入', 'ok');
-      });
-    });
-
     $('#setClear').addEventListener('click', function () {
       ui.confirm({
         title: '清空全部数据',
@@ -154,8 +146,7 @@
   }
 
   /* ---------------- 启动 ---------------- */
-  function boot() {
-    store.load();
+  function startWorkbench() {
 
     ['talks', 'contacts', 'students'].forEach(function (r) {
       if (App.pages[r] && App.pages[r].init) App.pages[r].init();
@@ -171,8 +162,7 @@
       refresh();
     });
 
-    // 启动时同步管理后台学生账号（学生管理开通即自动进入本模块）
-    store.syncRoster();
+    // load 已验证账号并取得当前可见花名册后才会运行到这里。
 
     var d = new Date();
     document.getElementById('todayChip').textContent =
@@ -186,6 +176,35 @@
     if (!App.ai.speechSupported()) {
       console.info('当前浏览器不支持 Web Speech API，语音转文字将自动降级为手动输入。');
     }
+  }
+
+  function showFailure(message) {
+    var workbench = document.getElementById('careWorkbench');
+    if (workbench) { workbench.hidden = true; workbench.innerHTML = ''; }
+    ['modalRoot', 'printRoot', 'tkBody', 'ctBody', 'stBody'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) {
+        Array.prototype.slice.call(el.children || []).forEach(function (child) { if (typeof child.closeModal === 'function') child.closeModal(); });
+        el.innerHTML = '';
+      }
+    });
+    document.querySelectorAll('input, textarea').forEach(function (el) { el.value = ''; });
+    var status = document.getElementById('careStartup');
+    if (status) { status.hidden = false; status.textContent = message || '工作台加载失败，请刷新重试'; }
+  }
+  async function boot() {
+    var workbench = document.getElementById('careWorkbench');
+    if (workbench) workbench.hidden = true;
+    try {
+      if (!store || typeof store.load !== 'function') throw new Error('工作台依赖加载失败，请刷新；若仍失败请联系管理员');
+      if (store.onLock) store.onLock(showFailure);
+      await store.load();
+      startWorkbench();
+      var notice = document.getElementById('careLegacyNotice');
+      if (notice) notice.hidden = !store.hasLegacyData();
+      document.getElementById('careStartup').hidden = true;
+      if (workbench) workbench.hidden = false;
+    } catch (e) { showFailure(e.message); }
   }
 
   if (document.readyState === 'loading') {

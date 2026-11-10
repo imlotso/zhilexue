@@ -554,6 +554,22 @@ textarea.input { height: auto; padding: 8px 10px; line-height: 1.7; resize: vert
   .form-grid { grid-template-columns: 1fr; }
 }
 
+/* 手机端筛选条件与表格各自收纳，避免日期框把整页撑宽。 */
+@media (max-width: 520px) {
+  .toolbar-row, .filters { width: 100%; min-width: 0; }
+  .filters .field.inline { width: 100%; min-width: 0; }
+  .filters .field.inline:has(input[type="date"]) { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); }
+  .filters .field.inline:has(input[type="date"]) .field-lab { grid-column: 1 / -1; }
+  .filters .field.inline:has(input[type="date"]) input { width: 100%; min-width: 0; }
+  .filters .field.inline:not(:has(input[type="date"])) .input { flex: 1; min-width: 0; }
+  .toolbar-right { flex-wrap: wrap; }
+  .table-wrap { max-width: 100%; }
+  .mask { align-items: center; padding: 12px; }
+  .mask .modal { display: flex; flex-direction: column; max-height: calc(100vh - 24px); overflow: hidden; }
+  .modal-head, .modal-foot { flex: none; }
+  .modal-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+}
+
 /* ============ 嵌入管理端：去除左侧导航，入口移至顶栏 ============ */
 .app { display: block; }
 

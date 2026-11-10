@@ -18,6 +18,7 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const vm = require('vm');
 const jwt = require('jsonwebtoken');
+const ticketEpoch = require('./ticket-epoch');
 const { db, DATA_DIR } = require('./db');
 
 const admin = express.Router();
@@ -33,6 +34,14 @@ proxy.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Headers', String(req.headers['access-control-request-headers'] || 'Content-Type, X-MF-Ticket, X-MF-Referer, X-MF-CT'));
   res.setHeader('Access-Control-Max-Age', '86400');
   if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+});
+
+// 外站代理是可选辅助功能；默认使用老师本人浏览器和采集票据。
+// 仅管理员明确设置环境变量后才启用代理，预检仍可正常返回。
+function proxyEnabled() { return process.env.MF_PROXY_ENABLED === '1'; }
+proxy.use((req, res, next) => {
+  if (!proxyEnabled()) return res.status(403).json({ code: 403, msg: '辅助代理默认关闭，请使用浏览器书签采集；需要代理时由管理员设置 MF_PROXY_ENABLED=1。' });
   next();
 });
 
@@ -441,7 +450,7 @@ admin.post('/collect-tree', (req, res) => {
   if (!Array.isArray(b.nodes) || !b.nodes.length) return fail(res, '没有节点数据');
   const r = importTreeCore(b);
   if (r.code) return fail(res, r.msg);
-  return ok(res, { tree_id: r.tree_id, created: r.created, merged: r.merged, total: r.total, new_tree: r.new_tree }, r.msg);
+  return ok(res, { tree_id: r.tree_id, created: r.created, merged: r.merged, total: r.total, new_tree: r.new_tree, edition: r.edition, tree_name: r.tree_name, dry: r.dry }, r.msg);
 });
 
 // ==================================================================== 默认学段学科（偏好）
@@ -458,29 +467,49 @@ admin.put('/prefs', (req, res) => {
   return ok(res, null, '已保存');
 });
 
+function captureAccount(id, role) {
+  if (!Number.isSafeInteger(Number(id)) || Number(id) <= 0) return null;
+  const user = db.prepare('SELECT id,role,status,expire_at FROM users WHERE id=?').get(Number(id));
+  if (!user || !['admin', 'branch'].includes(user.role) || Number(user.status) !== 1 || (role && user.role !== role)) return null;
+  const d = new Date(), pad = n => String(n).padStart(2, '0');
+  const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  if (user.role === 'branch' && user.expire_at && String(user.expire_at).slice(0, 10) < today) return null;
+  return user;
+}
+
+/** 采集票据必须绑定签发账号及其角色，并随账号状态立即失效。 */
 // ==================================================================== 代理票据（iframe 没法带 Authorization，用短票据）
 const TICKETS = new Map(); // k -> { uid, exp }
 function issueTicket(uid) {
+  const account = captureAccount(uid);
+  if (!account) throw new Error('采集账号已失效，请重新登录');
   const k = crypto.randomBytes(18).toString('base64url');
-  TICKETS.set(k, { uid, exp: Date.now() + 12 * 3600 * 1000 });
+  TICKETS.set(k, { uid: account.id, account_role: account.role, exp: Date.now() + 12 * 3600 * 1000 });
   // 顺手清过期
   for (const [key, v] of TICKETS) if (v.exp < Date.now()) TICKETS.delete(key);
   return k;
 }
 admin.post('/proxy-ticket', (req, res) => {
+  if (!proxyEnabled()) return res.status(403).json({ code: 403, msg: '辅助代理默认关闭，请使用浏览器书签采集。' });
   const uid = req.user ? req.user.id : 0;
-  return ok(res, { k: issueTicket(uid), capture: issueCaptureToken() });
+  if (!captureAccount(uid, req.user && req.user.role)) return fail(res, '采集账号已失效，请重新登录', 401);
+  return ok(res, { k: issueTicket(uid), capture: issueCaptureToken(uid) });
 });
 
-function issueCaptureToken() {
+function issueCaptureToken(uid) {
+  const account = captureAccount(uid);
+  if (!account) throw new Error('采集账号已失效，请重新登录');
   const secret = require('fs').readFileSync(require('path').join(DATA_DIR, '.secret'), 'utf8').trim();
-  return jwt.sign({ role: 'mfcapture' }, secret, { expiresIn: '7d' });
+  return jwt.sign(ticketEpoch.issueClaims({ id: account.id, account_role: account.role, role: 'mfcapture' }), secret, { expiresIn: '7d' });
 }
 
 function checkTicket(req) {
   const k = String(req.query.k || req.headers['x-mf-ticket'] || '');
   const t = TICKETS.get(k);
-  if (!t || t.exp < Date.now()) return null;
+  if (!t || t.exp <= Date.now() || !t.account_role || !captureAccount(t.uid, t.account_role)) {
+    TICKETS.delete(k);
+    return null;
+  }
   return t;
 }
 
@@ -742,7 +771,7 @@ function handleProxy(req, res) {
       body = /json/i.test(ct) ? JSON.stringify(req.body) : new URLSearchParams(req.body).toString();
     }
   }
-  const captureToken = t.capture || issueCaptureToken();
+  const captureToken = issueCaptureToken(uid);
   fetchPageAuto(target, { method: req.method === 'POST' ? 'POST' : 'GET', headers, body, uid })
     .then((r) => {
       const ct = String(r.headers['content-type'] || 'application/octet-stream');
@@ -787,13 +816,18 @@ proxy.use((req, res) => fail(res, '未知代理路径', 404));
 cap.use((req, res, next) => {
   const h = req.headers.authorization || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : String(req.query.token || '');
-  if (!token) return fail(res, '缺少采集票据', 401);
+  if (!token) return fail(res.status(401), '缺少采集票据', 401);
   try {
     const secret = require('fs').readFileSync(require('path').join(DATA_DIR, '.secret'), 'utf8').trim();
     const u = jwt.verify(token, secret);
-    if (!u || u.role !== 'mfcapture') return fail(res, '采集票据无效', 401);
+    if (!ticketEpoch.acceptJwt(u)) return fail(res.status(401), '采集票据已失效，请重新生成', 401);
+    if (!u || u.role !== 'mfcapture') return fail(res.status(401), '采集票据无效', 401);
+    if (!u.id || !u.account_role) return fail(res.status(401), '旧采集票据已失效，请返回后台重新生成', 401);
+    const account = captureAccount(u.id, u.account_role);
+    if (!account) return fail(res.status(401), '采集账号已失效，请返回后台重新生成票据', 401);
+    req.user = { ...u, id: account.id };
     next();
-  } catch (e) { return fail(res, '采集票据无效或已过期', 401); }
+  } catch (e) { return fail(res.status(401), '采集票据无效或已过期', 401); }
 });
 
 /** 注入脚本采集知识树后回传（幂等导入，与管理端 /collect-tree 同一核心实现） */
@@ -818,52 +852,64 @@ function normSubjectLabel(raw) {
   return r && r.label ? r.label : v;
 }
 
-/** 导入采集到的树节点（R0-B7）。
- *  必须带学段 + 学科（缺了直接拒绝，不再生成「学段学科为空」的孤儿树）；
- *  并入该 学段+学科 已有的同类（kind）树，没有才新建；同一父节点下同名节点不重复建（幂等，重复导入只会 created=0）。 */
-function importTreeCore({ site, root_id, root_name, stage, subject, nodes, kind }) {
-  const arr = Array.isArray(nodes) ? nodes : [];
-  if (!arr.length) return { code: 1, msg: '没有节点数据' };
-  const stageCode = normStage(stage);
-  const subjectName = normSubjectLabel(subject);
-  if (!stageCode && !subjectName) return { code: 1, msg: '请先选择学段和学科再导入知识树（没有学段和学科，导入的树在题库里选不到）' };
-  if (!stageCode) return { code: 1, msg: '请先选择学段（小学 / 初中 / 高中）再导入知识树' };
-  if (!subjectName) return { code: 1, msg: '请先选择学科再导入知识树' };
-  const k = kind === 'textbook' ? 'textbook' : 'knowledge';
-  let tree = db.prepare('SELECT * FROM bank_trees WHERE kind=? AND stage=? AND subject=? ORDER BY id LIMIT 1').get(k, stageCode, subjectName);
-  let newTree = false;
-  if (!tree) {
-    const info = db.prepare('INSERT INTO bank_trees (kind, subject, stage, name, source, sort, created_at) VALUES (?,?,?,?,?,?,?)')
-      .run(k, subjectName, stageCode, String(root_name || `${site}·知识树`).slice(0, 60), `collect:${site}:${root_id || ''}:${now()}`, 0, now());
-    tree = { id: info.lastInsertRowid };
-    newTree = true;
-  }
-  const treeId = tree.id;
-  // 已有节点按「父节点 + 名称」建索引，用来合并同名节点
-  const byKey = {};
-  db.prepare('SELECT id, parent_id, name FROM bank_tree_nodes WHERE tree_id=?').all(treeId)
-    .forEach((n) => { const key = `${n.parent_id || 0}|${n.name}`; if (!byKey[key]) byKey[key] = n.id; });
-  const insNode = db.prepare('INSERT INTO bank_tree_nodes (tree_id, parent_id, name, sort, created_at) VALUES (?,?,?,?,?)');
-  const insMap = db.prepare('INSERT OR REPLACE INTO mf_tree_source_map (node_id, site, site_node_id, site_node_name) VALUES (?,?,?,?)');
-  const idOf = {};   // 本次：站点节点 id -> 库里节点 id
-  let created = 0, merged = 0;
-  for (const n of arr) {
-    const sid = String(n.site_node_id || '').trim();
-    const name = String(n.name || '').trim().slice(0, 100);
-    if (!sid || !name || idOf[sid]) continue;
-    const parentSid = n.parent_site_node_id ? String(n.parent_site_node_id) : null;
-    const parentId = parentSid && idOf[parentSid] ? idOf[parentSid] : null;
-    const key = `${parentId || 0}|${name}`;
-    if (byKey[key]) { idOf[sid] = byKey[key]; merged++; }
-    else {
-      const info = insNode.run(treeId, parentId, name, int(n.sort), now());
-      idOf[sid] = info.lastInsertRowid; byKey[key] = info.lastInsertRowid; created++;
-      insMap.run(info.lastInsertRowid, site, sid, name);
-    }
-  }
-  const total = db.prepare('SELECT COUNT(*) n FROM bank_tree_nodes WHERE tree_id=?').get(treeId).n;
-  return { code: 0, tree_id: treeId, created, merged, total, new_tree: newTree,
-    msg: `知识树已导入${newTree ? '（新建了树）' : '到已有的树'}：新增 ${created} 节点，合并同名 ${merged} 个，共 ${total} 节点` };
+/** 导入采集树。明确学段、学科、版本，先按路径预览，再原子合并。 */
+function importTreeCore(input) {
+  const { site, root_id, root_name, stage, subject, nodes, kind, edition, edition_selected, tree_id, dry } = input || {};
+  try {
+    const arr = Array.isArray(nodes) ? nodes : [];
+    if (!arr.length) throw new Error('没有节点数据');
+    if (arr.length > 60000) throw new Error('节点过多，请分批导入');
+    if (dry !== undefined && typeof dry !== 'boolean') throw new Error('预览标识必须为布尔值');
+    const stageCode = normStage(stage), subjectName = normSubjectLabel(subject);
+    if (!stageCode || !subjectName) throw new Error('请先选择学段和学科');
+    if (!['knowledge', 'textbook'].includes(kind)) throw new Error('请先选择章节树或知识点树');
+    const version = String(edition || '').trim();
+    if (!version && !(kind === 'knowledge' && edition_selected === true)) throw new Error('请先明确选择教材版本（知识点树可选择不区分版本）');
+    const selectedId = tree_id ? Number(tree_id) : 0;
+    if (tree_id && (!Number.isSafeInteger(selectedId) || selectedId <= 0)) throw new Error('目标树无效');
+    const nodesById = new Map();
+    arr.forEach((n, i) => {
+      const sid = String(n && n.site_node_id || '').trim();
+      const name = String(n && n.name || '').trim();
+      if (!sid || !name) throw new Error(`第 ${i + 1} 个节点缺少来源编号或名称`);
+      if (sid.length > 100 || name.length > 120) throw new Error(`第 ${i + 1} 个节点编号或名称过长`);
+      if (nodesById.has(sid)) throw new Error(`来源编号 ${sid} 重复，请先整理数据`);
+      const order = Number(n.sort);
+      nodesById.set(sid, { node: { name, code: sid, children: [], _order: Number.isFinite(order) ? order : i, _seq: i }, parent: String(n.parent_site_node_id || '').trim() });
+    });
+    nodesById.forEach((entry, sid) => {
+      let current = entry, depth = 0;
+      const visited = new Set([sid]);
+      while (current.parent) {
+        if (visited.has(current.parent)) throw new Error('节点存在循环引用，请先整理数据');
+        visited.add(current.parent);
+        current = nodesById.get(current.parent);
+        if (!current) throw new Error('节点的上级不存在，请先整理数据');
+        if (++depth >= 12) throw new Error('节点层级超过 12 层');
+      }
+    });
+    const roots = [];
+    nodesById.forEach((entry) => { if (entry.parent) nodesById.get(entry.parent).node.children.push(entry.node); else roots.push(entry.node); });
+    const sortNodes = (list) => { list.sort((a, b) => a._order - b._order || a._seq - b._seq); list.forEach((n) => sortNodes(n.children)); };
+    sortNodes(roots);
+    const treeio = require('./treeio');
+    const [doc] = treeio.normalizeInput({ format: 'zhilexue-tree', version: 1, kind, subject: subjectName, stage: stageCode, edition: version,
+      name: String(root_name || `${version}${subjectName}·采集树`), source: `collect:${String(site || 'unknown')}:${String(root_id || '')}`, nodes: roots });
+    const work = () => {
+      // 站点 ID 只是采集来源，不是目录节点身份；同路径仍合并并保留首次 code / 来源映射。
+      const result = treeio.importDoc(db, doc, { dry: dry === true, treeId: selectedId, preserveSourceCode: true });
+      if (dry !== true && result.tree_id) {
+        const insertMap = db.prepare('INSERT OR IGNORE INTO mf_tree_source_map (node_id, site, site_node_id, site_node_name) VALUES (?,?,?,?)');
+        db.prepare('SELECT id, code, name FROM bank_tree_nodes WHERE tree_id=?').all(result.tree_id).forEach((n) => {
+          if (n.code && nodesById.has(String(n.code))) insertMap.run(n.id, String(site || 'unknown').slice(0, 32), String(n.code), n.name);
+        });
+      }
+      return result;
+    };
+    const r = dry === true ? work() : db.transaction(work)();
+    return { code: 0, tree_id: r.tree_id, created: r.added, merged: r.existing, total: r.total, new_tree: r.created_tree, edition: r.edition, tree_name: r.name, dry: dry === true,
+      msg: `${dry === true ? '预览' : '导入完成'}：${r.created_tree ? '将新建树' : '合并到已有树'}，新增 ${r.added} 节点，合并同名 ${r.existing} 个` };
+  } catch (e) { return { code: 1, msg: e.message || '导入失败' }; }
 }
 
 // admin /collect-tree 也走核心实现

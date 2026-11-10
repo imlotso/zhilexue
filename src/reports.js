@@ -9,6 +9,8 @@
  */
 const express = require('express');
 const { db } = require('./db');
+const { presentAttempt } = require('./paper-attempt');
+const { decodeDrawing } = require('./drawing-answer');
 
 const admin = express.Router();
 const ok = (res, data = null, msg = 'ok') => res.json({ code: 0, msg, data });
@@ -128,10 +130,9 @@ admin.get('/exercises', (req, res) => {
   const pap = new Map();
   for (const t of db.prepare('SELECT user_id, score, total, created_at FROM paper_tries').all()) {
     let a = pap.get(t.user_id);
-    if (!a) pap.set(t.user_id, a = { tries: 0, sum: 0, best: 0, last_at: '', avg: 0 });
+    if (!a) pap.set(t.user_id, a = { tries: 0, scored: 0, sum: 0, best: 0, last_at: '', avg: 0 });
     a.tries++;
-    a.sum += Number(t.score) || 0;
-    a.best = Math.max(a.best, Number(t.score) || 0);
+    if (t.score !== null && t.score !== undefined) { a.scored++; a.sum += Number(t.score) || 0; a.best = Math.max(a.best, Number(t.score) || 0); }
     if (t.created_at > a.last_at) a.last_at = t.created_at;
   }
   const list = students.map((s) => {
@@ -144,8 +145,8 @@ admin.get('/exercises', (req, res) => {
       rate: a.n ? Math.round(a.correct / a.n * 100) : null,
       wrong_open: m.open, mastered: m.mastered,
       paper_tries: p.tries,
-      paper_avg: p.tries ? Math.round((p.sum / p.tries) * 10) / 10 : null,
-      paper_best: p.tries ? p.best : null,
+      paper_avg: p.scored ? Math.round((p.sum / p.scored) * 10) / 10 : null,
+      paper_best: p.scored ? p.best : null,
       last_at: [a.last_at, p.last_at].sort().pop() || '',
       subjects: subjectChips(a.subjects),
     };
@@ -161,9 +162,13 @@ admin.get('/exercises/:id/detail', (req, res) => {
   delete s.created_by;
   // 试卷记录
   const papers = db.prepare(`
-    SELECT t.id, t.score, t.total, t.correct, t.created_at, p.title, p.total_score
+    SELECT t.id, t.score, t.total, t.correct, t.detail, t.created_at, p.title, p.total_score
     FROM paper_tries t LEFT JOIN papers p ON p.id = t.paper_id
-    WHERE t.user_id = ? ORDER BY t.id DESC LIMIT 100`).all(id);
+    WHERE t.user_id = ? ORDER BY t.id DESC LIMIT 100`).all(id).map(presentAttempt);
+  // 主观题正式评分与学生自评分开；仅在通过分校学生归属校验后返回。
+  const subjective = db.prepare(`SELECT r.id, r.question_id, r.kind, r.paper_id, r.try_id, r.my_answer, r.score, r.max_score, r.review_comment, r.reviewed_at, r.created_at, r.self_correct,
+    CASE WHEN r.drawing_data IS NOT NULL AND r.drawing_data<>'' THEN 1 ELSE 0 END AS has_drawing, q.stem, q.subject, q.question_subtype
+    FROM subjective_responses r LEFT JOIN questions q ON q.id=r.question_id WHERE r.user_id=? AND ${require('./qmeta').questionScopeSql(req.user, 'q')} ORDER BY r.id DESC LIMIT 100`).all(id);
   // 学科统计
   const subjects = {};
   for (const r of db.prepare(`
@@ -175,15 +180,60 @@ admin.get('/exercises/:id/detail', (req, res) => {
   }
   // 最近作答（最近 100 条）
   const rows = db.prepare(`
-    SELECT r.question_id, r.my_answer, r.is_correct, r.created_at,
-      q.stem, q.type, q.subject
+    SELECT r.question_id, r.my_answer, r.is_correct, r.match_correct, r.match_total, r.created_at,
+      q.stem, q.type, q.subject, sr.self_correct
     FROM records r LEFT JOIN questions q ON q.id = r.question_id
-    WHERE r.user_id = ? ORDER BY r.id DESC LIMIT 100`).all(id);
+    LEFT JOIN subjective_responses sr ON sr.id=r.self_response_id AND sr.user_id=r.user_id
+      AND sr.question_id=r.question_id AND sr.self_correct IN (0,1) AND sr.self_correct=r.is_correct
+    WHERE r.user_id = ? AND ${require('./qmeta').questionScopeSql(req.user, 'q')} ORDER BY r.id DESC LIMIT 100`).all(id);
   // 错题概览
   const mis = db.prepare('SELECT resolved, COUNT(*) n FROM mistakes WHERE user_id=? GROUP BY resolved').all(id);
   const wrong_open = Number((mis.find((m) => Number(m.resolved) !== 1) || {}).n || 0);
   const mastered = Number((mis.find((m) => Number(m.resolved) === 1) || {}).n || 0);
-  ok(res, { student: s, papers, subjects: subjectChips(subjects), rows, wrong_open, mastered });
+  ok(res, { student: s, papers, subjects: subjectChips(subjects), rows, subjective, wrong_open, mastered });
+});
+
+admin.get('/subjective/:id/drawing', (req, res) => {
+  const row = db.prepare(`SELECT r.drawing_data, u.created_by FROM subjective_responses r JOIN users u ON u.id=r.user_id
+    WHERE r.id=? AND u.role='student'`).get(Number(req.params.id));
+  if (!row || !row.drawing_data || (req.user.role !== 'admin' && Number(row.created_by) !== Number(req.user.id))) return res.status(404).send('作图不存在');
+  try { const image = decodeDrawing(row.drawing_data); res.setHeader('Cache-Control', 'private, no-store'); res.type('image/png'); return res.send(image); }
+  catch (_) { return res.status(404).send('作图不可读取'); }
+});
+
+// 老师对一次具体主观题作答评分；总校可看全部，分校仅限本人开通的学生。
+admin.post('/subjective/:id/grade', (req, res) => {
+  const id = Number(req.params.id), raw = req.body && req.body.score;
+  if (!Number.isSafeInteger(id) || id <= 0 || raw === '' || raw === null || raw === undefined || !Number.isFinite(Number(raw))) return fail(res, '请输入有效分数');
+  const score = Number(raw), comment = String((req.body || {}).comment || '').trim().slice(0, 2000);
+  try {
+    const result = db.transaction(() => {
+      const row = db.prepare(`SELECT r.*, u.created_by FROM subjective_responses r JOIN users u ON u.id=r.user_id WHERE r.id=? AND u.role='student' FOR UPDATE`).get(id);
+      if (!row) throw new Error('作答不存在');
+      if (req.user.role !== 'admin' && Number(row.created_by) !== Number(req.user.id)) throw new Error('无权评分该学生的作答');
+      const max = row.max_score === null || row.max_score === undefined ? 100 : Number(row.max_score);
+      if (score < 0 || score > max) throw new Error(`分数应在 0 至 ${max} 之间`);
+      const reviewedAt = new Date().toISOString();
+      db.prepare('UPDATE subjective_responses SET score=?, review_comment=?, reviewed_by=?, reviewed_at=? WHERE id=?')
+        .run(score, comment, req.user.id, reviewedAt, id);
+      let finalScore = null, pending = null;
+      if (row.try_id && ['paper', 'mfpaper'].includes(row.kind)) {
+        const table = row.kind === 'paper' ? 'paper_tries' : 'mf_paper_tries';
+        const attempt = db.prepare(`SELECT * FROM ${table} WHERE id=? AND user_id=? AND paper_id=? FOR UPDATE`).get(row.try_id, row.user_id, row.paper_id);
+        if (!attempt) throw new Error('原试卷作答已不存在');
+        let detail; try { detail = JSON.parse(attempt.detail || '[]'); } catch (_) { detail = []; }
+        if (!Array.isArray(detail)) throw new Error('原试卷明细格式不正确');
+        const item = detail.find((x) => Number(x.response_id) === id);
+        if (!item) throw new Error('原试卷中未找到该次作答');
+        item.ungraded = false; item.manual_graded = true; item.earned_score = score; item.max_score = max;
+        pending = detail.filter((x) => x && x.ungraded).length;
+        finalScore = pending ? null : Math.round(detail.reduce((sum, x) => sum + (Number(x && x.earned_score) || 0), 0) * 100) / 100;
+        db.prepare(`UPDATE ${table} SET score=?, detail=? WHERE id=?`).run(finalScore, JSON.stringify(detail), attempt.id);
+      }
+      return { id, score, max_score: max, reviewed_at: reviewedAt, pending, final_score: finalScore, legacy_unlinked: !row.try_id && ['paper', 'mfpaper'].includes(row.kind) };
+    })();
+    return ok(res, result, '已保存本次作答评分');
+  } catch (e) { return fail(res, e.message || '评分失败'); }
 });
 
 module.exports = { admin };

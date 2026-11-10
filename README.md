@@ -22,7 +22,7 @@
 需要 Node.js 20（CI 用的版本）和一个 MySQL（或 MariaDB）。
 
 ```bash
-npm install          # 首次运行，安装依赖
+npm install          # 首次运行，安装依赖；保留 optional 依赖，Word 公式图片需要平台原生库
 npm run seed         # 初始化数据（校长账号 / 示例课程目录 / 示例学生 / 词书示例）
 npm start            # 启动服务，默认 http://localhost:3000
 ```
@@ -31,7 +31,7 @@ npm start            # 启动服务，默认 http://localhost:3000
 
 打开浏览器：
 
-- 校长后台 <http://localhost:3000/admin/>　账号 `15152099970`　密码 `123456`
+- 校长后台 <http://localhost:3000/admin/>　账号与密码由部署者配置；隔离测试使用单独的临时账号。
 - 学生端 <http://localhost:3000/>　账号 `13800000001`　密码 `123456`（学生账号只能由校长 / 分校后台开通）
 
 > ⚠️ 服务必须保持运行才打得开网页。同一局域网内的手机 / 其他电脑可以用 `http://本机IP:3000/` 访问（需放行 3000 端口）。
@@ -42,6 +42,8 @@ npm start            # 启动服务，默认 http://localhost:3000
 ```bash
 STORAGE_DRIVER=local AI_MOCK=1 TTS_MOCK=1 npm start
 ```
+
+**AI 请求代理**：可按目标协议设置 `HTTP_PROXY` / `HTTPS_PROXY`，并用 `NO_PROXY` 排除不需要代理的域名；同时识别小写变量。`localhost`、`.localhost` 与回环 IP 始终直连。代理仅用于 AI 客户端的普通与流式请求，不改变其他网络请求；TLS 证书校验保持开启。需要信任额外 CA 时，可使用 Node.js 的 `NODE_EXTRA_CA_CERTS` 指向证书文件。
 
 ### 第一次使用的推荐顺序
 
@@ -125,7 +127,7 @@ STORAGE_DRIVER=local AI_MOCK=1 TTS_MOCK=1 npm start
 **2026-11 改版新增 / 调整的能力**（细节与取舍见 `docs/changelog-20261107.md`、`docs/decisions.md`）
 
 - **知识树统一**：章节树（教材 → 册 → 单元 …）+ 知识点树，后台「智能题库 → 知识树管理」可编辑；题目可同时挂章节和知识点；旧知识点数据用 `scripts/migrate-kb-to-trees.js` 迁入（先在测试库预演）。
-- **待审核题目**：Excel / Word / 拍照识别 / 技能包 / 网络采集 / 手机扫码，所有录题入口先进「待审核题目」，每道题标注来源，逐题核对（可补音频、改答案、AI 补全）后再入库。
+- **待审核题目**：Excel / Word / 拍照识别 / 技能包 / 网络采集 / 手机扫码，所有录题入口先进「待审核题目」，每道题标注来源，逐题核对（可补音频、改答案；AI 答案与解析须老师逐项确认）后再入库。
 - **组卷与下发**：「章节组卷 / 知识点组卷」两种方式（后台智能组卷、学生端自组卷共用同一套抽题逻辑），老师可把试卷定向下发给指定学生。
 - **课文习题与正确率**：课文习题输入框固定；学习报告按视频、按小分组统计正确率；后台「学生与账号 → 学习报告 → 习题学习报告 → 详情」按学生查看（原「知识点正确率」页已并入，旧地址 `#/acc` 会跳转）。
 - **AI 配置中心**：后台「系统设置 → AI 配置中心」是全站唯一的 AI 入口，按「文本生成 / 图像识别」分档案，支持 OpenAI 兼容 / Anthropic / Gemini 三种格式，配置 → 测试 → 启用即全站生效；没有启用档案时回退内置配置。
@@ -133,7 +135,8 @@ STORAGE_DRIVER=local AI_MOCK=1 TTS_MOCK=1 npm start
 - **试卷管理**：上传真题 Word → 识别预览 → 一步生成试卷并入题库；学生端试卷库可按关键字、年份、年级搜索。
 - **听力题**：给现有题型附加音频（后台上传，或「用文字生成朗读」），学生端题目上方出现播放条；音频存 `bank/audio/`。
 - **公式输入**：后台录题（题干 / 选项 / 答案 / 解析）和学生端数学 / 物理 / 化学的填空、问答题都可以用 MathLive 公式键盘（本地文件，不走 CDN）；公式以 `\( … \)` 存储，学生端 MathJax 渲染；判分不做公式等价。
-- **题库与视频存储解耦**：题库资源统一在 `bank/`，视频在 `videos/`，只通过绑定关系关联，删除视频不删题；预留 `BANK_BUCKET`（见本文末尾）。
+- **Word 公式导出**：常见分式、根式和上下标生成可编辑公式；其他可识别公式在服务端使用 MathJax 和 resvg 生成 PNG。无法识别、需要系统字体或超出资源限制的公式保留 LaTeX 原文，供人工核对；公式图片不可编辑。
+- **题库与视频分类存放**：题库资源统一在 `bank/`，视频在 `videos/`，只通过绑定关系关联，删除视频不删题；两类资源不需要独立存储桶。
 - **学生端单词页固定布局**：学习卡片固定高度，长单词 / 长释义自动缩字号，不再跳动。
 - **后台 UI 统一**：`public/admin/theme.css`（全部挂在 `body.t11` 下）统一按钮 / 表格 / 表单 / 弹窗；左侧菜单分为 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置，手机宽度下侧栏是抽屉。
 
@@ -186,6 +189,8 @@ zhilexue/
 
 CI（`.github/workflows/ci.yml`）分两个任务：`unit`（不需要数据库：`bank-test`、`wordq-test`、`excel-test`）和 `api`（起 MySQL + 服务后依次跑 `storage-test`、`smoke`、`word-test`、`wrong-test`、`kbtree-test`、`pending-test`、`compose-test`、`lessonq-test`、`aiclient-test`、`mistake-test`、`paper-test`、`listening-test`、`formula-test`、`bankstore-test`、`theme-test`）。带 Playwright 的检查在没有浏览器时自动跳过。
 
+十选项选择题的解析与判分由 `choices-ten-test.js` 覆盖；`choices-ten-flow-test.js` 使用隔离测试库与服务，验证扩展模板下载、导入、审核和学生判分。客户原 Excel 模板保持不变，录题中心提供另行下载的十选项扩展模板。
+
 环境变量：
 
 | 变量                                                                                           | 说明                                                                                                                                                                                                                                              |
@@ -201,19 +206,13 @@ CI（`.github/workflows/ci.yml`）分两个任务：`unit`（不需要数据库�
 | `QINIU_FOLDERS`                                                                              | 可选，七牛分流开关，默认 `videos`：只有视频上七牛，讲义等其他文件仍存服务器本地磁盘；设为 `*` 则全部文件上七牛                                                                                                                                                                |
 | `LOCAL_FOLDERS`                                                                              | 可选，始终留在服务器本地、不上云的目录，逗号分隔，默认 `wrong,guidedocs`                                                                                                                                                                                      |
 | `BANK_FOLDER`                                                                                | 可选，题库文件在存储里的根目录，默认 `bank`（后台「题库文件目录」设置优先）                                                                                                                                                                                         |
-| `BANK_BUCKET`                                                                                | 可选，默认空（题库资源与视频同一个 Bucket）。为将来把题库的图片 / 音频迁到独立 Bucket 预留，**当前版本只读取、不切换**，做法见下方「题库资源独立存储」                                                                                                                             |
+| `BANK_BUCKET`                                                                                | 历史预留配置；当前不会切换存储桶，题库和视频按目录分类存放，无需设置。 |
 | `AI_MOCK`                                                                                    | 设为 `1`：所有 AI 请求返回演示数据，不调外部接口（开发 / CI 用）                                                                                                                                                                                              |
 | `TTS_MOCK`                                                                                   | 设为 `1`：「用文字生成朗读」返回占位音频（真实发音依赖 Windows 自带语音，Linux 服务器上不可用）                                                                                                                                                                     |
 
-### 题库资源独立存储（预留，未启用）
+### 题库与视频分类存放
 
 题目的图片、音频、导入附件统一放在存储的 `bank/` 目录下（子目录 `img` 题目图、`audio` 听力音频、`recog` 录题页图、`paper` 导出试卷），**视频放 `videos/`**，两类资源只靠 key 前缀区分；视频和题目只通过「绑定」（`videos/:id/bind`）关联，删除视频只会把题目解绑，不会删题。
 
-所以将来想把题库资源迁到单独的 Bucket（例如换一个访问更快 / 更便宜的存储），不需要改数据库，步骤是：
-
-1. 在新 Bucket 里建好同名的 `bank/` 目录，用 `ossutil cp -r` 把旧 Bucket 的 `bank/` 整个拷过去（key 不变）。
-2. 设置环境变量 `BANK_BUCKET=<新 Bucket 名>`。`src/storage.js` 的 `bucketFor(key)` 会对 `bank/` 开头的 key 返回它、其它 key 返回空（默认桶）。
-3. 在 `storage.js` 的 `saveFile` / `getUrlSync` / `deleteFile` 里按 `bucketFor(key)` 选择对应的 OSS client（再 new 一个指向新 Bucket 的 client）。**这一步目前没有实现**，因为现在题库和视频在同一个 Bucket，没有切换的需要。
-
-> 注意：题目的图片地址是录入时生成并存进题目里的（OSS 无 CDN 时是 1 小时有效的签名链接）。迁移或拆桶前，先看 `docs/pending-human-actions.md` 里「题目图片地址有效期」一条。
+已确认无需拆分物理存储桶，也不需要迁移现有文件。新题图使用稳定的文件代理地址；服务端识别当前配置的存储域名下的历史题图地址，并按对象 key 在访问时重新签发。无法归属到当前存储配置的历史外链会保留原样，需要核对其原始存储位置。
 

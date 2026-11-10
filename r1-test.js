@@ -9,6 +9,7 @@
  */
 const { db } = require('./src/db');
 const { hash } = require('./src/auth');
+const { readReportSections } = require('./legacy-ui-contract-test');
 
 const BASE = process.env.BASE || 'http://localhost:3000';
 const ADM = '/api/admin/bank';
@@ -56,7 +57,7 @@ function cleanupOld() {
 /** 造演示数据：2 名总校学生 + 1 名分校学生；数学 / 物理 两门课，每门课分小分组，视频绑题，学生做题，一份试卷 */
 async function makeDemo() {
   const login = async (u, role) => (await req('/api/login', { method: 'POST', body: { username: u, password: '123456', role } })).data.token;
-  const AT = await login('15152099970', 'admin');
+  const AT = await login('zlx-ci-admin', 'admin');
   const mkUser = (role, username, name, extra = {}) => {
     const id = db.prepare("INSERT INTO users (role,username,password,name,grade,term,stage,allow_speed,allow_seek,expire_at,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,1,1,'2099-12-31',1,?,?)")
       .run(role, username, hash('123456'), name, '七年级', '上册', 'junior', extra.created_by || null, NOW()).lastInsertRowid;
@@ -161,7 +162,7 @@ async function main() {
   let chromium = null;
   try { chromium = require('playwright').chromium; } catch (e) { /* 没装 */ }
   let browser = null;
-  if (chromium) { try { browser = await chromium.launch(); } catch (e) { browser = null; } }
+  if (chromium) { try { browser = await chromium.launch({ ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}),args:['--no-sandbox'] }); } catch (e) { browser = null; } }
   if (!browser) {
     console.log('  ⏭  没有可用的浏览器（Playwright），跳过页面检查');
   } else {
@@ -173,7 +174,7 @@ async function main() {
         p.on('pageerror', (e) => errs.push(e.message));
         // 记下页面给下载文件起的名字（无头 Chromium 对中文文件名会回落成 "download"，不影响真实浏览器）
         await p.addInitScript(() => { const c = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { if (this.download) window.__dlName = this.download; return c.call(this); }; });
-        await p.goto(BASE + '/admin/'); await p.fill('input[type=text],input:not([type])', '15152099970'); await p.fill('input[type=password]', '123456'); await p.keyboard.press('Enter'); await p.waitForTimeout(1500);
+        await p.goto(BASE + '/admin/'); await p.fill('input[type=text],input:not([type])', 'zlx-ci-admin'); await p.fill('input[type=password]', '123456'); await p.keyboard.press('Enter'); await p.waitForTimeout(1500);
         return p;
       };
       const p = await open(1440, 900);
@@ -190,10 +191,10 @@ async function main() {
         items: [...g.querySelectorAll('.ng-sub a .txt')].map((x) => x.textContent.trim()),
       })));
       const items = (t) => (menu.find((g) => g.t === t) || { items: [] }).items.join('/');
-      log(menu.map((g) => g.t).join('/') === '首页/学生与账号/教学资源/智能题库/学情与报告/系统设置', '菜单分组顺序不变：首页 / 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置', menu.map((g) => g.t).join('/'));
+      log(menu.map((g) => g.t).join('/') === '工作台/学生与账号/教学资源/智能题库/学情与报告/系统设置', '菜单分组顺序：工作台 / 学生与账号 / 教学资源 / 智能题库 / 学情与报告 / 系统设置', menu.map((g) => g.t).join('/'));
       log(items('学生与账号') === '分校管理/学生管理/学习报告', '「学习报告」在「学生与账号」下、「学生管理」后面', items('学生与账号'));
       log(items('学情与报告') === '成绩管理/谈心谈话/家校沟通/AI学情诊断', '「学情与报告」：成绩管理 / 谈心谈话 / 家校沟通 / AI学情诊断（诊断排在家校沟通后）', items('学情与报告'));
-      log(items('教学资源') === '课程目录/视频管理/讲义资料/词书管理/字母乐园/音标训练' && items('智能题库') === '题库管理/待审核题目/知识树管理/试卷管理/智能组卷/课文习题' && items('系统设置') === 'AI 配置中心/操作日志', '「教学资源」「智能题库」「系统设置」保持不变');
+      log(items('教学资源') === '课程目录/视频管理/讲义资料/词书管理/字母乐园/音标训练' && items('智能题库') === '题库管理/录题中心/待审核题目/知识树管理/试卷管理/智能组卷/课文习题' && items('系统设置') === 'AI 配置中心/操作日志', '教学资源和系统设置保持原组，智能题库包含统一录题中心');
       log(!(await p.$$eval('.nav a', (a) => a.some((x) => /知识点正确率/.test(x.textContent)))), '菜单里没有「知识点正确率」');
       const onItem = await p.$eval('.nav a.on .txt', (e) => e.textContent.trim());
       const crumb = await p.$eval('.tb-crumb b', (e) => e.textContent.trim());
@@ -225,8 +226,9 @@ async function main() {
       log(rowDl.head === 'PK' && rowDl.zip && /\.docx$/.test(rowDl.name), '行内「导出错题 Word」→ 下载 .docx（PK 压缩包，含 word/document.xml）', `${rowDl.name} ${rowDl.size}B`);
 
       await p.click('[data-edetail]'); await p.waitForSelector('.r1-drawer #r1Tree .r1-course', { timeout: 8000 });
-      const secs = await p.$$eval('.r1-sec h4', (h) => h.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-      log(secs.length === 4 && /学科总览/.test(secs[0]) && /课程.*小分组.*视频/.test(secs[1]) && /试卷成绩/.test(secs[2]) && /最近作答/.test(secs[3]), '详情抽屉三块：学科总览 / 课程→小分组→视频 正确率 / 试卷成绩 + 最近作答', secs.join(' | '));
+      const report = await p.evaluate(readReportSections);
+      const secs = report.headings;
+      log(secs.length === 5 && /学科总览/.test(secs[0]) && /知识点与小分组/.test(secs[1]) && /试卷成绩/.test(secs[2]) && /最近作答/.test(secs[3]) && /主观题作答/.test(secs[4]), '详情抽屉：学科总览、知识点与小分组、试卷成绩、最近作答和主观评分', secs.join(' | '));
       const subj = await p.$$eval('.r1-subj', (c) => c.map((x) => `${x.dataset.subj}:${x.querySelector('.r1-subj-v').textContent.trim()}`).join(','));
       log(subj === '数学:67%,英语:—,物理:100%,化学:—', '学科总览：数学 67%（10/15）、物理 100%（4/4），没做的学科显示「—」', subj);
       const got = await domRows(p);
@@ -234,9 +236,10 @@ async function main() {
       log(got.length > 0 && JSON.stringify(got) === JSON.stringify(want), `四级正确率：页面 ${got.length} 行（课程 / 小分组 / 视频）与 /api/admin/bank/accuracy 逐行一致`, JSON.stringify(got.filter((r) => /R1|正数|数轴|有理|长度|时间/.test(r.name)).map((r) => r.name + ' ' + r.badge)));
       const v25 = got.find((r) => r.name === '数轴上的点');
       log(!!v25 && v25.badge === '25%', '「数轴上的点」视频 25%（答对 1 / 4 题）', v25 && v25.badge);
-      const paperTxt = await p.$eval('.r1-sec:nth-of-type(3)', (e) => e.textContent.replace(/\s+/g, ' '));
+      const paperTxt = report.paperText;
       log(/单元测验/.test(paperTxt) && /75 \/ \d+/.test(paperTxt) && /3 \/ 4 题/.test(paperTxt), '试卷成绩：试卷名、75 分、答对 3 / 4 题', paperTxt.slice(0, 120));
-      log((await p.$$('.r1-scroll-tall tbody tr')).length === 19, '最近作答：19 条记录');
+      log(report.recordCount === 19, '最近作答：19 条记录（不混入主观评分表）');
+      log(report.subjectiveText === '还没有主观题作答' && report.gradeIds.length === 0, '纯客观题夹具：主观评分区显示空态，不误生成评分记录');
 
       // 折叠
       await p.click('.r1-lv1[data-tog]'); await p.waitForTimeout(100);

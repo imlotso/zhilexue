@@ -4,7 +4,7 @@
 
 - 后端：Node.js + Express，入口 `src/app.js`，端口 3000（`PORT` 可改），生产用 pm2（`ecosystem.config.js`，单实例 fork）。
 - 数据库：MySQL（`src/config.local.js` 指向 `127.0.0.1:3306`，库名 `xuexi`）。`src/mysql-sync.js` 提供与 better-sqlite3 同接口的同步封装（查询在 `mysql-worker.js` 的独立线程里执行），业务代码不用 async。库为空时 `import-sqlite.js` 会从 `data/xuexi.db`（SQLite）导入旧数据。
-- 存储：`src/storage.js`，阿里云 OSS / 七牛 / 本地磁盘三选一（环境变量 `STORAGE_DRIVER`）。视频走前端分片直传 OSS（单个上限 4GB），可配 `CDN_DOMAIN`。`LOCAL_FOLDERS` 默认 `wrong,guidedocs` 留在本地。题库资源（题目图 / 听力音频 / 录题页图 / 导出试卷）统一在 `bank/` 目录，视频在 `videos/`，二者只靠 key 前缀和 `video_id` 绑定关系关联；可选 `BANK_BUCKET` 是将来拆桶的预留口子（T12，README 有做法）。
+- 存储：`src/storage.js`，写入驱动由 `STORAGE_DRIVER` 选择阿里云 OSS / 七牛 / 本地磁盘。OSS 读取先用上传根目录下已有的普通本地文件，否则按原 key 读取原桶，不下载全桶或改数据库 key；上传根目录可为部署链接，根目录以下的符号链接不作为本地媒体。`STORAGE_CLOUD_READ_ONLY=1` 显式禁止云端写入、删除和上传授权，默认关闭，不影响读取或原有本地写入策略。视频走前端分片直传 OSS（单个上限 4GB），可配 `CDN_DOMAIN`。`LOCAL_FOLDERS` 默认 `wrong,guidedocs` 留在本地。题库资源（题目图 / 听力音频 / 录题页图 / 导出试卷）统一在 `bank/` 目录，视频在 `videos/`，二者通过 key 前缀和 `video_id` 绑定关系隔离，不要求独立存储桶。题图使用稳定的 `/api/file?key=…` 地址；读取时短票据和云存储 URL 重新签发，兼容当前存储域名下可识别的历史签名图。
 - 前端：原生 JS，无构建。
 
 ## 数据库如何选择（MySQL / SQLite）
@@ -50,7 +50,10 @@ zhilexue/
 | `app.js` | 主服务：登录、文件代理、管理端基础接口（分校/学生/目录/视频/讲义）、学生端基础接口、路由挂载 |
 | `kbtree.js` | 知识树统一（T4）：旧 `kb_*` 复制进 `bank_trees` 知识点树、旧 `/kbtree*` 接口的读写、知识点名清单（供 AI 补全/下拉用）；被 `bank.js`、`mfbank.js` 调用 |
 | `treepick.js` / `treeio.js` | 目录树的教材版本（R2）：`treepick.js` = 默认版本表（`settings.default_editions`）+ 统一取树 `pickTree`（所有"按 学段+学科 取一棵树"的地方都走它：`kbtree.js`、`bank.js` 学生端 `scan-tree`、`mfcollect.js`）；`treeio.js` = 树导入 / 导出（格式见 `docs/tree-import-format.md`，被 `mfbank.js` 的 `/trees/import`、`/trees/:id/export` 和 `scripts/import-trees.js` 共用） |
-| `mfpending.js` | 待审核题目（T3）：把拍照识别 / Word / Excel / 技能包（都是 `mf_recog_runs` 批次）、网络采集批次、手机扫码上传统一成一个列表，逐题编辑/入库/删除，以及 Excel、Word 导入入口；由 `mfbank.js` 末尾挂载，复用它抽出的 `commitRunCards` / `commitCaptureItems`；T10 的「上传真题试卷」`POST /papers/import-word`（Word → 试卷 + 入题库）也在这里 |
+| `mfpending.js` | 待审核题目（T3）：把拍照识别 / Word / Excel / 技能包（都是 `mf_recog_runs` 批次）、网络采集批次、手机扫码上传统一成一个列表，逐题编辑/入库/删除，以及 Excel、Word 导入入口；由 `mfbank.js` 末尾挂载，复用它抽出的 `commitRunCards` / `commitCaptureItems`；真题和课文习题题卡先进入审核，审核后回挂试卷或视频 |
+| `recognition-pages.js` / `pending-merge.js` | 跨页识别材料及题卡的保守关联、来源与并发快照；老师显式合并片段时保留原片段、重映射图片并要求重新审核 |
+| `content-review.js` / `image-review.js` / `ai-answer-review.js` | 分别绑定题面、图文和 AI 答案/解析的审核快照；图表缺失、内容变化或未经确认时不能绕过待审核入库 |
+| `question-images.js` / `choice-options.js` | 学生取题时区分题面图与明确标识的答案解析图；共享选择题选项完整性校验 |
 | `wordq.js` | Word 题目规则解析（T3）：按客户《word (1).docx》的格式规则解析，不调 AI，不合规的题给出段号和原因 |
 | `db.js` / `mysql-sync.js` / `mysql-worker.js` / `import-sqlite.js` | 建表、数据库连接与 SQLite→MySQL 转换 |
 | `auth.js` / `delpwd.js` | JWT 鉴权；删除确认密码 |
@@ -82,3 +85,36 @@ zhilexue/
 - 做题弹窗 `BankQuiz.open()`（`public/js/bank.js`）是课文习题、小分组练习、试卷、错题重做 / 复习、自组卷共用的一个 DOM 组件：桌面端定高（`min(86vh,760px)`），右侧栏 = 计时 + 题号四色方格（未做 / 已做 / 答对 / 答错，可点击跳题），左侧 = 题卡（内部滚动）+ 底部按钮；所有模式都是「提交本题 → 立即核对（`/check`，不落库）→ 全部核对完交卷（`/submit`）→ 报告」。手机端（≤760px）全屏，题号改成顶栏下的横向滚动条。
 - AI 老师浮层也在 `bank.js` 里（每个做题弹窗各自一份状态）：对话按「题目 × 模式（直接讲解 / 一步步引导）」分别保存；用 `fetch` + `ReadableStream` 读 `/api/stu/bank/ai-explain/stream` 的 SSE（`EventSource` 不支持 POST 和登录头）；Markdown 用 `r8Md()` 轻量渲染，流结束后 `mtxTypeset` 排公式。
 - 课程页（`public/js/vue-app.js` 的 `course` 页）：右上角进度 + 正确率、顶部「知识点掌握」卡（环形 + 两个指标 + 继续学习）、左侧小分组卡（已学 / 正确率 / 小分组练习）、视频卡知识点标签（点开是 `showNodeMastery` 弹窗）。样式都在 `public/css/app.css` 末尾的 `r8-` 段。
+
+二轮进行中：`tree-mapping.js` 负责章节与知识点映射；`mfpack-adapter.js` 负责常见外部题卡转换；`r6-compose.js` 复用题库的目录、题卡和本地试题篮。
+
+`difficulty.js` 统一处理十级精度与原有五星字段的校验和同步；无十级来源时保留空值，既有按五星的筛选和组卷不变。
+
+`ai-proxy.js` 仅为 `ai-client.js` 的 AI 请求选择 HTTP(S) 代理，按标准代理环境变量与 `NO_PROXY` 判断，回环地址直连；不更改全局 Agent 和 TLS 校验。
+
+`public/admin/intake-flow.js` 为录题入口共用的传输超时、离页回调保护、sessionStorage 草稿及批次恢复提示和教程；在录题页面脚本前加载。文件本体不保存在浏览器草稿中，恢复不等于字节级续传或后台任务。英语细分兼容关系统一由 `public/js/question-subtypes.js` 提供，学生端与后台均加载；Word、Excel 和 JSON 导入复用它。
+
+## 七入口的恢复与公共交互（2026-11-06）
+
+- `public/admin/intake-flow.js` 统一教程、按账号的本机草稿、准备范围、请求指纹和结果查询。草稿从旧 sessionStorage 兼容迁移至 localStorage；文件二进制不持久保存。`upload.html` 使用上传通道提供的稳定账号/角色范围，短票据更新后仍可找回本机文字及提交线索。共享电脑由用户在完成后清除草稿；不同设备不自动同步。
+- `src/intake-receipts.js` 在三个现有暂存表保存请求回执；入口路由在创建批次的同一事务中记录输入摘要及结果。相同恢复凭据不会重复建立批次；相同凭据不同输入报错。页图单独在原有 pages JSON 中记录上传凭据。`src/intake-scope.js` 共用范围校验，仅使用真实存在的教材版本。
+- `src/intake-jobs.js` 是现有单进程服务共用的在途 Map：`mfbank.js` 的识别/转写/整理/旧 Word/建议请求互斥，`bank.js` 的教师扫码异步识别也登记状态。重新进入工作台轮询当前页；关闭页面后已发请求继续保存，尚未发出的后续页不自动排队。进程重启不恢复内存中的调用，持久页图/草稿仍在；未引入队列/多进程分布式锁。
+- `public/js/api.js` 的 `DialogUX` 为原公共弹窗提供焦点、Tab、Escape、嵌套窗口与取消 Promise 收尾；`admin.js` 提供整页错误重试、保存期间防重复、表单标签及表格操作列增强，保留原业务提交校验。`theme.css` 仍限定后台作用域。
+- CI 安装固定 Playwright/Chromium，实际执行浏览器恢复/页面检查并上传 35 页面三种视口的截图。没有安装浏览器时旧脚本仍会明确报告跳过；本轮本地验证使用明确 `CHROMIUM_PATH`，不以跳过冒充浏览器通过。
+
+## 圆润版视觉覆盖层（2026-11-08，十张确认稿）
+
+- 学生 `ui-rounded-student-20261108.css` 在旧学习空间样式后加载，承载顶部导航、手机底部导航、深绿首页、课程双栏与错题卡。`vue-app.js` 和 `bank.js` 复用已有 API、权限、状态、课程播放器和错题导出范围，不新增服务端能力。
+- 管理端 `ui-rounded-shell-20261108.css` 与 `ui-rounded-pages-20261108.css` 最后加载。前者统一薄荷侧栏、圆角卡片和首页；后者覆盖审核、组卷、录题、学情。审核保留分类保存与入库分离；低高度桌面保留三项关键操作可达。样式仅作用于已有页面类。
+- 答题继续使用共享 `BankQuiz.open()`、原判分/提交及 AI 门控。`ui-quiz-20261108.css` 改为森林绿/暖白/琥珀黄；未核对 AI 面板收敛但保留关闭与恢复。原数字键盘和 MathLive 公式弹窗不变。
+- 增加 `test:ui-rounded:unit`、`test:ui-rounded:browser` 以复现合成前端验收。无构建步骤、依赖升级、后端路由或数据库迁移。完整说明及接受的交互差异见 `docs/rounded-ui-implementation-20261108.md` 与 `design-qa.md`。
+
+## 2026-11-09 局部 bug 修复边界
+
+本批以 `2c4adba` 为基线，全站新 UI 保持暂停。学生端 `ui-desktop-20261109.css` 仅恢复桌面常驻窄侧栏、紧凑课程列表与桌面内容分区，使用现有森林绿/米白/圆角语言；960px 以下保留移动抽屉与原导航。Vue 按媒体查询同步导航的 inert/aria 状态，重复当前链接和 Escape 可关闭抽屉。
+
+成绩与 care 内嵌应用分别加载自身 `assets/css/rounded-workspace.css`，不引入新全站主题或改造依赖。主后台只同步内嵌页导航与背景；异步表单在保存中锁定、失败保留草稿，音频完成上传后才能提交。
+
+题干多图选择复用原 T8 上传与图号机制，入口紧邻公式，批量顺序上传并处理部分失败/重试。正式保存等待上传队列完成；修改题干时清理旧 `stem_html`，防止富文本遮住新题干。
+
+后端 `compose.planStudentScan` 为计数与出卷提供同一覆盖计划。`bank.js` 区分个人自评与正式试卷评分；`accuracy.js` 仅接纳有精确自评来源的主观记录。`mfpending.js` 管理独立 AI 初审和快照保护的批量人工编辑。

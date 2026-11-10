@@ -6,71 +6,46 @@ const MF_API = '/api/admin/bank/mf';
 const MF_TYPES = [['single', '单选题'], ['multi', '多选题'], ['judge', '判断题'], ['fill', '填空题'], ['sort', '排序题'], ['answer', '解答题']];
 const MF_TYPE_NAME = Object.fromEntries(MF_TYPES);
 const MF_STAGES = [['', '全部学段'], ['primary', '小学'], ['junior', '初中'], ['senior', '高中']];
-const MF_GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
+const MF_GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const MF_SUBJECTS = ['数学', '英语', '物理', '化学', '语文'];
+const MF_EXAM_CATEGORIES = [['', '未分类'], ['unit', '单元'], ['midterm', '期中'], ['final', '期末'], ['entrance', '真题']];
+const mfExamOptions = (selected = '') => MF_EXAM_CATEGORIES.map(([v, label]) => `<option value="${v}" ${v === selected ? 'selected' : ''}>${label}</option>`).join('');
+const mfTermOptions = (selected = '') => [['','未指定'], ['上册','上册'], ['下册','下册'], ['全一册','全一册']].map(([v,t]) => `<option value="${v}" ${v === selected ? 'selected' : ''}>${t}</option>`).join('');
+async function mfEditionFields(w, subId, stageId, editionId, selected = '') {
+  const trees = await tpTrees('textbook');
+  const sub = w.querySelector(subId), stage = w.querySelector(stageId), edition = w.querySelector(editionId);
+  if (!sub || !stage || !edition) return;
+  const refresh = (keep) => {
+    const list = tpEditions(trees, { kind:'textbook', subject:sub.value, stage:stage.value }).filter(Boolean);
+    edition.innerHTML = '<option value="">未指定</option>' + list.map((e) => `<option value="${esc(e)}">${esc(e)}</option>`).join('');
+    if (keep && list.includes(keep)) edition.value = keep;
+  };
+  sub.addEventListener('change', () => refresh('')); stage.addEventListener('change', () => refresh('')); refresh(selected);
+}
 const MF_SRC_NAME = { local: '本地', capture: '采集', recog: '录题' };
 
 const mfEsc = (s) => String(s == null ? '' : s);
 const mfState = (k) => (ADM.page[k] = ADM.page[k] || {});
 
 async function mfCommitForm(batchId) {
-  const d = await api(`${MF_API}/capture/batches/${batchId}`);
-  const trees = await tpTrees();
-  const papers = (await api(MF_API + '/papers?status=basket', { silent: true }).catch(() => ({ list: [] }))).list || [];
-  let nodes = [];
-  modal({
-    title: `入库：${d.batch.title}`, wide: true, okText: '开始入库',
-    body: `<div class="mf-form">
-      <div class="field"><label>学科</label><select id="mcSub">${MF_SUBJECTS.map((s) => `<option>${s}</option>`).join('')}</select></div>
-      <div class="field"><label>学段</label><select id="mcStage">${MF_STAGES.slice(1).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
-      <div class="field"><label>年级</label><select id="mcGrade"><option value="">不限</option>${MF_GRADES.map((g) => `<option>${g}</option>`).join('')}</select></div>
-      <div class="field"><label>目录树</label><select id="mcTree"><option value="">不挂树</option>${trees.map((t) => `<option value="${t.id}">${esc(treeLabel(t))}</option>`).join('')}</select></div>
-      <div class="field"><label>节点</label><select id="mcNode"><option value="">（先选树）</option></select></div>
-      <div class="field"><label>加入试卷</label><select id="mcPaper"><option value="">不加入</option>${papers.map((p) => `<option value="${p.id}">${esc(p.title)}</option>`).join('')}</select></div>
-      <div class="field"><label>统一分值</label><input id="mcScore" class="inp" type="number" value="0"></div>
-      <div class="field wide"><label>额外标签（逗号分隔）</label><input id="mcTags" class="inp" placeholder="如：采集自菁优网"></div>
-      <div class="field wide"><label>选择要入库的题（共 ${d.batch.questions.length} 题）</label>
-        <div class="mf-pick">${d.batch.questions.map((q, i) => `<label class="mf-pickitem">
-          <input type="checkbox" class="mcck" value="${i}" checked>
-          <span>${esc((q.stem || q.stemHtml || '').slice(0, 160))}</span></label>`).join('')}</div></div>
-    </div>`,
-    onMount: (w) => {
-      w.querySelector('#mcTree').onchange = async (e) => {
-        nodes = e.target.value ? ((await api(`${MF_API}/trees/${e.target.value}/nodes`).catch(() => ({ list: [] }))).list || []) : [];
-        w.querySelector('#mcNode').innerHTML = `<option value="">不挂</option>${nodes.map((n) => `<option value="${n.id}">${esc(n.name)}</option>`).join('')}`;
-      };
-    },
-    onOk: async (w) => {
-      const sel = [...w.querySelectorAll('.mcck:checked')].map((c) => Number(c.value));
-      if (!sel.length) return false;
-      const r = await api(`${MF_API}/capture/batches/${batchId}/commit`, {
-        method: 'POST',
-        body: {
-          selected: sel, subject: w.querySelector('#mcSub').value, stage: w.querySelector('#mcStage').value,
-          grade: w.querySelector('#mcGrade').value, node_id: w.querySelector('#mcNode').value || null,
-          paper_id: w.querySelector('#mcPaper').value || null, score: Number(w.querySelector('#mcScore').value) || 0,
-          tags: w.querySelector('#mcTags').value.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
-        },
-      });
-      toast(`入库完成：新增 ${r.created}、补缺 ${r.updated}、跳过 ${r.skipped}`, 'ok');
-      render();
-    },
-  });
+  // 采集批次创建时已进入待审核；分类和入库统一在那里完成。
+  toast('采集题目已进入待审核，请核对后入库', 'ok');
+  location.hash = '#/pending';
 }
 
-/* ================================================================= 试卷管理
- * 文件夹 + 试卷（试题篮 → 排版中 → 定稿 → 归档 / 回收站）+ 排版参数 + 预览打印导出。 */
 async function viewMfPapers() {
   const st = mfState('mfp');
-  st.status = st.status || '';
+  st.view_status = st.view_status || '';
+  delete st.status;
   st.folder = st.folder || '';
   st.kw = st.kw || '';
   const folders = (await api(MF_API + '/paper-folders', { silent: true }).catch(() => ({ list: [] }))).list || [];
   const qs = Object.entries(st).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
   const data = await api(`${MF_API}/papers${qs ? '?' + qs : ''}`);
-  const STATUS = data.statusNames || {};
-  const groups = ['basket', 'composing', 'done', 'archived', 'trashed'];
-  const seg = (s) => (data.list || []).filter((p) => p.status === s);
+  const STATUS = { draft: '草稿', published: '已发布', archived: '已归档' };
+  const groups = ['draft', 'published', 'archived'];
+  const displayStatus = (p) => p.status === 'archived' ? 'archived' : Number(p.published) && !['basket','trashed'].includes(p.status) ? 'published' : 'draft';
+  const seg = (s) => (data.list || []).filter((p) => displayStatus(p) === s);
 
   const html = `<div class="mf-wrap">
     <div class="card mf-card">
@@ -88,23 +63,25 @@ async function viewMfPapers() {
           <input id="mpKw" class="inp" placeholder="搜卷名" value="${esc(st.kw)}">
           <select id="mpSub"><option value="">全部学科</option>${MF_SUBJECTS.map((s) => `<option ${st.subject === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
           <input id="mpYear" class="inp" style="width:84px" placeholder="年份" maxlength="4" value="${esc(st.year || '')}">
-          <select id="mpStatus"><option value="">全部状态</option>${groups.map((s) => `<option value="${s}" ${st.status === s ? 'selected' : ''}>${STATUS[s] || s}</option>`).join('')}</select>
-          <button class="btn primary sm" id="mpImport">${ic('upload')} 上传真题试卷</button>
+          <select id="mpStatus"><option value="">全部状态</option>${groups.map((s) => `<option value="${s}" ${st.view_status === s ? 'selected' : ''}>${STATUS[s]}</option>`).join('')}</select>
+          <button class="btn primary sm" id="mpImport">${ic('upload')} 上传 Word 真题</button><button class="btn ghost sm" id="mpImagePaper">上传 PDF / 图片真题</button>
           <button class="btn ghost sm" id="mpNew">${ic('plus')} 新建试卷</button>
         </div></div>
       <div class="card-b">
         ${groups.map((s) => {
-          const list = st.status ? (s === st.status ? seg(s) : []) : seg(s);
+          const list = st.view_status ? (s === st.view_status ? seg(s) : []) : seg(s);
           if (!list.length) return '';
           return `<h4 class="mf-seg">${STATUS[s] || s}（${list.length}）</h4>
           <div class="mf-papers">${list.map((p) => `<div class="mf-paper">
-            <div class="mf-pt">${esc(p.title)} ${Number(p.published) ? '<span class="tag ok">已发布到试卷库</span>' : ''}</div>
-            <div class="hint">${esc(p.subject || '通用')}${p.grade ? ' · ' + esc(p.grade) : ''}${p.year ? ' · ' + esc(p.year) + '年' : ''} · ${p.qcount || 0} 题 · ${esc(p.created_at || '')}</div>
+            <div class="mf-pt">${esc(p.title)} ${displayStatus(p) === 'published' ? '<span class="tag ok">已发布到试卷库</span>' : ''}</div>
+            <div class="hint">${esc(p.subject || '通用')}${p.grade ? ' · ' + esc(p.grade) : ''}${p.edition ? ' · ' + esc(p.edition) : ''}${p.term ? ' · ' + esc(p.term) : ''}${p.year ? ' · ' + esc(p.year) + '年' : ''} · ${esc((MF_EXAM_CATEGORIES.find(([v]) => v === (p.exam_category || '')) || MF_EXAM_CATEGORIES[0])[1])} · ${p.qcount || 0} 题 · ${esc(p.created_at || '')}</div>
             <div class="mf-pbtns">
               <button class="btn ghost xs" data-open="${p.id}">打开</button>
               <button class="btn ghost xs" data-prev="${p.id}">预览打印</button>
               <button class="btn ghost xs" data-status="${p.id}">状态</button>
-              <button class="btn ghost xs" data-libpub="${p.id}">${Number(p.published) ? '取消发布' : '发布'}</button>
+              <button class="btn ghost xs" data-category="${p.id}">试卷类型</button>
+              <button class="btn ghost xs" data-edition="${p.id}">教材信息</button>
+              <button class="btn ghost xs" data-libpub="${p.id}">${displayStatus(p) === 'published' ? '取消发布' : '发布'}</button>
               <button class="btn ghost xs" data-delp="${p.id}">删</button>
             </div></div>`).join('')}</div>`;
         }).join('') || '<div class="empty">还没有试卷，点右上角新建一张</div>'}
@@ -119,12 +96,16 @@ async function viewMfPapers() {
           title: '新建试卷', body: `<div class="mf-form">
             <div class="field"><label>卷名</label><input id="npTitle" class="inp" placeholder="如：七年级上册期中卷"></div>
             <div class="field"><label>年份</label><input id="npYear" class="inp" placeholder="如 2024（选填）" maxlength="4"></div>
+            <div class="field"><label>试卷类型</label><select id="npCategory">${mfExamOptions()}</select></div>
             <div class="field"><label>学科</label><select id="npSub">${MF_SUBJECTS.map((s) => `<option>${s}</option>`).join('')}</select></div>
             <div class="field"><label>学段</label><select id="npStage">${MF_STAGES.slice(1).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
             <div class="field"><label>年级</label><select id="npGrade"><option value="">不限</option>${MF_GRADES.map((g) => `<option>${g}</option>`).join('')}</select></div>
+            <div class="field"><label>教材版本</label><select id="npEdition"><option value="">未指定</option></select></div>
+            <div class="field"><label>册别</label><select id="npTerm">${mfTermOptions()}</select></div>
             <div class="field"><label>文件夹</label><select id="npFolder"><option value="">未分类</option>${folders.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></div></div>`,
+          onMount: (w) => mfEditionFields(w, '#npSub', '#npStage', '#npEdition'),
           onOk: async (w) => {
-            await api(MF_API + '/papers', { method: 'POST', body: { year: w.querySelector('#npYear').value.trim(), title: w.querySelector('#npTitle').value.trim(), subject: w.querySelector('#npSub').value, stage: w.querySelector('#npStage').value, grade: w.querySelector('#npGrade').value, folder_id: w.querySelector('#npFolder').value || null } });
+            await api(MF_API + '/papers', { method: 'POST', body: { year: w.querySelector('#npYear').value.trim(), exam_category: w.querySelector('#npCategory').value, title: w.querySelector('#npTitle').value.trim(), subject: w.querySelector('#npSub').value, stage: w.querySelector('#npStage').value, grade: w.querySelector('#npGrade').value, edition: w.querySelector('#npEdition').value, term: w.querySelector('#npTerm').value, folder_id: w.querySelector('#npFolder').value || null } });
             toast('已创建', 'ok'); render();
           },
         });
@@ -133,7 +114,8 @@ async function viewMfPapers() {
       document.getElementById('mpSub').onchange = (e) => { st.subject = e.target.value; render(); };
       document.getElementById('mpYear').onkeydown = (e) => { if (e.key === 'Enter') { st.year = e.target.value.trim(); render(); } };
       document.getElementById('mpImport').onclick = () => mfImportPaperDialog(folders);
-      document.getElementById('mpStatus').onchange = (e) => { st.status = e.target.value; render(); };
+      document.getElementById('mpImagePaper').onclick = () => { toast('请新建录题批次，上传并识别后选择「保存为试卷草稿」', 'ok'); location.hash = '#/mfi'; };
+      document.getElementById('mpStatus').onchange = (e) => { st.view_status = e.target.value; delete st.status; render(); };
       document.querySelectorAll('[data-folder]').forEach((a) => { a.onclick = () => { st.folder = a.dataset.folder; render(); }; });
       document.getElementById('mpFolderNew').onclick = () => {
         modal({ title: '新建文件夹', body: `<div class="field"><label>名称</label><input id="nfName" class="inp"></div>`,
@@ -147,8 +129,21 @@ async function viewMfPapers() {
       }; });
       document.querySelectorAll('[data-status]').forEach((b) => { b.onclick = () => {
         const id = Number(b.dataset.status);
-        modal({ title: '修改状态', body: `<div class="field"><label>状态</label><select id="nsStatus">${groups.map((s) => `<option value="${s}">${STATUS[s] || s}</option>`).join('')}</select></div>`,
-          onOk: async (w) => { await api(MF_API + '/papers/' + id, { method: 'PUT', body: { status: w.querySelector('#nsStatus').value } }); toast('已更新', 'ok'); render(); } });
+        const paper = (data.list || []).find((item) => Number(item.id) === id);
+        modal({ title: '修改状态', body: `<div class="field"><label>状态</label><select id="nsStatus"><option value="done" ${paper && paper.status !== 'archived' ? 'selected' : ''}>草稿</option><option value="archived" ${paper && paper.status === 'archived' ? 'selected' : ''}>已归档</option></select></div><p class="hint">设为草稿或归档时，学生端将不再显示这份试卷。</p>`,
+          onOk: async (w) => { await api(MF_API + '/papers/' + id, { method: 'PUT', body: { status: w.querySelector('#nsStatus').value, published: 0 } }); toast('已更新', 'ok'); render(); } });
+      }; });
+      document.querySelectorAll('[data-category]').forEach((button) => { button.onclick = () => {
+        const paper = (data.list || []).find((item) => Number(item.id) === Number(button.dataset.category));
+        if (!paper) return;
+        modal({ title: '修改试卷类型', body: `<div class="field"><label>试卷类型</label><select id="editExamCategory">${mfExamOptions(paper.exam_category || '')}</select></div>`,
+          onOk: async (w) => { await api(MF_API + '/papers/' + paper.id, { method: 'PUT', body: { exam_category: w.querySelector('#editExamCategory').value } }); toast('已更新', 'ok'); render(); } });
+      }; });
+      document.querySelectorAll('[data-edition]').forEach((button) => { button.onclick = () => {
+        const paper = (data.list || []).find((item) => Number(item.id) === Number(button.dataset.edition)); if (!paper) return;
+        modal({ title: '教材信息', body: `<p class="hint">按已有知识树选择版本；实际章节和知识点仍需在待审核中核对。</p><div class="field"><label>教材版本</label><select id="editEdition"><option value="">未指定</option></select></div><div class="field"><label>册别</label><select id="editTerm">${mfTermOptions(paper.term || '')}</select></div>`,
+          onMount: async (w) => { const trees = await tpTrees('textbook'); const list = tpEditions(trees,{kind:'textbook',subject:paper.subject,stage:paper.stage}).filter(Boolean); if (paper.edition && !list.includes(paper.edition)) list.unshift(paper.edition); w.querySelector('#editEdition').innerHTML = '<option value="">未指定</option>' + list.map(e=>`<option value="${esc(e)}" ${e===paper.edition?'selected':''}>${esc(e)}</option>`).join(''); },
+          onOk: async (w) => { await api(MF_API + '/papers/' + paper.id, { method:'PUT', body:{edition:w.querySelector('#editEdition').value,term:w.querySelector('#editTerm').value} }); toast('已更新','ok'); render(); } });
       }; });
       document.querySelectorAll('[data-libpub]').forEach((b) => { b.onclick = async () => {
         const id = Number(b.dataset.libpub);
@@ -176,12 +171,16 @@ function mfImportPaperDialog(folders) {
       <div class="field"><label>学科</label><select id="ipSub">${MF_SUBJECTS.map((s) => `<option>${s}</option>`).join('')}</select></div>
       <div class="field"><label>学段</label><select id="ipStage">${MF_STAGES.slice(1).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
       <div class="field"><label>年级</label><select id="ipGrade"><option value="">不限</option>${MF_GRADES.map((g) => `<option>${g}</option>`).join('')}</select></div>
+      <div class="field"><label>教材版本</label><select id="ipEdition"><option value="">未指定</option></select></div>
+      <div class="field"><label>册别</label><select id="ipTerm">${mfTermOptions()}</select></div>
       <div class="field"><label>年份</label><input id="ipYear" class="inp" maxlength="4" placeholder="${yr - 1}"></div>
+      <div class="field"><label>试卷类型</label><select id="ipCategory">${mfExamOptions()}</select></div>
       <div class="field"><label>文件夹</label><select id="ipFolder"><option value="">未分类</option>${folders.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></div>
-      <div class="field"><label>发布</label><select id="ipPub"><option value="1">生成后立即发布到学生端试卷库</option><option value="0">先不发布</option></select></div>
+      <div class="field wide"><span class="hint">试卷先保存为草稿，题目进入待审核；全部入库后可发布。</span></div>
       <div class="field wide" id="ipSum"><span class="hint">选好文件后点「识别预览」：先看识别出多少题、哪些格式不对，确认没问题再生成。题目会同时进入题库（来源：真题试卷）。</span></div>
     </div>`,
     onMount: (w) => {
+      mfEditionFields(w, '#ipSub', '#ipStage', '#ipEdition');
       w.querySelector('#ipFile').onchange = () => { previewed = false; w.querySelector('#mOk').textContent = '识别预览'; };
     },
     onOk: async (w, showErr) => {
@@ -193,9 +192,11 @@ function mfImportPaperDialog(folders) {
       fd.append('subject', w.querySelector('#ipSub').value);
       fd.append('stage', w.querySelector('#ipStage').value);
       fd.append('grade', w.querySelector('#ipGrade').value);
+      fd.append('edition', w.querySelector('#ipEdition').value);
+      fd.append('term', w.querySelector('#ipTerm').value);
       fd.append('year', w.querySelector('#ipYear').value.trim());
+      fd.append('exam_category', w.querySelector('#ipCategory').value);
       fd.append('folder_id', w.querySelector('#ipFolder').value);
-      fd.append('publish', w.querySelector('#ipPub').value);
       fd.append('dry_run', previewed ? '0' : '1');
       let r;
       try { r = await api(MF_API + '/papers/import-word', { method: 'POST', body: fd, raw: true, silent: true }); }
@@ -204,12 +205,12 @@ function mfImportPaperDialog(folders) {
         const errs = (r.errors || []).slice(0, 8).map((e) => `<li>第 ${e.para} 段（第 ${e.no} 题）：${esc(e.msg)}</li>`).join('');
         w.querySelector('#ipSum').innerHTML = `<div class="mf-tip"><b>识别出 ${r.total} 题</b>（${r.big_count} 道大题）：${(r.sections || []).map((x) => `${esc(x.name)} ${x.count} 题`).join('，')}。
           ${r.error_count ? `<br><span style="color:#d93025">另有 ${r.error_count} 题格式不对，不会导入：</span><ul style="margin:4px 0 0 18px">${errs}</ul>` : '<br>格式全部通过。'}
-          <br>确认无误后点「生成试卷」。每题默认分值 = 100 ÷ 题数，可以在试卷里再改。</div>`;
+          <br>确认无误后生成草稿。题目会进入待审核，全部入库后可发布。</div>${(r.sample || []).length ? `<div class="mf-tip"><b>识别结果预览（前 ${r.sample.length} 题）</b>${r.sample.map((q,i) => `<div style="padding:8px 0;border-top:1px solid #e4e9f2;white-space:pre-wrap"><b>${i+1}. ${esc(q.type)}</b> ${esc(q.stem)}${(q.options||[]).map(o=>`<div>${esc(o.label)}. ${esc(o.content)}</div>`).join('')}</div>`).join('')}</div>` : ''}`;
         previewed = true; w.querySelector('#mOk').textContent = '生成试卷';
         return false;
       }
-      toast(`已生成试卷，${r.question_ids.length} 题同时入题库${r.published ? '，学生端试卷库已可见' : ''}`, 'ok');
-      render();
+      toast(`已生成草稿，${r.total} 题已进入待审核`, 'ok');
+      location.hash = '#/pending';
     },
   });
 }
@@ -223,11 +224,11 @@ async function mfPaperDetail(id) {
   const render = () => {
     const rows = d.rows.map((r, i) => r.kind === 'text'
       ? `<tr><td>${i + 1}</td><td colspan="4"><b>【文本块】</b>${esc(r.text_body)}</td>
-          <td><button class="btn ghost xs" data-up="${r.id}">↑</button><button class="btn ghost xs" data-down="${r.id}">↓</button>
+          <td><button class="btn ghost xs" data-edit-text="${r.id}">编辑</button><button class="btn ghost xs" data-up="${r.id}">↑</button><button class="btn ghost xs" data-down="${r.id}">↓</button>
           <button class="btn ghost xs" data-rm="${r.id}">删</button></td></tr>`
       : `<tr><td>${i + 1}</td><td>${esc((r.question && r.question.stem || '（题目已删除）').slice(0, 90))}</td>
           <td>${MF_TYPE_NAME[r.question && r.question.type] || ''}</td>
-          <td><input class="inp xs" style="width:70px" type="number" value="${r.score || 0}" data-score="${r.id}"></td>
+          <td><input aria-label="题目满分" class="inp xs" style="width:70px" type="number" min="0" step="0.01" value="${r.score || 0}" data-score="${r.id}">${r.question && r.question.type === 'multi' ? `<label style="display:block;font-size:12px">少选分 <input aria-label="少选且所选均正确时的分值" class="inp xs" style="width:70px" type="number" min="0" step="0.01" placeholder="未设置" value="${r.partial_score == null ? '' : Number(r.partial_score)}" data-partial-score="${r.id}"></label>` : ''}</td>
           <td>${r.question ? (r.question.subject || '-') : ''}</td>
           <td><button class="btn ghost xs" data-up="${r.id}">↑</button><button class="btn ghost xs" data-down="${r.id}">↓</button>
           <button class="btn ghost xs" data-rm="${r.id}">删</button></td></tr>`).join('');
@@ -241,7 +242,8 @@ async function mfPaperDetail(id) {
         <button class="btn ghost sm" id="peLayout">排版设置</button>
         <button class="btn sm" id="pePrev">预览 / 打印</button></span>
     </div>
-    <table class="tb"><thead><tr><th style="width:40px">序</th><th>题干</th><th style="width:70px">题型</th><th style="width:90px">分值</th><th style="width:80px">学科</th><th style="width:140px">操作</th></tr></thead>
+    <p class="hint">多选题少选分留空时只对全选正确给分；设置后只选对部分且没有错选时给填写的分值。</p>
+    <table class="tb"><thead><tr><th style="width:40px">序</th><th>题干</th><th style="width:70px">题型</th><th style="width:110px">分值</th><th style="width:80px">学科</th><th style="width:140px">操作</th></tr></thead>
       <tbody id="peRows">${render()}</tbody></table>
     <div class="row"><button class="btn ghost sm" id="peExport">导出 HTML（教师版）</button>
       <button class="btn ghost sm" id="peDoc">导出 Word(.doc)</button>
@@ -252,8 +254,24 @@ async function mfPaperDetail(id) {
     onMount: (w) => {
       const refresh = async () => { d = await load(); w.querySelector('#peRows').innerHTML = render(); bind(); };
       const bind = () => {
+        w.querySelectorAll('[data-edit-text]').forEach((b) => {
+          b.onclick = () => {
+            const row = d.rows.find((r) => Number(r.id) === Number(b.dataset.editText) && r.kind === 'text');
+            if (!row) return;
+            modal({ title: '编辑文本块', body: `<div class="field"><label>内容</label><textarea id="ptEditBody" class="inp" rows="4">${esc(row.text_body || '')}</textarea></div>`,
+              onOk: async (ww, showErr) => {
+                const value = ww.querySelector('#ptEditBody').value;
+                if (!value.trim()) return showErr('文本块内容不能为空');
+                await api(`${MF_API}/papers/${id}/rows/${row.id}`, { method: 'PUT', body: { text_body: value } });
+                await refresh();
+              } });
+          };
+        });
         w.querySelectorAll('[data-score]').forEach((inp) => {
-          inp.onchange = async () => { await api(`${MF_API}/papers/${id}/rows/${inp.dataset.score}`, { method: 'PUT', body: { score: Number(inp.value) || 0 } }); };
+          inp.onchange = async () => { try { await api(`${MF_API}/papers/${id}/rows/${inp.dataset.score}`, { method: 'PUT', body: { score: inp.value === '' ? '' : Number(inp.value) } }); await refresh(); } catch (_) { await refresh(); } };
+        });
+        w.querySelectorAll('[data-partial-score]').forEach((inp) => {
+          inp.onchange = async () => { try { await api(`${MF_API}/papers/${id}/rows/${inp.dataset.partialScore}`, { method: 'PUT', body: { partial_score: inp.value === '' ? null : Number(inp.value) } }); await refresh(); } catch (_) { await refresh(); } };
         });
         w.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = async () => { await api(`${MF_API}/papers/${id}/rows/${b.dataset.rm}`, { method: 'DELETE' }); refresh(); }; });
         w.querySelectorAll('[data-up],[data-down]').forEach((b) => {
@@ -401,10 +419,10 @@ async function viewMfIntake() {
       <div class="card-h-r"><button class="btn primary sm" id="miNew">${ic('plus')} 新建录题批次</button></div></div>
     <div class="card-b">
       <div class="mf-tip">拍照 / 截图 / PDF / Word 都行：PDF 自动逐页转成图片，AI 识别成结构化题卡——
-        <b>✨全自动</b>逐页一步出卡，<b>◐半自动</b>先转写全文再整理成卡。勾选校对后一键入库（图片存在对象存储 bank/recog 下）。</div>
+        <b>全自动</b>逐页一步出卡，<b>◐半自动</b>先转写全文再整理成卡。识别结果先保存为草稿，再到待审核核对内容和分类；AI 答案与解析须分别确认。</div>
       ${runs.length ? `<table class="tb"><thead><tr><th>批次</th><th style="width:90px">来源</th><th style="width:70px">页数</th><th style="width:70px">题卡</th><th style="width:90px">状态</th><th style="width:180px">操作</th></tr></thead>
         <tbody>${runs.map((r) => `<tr><td>${esc(r.title)}</td><td>${kindName[r.source_kind] || r.source_kind}</td><td>${r.page_count}</td><td>${r.draft_count}</td>
-          <td><span class="tag ${r.status === 'error' ? 'err' : ''}">${statusMap[r.status] || r.status}</span></td>
+          <td><span class="tag ${r.status === 'error' ? 'err' : ''}">${r.processing ? '正在处理' : statusMap[r.status] || r.status}</span></td>
           <td><button class="btn ghost xs" data-open="${r.id}">打开工作台</button>
               <button class="btn ghost xs" data-delr="${r.id}">删</button></td></tr>`).join('')}</tbody></table>`
         : '<div class="empty">还没有批次，点右上角新建一个</div>'}
@@ -445,6 +463,11 @@ async function viewMfIntake() {
 
 /** 题卡 HTML（右栏一卡）；cats = { chapters:[{id,name,grade,term}], points:[名] } 题库分类清单 */
 function mfCardHtml(c, i, cats) {
+  if (c._merged_into) {
+    const target = mfCardSnap.findIndex(x => x && x._ai_card_id && x._ai_card_id === c._merged_into.card_id);
+    return `<div class="mf-card2 mf-wk-card" data-ci="${i}"><div class="mf-wk-chead"><b>第 ${i + 1} 张：${target >= 0 ? `已合并到第 ${target + 1} 张` : '已合并'}</b><span class="mf-wk-cmeta">原片段已保留，只读归档</span></div></div>`;
+  }
+  if (c.committed) return `<div class="mf-card2 mf-wk-card" data-ci="${i}"><div class="mf-wk-chead"><b>第 ${i + 1} 张：已入库</b><span class="mf-wk-cmeta">原片段已保留，只读归档</span></div></div>`;
   const types = MF_CARD_TYPES.includes(c.questionType) ? MF_CARD_TYPES : [c.questionType || '解答'].concat(MF_CARD_TYPES);
   const figs = (c.figures || []).filter(Boolean).map((f) => (typeof f === 'string' ? { url: f } : f)).filter((f) => f.url);
   cats = cats || { chapters: [], points: [] };
@@ -453,10 +476,13 @@ function mfCardHtml(c, i, cats) {
   const pt = String(c.point || '').trim();
   const ptInList = !pt || cats.points.includes(pt);
   const df = Math.min(5, Math.max(1, Number(c.difficulty) || 3));
+  const suggestion = c.ai_answer_suggestion || null;
+  const legacyPending = !c.ai_legacy_reviewed && !!c.ai_filled;
+  const unknownOrigin = !c.ai_filled && !c._ai_review_schema && (Number(c.page) > 0 || ['semi', 'word'].includes(c.via)) && (String(c.answer || '').trim() || String(c.analysis || '').trim());
   return `<div class="mf-card2 mf-wk-card" data-ci="${i}">
     <div class="mf-wk-chead"><label><input type="checkbox" class="wkck" value="${i}" ${c.checked === false ? '' : 'checked'}> 第 ${i + 1} 张</label>
-      <span class="mf-wk-cmeta">${[c.page ? `第${c.page}页` : '', c.qno ? `题号 ${esc(String(c.qno))}` : '', c.via === 'semi' ? '◐ 半自动' : (c.via === 'word' ? 'Word' : ''), c.ai_filled ? '✨AI已补' : ''].filter(Boolean).join(' · ')}</span>
-      <span class="sp"></span><button class="btn ghost xs" data-aifill="${i}" title="AI 补全这一题的答案/解析和分类建议">AI补</button><button class="btn ghost xs" data-delcard="${i}">删</button></div>
+      <span class="mf-wk-cmeta">${[c.page ? `第${c.page}页` : '', c.qno ? `题号 ${esc(String(c.qno))}` : '', c.via === 'semi' ? '◐ 半自动' : (c.via === 'word' ? 'Word' : ''), legacyPending ? '历史补全待核对' : unknownOrigin ? '历史来源未记录' : ''].filter(Boolean).join(' · ')}</span>
+      <span class="sp"></span><button class="btn ghost xs" data-aifill="${i}" title="生成需老师确认的答案或解析建议">AI 建议</button><button class="btn ghost xs" data-delcard="${i}">删</button></div>
     <div class="mf-wk-cgrid">
       <div class="field"><label>题型</label><select class="inp" data-f="questionType" data-i="${i}">${types.map((t) => `<option ${c.questionType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div class="field wide"><label>分类（题库）：课本章节 · 知识点 · 难度</label><div class="mf-wk-cls">
@@ -469,7 +495,8 @@ function mfCardHtml(c, i, cats) {
       <div class="field wide"><label>选项（一行一个，如 A. xxx）</label><textarea class="inp" rows="2" data-f="options" data-i="${i}">${esc((c.options || []).map(optDisplay).join('\n'))}</textarea></div>
       <div class="field wide"><label>答案</label><textarea class="inp" rows="1" data-f="answer" data-i="${i}">${esc(c.answer || '')}</textarea></div>
       <div class="field wide"><label>解析</label><textarea class="inp" rows="2" data-f="analysis" data-i="${i}">${esc(c.analysis || '')}</textarea></div>
-    </div></div>`;
+    </div>${legacyPending ? '<div class="mf-tip">历史补全记录未标明字段来源，请在待审核对照原文后整体核对。</div>' : unknownOrigin ? '<div class="mf-tip">历史内容来源未记录，请在待审核结合原文核对。</div>' : ''}
+    ${suggestion ? `<div class="mf-tip"><b>${suggestion.source === 'recognition' ? 'AI 转写内容（请对照原文核对，未经确认不会入库）' : 'AI 建议（未经确认，不会入库）'}</b>${suggestion.source !== 'recognition' ? '<p>建议仅依据题目文字生成，未读取题图；答案和解析可能不一致，请分别核对。</p>' : ''}${suggestion.answer ? `<div><b>答案建议：</b>${esc(suggestion.answer)} ${!String(c.answer || '').trim() ? `<button type="button" class="btn ghost xs" data-ai-accept="answer" data-ai-index="${i}">采纳答案</button>` : ''}</div>` : ''}${suggestion.analysis ? `<div><b>解析建议：</b>${esc(suggestion.analysis)} ${!String(c.analysis || '').trim() ? `<button type="button" class="btn ghost xs" data-ai-accept="analysis" data-ai-index="${i}">采纳解析</button>` : ''}</div>` : ''}</div>` : ''}</div>`;
 }
 
 /** 从右栏 DOM 收集题卡（编辑内容 + 勾选）；非输入型字段（页码/来源/插图）从快照回填 */
@@ -479,17 +506,23 @@ function mfCollectCards(root) {
   root.querySelectorAll('.mf-wk-card').forEach((el) => {
     const i = Number(el.dataset.ci);
     const snap = mfCardSnap[i] || {};
-    const c = { options: [], suggestedTags: [], figures: snap.figures || [], page: snap.page || 0, qno: snap.qno || '', via: snap.via || '' };
+    if (snap._merged_into || snap.committed) { out.push(snap); return; }
+    const c = { ...snap, options: [], suggestedTags: snap.suggestedTags || [], figures: snap.figures || [], page: snap.page || 0, qno: snap.qno || '', via: snap.via || '' };
     el.querySelectorAll('[data-f]').forEach((f) => {
       const v = f.value;
       if (f.dataset.f === 'options') {
         c.options = v.split('\n').map((s) => s.trim()).filter(Boolean).map((s) => {
-          const m = /^([A-Ea-e])\s*[.、．]\s*(.*)$/.exec(s);
+          const m = /^([A-Ja-j])\s*[.、．]\s*(.*)$/.exec(s);
           return m ? { label: m[1].toUpperCase(), content: m[2] } : { label: '', content: s };
         });
       } else c[f.dataset.f] = v;
     });
     c.checked = !!el.querySelector('.wkck')?.checked;
+    if (c._q) {
+      c._q = { ...c._q, stem: c.stem, answer: c.answer, analysis: c.analysis, material: c.material || '',
+        options: c.options.map((o) => ({ label: o.label, text: o.content })) };
+      if (c._q.stem !== snap._q.stem) c._q.stem_html = '';
+    }
     out.push(c);
   });
   return out;
@@ -500,7 +533,7 @@ function mfLightbox(urls, idx) {
   let cur = idx || 0;
   let scale = 1;
   const ov = document.createElement('div');
-  ov.className = 'mf-lb';
+  ov.className = 'mf-lb'; ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true'); ov.setAttribute('aria-label','查看题图');
   const draw = () => {
     ov.querySelector('img').src = urls[cur];
     ov.querySelector('img').style.transform = `scale(${scale})`;
@@ -534,61 +567,56 @@ function mfLightbox(urls, idx) {
 }
 
 /** 文件上传：图片/PDF → 逐页转图上传；.docx → Word 导入；完成回调刷新 */
-async function mfIntakeFiles(runId, files, after) {
-  const imgs = [];
-  const docx = files.filter((f) => /\.docx$/i.test(f.name || ''));
-  const rest = files.filter((f) => !/\.docx$/i.test(f.name || ''));
-  if (!rest.length && !docx.length) { toast('没有可上传的文件（支持图片 / PDF / .docx）', 'err'); return; }
-  const pgs = [];
-  if (rest.length) {
-    if (!window.PdfPages) { toast('上传组件没加载成功，请刷新页面（Ctrl+F5）后重试', 'err'); return; }
-    await window.PdfPages.upload(rest, {
-      maxPages: 30, maxWidth: 1600,
-      progressTitle: '📄 正在逐页转图',
-      onImage: async (f) => imgs.push(f),
-      onPage: async (canvas, page) => {
-        const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
-        if (blob) pgs.push(new File([blob], `page-${String(page).padStart(3, '0')}.png`, { type: 'image/png' }));
-      },
-      onError: (m) => toast(m, 'err'),
-    });
+async function mfIntakeFiles(runId, files, after, options = {}) {
+  const job = options.job || { entries: [], prepared: false };
+  const notify = () => { if (options.onProgress) options.onProgress(job); };
+  if (!job.prepared) {
+    const entries = [];
+    for (const f of files) {
+      if (/\.docx$/i.test(f.name || '')) entries.push({ file: f, word: true, state: 'pending' });
+      else if (/\.pdf$/i.test(f.name || '')) {
+        if (!window.PdfPages) throw new Error('PDF 组件未加载，请刷新后重试');
+        const result = await PdfPages.toCanvases(f, {maxPages:30,maxWidth:1600,onProgress:(done,total)=>{if(options.onConvert)options.onConvert(`${f.name}：${done}/${total} 页`);}});
+        if (result.truncated) throw new Error(`${f.name} 超过 30 页，请拆分后上传`);
+        const sourceDocumentKey = await R4Flow.filesKey([f]);
+        for (const page of result.pages) {
+          const blob = await new Promise(resolve => page.canvas.toBlob(resolve,'image/png'));
+          if (!blob) throw new Error(`${f.name} 第 ${page.page} 页转换失败`);
+          entries.push({file:new File([blob],`${f.name}-page-${page.page}.png`,{type:'image/png'}),state:'pending',source_document_key:sourceDocumentKey,source_page:page.page});page.canvas.width=page.canvas.height=0;
+        }
+      } else if (/^image\//.test(f.type) || /\.(png|jpe?g|webp|bmp|gif|heic|heif)$/i.test(f.name || '')) entries.push({file:f,state:'pending'});
+      else throw new Error(`不支持的文件：${f.name || '未命名文件'}，请选择图片、PDF 或 .docx`);
+    }
+    if (!entries.length) throw new Error('没有可上传的页面');
+    job.entries = entries; job.prepared = true;
   }
-  // 页图分批上传（每批 10 张）
-  for (let i = 0; i < pgs.length; i += 10) {
-    const batch = pgs.slice(i, i + 10);
-    if (!batch.length) continue;
-    const fd = new FormData();
-    batch.forEach((f) => fd.append('pages', f));
-    const res = await fetch(`${MF_API}/intake/runs/${runId}/pages`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
-    const j = await res.json();
-    if (j.code !== 0) { toast(j.msg || '页图上传失败', 'err'); return; }
+  for (const entry of job.entries) {
+    if (entry.state === 'success') continue;
+    if (entry.state === 'uncertain' && entry.word) throw new Error('Word 保存结果未确认，请先查看批次中的题卡，避免重复整理');
+    entry.state = 'uploading'; entry.progress = 0; notify();
+    try {
+      await new Promise((resolve,reject)=>{
+        const xhr = new XMLHttpRequest(); xhr.open('POST',`${MF_API}/intake/runs/${runId}/${entry.word?'word':'pages'}`);xhr.setRequestHeader('Authorization','Bearer '+Auth.token);xhr.responseType='json';
+        xhr.upload.onprogress=e=>{if(e.lengthComputable){entry.progress=Math.round(e.loaded/e.total*100);notify();}};
+        xhr.onload=()=>{const r=xhr.response || {};if(xhr.status>=200&&xhr.status<300&&r.code===0)resolve(r.data);else reject(new Error(r.msg || `上传失败（HTTP ${xhr.status}）`));};
+        xhr.addEventListener('loadend',()=>{if(options.root && !options.root.isConnected)resolve(null);});
+        xhr.onerror=()=>{const e=new Error('连接中断，保存结果未确认；已完成的页图不会重复上传');e.uncertain=true;reject(e);};
+        const fd=new FormData();fd.append(entry.word?'file':'pages',entry.file,entry.file.name);if(entry.source_document_key){fd.append('source_document_key',entry.source_document_key);fd.append('source_page',String(entry.source_page));}
+        R4Flow.send(xhr, options.root || document.getElementById('view'), entry.word?'word':'image',entry.file.name,runId,fd);
+      });
+      entry.state='success';entry.error='';notify();if(options.root && !options.root.isConnected)throw new Error('页面已关闭，已上传页面保留，未完成文件可重新选择');
+    } catch(e) {entry.state=e.uncertain?'uncertain':'error';entry.error=e.message;notify();throw e;}
   }
-  for (const f of imgs) {
-    const fd = new FormData();
-    fd.append('pages', f, f.name || 'image.png');
-    const res = await fetch(`${MF_API}/intake/runs/${runId}/pages`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
-    const j = await res.json();
-    if (j.code !== 0) { toast(j.msg || '图片上传失败', 'err'); return; }
-  }
-  // Word 导入
-  for (const f of docx) {
-    toast(`正在导入 Word「${f.name}」并交给 AI 整理…`, '');
-    const fd = new FormData();
-    fd.append('file', f);
-    const res = await fetch(`${MF_API}/intake/runs/${runId}/word`, { method: 'POST', headers: { Authorization: 'Bearer ' + Auth.token }, body: fd });
-    const j = await res.json();
-    if (j.code !== 0) toast(j.msg || 'Word 导入失败', 'err');
-    else toast(j.msg || 'Word 导入完成', 'ok');
-  }
-  if (pgs.length || imgs.length) toast(`已上传 ${pgs.length + imgs.length} 页`, 'ok');
   if (after) await after();
+  return job;
 }
 
 async function mfIntakeWork(runId) {
   let run = (await api(`${MF_API}/intake/runs/${runId}`)).run;
   const view = document.getElementById('view');
+  if (!Array.isArray(run.ocr_texts)) run.ocr_texts = [];
   let busy = false;
-  let abortFlag = false;
+  let abortFlag = false, jobMessage = run.processing ? `服务器正在${({recognize:'识别',ocr:'转写',structure:'整理',word:'整理 Word',aifill:'生成建议'})[run.processing.action] || '处理'}${run.processing.page ? '第 ' + run.processing.page + ' 页' : ''}，当前页保存后可继续。` : run.error || '', workRoot = null, uploadJob = null;
   // 题库分类清单（课本章节 + 知识点）：工作台打开时拉一次
   let cats = { chapters: [], points: [] };
   try {
@@ -620,13 +648,16 @@ async function mfIntakeWork(runId) {
         <span class="sp"></span>
         <button class="btn ghost sm" id="wkUpload">${ic('upload')} 上传页图 / PDF</button>
         <button class="btn ghost sm" id="wkWord">W 导入 Word</button>
-        <button class="btn primary sm" id="wkAuto">✨ 全自动识别</button>
+        <button class="btn primary sm" id="wkAuto"> 全自动识别</button>
         <button class="btn sm" id="wkSemi">◐ 半自动转写</button>
         <button class="btn ghost sm" id="wkAllStruct">全部整理成题卡</button>
-        <button class="btn sm" id="wkAiFill" title="为答案/解析为空的题卡自动补全，并按题库分类给出章节/知识点/难度建议">✨ AI 补答案/分类</button>
+        <button class="btn sm" id="wkAiFill" title="生成需要老师确认的答案或解析建议">AI 生成答案/解析建议</button>
         <button class="btn danger sm ghost" id="wkDel">删除批次</button>
       </div>
-      <div class="mf-wk-hint">把图片 / PDF / Word 拖到左栏，或 <b>Ctrl+V</b> 粘贴截图 · ✨全自动逐页识别出卡 · ◐半自动先转写全文，点每页「整理成题卡」或「全部整理成题卡」</div>
+      <div class="mf-wk-hint">把图片 / PDF / Word 拖到左栏，或 <b>Ctrl+V</b> 粘贴截图 · 全自动逐页识别出卡 · ◐半自动先转写全文，点每页「整理成题卡」或「全部整理成题卡」</div>
+      <p class="r4-excel-note" role="status">${esc(jobMessage)}</p>
+      <div id="wkTransfer" class="r4-transfer-list" aria-live="polite">${uploadJob ? uploadJob.entries.map(e=>`<div><strong>${esc(e.file.name)}</strong><span>${e.state==='success'?'已保存':e.state==='pending'?'等待上传':esc(e.error || '等待重试')}</span></div>`).join('') : ''}</div>
+      ${uploadJob && uploadJob.entries.some(e=>['error','uncertain'].includes(e.state)) ? '<button type="button" class="btn ghost sm" id="wkUploadRetry">重试未完成上传</button>' : ''}
       <div class="mf-wk-prog" id="wkProg" style="display:none"><div class="mf-wk-prog-t"><i></i></div><span id="wkProgTxt"></span></div>
     </div></div>
     <div class="mf-wk-body">
@@ -648,15 +679,16 @@ async function mfIntakeWork(runId) {
       <div class="mf-wk-split" id="wkSplit" tabindex="0" title="拖动调整左右宽度；也可点击选中后按 ←/→ 微调"></div>
       <div class="card mf-wk-right"><div class="card-h"><h3>题卡（${cards.length}）</h3>
           <div class="card-h-r"><button class="btn ghost sm" id="wkAddCard">+ 空白题卡</button>
-            <button class="btn primary sm" id="wkCommit">入库勾选的题</button></div></div>
-        <div class="card-b mf-wk-cards" id="wkCards">
-          ${cards.length ? cards.map((c, i) => mfCardHtml(c, i, cats)).join('') : '<div class="empty">还没有题卡——✨全自动识别、◐半自动整理，或「+ 空白题卡」手动录</div>'}
+            <button class="btn ghost sm" id="wkAsPaper">保存为试卷草稿</button><button class="btn primary sm" id="wkCommit">保存并前往待审核</button></div></div>
+        <div id="wkSkeleton" class="r4-recognition-skeleton" aria-hidden="true" ${run.processing ? '' : 'hidden'}><i></i><i></i><i></i></div><div class="card-b mf-wk-cards" id="wkCards">
+          ${cards.length ? cards.map((c, i) => mfCardHtml(c, i, cats)).join('') : '<div class="empty">还没有题卡——全自动识别、◐半自动整理，或「+ 空白题卡」手动录</div>'}
         </div></div>
     </div>`;
 
     /* ---- 顶栏 ---- */
     view.querySelector('#wkBack').onclick = () => render();
     view.querySelector('#wkUpload').onclick = () => mfPickFiles();
+    if (view.querySelector('#wkUploadRetry')) view.querySelector('#wkUploadRetry').onclick = () => uploadDropped([], true);
     view.querySelector('#wkWord').onclick = () => mfPickFiles(true);
     view.querySelector('#wkAuto').onclick = autoRecognize;
     view.querySelector('#wkSemi').onclick = semiOcr;
@@ -668,6 +700,13 @@ async function mfIntakeWork(runId) {
     };
 
     /* ---- 左栏：拖拽 / 点击大图 / 转写 / 整理 ---- */
+    workRoot = view.firstElementChild;
+    if(run.processing){
+      view.querySelectorAll('#wkAuto,#wkSemi,#wkAllStruct,#wkUpload,#wkWord,#wkAiFill,#wkCards input,#wkCards textarea,#wkCards select,#wkCards button').forEach(el=>{el.disabled=true;});
+      const processingRoot=workRoot;
+      setTimeout(async()=>{if(!processingRoot.isConnected)return;try{const latest=(await api(`${MF_API}/intake/runs/${runId}`,{silent:true})).run;if(!processingRoot.isConnected)return;run=latest;jobMessage=run.processing?'服务器仍在处理当前页，已保存页面保留。':'当前页已处理完，请核对结果或继续剩余页面。';draw();}catch(e){if(processingRoot.isConnected){jobMessage='任务状态读取失败，请重新打开批次核对；不必重复上传。';run.processing=null;draw();}}},2000);
+    }
+
     const pagesBox = view.querySelector('#wkPages');
     ['dragover', 'drop'].forEach((ev) => pagesBox.addEventListener(ev, (e) => {
       e.preventDefault();
@@ -680,6 +719,20 @@ async function mfIntakeWork(runId) {
     /* ---- 右栏：编辑 / 删卡 / 加卡 / 入库 ---- */
     const cardsBox = view.querySelector('#wkCards');
     cardsBox.addEventListener('click', async (e) => {
+      const accept = e.target.closest('[data-ai-accept]');
+      if (accept) {
+        if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
+        const index = Number(accept.dataset.aiIndex), field = accept.dataset.aiAccept;
+        const card = mfCardSnap[index];
+        if (!card || !card.ai_answer_suggestion) return toast('建议已变化，请重新生成', 'err');
+        busy = true;
+        try {
+          await saveCards();
+          const r = await api(`${MF_API}/intake/runs/${runId}/aifill/confirm`, { method: 'POST', body: { index, token: card.ai_answer_suggestion.token, fields: [field] } });
+          run.drafts[index] = r.card; toast('已采纳，题目仍需审核入库', 'ok'); draw();
+        } catch (err) { /* api 已提示 */ }
+        busy = false; return;
+      }
       const fig = e.target.closest('[data-cfig]');
       if (fig) {
         const card = mfCardSnap[Number(fig.dataset.cfig)] || {};
@@ -704,6 +757,20 @@ async function mfIntakeWork(runId) {
       view.querySelector('#wkCards').scrollTop = view.querySelector('#wkCards').scrollHeight;
     };
     view.querySelector('#wkCommit').onclick = () => mfIntakeCommit();
+    view.querySelector('#wkAsPaper').onclick = async () => {
+      const cards = mfCollectCards(view.querySelector('#wkCards'));
+      const active = cards.filter(c => !c._merged_into);
+      if (!active.length || active.some(c => !String(c.stem || '').trim())) return toast('请先识别并检查每道题的题干', 'err');
+      await api(`${MF_API}/intake/runs/${runId}/drafts`, { method: 'PUT', body: { drafts: cards } });
+      modal({ title: '生成试卷草稿', okText: '保存并审核', body: `<div class="field"><label>试卷名称</label><input class="inp" id="wkPaperTitle" value="${esc(run.title)}"></div><div class="field"><label>年份（选填）</label><input class="inp" id="wkPaperYear" inputmode="numeric" maxlength="4"></div><div class="field"><label>试卷类型</label><select id="wkPaperCategory">${mfExamOptions()}</select></div><div class="field"><label>教材版本</label><select id="wkPaperEdition"><option value="">未指定</option></select></div><div class="field"><label>册别</label><select id="wkPaperTerm">${mfTermOptions()}</select></div><p class="hint">${active.length} 道题会进入待审核，审核通过后自动加入试卷；章节和知识点需在审核时核对。</p>`,
+        onMount: async (w) => { const trees=await tpTrees('textbook'); const editions=tpEditions(trees,{kind:'textbook',subject:view.querySelector('#wkSub').value,stage:view.querySelector('#wkStage').value}).filter(Boolean); w.querySelector('#wkPaperEdition').innerHTML='<option value="">未指定</option>'+editions.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join(''); },
+        onOk: async (w, showErr) => {
+          const title = w.querySelector('#wkPaperTitle').value.trim();
+          if (!title) return showErr('请输入试卷名称');
+          await api(`${MF_API}/papers/from-run`, { method:'POST', body:{ run_id:runId, title, year:w.querySelector('#wkPaperYear').value.trim(), exam_category:w.querySelector('#wkPaperCategory').value, edition:w.querySelector('#wkPaperEdition').value, term:w.querySelector('#wkPaperTerm').value, subject:view.querySelector('#wkSub').value, stage:view.querySelector('#wkStage').value } });
+          toast('试卷草稿已创建，题目已进入待审核', 'ok'); location.hash = '#/pending';
+        } });
+    };
     view.querySelector('#wkAiFill').onclick = () => aiFill(null);
 
     /* ---- 拖拽分隔条：调整左右栏宽度（记忆到 localStorage） ---- */
@@ -751,16 +818,16 @@ async function mfIntakeWork(runId) {
       });
     })();
 
-    /* ---- ✨ AI 补答案/分类（indexes=null 批量，否则单卡） ---- */
+    /* ---- AI 答案/解析建议：老师逐项确认后才写入题卡 ---- */
     async function aiFill(indexes) {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
       busy = true;
-      setProg(indexes ? '✨ 正在为该题补全答案与分类建议…' : '✨ 正在批量补答案/解析 + 分类建议…', 0.4);
+      setProg(indexes ? '正在为该题生成建议…' : '正在批量生成答案/解析建议…', 0.4);
       try {
         await saveCards();
         const r = await api(`${MF_API}/intake/runs/${runId}/aifill`, { method: 'POST', body: { indexes: indexes || null } });
         run.drafts = r.drafts || run.drafts;
-        toast(r.msg || 'AI 补全完成', 'ok');
+        toast(r.msg || 'AI 建议已生成，请逐项核对', 'ok');
       } catch (e) { /* api 已提示 */ }
       setProg(null); busy = false; draw();
     }
@@ -774,14 +841,29 @@ async function mfIntakeWork(runId) {
       input.onchange = () => { const fs = [...(input.files || [])]; if (fs.length) uploadDropped(fs); };
       input.click();
     }
-    async function uploadDropped(fs) {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
-      busy = true; setProg('正在上传…', 0.5);
-      await mfIntakeFiles(runId, fs, async () => {
-        run = (await api(`${MF_API}/intake/runs/${runId}`)).run; setProg(null); draw();
-      }).catch(() => setProg(null));
-      busy = false; setProg(null);
+    async function uploadDropped(fs, retry = false) {
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
+      if (!retry) uploadJob = {entries:[],prepared:false};
+      busy = true; let prepared = false;
+      const locked = [...view.querySelectorAll('#wkCards input,#wkCards textarea,#wkCards select,#wkCards button')].map(el=>[el,el.disabled]);locked.forEach(([el])=>{el.disabled=true;});
+      try {
+        await saveCards(); prepared = true;
+        await mfIntakeFiles(runId,fs,null,{job:uploadJob,root:workRoot,onConvert:t=>setProg(t,0),onProgress:job=>{
+          if (!workRoot.isConnected) return;
+          view.querySelector('#wkTransfer').innerHTML=job.entries.map(e=>`<div><strong>${esc(e.file.name)}</strong><span>${e.state==='success'?'已保存':e.state==='uploading'?`上传 ${e.progress}%`:e.state==='pending'?'等待上传':esc(e.error || '上传失败')}</span></div>`).join('');
+        }});
+        jobMessage='文件已保存，可继续识别或到待审核核对；上传成功不代表内容已核对。';
+      } catch(e) {jobMessage=e.message || '上传失败，可重试未完成部分';}
+      finally {
+        busy=false;
+        if(workRoot && workRoot.isConnected){
+          if(prepared){try{run=(await api(`${MF_API}/intake/runs/${runId}`)).run;}catch(e){jobMessage+='；批次刷新失败，请重新打开核对';}if(workRoot.isConnected){setProg(null);draw();}}
+          else {locked.forEach(([el,disabled])=>{el.disabled=disabled;});setProg(jobMessage,0);}
+        }
+      }
     }
+
+    window.__mfWkUploadPaste = uploadDropped;
     if (!window.__mfWkPaste) {
       window.__mfWkPaste = (e) => {
         const fs = [...((e.clipboardData || {}).files || [])].filter((f) => /image|pdf/.test(f.type) || /\.docx$/i.test(f.name || ''));
@@ -789,7 +871,7 @@ async function mfIntakeWork(runId) {
         const wb = document.getElementById('wkPages');
         if (!wb) return;
         e.preventDefault();
-        uploadDropped(fs);
+        if (window.__mfWkUploadPaste) window.__mfWkUploadPaste(fs);
       };
       document.addEventListener('paste', window.__mfWkPaste);
     }
@@ -797,6 +879,7 @@ async function mfIntakeWork(runId) {
     /* ---- 进度条 ---- */
     function setProg(txt, ratio) {
       const box = view.querySelector('#wkProg');
+      const skeleton=view.querySelector('#wkSkeleton');if(skeleton)skeleton.hidden=!(busy && txt && /识别|整理/.test(txt));
       if (!box) return;
       if (txt == null) { box.style.display = 'none'; return; }
       box.style.display = 'flex';
@@ -805,105 +888,124 @@ async function mfIntakeWork(runId) {
     }
     mfIntakeWork._setProg = setProg;
 
-    /* ---- ✨ 全自动：逐页识别（可中断，继续跑会跳过已出的页） ---- */
+    /* ----  全自动：逐页识别（可中断，继续跑会跳过已出的页） ---- */
     async function autoRecognize() {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
       if (!pages.length) return toast('先上传页图', 'err');
       busy = true; abortFlag = false;
-      view.querySelector('#wkAuto').textContent = '■ 停止';
-      view.querySelector('#wkAuto').onclick = () => { abortFlag = true; };
-      await saveCards();
-      for (let i = 0; i < pages.length; i++) {
-        if (abortFlag) break;
-        setProg(`✨ 正在识别第 ${i + 1} / ${pages.length} 页…`, (i) / pages.length);
-        try {
+      let prepared = false, activePage = 0;
+      const locked = [...view.querySelectorAll('#wkCards input, #wkCards textarea, #wkCards button, #wkCards select')].map((el) => [el, el.disabled]);
+      locked.forEach(([el]) => { el.disabled = true; });
+      try {
+        await saveCards(); prepared = true;
+        if (!workRoot.isConnected) return;
+        for (let i = 0; i < pages.length; i++) {
+          if (abortFlag || !workRoot.isConnected) break;
+          if (pages[i].recognition_complete) continue;
+          view.querySelector('#wkAuto').textContent = '停止（当前页保存后暂停）';
+          view.querySelector('#wkAuto').onclick = () => { abortFlag = true; };
+          activePage = i + 1;
+          setProg(`正在识别第 ${i + 1} / ${pages.length} 页…`, i / pages.length);
           const r = await api(`${MF_API}/intake/runs/${runId}/recognize`, { method: 'POST', body: { page: i + 1 } });
-          run.drafts = r.drafts || [];
-          draw();
-          setProg(`✨ 第 ${i + 1} 页完成：累计 ${run.drafts.length} 张题卡`, (i + 1) / pages.length);
-        } catch (e) { toast(`第 ${i + 1} 页识别失败：${e.message || e}`, 'err'); break; }
-      }
-      busy = false; setProg(null); draw();
+          if (!workRoot.isConnected) return;
+          run.drafts = r.drafts || []; pages[i].recognition_complete = true;
+          jobMessage = `第 ${i + 1} 页已保存，累计 ${run.drafts.length} 张题卡；内容仍须核对。`;
+          // 不在任务执行中重新绘制编辑区，避免停止按钮和老师未保存的输入被替换。
+        }
+        if (abortFlag) jobMessage = '已暂停，已保存页面保留；继续识别将跳过完成页。';
+        else if (pages.every((p) => p.recognition_complete)) jobMessage = '逐页处理完成；请到待审核核对内容，接口成功不代表识别正确。';
+      } catch (e) { jobMessage = `${activePage ? '第 ' + activePage + ' 页处理' : '保存题卡'}失败：${e.message || e}。已保存的页面和当前题卡保留，可重试。`; }
+      finally { busy = false; if (workRoot && workRoot.isConnected) { if (prepared) { setProg(null); draw(); } else { locked.forEach(([el, disabled]) => { el.disabled = disabled; }); setProg(jobMessage, 0); } } }
     }
 
     /* ---- ◐ 半自动：逐页 OCR 转写 ---- */
     async function semiOcr() {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
       if (!pages.length) return toast('先上传页图', 'err');
       busy = true; abortFlag = false;
-      view.querySelector('#wkSemi').textContent = '■ 停止';
-      view.querySelector('#wkSemi').onclick = () => { abortFlag = true; };
-      if (!run.ocr_texts) run.ocr_texts = [];
-      for (let i = 0; i < pages.length; i++) {
-        if (abortFlag) break;
-        setProg(`◐ 正在转写第 ${i + 1} / ${pages.length} 页…`, i / pages.length);
-        try {
+      try {
+        for (let i = 0; i < pages.length; i++) {
+          if (abortFlag || !workRoot.isConnected) break;
+          if (String(run.ocr_texts[i] || '').trim()) continue;
+          view.querySelector('#wkSemi').textContent = '停止（当前页保存后暂停）';
+          view.querySelector('#wkSemi').onclick = () => { abortFlag = true; };
+          setProg(`正在转写第 ${i + 1} / ${pages.length} 页…`, i / pages.length);
           const r = await api(`${MF_API}/intake/runs/${runId}/ocr`, { method: 'POST', body: { page: i + 1 } });
           run.ocr_texts[i] = r.text || '';
+          if (!workRoot.isConnected) return;
           const ta = view.querySelector(`#wkOcr${i + 1}`);
           if (ta) { ta.value = run.ocr_texts[i]; ta.closest('details').open = true; }
-        } catch (e) { toast(`第 ${i + 1} 页转写失败：${e.message || e}`, 'err'); break; }
+        }
+        jobMessage = abortFlag ? '转写已暂停，已保存的页文保留，可继续。' : '转写完成，可核对页文并整理成题卡。';
+      } catch (e) { jobMessage = `转写失败：${e.message || e}。已保存的页文保留，可重试。`; }
+      finally {
+        busy = false;
+        if (workRoot && workRoot.isConnected) {
+          // 只更新状态和按钮，不重绘，以保留老师正在编辑的题卡和页文。
+          setProg(jobMessage, 0); view.querySelector('#wkSemi').textContent = '◐ 半自动转写'; view.querySelector('#wkSemi').onclick = semiOcr;
+        }
       }
-      busy = false; setProg(null);
-      view.querySelector('#wkSemi').textContent = '◐ 半自动转写';
-      view.querySelector('#wkSemi').onclick = semiOcr;
     }
 
     async function ocrOne(no, btn) {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
       busy = true;
-      const old = btn.textContent; btn.textContent = '转写中…';
+      const old = btn.textContent,ta=view.querySelector(`#wkOcr${no}`),wasDisabled=ta && ta.disabled; btn.textContent = '转写中…';btn.disabled=true;if(ta)ta.disabled=true;
       try {
         const r = await api(`${MF_API}/intake/runs/${runId}/ocr`, { method: 'POST', body: { page: no } });
         run.ocr_texts = run.ocr_texts || [];
         run.ocr_texts[no - 1] = r.text || '';
-        const ta = view.querySelector(`#wkOcr${no}`);
-        if (ta) { ta.value = r.text || ''; ta.closest('details').open = true; }
-      } catch (e) { /* api 已提示 */ }
-      btn.textContent = old; busy = false;
+        if (ta && ta.isConnected) { ta.value = r.text || ''; ta.closest('details').open = true; }
+        jobMessage=`第 ${no} 页转写已保存，请核对后整理成题卡。`;
+      } catch (e) { jobMessage=`第 ${no} 页转写失败：${e.message || e}。原文字保留，可重试。`; }
+      finally {btn.textContent = old;btn.disabled=false;if(ta)ta.disabled=wasDisabled;busy = false;if(workRoot.isConnected)setProg(jobMessage,0);}
     }
 
     /* ---- 半自动腿2：文本整理成题卡 ---- */
     async function structureOne(no) {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
       const ta = view.querySelector(`#wkOcr${no}`);
       const text = ta ? ta.value.trim() : '';
       if (!text) return toast('这一页还没有转写文本，先「转写」或手动粘贴', 'err');
-      busy = true; setProg(`◐ 正在整理第 ${no} 页文字…`, 0.5);
+      busy = true; setProg(`正在整理第 ${no} 页文字…`, 0.5);
+      const locked=[...view.querySelectorAll('#wkCards input,#wkCards textarea,#wkCards select,#wkCards button,.mf-wk-pages textarea')].map(el=>[el,el.disabled]);locked.forEach(([el])=>{el.disabled=true;});
       try {
         await saveCards();
         const r = await api(`${MF_API}/intake/runs/${runId}/structure`, { method: 'POST', body: { page: no, text } });
-        run.drafts = r.drafts || [];
-        toast(`整理出 ${r.added} 张题卡`, 'ok');
-        draw();
-        view.querySelector('#wkCards').scrollTop = view.querySelector('#wkCards').scrollHeight;
-      } catch (e) { /* api 已提示 */ }
-      setProg(null); busy = false;
+        run.drafts = r.drafts || [];jobMessage=`第 ${no} 页整理出 ${r.added} 张题卡，请逐题核对。`;
+        if(!workRoot.isConnected)return;
+        busy=false;draw();view.querySelector('#wkCards').scrollTop=view.querySelector('#wkCards').scrollHeight;
+      } catch (e) {jobMessage=`第 ${no} 页整理失败：${e.message || e}。原文和题卡保留，可重试。`;}
+      finally {busy=false;locked.forEach(([el,disabled])=>{el.disabled=disabled;});if(workRoot.isConnected)setProg(jobMessage,0);}
     }
     async function structureAll() {
-      if (busy) return toast('有任务在跑，稍等一下', 'err');
-      const withText = [];
-      new Set([...view.querySelectorAll('.mf-wk-ocr textarea'), view.querySelector('#wkOcr1')].filter(Boolean)).forEach((ta) => { if (ta.value.trim()) withText.push(Number(ta.id.replace('wkOcr', ''))); });
+      if (busy || run.processing) return toast('有任务在跑，请等待当前页完成', 'err');
+      const withText = [...view.querySelectorAll('.mf-wk-ocr textarea')].filter((ta) => ta.value.trim()).map((ta) => ({ no: Number(ta.id.replace('wkOcr', '')), text: ta.value }));
       if (!withText.length) return toast('先做「◐ 半自动转写」，再整理成题卡', 'err');
-      busy = true; abortFlag = false;
-      await saveCards();
-      for (let k = 0; k < withText.length; k++) {
-        if (abortFlag) break;
-        const no = withText[k];
-        setProg(`◐ 正在整理第 ${no} 页（${k + 1} / ${withText.length}）…`, k / withText.length);
-        try {
-          const r = await api(`${MF_API}/intake/runs/${runId}/structure`, { method: 'POST', body: { page: no, text: view.querySelector(`#wkOcr${no}`).value } });
+      busy = true; abortFlag = false; let prepared = false;
+      const locked = [...view.querySelectorAll('#wkCards input, #wkCards textarea, #wkCards button, #wkCards select, .mf-wk-ocr textarea')].map((el) => [el, el.disabled]);
+      locked.forEach(([el]) => { el.disabled = true; });
+      withText.forEach(({ no, text }) => { run.ocr_texts[no - 1] = text; });
+      try {
+        await saveCards(); prepared = true;
+        for (let k = 0; k < withText.length; k++) {
+          if (abortFlag || !workRoot.isConnected) break;
+          const { no, text } = withText[k]; run.ocr_texts[no - 1] = text;
+          view.querySelector('#wkAllStruct').textContent = '停止（当前页保存后暂停）'; view.querySelector('#wkAllStruct').onclick = () => { abortFlag = true; };
+          setProg(`正在整理第 ${no} 页（${k + 1} / ${withText.length}）…`, k / withText.length);
+          const r = await api(`${MF_API}/intake/runs/${runId}/structure`, { method: 'POST', body: { page: no, text } });
           run.drafts = r.drafts || [];
-        } catch (e) { break; }
-      }
-      busy = false; setProg(null); draw();
-      view.querySelector('#wkCards').scrollTop = view.querySelector('#wkCards').scrollHeight;
+        }
+        jobMessage = abortFlag ? '整理已暂停，已保存题卡保留。' : '整理完成，题卡需要逐题核对。';
+      } catch (e) { jobMessage = `整理失败：${e.message || e}。已保存题卡保留，可核对后重试。`; }
+      finally { busy = false; if (workRoot && workRoot.isConnected) { if (prepared) { setProg(null); draw(); } else { locked.forEach(([el, disabled]) => { el.disabled = disabled; }); setProg(jobMessage, 0); } } }
     }
 
     /* ---- 校对保存 ---- */
     async function saveCards() {
       const cardsBox = view.querySelector('#wkCards');
       if (!cardsBox) return;
+      view.querySelectorAll('.mf-wk-pages textarea[id^="wkOcr"]').forEach(ta=>{const no=Number(ta.id.replace('wkOcr',''));if(no>0)run.ocr_texts[no-1]=ta.value;});
       const next = mfCollectCards(cardsBox);
       await api(`${MF_API}/intake/runs/${runId}/drafts`, { method: 'PUT', body: { drafts: next } });
       run.drafts = next;
@@ -911,48 +1013,15 @@ async function mfIntakeWork(runId) {
 
     /* ---- 入库 ---- */
     async function mfIntakeCommit() {
-      const cardsBox = view.querySelector('#wkCards');
-      const cards = mfCollectCards(cardsBox);
-      const sel = cards.map((c, i) => (c.checked === false ? -1 : i)).filter((i) => i >= 0);
-      if (!sel.length) return toast('先勾选要入库的题卡', 'err');
-      const trees = await tpTrees();
-      const papers = (await api(MF_API + '/papers?status=basket', { silent: true }).catch(() => ({ list: [] }))).list || [];
-      let nodes = [];
-      modal({
-        title: `入库：勾选了 ${sel.length} 张题卡`, okText: '确认入库',
-        body: `<div class="mf-form">
-          <div class="field"><label>学科</label><select id="ikSub">${MF_SUBJECTS.map((s) => `<option ${view.querySelector('#wkSub').value === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
-          <div class="field"><label>学段</label><select id="ikStage">${MF_STAGES.slice(1).map(([k, t]) => `<option value="${k}" ${view.querySelector('#wkStage').value === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-          <div class="field"><label>年级</label><select id="ikGrade"><option value="">不限</option>${MF_GRADES.map((g) => `<option>${g}</option>`).join('')}</select></div>
-          <div class="field"><label>目录树</label><select id="ikTree"><option value="">不挂树</option>${trees.map((t) => `<option value="${t.id}">${esc(treeLabel(t))}</option>`).join('')}</select></div>
-          <div class="field"><label>节点</label><select id="ikNode"><option value="">（先选树）</option></select></div>
-          <div class="field"><label>加入试卷</label><select id="ikPaper"><option value="">不加入</option>${papers.map((p) => `<option value="${p.id}">${esc(p.title)}</option>`).join('')}</select></div>
-          <div class="field"><label>统一分值</label><input id="ikScore" class="inp" type="number" value="0"></div>
-          <div class="field wide"><label>额外标签</label><input id="ikTags" class="inp" placeholder="逗号分隔"></div>
-        </div>`,
-        onMount: (w) => {
-          w.querySelector('#ikTree').onchange = async (e) => {
-            nodes = e.target.value ? ((await api(`${MF_API}/trees/${e.target.value}/nodes`).catch(() => ({ list: [] }))).list || []) : [];
-            w.querySelector('#ikNode').innerHTML = `<option value="">不挂</option>${nodes.map((n) => `<option value="${n.id}">${esc(n.name)}</option>`).join('')}`;
-          };
-        },
-        onOk: async (w) => {
-          await api(`${MF_API}/intake/runs/${runId}/drafts`, { method: 'PUT', body: { drafts: cards } });
-          const r = await api(`${MF_API}/intake/runs/${runId}/commit`, {
-            method: 'POST',
-            body: {
-              selected: sel, subject: w.querySelector('#ikSub').value, stage: w.querySelector('#ikStage').value,
-              grade: w.querySelector('#ikGrade').value, node_id: w.querySelector('#ikNode').value || null,
-              paper_id: w.querySelector('#ikPaper').value || null, score: Number(w.querySelector('#ikScore').value) || 0,
-              tags: w.querySelector('#ikTags').value.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
-            },
-          });
-          toast(`已入库 ${r.ids.length} 题`, 'ok');
-          run = (await api(`${MF_API}/intake/runs/${runId}`)).run;
-          draw();
-        },
-      });
+      const cards = mfCollectCards(view.querySelector('#wkCards'));
+      if (!cards.some((c) => String(c.stem || '').trim())) return toast('请先识别或录入题目', 'err');
+      await api(`${MF_API}/intake/runs/${runId}/drafts`, { method: 'PUT', body: { drafts: cards } });
+      toast('已保存，请到待审核核对题目和分类', 'ok');
+      const source = ({ image: 'photo', pdf: 'photo', word: 'word', excel: 'excel', skill: 'skill', teacher_scan: 'teacher_scan', manual: 'manual', paper: 'paper', lesson: 'lesson' })[run.source_kind] || 'photo';
+      pdSelectBatch(source, run.id);
+      location.hash = '#/pending';
     }
+
   };
 
   draw();

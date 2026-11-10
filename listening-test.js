@@ -52,7 +52,7 @@ function cleanup() {
   console.log('\n=== 听力题（T7）· 自测 ===\n');
   cleanup();
   const login = async (u, role) => (await req('/api/login', { method: 'POST', body: { username: u, password: '123456', role } })).data.token;
-  const AT = await login('15152099970', 'admin');
+  const AT = await login('zlx-ci-admin', 'admin');
   const sid = db.prepare("INSERT INTO users (role,username,password,name,grade,term,allow_speed,allow_seek,expire_at,status,created_at) VALUES ('student',?,?,'T7学生','七年级','上册',1,1,'2099-12-31',1,'2026-11-02')").run('t7s' + uniq, hash('123456')).lastInsertRowid; made.users.push(sid);
   const ST = await login('t7s' + uniq, 'student');
   log(!!AT && !!ST, '管理员和测试学生登录');
@@ -77,18 +77,20 @@ function cleanup() {
   // ---------- 2) 创建带音频的听力选择题 ----------
   const mkQ = await req(MF + '/questions', { method: 'POST', token: AT, body: {
     type: 'single', subject: '英语', stage: 'junior', grade: '七年级', stem: TAG + ' 听对话，选择正确答案：What does the boy want?',
-    options: [{ label: 'A', text: 'A pen' }, { label: 'B', text: 'A book' }, { label: 'C', text: 'A cup' }], answer: 'B', analysis: '男孩说他想要一本书。', audio_key: up.data.key,
+    options: [{ label: 'A', text: 'A pen' }, { label: 'B', text: 'A book' }, { label: 'C', text: 'A cup' }], answer: 'B', analysis: '男孩说他想要一本书。', audio_key: up.data.key, audio_play_limit: 2,
   } });
   const qid = mkQ.data && mkQ.data.id;
   log(mkQ.code === 0 && qid, '后台创建一道带音频的听力选择题', mkQ.msg);
   const g1 = await req(MF + '/questions/' + qid, { token: AT });
   log(g1.code === 0 && g1.data.question.audio_key === up.data.key && /\/api\/file\?key=/.test(g1.data.question.audio_url), '读回来：audio_key 是存储 key，audio_url 是播放地址', g1.data.question.audio_url);
+  log(g1.data.question.audio_play_limit === 2, '新增时保存听力播放次数');
   const dbq = db.prepare('SELECT audio_key, type FROM questions WHERE id=?').get(qid);
   log(dbq.audio_key === up.data.key && dbq.type === 'single', '题型没有新增：仍是 single，音频只是附加的听力材料（questions.audio_key）');
 
   // 编辑不丢音频 / 可换 / 可去掉 / 乱填被拒
   const put1 = await req(MF + '/questions/' + qid, { method: 'PUT', token: AT, body: { type: 'single', stem: TAG + ' 听对话（改）', options: ['A pen', 'A book'], answer: 'B', subject: '英语' } });
   log(put1.code === 0 && db.prepare('SELECT audio_key FROM questions WHERE id=?').get(qid).audio_key === up.data.key, '编辑题目时不传 audio_key：音频保留（老的编辑入口不会把音频弄丢）');
+  log(db.prepare('SELECT audio_play_limit FROM questions WHERE id=?').get(qid).audio_play_limit === 2, '旧编辑入口不传播放次数时保留原设置');
   const put2 = await req(MF + '/questions/' + qid, { method: 'PUT', token: AT, body: { type: 'single', stem: TAG + ' 听对话（改）', options: ['A pen', 'A book'], answer: 'B', subject: '英语', audio_key: tts.data.key } });
   log(put2.code === 0 && db.prepare('SELECT audio_key FROM questions WHERE id=?').get(qid).audio_key === tts.data.key, '换一段音频（改成 TTS 生成的）');
   const put3 = await req(MF + '/questions/' + qid, { method: 'PUT', token: AT, body: { type: 'single', stem: TAG + ' 听对话（改）', options: ['A pen', 'A book'], answer: 'B', subject: '英语', audio_key: 'videos/202611/abc.mp4' } });
@@ -106,16 +108,18 @@ function cleanup() {
   const pend = await req(MF + '/ext/pending?size=100', { token: AT });
   const it = (pend.data.list || []).find((x) => x.batch_id === imp.data.run_id && x.index === 0);
   log(!!it && it.audio_key === '' && it.audio_url === '', '待审核项带 audio_key / audio_url 字段（导入时没有音频）');
-  const patch = await req(MF + '/ext/pending/item', { method: 'PUT', token: AT, body: { id: it.id, patch: { audio_key: up.data.key } } });
+  const patch = await req(MF + '/ext/pending/item', { method: 'PUT', token: AT, body: { id: it.id, patch: { audio_key: up.data.key, audio_play_limit: 3 } } });
   log(patch.code === 0 && patch.data.audio_key === up.data.key && /\/api\/file\?key=/.test(patch.data.audio_url), '在待审核页给这道题补上音频', patch.msg);
+  log(patch.data.audio_play_limit === 3, '待审核编辑可设置播放次数');
   const patchBad = await req(MF + '/ext/pending/item', { method: 'PUT', token: AT, body: { id: it.id, patch: { audio_key: 'videos/x.mp4' } } });
   log(patchBad.code === 0 && patchBad.data.audio_key === '', '待审核里乱填别的目录的 key：不认');
   await req(MF + '/ext/pending/item', { method: 'PUT', token: AT, body: { id: it.id, patch: { audio_key: up.data.key } } });
   const pend2 = await req(MF + '/ext/pending?size=100', { token: AT });
   const it2 = (pend2.data.list || []).find((x) => x.batch_id === imp.data.run_id && x.index === 0);
   const cm = await req(MF + '/ext/pending/commit', { method: 'POST', token: AT, body: { ids: [it2.id], subject: '英语', stage: 'junior', grade: '七年级' } });
-  const committedQ = db.prepare("SELECT id, audio_key FROM questions WHERE audio_key=? AND id<>? ORDER BY id DESC LIMIT 1").get(up.data.key, qid);
+  const committedQ = db.prepare("SELECT id, audio_key, audio_play_limit FROM questions WHERE audio_key=? AND id<>? ORDER BY id DESC LIMIT 1").get(up.data.key, qid);
   log(cm.code === 0 && committedQ && committedQ.audio_key === up.data.key, '逐题入库后，题库里的这道题带着音频', cm.msg);
+  log(committedQ && committedQ.audio_play_limit === 3, '审核入库后保留播放次数');
   // 把入库的那些题（样例里其它题没入库，仍在待审核批次里）清掉
   if (committedQ) { db.prepare('DELETE FROM question_tags WHERE question_id=?').run(committedQ.id); db.prepare('DELETE FROM questions WHERE id=?').run(committedQ.id); }
 

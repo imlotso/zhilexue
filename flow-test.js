@@ -55,7 +55,7 @@ function cleanup() {
   console.log('\n=== 全流程走查（T14）· 录题 → 待审核 → 入库 → 组卷 → 下发 → 做题 → 正确率 → 错题 → Word 导出 ===\n');
   cleanup();
   const login = async (u, role) => (await req('/api/login', { method: 'POST', body: { username: u, password: '123456', role } })).data.token;
-  const AT = await login('15152099970', 'admin');
+  const AT = await login('zlx-ci-admin', 'admin');
   const sid = db.prepare("INSERT INTO users (role,username,password,name,grade,term,stage,allow_speed,allow_seek,expire_at,status,created_at) VALUES ('student',?,?,'FLOW学生','七年级','上册','junior',1,1,'2099-12-31',1,'2026-11-02')").run('flow' + uniq, hash('123456')).lastInsertRowid; made.users.push(sid);
   const ST = await login('flow' + uniq, 'student');
   log(!!AT && !!ST, '管理员和测试学生登录');
@@ -124,7 +124,7 @@ function cleanup() {
   // ---------- 4) 组卷 ----------
   console.log('【4 组卷】');
   const pool = await req(`${ADM}/papers/pool`, { method: 'POST', token: AT, body: { subject: '数学', stage: 'junior', node_ids: [kNode.id] } });
-  log(pool.code === 0 && pool.data.total >= 14 && pool.data.single >= singles.length, '知识点范围的题池里有刚入库的题（15 题里问答题不参与组卷）', JSON.stringify(pool.data));
+  log(pool.code === 0 && pool.data.total >= 14 && pool.data.single >= singles.length, '知识点范围的题池里有刚入库的题', JSON.stringify(pool.data));
   const auto = await req(`${ADM}/papers/auto`, { method: 'POST', token: AT, body: { subject: '数学', stage: 'junior', node_ids: [kNode.id], counts: { single: 3 } } });
   log(auto.code === 0 && (auto.data.list || []).length === 3, '一键组卷：按知识点范围抽 3 道单选', auto.msg);
   const chap = await req(`${ADM}/papers/auto`, { method: 'POST', token: AT, body: { subject: '数学', stage: 'junior', node_ids: [cNode.id], counts: { single: 2 } } });

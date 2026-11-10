@@ -1,0 +1,42 @@
+'use strict';
+const assert = require('assert');
+const { normalizePack } = require('./src/mfpack-adapter');
+const original = {format:'mofang-question-pack', schemaVersion:1, questions:[]};
+assert.strictEqual(normalizePack(original), original);
+const input = {questions:[{problem_text:'求 x', options:{A:'1', B:'2'}, answer:'B', analysis:'代入', knowledge_points:['方程'], difficulty_score_10:7, images:['https://example.com/a.png']} ]};
+const p = normalizePack(input), q = p.questions[0];
+assert.strictEqual(q.content.stem, '求 x');
+assert.deepStrictEqual(q.content.options, [{label:'A',text:'1'},{label:'B',text:'2'}]);
+assert.strictEqual(q.content.answer, 'B');
+assert.strictEqual(q.metadata.difficulty.raw, '4');
+assert.strictEqual(q.metadata.difficulty.score_10, 7);
+assert.strictEqual(normalizePack({cards:[{stem:'旧五星',difficulty:3}]}).questions[0].metadata.difficulty.score_10, undefined);
+assert.throws(() => normalizePack({cards:[{stem:'越界',difficulty_score_10:11}]}), /1 至 10/);
+assert.throws(() => normalizePack({cards:[{stem:'冲突',difficulty:2,difficulty_score_10:7}]}), /不一致/);
+assert.deepStrictEqual(q.metadata.knowledgePoints, ['方程']);
+assert.strictEqual(p.assets[0]._url, 'https://example.com/a.png');
+assert.strictEqual(q.content.figures[0].assetId, p.assets[0].id);
+assert.strictEqual(normalizePack(input).packageId, p.packageId);
+assert.notStrictEqual(normalizePack([{stem:'另一题'}]).packageId, p.packageId);
+const empty = normalizePack({cards:[{stem:'没有答案', options:[]}]});
+assert.strictEqual(empty.questions[0].content.answer, '');
+assert.strictEqual(empty.questions[0].content.analysis, '');
+const classified = normalizePack({cards:[{stem:'多选题', type:'multi', stage:'junior', grade:'七年级'}]});
+assert.strictEqual(classified.questions[0].metadata.questionType.label, 'multi');
+assert.strictEqual(classified.questions[0].metadata.stage.label, 'junior');
+assert.strictEqual(classified.questions[0].metadata.grade.label, '七年级');
+const subtype = normalizePack({cards:[{stem:'听力题', type:'single', question_subtype:'听力选择'}]});
+assert.strictEqual(subtype.questions[0].metadata.questionSubtype.label, '听力选择');
+const group = normalizePack({questions:[{id:'article', subject:'英语', stage:'junior', material:'阅读材料', children:[
+  {id:'1', stem:'第一问', type:'single', options:['A项','B项'], answer:'A'},
+  {id:'2', stem:'第二问', type:'fill', answer:'book'},
+]}]});
+assert.strictEqual(group.questions.length, 2);
+assert.deepStrictEqual(group.questions.map((q) => q.content.material), ['阅读材料', '阅读材料']);
+assert.deepStrictEqual(group.questions.map((q) => q.metadata.questionType.label), ['single', 'fill']);
+assert.deepStrictEqual(group.questions.map((q) => q.metadata.questionGroup.position), [1, 2]);
+assert.strictEqual(group.questions[0].metadata.questionGroup.ref, group.questions[1].metadata.questionGroup.ref);
+assert.throws(() => normalizePack({cards:[{stem:'题',images:['local.png']}]}), /图片/);
+assert.throws(() => normalizePack({cards:[{stem:'题',children:[{stem:'小题'}]}]}), /小题/);
+assert.throws(() => normalizePack({data:[]}));
+console.log('题卡格式映射、缺失内容及不支持的数据检查通过');

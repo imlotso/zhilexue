@@ -41,7 +41,7 @@ function cleanup() {
 (async () => {
   console.log('\n=== 题库与视频存储解耦（T12）· 自测 ===\n');
   cleanup();
-  const AT = (await req('/api/login', { method: 'POST', body: { username: '15152099970', password: '123456', role: 'admin' } })).data.token;
+  const AT = (await req('/api/login', { method: 'POST', body: { username: 'zlx-ci-admin', password: '123456', role: 'admin' } })).data.token;
   log(!!AT, '管理员登录');
 
   // ---------- 1) 题库资源的 key 前缀 ----------

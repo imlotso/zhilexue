@@ -9,7 +9,10 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const XLSX = require('xlsx');
+require('./test/isolated-accounts').assertIsolated();
 const { db } = require('./src/db');
+const accounts = require('./test/isolated-accounts').create(db);
+process.on('exit', accounts.dispose);
 
 const BASE = process.env.BASE || 'http://localhost:3000';
 const MF = '/api/admin/bank/mf';
@@ -64,12 +67,22 @@ function buildDocx(paras) {
 
 (async () => {
   console.log('\n=== 待审核题目 · 自测 ===\n');
-  const adm = await req('/api/login', { method: 'POST', body: { username: '15152099970', password: '123456', role: 'admin' } });
+  const adm = await req('/api/login', { method: 'POST', body: { username:accounts.admin.username, password:accounts.admin.password, role: 'admin' } });
   const AT = adm.data && adm.data.token;
-  const stuLogin = await req('/api/login', { method: 'POST', body: { username: '13800000001', password: '123456', role: 'student' } });
+  const stuLogin = await req('/api/login', { method: 'POST', body: { username:accounts.student.username, password:accounts.student.password, role: 'student' } });
   const ST = stuLogin.data && stuLogin.data.token;
   const made = { questions: [], runs: [], batches: [], ups: [] };
-  const pend = async (q = '') => (await req(`${MF}/ext/pending?size=100${q}`, { token: AT })).data;
+  // 测试库可能保留真实试卷草稿；收集全部分页后再按本次夹具定位，不能依赖它刚好处于第一页。
+  const pend = async (q = '') => {
+    const data = (await req(`${MF}/ext/pending?size=100${q}&page=1`, { token: AT })).data;
+    const list = [...data.list];
+    for (let page = 2; list.length < data.total; page++) {
+      const part = (await req(`${MF}/ext/pending?size=100${q}&page=${page}`, { token: AT })).data;
+      if (!part.list.length) break;
+      list.push(...part.list);
+    }
+    return { ...data, list };
+  };
   const findRun = (data, runId) => data.list.filter((x) => x.kind === 'run' && x.batch_id === runId);
   const baseCounts = (await pend()).counts;
 
@@ -91,12 +104,17 @@ function buildDocx(paras) {
   addRows('多选题', [['T3多选' + uniq, '甲', '乙', '丙', '', '', '', '', 'AC', '', '']]);
   addRows('判断题', [['T3判断' + uniq, '正确', '', '']]);
   addRows('填空题', [['T3填空' + uniq + ' ____ 和 ____', '甲', '乙', '', '否', '', '']]);
-  const xl = await req(`${MF}/ext/import-excel`, { method: 'POST', token: AT, form: fileForm('T3.xlsx', XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }), { subject: '数学', stage: 'junior', grade: '七年级' }) });
+  const mathEdition = (db.prepare("SELECT edition FROM bank_trees WHERE subject='数学' AND stage='junior' AND IFNULL(edition,'')<>'' LIMIT 1").get() || {}).edition || '';
+  const xl = await req(`${MF}/ext/import-excel`, { method: 'POST', token: AT, form: fileForm('T3.xlsx', XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }), { subject: '数学', stage: 'junior', grade: '七年级', edition: mathEdition, term: '上册', material_type: 'exercise' }) });
   log(xl.code === 0 && xl.data.total === 5 && xl.data.examples_skipped === 9, '追加真题后导入：5 题进入待审核，9 行示例被忽略', xl.msg);
   made.runs.push(xl.data && xl.data.run_id);
+  const xlMeta = db.prepare('SELECT edition,term,material_type FROM mf_recog_runs WHERE id=?').get(xl.data.run_id);
+  log(xlMeta && xlMeta.edition === mathEdition && xlMeta.term === '上册' && xlMeta.material_type === 'exercise', '导入批次保留教材版本、册别和资料类型');
   let d = await pend();
   let xr = findRun(d, xl.data.run_id);
   log(xr.length === 5 && xr.every((x) => x.source === 'excel' && x.source_label === 'Excel导入'), '待审核列表里这 5 题的来源标注为「Excel导入」', xr[0] && xr[0].source_label);
+  const batchOnly = await pend(`&source=excel&batch_id=${xl.data.run_id}`);
+  log(batchOnly.total === 5 && batchOnly.list.every((item) => item.batch_id === xl.data.run_id), '按批次定位只显示本批 Excel 题目');
   log(xr.map((x) => x.type).join() === 'single,single,multi,judge,fill', '题型识别：单选/单选/多选/判断/填空', xr.map((x) => x.type).join());
   log(xr[0].answer === 'B' && xr[0].options.length === 3 && xr[0].subject === '数学' && xr[2].answer === 'A,C' && xr[3].answer === '正确' && xr[4].answer === '甲|乙', '答案按系统约定存放（B / A,C / 正确 / 甲|乙）', [xr[0].answer, xr[2].answer, xr[3].answer, xr[4].answer].join(' '));
   log((await req(`${MF}/questions?kw=T3单选${uniq}&size=5`, { token: AT })).data.total === 0, '导入后题库里还没有这些题（先在待审核，没直接入库）');
@@ -111,10 +129,29 @@ function buildDocx(paras) {
   made.runs.push(w2.data && w2.data.run_id);
   const badDoc = buildDocx(['单选题', '1.好题T3' + uniq, 'A. 甲', 'B. 乙', '答案：A', '2.选项写法不对', '（A）甲', '（B）乙', '答案：A', '3.缺答案的题', 'A. 甲', 'B. 乙']);
   const w3 = await req(`${MF}/ext/import-word`, { method: 'POST', token: AT, form: fileForm('坏格式.docx', badDoc) });
-  log(w3.code === 0 && w3.data.total === 1 && w3.data.error_count === 2, '不合规格式：合规的那 1 题进入待审核，另外 2 题给出错误', w3.msg);
+  log(w3.code === 0 && w3.data.total === 2 && w3.data.error_count === 1, '缺答案的题保留并进入待审核，选项写法错误仍报错', w3.msg);
   made.runs.push(w3.data && w3.data.run_id);
   const e0 = (w3.data.errors || []);
-  log(e0.length === 2 && e0[0].para === 6 && /选项格式不对/.test(e0[0].msg) && e0[1].para === 10 && /缺少「答案：」/.test(e0[1].msg), '错误带明确的段号和原因（第 6 段选项格式；第 10 段缺答案）', e0.map((e) => `第${e.para}段 ${e.msg.slice(0, 12)}`).join(' / '));
+  log(e0.length === 1 && e0[0].para === 6 && /选项格式不对/.test(e0[0].msg) && (w3.data.warnings || []).some(w => /未提供答案/.test(w.msg)), '格式错误保留段号，缺答案转为待核对提示', e0.map((e) => `第${e.para}段 ${e.msg.slice(0, 12)}`).join(' / '));
+  const missingWord = await pend(`&source=word&batch_id=${w3.data.run_id}`);
+  log(missingWord.list.length === 2 && missingWord.list.some(x => x.stem === '缺答案的题' && x.answer === '' && x.type === 'single'), 'Word 无答案题真实进入待审核且正式答案为空');
+  const unknownDoc = buildDocx(['选择题', '1.未注明单双选' + uniq, 'A.甲', 'B.乙']);
+  const unknownWord = await req(`${MF}/ext/import-word`, { method: 'POST', token: AT, form: fileForm('未注明题型.docx', unknownDoc, { subject: '数学', stage: 'junior' }) });
+  made.runs.push(unknownWord.data && unknownWord.data.run_id);
+  const unknownItem = findRun(await pend(), unknownWord.data.run_id)[0];
+  log(unknownWord.code === 0 && unknownItem && unknownItem.answer === '' && unknownItem.type_unconfirmed === true, 'Word 无答案未注明单双选：题型待老师确认');
+  if (unknownItem) {
+    const blockedWord = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [unknownItem.id] } });
+    log(!blockedWord.data || !blockedWord.data.question_ids || !blockedWord.data.question_ids.length, 'Word 未确认题型不能入库');
+    const confirmedWord = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: unknownItem.id, patch: { type: 'single', type_confirmed: true } } });
+    log(confirmedWord.code === 0 && confirmedWord.data.type_unconfirmed === false, 'Word 老师确认题型后解除待确认');
+    const confirmedItem = findRun(await pend(), unknownWord.data.run_id)[0];
+    const committedWord = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [confirmedItem.id] } });
+    const committedId = committedWord.data && committedWord.data.question_ids && committedWord.data.question_ids[0];
+    if (committedId) made.questions.push(committedId);
+    const committedQuestion = committedId && (await req(`${MF}/questions/${committedId}`, { token: AT })).data.question;
+    log(!!committedId && committedQuestion.answer === '', 'Word 题型确认后可入库，缺失答案仍为空');
+  }
   const w4 = await req(`${MF}/ext/import-word`, { method: 'POST', token: AT, form: fileForm('空.docx', buildDocx(['这是一段没有题号的文字']), {}) });
   log(w4.code !== 0 && /没认出题目/.test(w4.msg), '没有题目的文档：提示"没认出题目"和格式要求', w4.msg.slice(0, 30));
   log((await req(`${MF}/ext/import-word`, { method: 'POST', token: AT, form: fileForm('a.doc', Buffer.from('x')) })).code !== 0, '老 .doc 格式被拒绝，提示另存为 .docx');
@@ -140,21 +177,21 @@ function buildDocx(paras) {
   log((await req(`${MF}/questions?kw=T3技能包题一${uniq}&size=5`, { token: AT })).data.total === 0, '导入后题库里没有技能包的题（先在待审核）');
 
   // ================= 夹具：拍照识别 / 采集 / 手机扫码（直接写库） =================
-  const stuId = db.prepare("SELECT id FROM users WHERE username='13800000001'").get().id;
+  const stuId = accounts.student.id;
   const runPhoto = db.prepare(`INSERT INTO mf_recog_runs (title, subject, stage, grade, source_kind, source_name, status, pages, drafts, ocr_texts, error, created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run('T3拍照' + uniq, '数学', 'junior', '七年级', 'image', 'T3.jpg', 'recognized', '[]',
-    JSON.stringify([{ questionType: '单选', stem: 'T3拍照一' + uniq, options: [{ label: 'A', content: '甲' }, { label: 'B', content: '乙' }], answer: 'B', analysis: '', checked: true, figures: [] },
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run('T3拍照' + uniq, '数学', 'junior', '七年级', 'image', 'T3.jpg', 'recognized', JSON.stringify([{ key: 'bank/recog/t3-source.png' }]),
+    JSON.stringify([{ page: 1, questionType: '单选', stem: 'T3拍照一' + uniq, options: [{ label: 'A', content: '甲' }, { label: 'B', content: '乙' }], answer: 'B', analysis: '', checked: true, figures: [] },
       { questionType: '解答', stem: 'T3拍照二' + uniq, options: [], answer: '见图', analysis: '', checked: true, figures: [] },
       { questionType: '解答', stem: 'T3拍照三' + uniq, options: [], answer: '见图', analysis: '', checked: true, figures: [] }]), '[]', '', '2026-11-02 10:00:00').lastInsertRowid;
   made.runs.push(runPhoto);
   const batchCap = db.prepare(`INSERT INTO mf_capture_batches (title, site, url, subject, stage, grade, payload, status, created_at) VALUES (?,?,?,?,?,?,?,?,?)`)
     .run('T3采集' + uniq, 'zujuan', 'http://example.com', '数学', 'junior', '七年级',
-      JSON.stringify([{ site: 'zujuan', questionId: 'T3Q1' + uniq, stem: 'T3采集一' + uniq, options: ['甲', '乙'], answer: 'A', analysis: '解析', type: 'single' },
+      JSON.stringify([{ site: 'zujuan', questionId: 'T3Q1' + uniq, stem: 'T3采集一' + uniq, material: '共享材料' + uniq, group_ref: '组' + uniq, group_position: 2, year: '2024', source_text: '2024 期中', options: ['甲', '乙'], answer: 'A', analysis: '解析', type: 'single', type_unconfirmed: true },
         { site: 'zujuan', questionId: 'T3Q2' + uniq, stem: 'T3采集二' + uniq, options: [], answer: '3', analysis: '', type: 'fill' },
         { site: 'zujuan', questionId: 'temp-1', stem: 'T3采集临时' + uniq, options: [], answer: '', analysis: '', type: 'answer' }]), 'pending', '2026-11-02 10:00:00').lastInsertRowid;
   made.batches.push(batchCap);
   const qScan = db.prepare(`INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,sort,stage,point,material,source,year,video_id,images,created_at)
-    VALUES (NULL,'数学','七年级','single',?,'[]','','',3,0,'junior','','', '学生上传','',NULL,'[]','2026-11-02 10:00:00')`).run('T3扫码题' + uniq).lastInsertRowid;
+    VALUES (NULL,'数学','七年级','single',?,'["甲","乙"]','','',3,0,'junior','','', '学生上传','',NULL,'[]','2026-11-02 10:00:00')`).run('T3扫码题' + uniq).lastInsertRowid;
   made.questions.push(qScan);
   const upId = db.prepare(`INSERT INTO paper_uploads (user_id, subject, stage, grade, point, note, images, status, question_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
     .run(stuId, '数学', 'junior', '七年级', '', '', '["/pu/t3.jpg"]', 'pending', qScan, '2026-11-02 10:00:00').lastInsertRowid;
@@ -164,9 +201,15 @@ function buildDocx(paras) {
   console.log('【统一列表与来源标注】');
   d = await pend();
   const cnt = d.counts;
-  log(cnt.excel - baseCounts.excel === 5 && cnt.word - baseCounts.word === 7 + 10 + 1 && cnt.skill - baseCounts.skill === 2 && cnt.photo - baseCounts.photo === 3 && cnt.capture - baseCounts.capture === 3 && cnt.scan - baseCounts.scan === 1,
-    '各来源计数：Excel 5 / Word 18 / 技能包 2 / 拍照识别 3 / 采集 3 / 手机扫码 1', JSON.stringify(cnt));
-  log(cnt.all === Object.values({ a: cnt.photo, b: cnt.word, c: cnt.excel, d: cnt.skill, e: cnt.capture, f: cnt.scan }).reduce((a, b) => a + b, 0), '「全部」= 各来源之和');
+  const photoItem = d.list.find((item) => item.batch_id === runPhoto && item.index === 0 && item.source === 'photo');
+  const original = await req(`${MF}/ext/pending/original?id=${encodeURIComponent(photoItem.id)}`, { token: AT });
+  const noOriginal = await req(`${MF}/ext/pending/original?id=${encodeURIComponent(`run:${runPhoto}:1`)}`, { token: AT });
+  log(photoItem.original_page === 1 && original.code === 0 && original.data.page === 1 && /t3-source/.test(original.data.url) && noOriginal.code !== 0, '仅记录了页码及页图的题目可查对应原页');
+  const batches = await req(`${MF}/ext/pending/batches?source=photo&kw=${encodeURIComponent('T3拍照' + uniq)}`, { token: AT });
+  log(batches.code === 0 && batches.data.list.some((b) => b.id === runPhoto && b.total === 3 && b.pending === 3 && b.status === '待核对'), '批次视图返回来源、题数和真实待核对状态');
+  log(cnt.excel - baseCounts.excel === 5 && cnt.word - baseCounts.word === 7 + 10 + 2 && cnt.skill - baseCounts.skill === 2 && cnt.photo - baseCounts.photo === 3 && cnt.capture - baseCounts.capture === 3 && cnt.scan - baseCounts.scan === 1,
+    '各来源计数：Excel 5 / Word 19 / 技能包 2 / 拍照识别 3 / 采集 3 / 手机扫码 1', JSON.stringify(cnt));
+  log(cnt.all === ['photo', 'word', 'excel', 'skill', 'capture', 'scan', 'teacher_scan', 'manual', 'paper', 'lesson'].reduce((sum, key) => sum + (cnt[key] || 0), 0), '「全部」= 各来源之和');
   const labels = new Set(d.list.map((x) => x.source_label));
   log(['拍照识别', 'Word导入', 'Excel导入', '技能包', '网络采集', '手机扫码（错题）'].every((l) => labels.has(l)), '同一个列表里同时出现 6 种来源标签', [...labels].join('/'));
   const onlyScan = await pend('&source=scan');
@@ -184,6 +227,13 @@ function buildDocx(paras) {
   const photo1 = `run:${runPhoto}:0`;
   const ed = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: photo1, patch: { stem: 'T3拍照一改' + uniq, answer: 'A', analysis: '改后的解析', point: 'T3点', difficulty: 4, type: 'multi', options: [{ label: 'A', text: '甲甲' }, { label: 'B', text: '乙乙' }, { label: 'C', text: '丙' }] } } });
   log(ed.code === 0 && ed.data.stem === 'T3拍照一改' + uniq && ed.data.type === 'multi' && ed.data.options.length === 3 && ed.data.difficulty === 4 && ed.data.analysis === '改后的解析', '编辑拍照识别的题卡：题干/答案/解析/题型/选项/难度', ed.msg);
+  // 原页标记不能证明已有答案、解析是 AI 生成，保留来源不明提示和原页、图文审核。
+  log(!!(ed.data && !ed.data.ai_legacy_pending && ed.data.ai_origin_uncertain), '历史拍照题不虚构 AI 补全状态', ed.msg);
+  const photoReviewed = findRun(await pend(`&source=photo&batch_id=${runPhoto}`), runPhoto).find((x) => x.index === 0);
+  if (photoReviewed && photoReviewed.figure_review_issue) {
+    const f = await req(`${MF}/ext/pending/figure/confirm`, { method: 'POST', token: AT, body: { id: photoReviewed.id, expected: photoReviewed.figure_review_signature } });
+    log(f.code === 0, '模拟老师对照原页确认图文归属', f.msg);
+  }
   const capEd = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: `cap:${batchCap}:1`, patch: { stem: 'T3采集二改' + uniq, point: '甲、乙' } } });
   log(capEd.code === 0 && capEd.data.stem === 'T3采集二改' + uniq && capEd.data.point === '甲、乙', '编辑采集的题', capEd.msg);
   const scEd = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: `up:${upId}`, patch: { stem: 'T3扫码题改' + uniq, answer: 'C', point: '扫码点' } } });
@@ -227,12 +277,18 @@ function buildDocx(paras) {
   log(pk2.code === 0 && pk2.data.skipped === 1 && pk2.data.staged === 1, '同一转写包再次导入：已入库的那题被跳过，未入库的那题再次进待审核（不会重复入库）', pk2.msg);
   made.runs.push(pk2.data && pk2.data.run_id);
 
+  const beforeConfirm = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`cap:${batchCap}:0`] } });
+  log(!beforeConfirm.data || !beforeConfirm.data.question_ids || !beforeConfirm.data.question_ids.length, '采集题型未经老师确认时不能入库');
+  const typeConfirm = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: `cap:${batchCap}:0`, patch: { type: 'single', type_confirmed: true } } });
+  log(typeConfirm.code === 0 && typeConfirm.data.type_unconfirmed === false, '老师确认题型后解除待确认状态');
   const c5 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`cap:${batchCap}:0`] } });
   const q5 = c5.data && c5.data.question_ids[0]; made.questions.push(q5);
   const q5d = (await req(`${MF}/questions/${q5}`, { token: AT })).data.question;
   log(c5.code === 0 && q5d.source_type === 'capture' && q5d.stem === 'T3采集一' + uniq, '网络采集：逐题入库');
+  log(q5d.material === '共享材料' + uniq && q5d.year === '2024' && q5d.source.includes('2024 期中') && q5d.source_detail.question_group.batch_id === batchCap && q5d.source_detail.question_group.ref === '组' + uniq && q5d.source_detail.question_group.position === 2, '采集组合小题：共享材料、分组顺序和来源完整保留');
   const c6 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`cap:${batchCap}:2`] } });
-  log(c6.code !== 0 && /没有题目编号/.test(c6.msg), '采集到的临时题（没有题目编号）：给出明确原因，不入库', c6.msg);
+  if (c6.code === 0) made.questions.push(...c6.data.question_ids);
+  log(c6.code === 0 && c6.data.question_ids.length === 1, '采集临时题可审核入库，系统分配稳定标识', c6.msg);
 
   const c7 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`up:${upId}`], tags: ['扫码标签'] } });
   const upRow = db.prepare('SELECT status FROM paper_uploads WHERE id=?').get(upId);
@@ -260,6 +316,39 @@ function buildDocx(paras) {
         JSON.stringify(stems.map((t) => ({ questionType: '解答', stem: t + uniq, options: [], answer: '1', analysis: '', checked: true, figures: [] }))), '[]', '', '2026-11-03 10:00:00').lastInsertRowid;
       made.runs.push(id); return id;
     };
+    const aiRun = mkRun('数学', 'junior', [`${kNode.name} 分类建议测试`]);
+    const aiCards = JSON.parse(db.prepare('SELECT drafts FROM mf_recog_runs WHERE id=?').get(aiRun).drafts);
+    aiCards[0].answer = ''; aiCards[0].analysis = '';
+    db.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=?').run(JSON.stringify(aiCards), aiRun);
+    const aiItem = findRun(await pend('&kw=' + encodeURIComponent('分类建议测试')), aiRun)[0];
+    const proposal = await req(`${MF}/ext/pending/ai-classify`, { method: 'POST', token: AT, body: { ids: [aiItem.id] } });
+    const aiNodes = proposal.data && proposal.data.list[0].nodes || [];
+    const unchanged = JSON.parse(db.prepare('SELECT drafts FROM mf_recog_runs WHERE id=?').get(aiRun).drafts)[0];
+    const aiResult = proposal.data && proposal.data.list[0] || {};
+    log(proposal.code === 0 && proposal.data.mock && aiNodes.some((n) => n.id === kNode.id) && aiResult.type === 'answer' && aiResult.difficulty_score_10 === 6 && !unchanged.answer && !unchanged.analysis && !unchanged.committed, 'AI 演示建议含题型、十级难度和树节点，生成时不写答案、解析或入库');
+    const expected = Object.fromEntries(['stem', 'type', 'question_subtype', 'subject', 'stage', 'difficulty', 'difficulty_score_10'].map((k) => [k, aiItem[k] == null ? '' : aiItem[k]]));
+    const accepted = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: aiItem.id, expected, patch: { type: aiResult.type, difficulty_score_10: aiResult.difficulty_score_10 } } });
+    const rejectedOld = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: aiItem.id, expected, patch: { difficulty_score_10: 7 } } });
+    const invalidTen = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: aiItem.id, patch: { difficulty_score_10: 11 } } });
+    log(accepted.code === 0 && accepted.data.difficulty === 3 && accepted.data.difficulty_score_10 === 6 && rejectedOld.code !== 0 && invalidTen.code !== 0, '确认建议后保存十级并同步五星，过期快照和无效十级被拒');
+    const expectedScope = Object.fromEntries(['stem', 'subject', 'stage', 'grade', 'edition', 'term'].map((k) => [k, aiItem[k] == null ? '' : aiItem[k]]));
+    const wrongScope = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [aiItem.id], node_ids: [kNode.id], expected_scope: { ...expectedScope, edition: '已更改版本' } } });
+    log(wrongScope.code !== 0 && /范围已更新/.test(wrongScope.msg), '教材范围变化后拒绝使用旧 AI 节点建议');
+    const confirmAi = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [aiItem.id], node_ids: [kNode.id], expected_scope: expectedScope } });
+    const aiQid = confirmAi.data && confirmAi.data.question_ids[0];
+    if (aiQid) made.questions.push(aiQid);
+    const aiQ = aiQid && db.prepare('SELECT answer,analysis,difficulty,difficulty_score_10 FROM questions WHERE id=?').get(aiQid);
+    log(confirmAi.code === 0 && aiQ && !aiQ.answer && !aiQ.analysis && aiQ.difficulty === 3 && aiQ.difficulty_score_10 === 6 && !!db.prepare('SELECT node_id FROM question_nodes WHERE question_id=? AND node_id=?').get(aiQid, kNode.id), '老师确认后入库保留十级难度和节点，缺失答案及解析仍为空');
+    const runMath = mkRun('数学', 'junior', ['R4分类数学']);
+    const runEnglish = mkRun('英语', 'junior', ['R4分类英语']);
+    const badNode = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`run:${runMath}:0`], node_ids: [999999999] } });
+    log(badNode.code !== 0 && /节点/.test(badNode.msg), '不存在的分类节点不能入库');
+    const mismatchedStage = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`run:${runMath}:0`], stage: 'primary', node_ids: [kNode.id] } });
+    log(mismatchedStage.code !== 0 && /学段/.test(mismatchedStage.msg), '分类节点学段不一致不能入库');
+    const differentSubjects = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`run:${runMath}:0`, `run:${runEnglish}:0`], node_ids: [kNode.id] } });
+    made.questions.push(...((differentSubjects.data && differentSubjects.data.question_ids) || []));
+    const pendingEnglish = db.prepare('SELECT drafts FROM mf_recog_runs WHERE id=?').get(runEnglish);
+    log(differentSubjects.code === 0 && differentSubjects.data.committed === 1 && differentSubjects.data.failed.length === 1 && /学科/.test(differentSubjects.data.failed[0].msg) && !JSON.parse(pendingEnglish.drafts)[0].committed, '混合学科批量入库只处理分类匹配的题，其余仍待审核');
     const runNo = mkRun('', '', ['R0无学科无学段A', 'R0无学科无学段B', 'R0无学科无学段C']);
     const runOk = mkRun('数学', 'junior', ['R0自带学科学段']);
     const r1 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`run:${runNo}:0`] } });
@@ -285,7 +374,7 @@ function buildDocx(paras) {
     made.questions.push(...((r5.data && r5.data.question_ids) || []));
     log(r5.code === 0 && r5.data.committed === 1, '网络采集的题补上学科学段后入库', r5.msg);
     const qS2 = db.prepare(`INSERT INTO questions (chapter_id,subject,grade,type,stem,options,answer,analysis,difficulty,sort,stage,point,material,source,year,video_id,images,created_at)
-      VALUES (NULL,'数学','','single',?,'[]','','',3,0,'','','', '学生上传','',NULL,'[]','2026-11-03 10:00:00')`).run('R0扫码缺学段' + uniq).lastInsertRowid;
+      VALUES (NULL,'数学','','single',?,'["甲","乙"]','','',3,0,'','','', '学生上传','',NULL,'[]','2026-11-03 10:00:00')`).run('R0扫码缺学段' + uniq).lastInsertRowid;
     made.questions.push(qS2);
     const upId2 = db.prepare(`INSERT INTO paper_uploads (user_id, subject, stage, grade, point, note, images, status, question_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
       .run(stuId, '数学', '', '', '', '', '["/pu/r0.jpg"]', 'pending', qS2, '2026-11-03 10:00:00').lastInsertRowid;
@@ -295,6 +384,15 @@ function buildDocx(paras) {
     const r7 = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`up:${upId2}`], stage: 'primary', grade: '五年级' } });
     const q7 = db.prepare('SELECT stage, grade, subject FROM questions WHERE id=?').get(qS2);
     log(r7.code === 0 && q7.stage === 'primary' && q7.grade === '五年级' && q7.subject === '数学', '手机扫码的题补上学段年级后入库，题目的学段年级同步写入', r7.msg);
+    const scanDraft = { type: 'answer', stem: 'T3扫码十级难度' + uniq, answer: '', analysis: '', options: [] };
+    const upTen = db.prepare(`INSERT INTO paper_uploads (user_id,subject,stage,grade,images,status,draft_json,created_at) VALUES (?,?,?,?,?,?,?,?)`)
+      .run(stuId, '数学', 'junior', '七年级', '[]', 'pending', JSON.stringify(scanDraft), '2026-11-03 10:00:00').lastInsertRowid;
+    made.ups.push(upTen);
+    const scanEdit = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: `up:${upTen}`, patch: { difficulty_score_10: 7 } } });
+    const scanCommit = await req(`${MF}/ext/pending/commit`, { method: 'POST', token: AT, body: { ids: [`up:${upTen}`] } });
+    const scanQid = scanCommit.data && scanCommit.data.question_ids[0]; if (scanQid) made.questions.push(scanQid);
+    const scanSaved = scanQid && db.prepare('SELECT difficulty,difficulty_score_10,answer,analysis FROM questions WHERE id=?').get(scanQid);
+    log(scanEdit.code === 0 && scanSaved && scanSaved.difficulty === 4 && scanSaved.difficulty_score_10 === 7 && !scanSaved.answer && !scanSaved.analysis, '新扫码题十级难度确认后保持 7/10 和 4 星，答案解析仍为空');
   }
 
   // ================= 删除 =================
@@ -330,20 +428,18 @@ function buildDocx(paras) {
   log(delUp.code === 0 && db.prepare('SELECT COUNT(*) n FROM questions WHERE id=?').get(qScan2).n === 0 && db.prepare('SELECT COUNT(*) n FROM mistakes WHERE question_id=?').get(qScan2).n === 0 && db.prepare('SELECT status FROM paper_uploads WHERE id=?').get(up2).status === 'rejected',
     '删除手机扫码的题 = 拒绝：连学生错题本里的这道题一起删，记录标为已拒绝');
 
-  // ================= 旧的整批入库接口没被重构弄坏 =================
-  console.log('【旧接口回归（整批入库）】');
+  // 所有批量来源必须先审核，旧接口不得绕过审核。
+  console.log('【旧接口不能绕过审核】');
   const run2 = db.prepare(`INSERT INTO mf_recog_runs (title, subject, stage, grade, source_kind, source_name, status, pages, drafts, ocr_texts, error, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run('T3整批' + uniq, '数学', 'junior', '七年级', 'image', 'x', 'recognized', '[]', JSON.stringify([{ questionType: '填空', stem: 'T3整批一' + uniq + ' ____', options: [], answer: '5', analysis: '', checked: true }, { questionType: '解答', stem: 'T3整批二' + uniq, options: [], answer: 'x', analysis: '', checked: false }]), '[]', '', '2026-11-02 10:00:00').lastInsertRowid;
   made.runs.push(run2);
   const whole = await req(`${MF}/intake/runs/${run2}/commit`, { method: 'POST', token: AT, body: { node_id: kNode.id } });
-  (whole.data.ids || []).forEach((q) => made.questions.push(q));
-  log(whole.code === 0 && whole.data.ids.length === 1 && db.prepare('SELECT status FROM mf_recog_runs WHERE id=?').get(run2).status === 'done', '录题工作台整批入库：只入库勾选的题，批次变 done', whole.msg);
+  log(whole.code !== 0 && db.prepare('SELECT status FROM mf_recog_runs WHERE id=?').get(run2).status === 'recognized', '录题工作台旧整批入口不能绕过审核', whole.msg);
   const batch2 = db.prepare(`INSERT INTO mf_capture_batches (title, site, url, subject, stage, grade, payload, status, created_at) VALUES (?,?,?,?,?,?,?,?,?)`)
     .run('T3整批采集' + uniq, 'zujuan', '', '数学', 'junior', '', JSON.stringify([{ site: 'zujuan', questionId: 'T3W' + uniq, stem: 'T3整批采集题' + uniq, options: [], answer: '1', type: 'fill' }]), 'pending', '2026-11-02 10:00:00').lastInsertRowid;
   made.batches.push(batch2);
   const wholeCap = await req(`${MF}/capture/batches/${batch2}/commit`, { method: 'POST', token: AT, body: {} });
-  (wholeCap.data.ids || []).forEach((q) => made.questions.push(q));
-  log(wholeCap.code === 0 && wholeCap.data.created === 1 && db.prepare('SELECT status FROM mf_capture_batches WHERE id=?').get(batch2).status === 'done', '采集整批入库仍然可用', wholeCap.msg);
+  log(wholeCap.code !== 0 && db.prepare('SELECT status FROM mf_capture_batches WHERE id=?').get(batch2).status === 'pending', '网络采集旧整批入口不能绕过审核', wholeCap.msg);
 
   // ================= 清理 =================
   [...new Set(made.questions.filter(Boolean))].forEach((id) => {

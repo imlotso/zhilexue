@@ -11,14 +11,17 @@ const Auth = {
   clear() { this.token = ''; this.user = null; },
 };
 
-async function api(path, { method = 'GET', body, raw, silent } = {}) {
-  const headers = {};
+async function api(path, { method = 'GET', body, raw, silent, headers: extraHeaders } = {}) {
+  const headers = { ...(extraHeaders || {}) };
   if (Auth.token) headers.Authorization = 'Bearer ' + Auth.token;
   let payload = body;
   if (body && !raw) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
-  const res = await fetch(path, { method, headers, body: payload });
+  let res;
+  try { res = await fetch(path, { method, headers, body: payload }); } catch (e) { const message = '网络连接失败，请检查网络后重试'; if (!silent) toast(message, 'err'); throw new Error(message); }
   let json;
   try { json = await res.json(); } catch (e) { json = { code: 500, msg: '服务器返回异常' }; }
+  if (!res.ok && json.code === 0) json = {code:res.status,msg:`服务器返回 HTTP ${res.status}，请稍后重试`};
+  if (res.status === 401) json.code = 401;
   if (json.code === 401) { Auth.clear(); if (location.hash !== '#/login') location.hash = '#/login'; throw new Error(json.msg); }
   if (json.code !== 0) { if (!silent) toast(json.msg || '操作失败', 'err'); throw new Error(json.msg || '操作失败'); }
   return json.data;
@@ -51,6 +54,41 @@ function loginBgHTML() {
   </div>`;
 }
 
+/* 通用弹窗键盘与焦点管理；关闭按钮仍是唯一取消入口，确认框 Promise 因而能正确结束。 */
+const DialogUX = (() => {
+  const entries=[]; let seq=0;
+  const visible = el => !!(el && el.isConnected && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+  const focusable = root => [...root.querySelectorAll('button,input,textarea,select,a[href],[tabindex],math-field')].filter(el=>!el.disabled && el.tabIndex>=0 && visible(el));
+  const top = () => entries.filter(x=>x.wrap.isConnected).at(-1);
+  const cleanup = () => {
+    const removed=entries.filter(x=>!x.wrap.isConnected);if(!removed.length)return;
+    for(const entry of removed)entries.splice(entries.indexOf(entry),1);
+    const last=removed.at(-1), active=top();
+    if(visible(last.source) && (!active || active.wrap.contains(last.source))) last.source.focus();
+    else if(active && !active.wrap.contains(document.activeElement)) (focusable(active.wrap)[0] || active.box).focus();
+  };
+  new MutationObserver(cleanup).observe(document.body,{childList:true});
+  document.addEventListener('keydown',event=>{
+    const entry=top();if(!entry)return;
+    const visibleDialogs=[...document.querySelectorAll('[role="dialog"]')].filter(visible);if(visibleDialogs.at(-1)!==entry.box)return;
+    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();const close=entry.wrap.querySelector('.close-x,.t8-x,[data-a="close"]');if(close && !close.disabled)close.click();}
+    if(event.key==='Tab'){
+      const items=focusable(entry.wrap), current=items.indexOf(document.activeElement);
+      if(!items.length){event.preventDefault();entry.box.focus();return;}
+      if(event.shiftKey && current<=0){event.preventDefault();items.at(-1).focus();}
+      else if(!event.shiftKey && (current<0 || current===items.length-1)){event.preventDefault();items[0].focus();}
+    }
+  },true);
+  function bind(wrap) {
+    const box=wrap.querySelector('[role="dialog"]');if(!box)return;
+    const title=wrap.querySelector('.el-dialog__title,.t8-h b');if(title){title.id='zx-dialog-title-'+(++seq);box.setAttribute('aria-labelledby',title.id);}
+    box.setAttribute('aria-modal','true');box.tabIndex=-1;
+    const entry={wrap,box,source:document.activeElement};entries.push(entry);
+    requestAnimationFrame(()=>{if(!wrap.isConnected || top()!==entry || wrap.contains(document.activeElement))return;const target=focusable(wrap).find(el=>el.matches('input,textarea,select')) || focusable(wrap).find(el=>/取消|返回/.test(el.textContent)) || focusable(wrap)[0] || box;target.focus();});
+  }
+  return {bind};
+})();
+
 /** Element UI 风格弹窗（与 admin modal 结构一致） */
 function elDialog({ title, body, wide, footer }) {
   const wrap = document.createElement('div');
@@ -65,8 +103,9 @@ function elDialog({ title, body, wide, footer }) {
   </div>`;
   document.body.appendChild(wrap);
   const close = () => wrap.remove();
+  DialogUX.bind(wrap);
   wrap.querySelector('.close-x').onclick = close;
-  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.querySelector('.close-x').click(); });
   return { el: wrap, close };
 }
 

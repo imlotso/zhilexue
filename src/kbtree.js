@@ -14,7 +14,7 @@
  */
 const { pickTree } = require('./treepick');
 const STAGE_NAME = { primary: '小学', junior: '初中' };
-const GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
+const GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const BRANCH = '教材单元知识点';
 const NO_GRADE = '不分年级';
 
@@ -23,7 +23,8 @@ const now = () => {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 };
-const gradeSort = (g) => { const i = GRADES.indexOf(g); return i < 0 ? GRADES.length : i; };
+// Keep persisted 三年级..中考冲刺 sorts 0..7 unchanged; new lower years sort before them.
+const gradeSort = (g) => { const i = GRADES.indexOf(g); return i < 0 ? GRADES.length - 2 : i - 2; };
 
 /** 学科+学段下的知识点树（R2：统一走 treepick.pickTree——优先"通用"（版本为空）的那棵，再按默认版本，最后取第一棵） */
 function findTree(db, subject, stage, kind = 'knowledge', edition = '') {

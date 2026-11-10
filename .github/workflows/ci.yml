@@ -5,10 +5,16 @@ on:
     branches: ['**']
   pull_request:
 
+env:
+  STORAGE_DRIVER: local
+  AI_MOCK: '1'
+  TTS_MOCK: '1'
+  ZLX_ISOLATED_TEST: '1'
+
 jobs:
   unit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,13 +22,82 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Install browser for UI checks
+        run: |
+          npx playwright install --with-deps chromium
+          node -p "'CHROMIUM_PATH=' + require('playwright').chromium.executablePath()" >> "$GITHUB_ENV"
+      - name: Check formula keyboard recovery
+        run: npm run test:formula:browser
+        env:
+          FORMULA_EVIDENCE_DIR: formula-component-evidence
+        if: ${{ !cancelled() }}
       - run: node bank-test.js
+      - name: Check Word bugfix regressions
+        run: npm run test:bugfix
+      - name: Check legacy UI acceptance contracts
+        run: npm run test:ci-contracts
+      - name: Check scan and self-assessment interactions
+        run: npm run test:bugfix:browser
+        if: ${{ !cancelled() }}
+      - run: node ci-isolation-test.js
+      - run: npm run test:takeover # 目录/正确率/权限/下发事务、响应式组件契约及 Word 排序；不依赖服务或浏览器
+      - name: Check word component geometry
+        run: node astra-takeover-word-responsive-test.js --browser
+        env:
+          WORD_UI_EVIDENCE_DIR: word-component-evidence
+        if: ${{ !cancelled() }}
+      - name: Check admin component geometry
+        run: node astra-takeover-admin-responsive-test.js --browser
+        if: ${{ !cancelled() }}
       - run: node wordq-test.js    # Word 规则解析（T3，客户样例文档在 docs/原始需求，不需要数据库）
       - run: node excel-test.js    # Excel 模板解析（T3，同上）
+      - run: node --test astra-word-import-integrity-test.js astra-excel-import-integrity-test.js # 合成文件的文本、题组和图号保真
+      - run: node choices-ten-test.js
+      - run: node matching-test.js
+      - run: node multi-partial-test.js
+      - run: node recognition-pages-test.js
+      - run: node pending-merge-test.js
+      - run: node pending-merge-pagination-ui-test.js
+      - run: node image-review-test.js
+      - run: node question-images-test.js
+      - run: node image-review-ui-test.js
+      - run: node pending-empty-stem-ui-test.js
+      - run: node choice-bank-ui-test.js   # 旧题库表单无答案可留空
+      - run: node quiz-layout-test.js
+      - run: node content-review-test.js
+      - run: node math-render-test.js
+      - run: node drawing-answer-test.js
+      - run: node question-ticket-test.js    # 学生题目票据的身份绑定、到期与篡改
+      - run: node mfpack-adapter-test.js
+      - run: node english-workflow-test.js
+      - run: node intake-recovery-ui-test.js
+      - run: node writing-translation-test.js
+      - run: node match-export-test.js
+      - run: node docx-solution-images-test.js
+      - run: node group-basket-test.js   # 组合题篮顺序、已有分值与去重
+      - name: Upload word geometry evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: word-component-evidence
+          path: word-component-evidence
+
+      - name: Upload formula keyboard evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formula-component-evidence
+          path: formula-component-evidence
 
   api:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
+    env:
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: '3306'
+      MYSQL_USER: root
+      MYSQL_PASSWORD: zlx-ci-only-password
+      MYSQL_DATABASE: zhilexue_ci_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,16 +105,21 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Install browser for UI checks
+        run: |
+          npx playwright install --with-deps chromium
+          node -p "'CHROMIUM_PATH=' + require('playwright').chromium.executablePath()" >> "$GITHUB_ENV"
       - name: Start MySQL and create database
         run: |
           sudo systemctl start mysql.service
-          PW=$(node -p "require('./src/config.local').mysql.password")
+          PW="$MYSQL_PASSWORD"
           # 新版 runner 镜像（ubuntu-26.04 起）的 MySQL 不再加载 mysql_native_password：先试旧写法，不行就用默认认证插件
-          SQL_NATIVE="ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$PW'; CREATE DATABASE IF NOT EXISTS xuexi CHARACTER SET utf8mb4;"
-          SQL_DEFAULT="ALTER USER 'root'@'localhost' IDENTIFIED BY '$PW'; CREATE DATABASE IF NOT EXISTS xuexi CHARACTER SET utf8mb4;"
+          SQL_NATIVE="ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$PW'; CREATE DATABASE IF NOT EXISTS zhilexue_ci_test CHARACTER SET utf8mb4;"
+          SQL_DEFAULT="ALTER USER 'root'@'localhost' IDENTIFIED BY '$PW'; CREATE DATABASE IF NOT EXISTS zhilexue_ci_test CHARACTER SET utf8mb4;"
           sudo mysql -e "$SQL_NATIVE" || mysql -uroot -proot -e "$SQL_NATIVE" || sudo mysql -e "$SQL_DEFAULT" || mysql -uroot -proot -e "$SQL_DEFAULT"
           mysql -uroot -p"$PW" -h127.0.0.1 -e "SELECT 1" >/dev/null
-      - run: npm run seed
+      - name: Seed disposable CI database with synthetic accounts
+        run: node test/ci-safe-seed.js
       - run: node storage-test.js
       - name: Start server
         # CI 必须用本地存储：默认驱动是 oss 且内置了线上桶的密钥，smoke/word-test 的上传用例会写进生产 OSS
@@ -59,22 +139,76 @@ jobs:
         if: ${{ !cancelled() }}   # 知识树统一（T4）：需要启动时种子树，所以放在服务启动之后
       - run: node pending-test.js
         if: ${{ !cancelled() }}   # 待审核题目（T3）：需要服务和种子树
+      - run: node choices-ten-flow-test.js
+        if: ${{ !cancelled() }}   # 十选项模板、导入、审核和学生判分
+      - run: node excel-no-answer-flow-test.js
+        if: ${{ !cancelled() }}   # 原模板不变、扩展选项及无答案 Excel 待审核
+      - run: node match-partial-flow-test.js
+        if: ${{ !cancelled() }}   # 连线部分分、漏答、试卷及人工评分
+      - run: node match-no-answer-flow-test.js
+        if: ${{ !cancelled() }}   # 无答案连线和听力匹配：录题、审核、作答、人工评分
+      - run: node multi-partial-flow-test.js
+        if: ${{ !cancelled() }}   # 多选少选分、无答案待评分及人工重算
+      - run: node recognition-pages-flow-test.js
+        if: ${{ !cancelled() }}   # 跨页材料、续题和失败保留
+      - run: node pending-merge-flow-test.js
+        if: ${{ !cancelled() }}   # 老师确认合并片段并保留来源
+      - run: node image-review-flow-test.js
+        if: ${{ !cancelled() }}   # 缺图阻断、原页归属和审核
+      - run: node pending-empty-stem-flow-test.js
+        if: ${{ !cancelled() }}   # 空题干保留、计数与入库阻断
+      - run: node choice-intake-flow-test.js
+        if: ${{ !cancelled() }}   # 选择题缺选项阻断、缺答案保留为空
+      - run: node question-images-flow-test.js
+        if: ${{ !cancelled() }}   # 学生答题前不泄露解析专用图
+      - run: node content-review-flow-test.js
+        if: ${{ !cancelled() }}   # 识别内容确认及修改失效
+      - run: node ai-answer-review-test.js
+        if: ${{ !cancelled() }}   # AI 答案、解析建议的人工确认
+        env:
+          STORAGE_DRIVER: local
+          AI_MOCK: '1'
+          TTS_MOCK: '1'
       - run: node compose-test.js
         if: ${{ !cancelled() }}   # 组卷（T5）：章节树 / 知识点树组卷、定向下发、学生自组卷
+      - run: node intake-scope-flow-test.js
+        if: ${{ !cancelled() }}
+      - run: node import-receipt-flow-test.js
+        if: ${{ !cancelled() }}
+      - run: node intake-job-flow-test.js
+        if: ${{ !cancelled() }}
+      - run: node upload-recovery-ui-test.js
+        if: ${{ !cancelled() }}
+      - run: node admin-pages-ui-test.js
+        env:
+          AUDIT_OUT: admin-page-screenshots
+        if: ${{ !cancelled() }}
+      - run: node admin-interactions-test.js
+        if: ${{ !cancelled() }}
+      - run: node english-workflow-flow-test.js
+        if: ${{ !cancelled() }}
+      - run: node group-compose-test.js
+        if: ${{ !cancelled() }}   # 组合题分组、材料、来源和试卷顺序
       - run: node lessonq-test.js
         if: ${{ !cancelled() }}   # 课文习题（T6）：视频 / 小分组正确率、学习报告、后台按学生查看
       - run: node aiclient-test.js
         if: ${{ !cancelled() }}   # AI 配置中心（T2）：三种格式的模拟服务，不调真实 AI
+      - run: node aiproxy-test.js
+        if: ${{ !cancelled() }}   # 代理、NO_PROXY、流式取消与证书校验
       - run: node mistake-test.js
         if: ${{ !cancelled() }}   # 错题本 Word 导出 + 手机扫码错题 AI 识别（T9）
       - run: node paper-test.js
         if: ${{ !cancelled() }}   # 试卷管理（T10）：上传真题试卷 → 题库 → 学生搜索并做完
+      - run: node word-paper-order-flow-test.js
+        if: ${{ !cancelled() }}   # Word 原题序、待确认题型的中性标题和编辑
       - run: node listening-test.js
         if: ${{ !cancelled() }}   # 听力题（T7）：音频上传 / TTS → 题目带音频 → 待审核补音频 → 学生端播放并作答
       - run: node formula-test.js
         if: ${{ !cancelled() }}   # 公式输入（T8）：本地 MathLive、题目存 \( … \)、学生用公式键盘作答判分、有浏览器时点一遍
       - run: node bankstore-test.js
         if: ${{ !cancelled() }}   # 题库与视频存储解耦（T12）：bank/ 前缀、BANK_BUCKET 口子、删视频不删题
+      - run: node bank-image-test.js
+        if: ${{ !cancelled() }}   # 题图稳定地址及受控云存储读取
       - run: node theme-test.js
         if: ${{ !cancelled() }}   # 后台 UI 统一（T11）：theme.css 作用范围、菜单分组、手机宽度抽屉侧栏、页面不横向撑破
       - run: node flow-test.js
@@ -87,6 +221,32 @@ jobs:
         if: ${{ !cancelled() }}   # 知识树教材版本（R2）：edition 列与迁移、默认版本表、pickTree 前后端一致、树导入导出与脚本、学生端按默认版本取树
       - run: node r1-test.js
         if: ${{ !cancelled() }}   # R1 二轮整改：菜单调整、#/acc 跳转、习题学习报告合并正确率与导出错题 Word、学习报告详情接口（B2）
+      - run: node browser-audit-test.js
+        if: ${{ !cancelled() }}
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_DATABASE: zhilexue_ci_test
+          STORAGE_DRIVER: local
+          AI_MOCK: '1'
+          TTS_MOCK: '1'
+      - run: node astra-retest-test.js
+        if: ${{ !cancelled() }}
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_DATABASE: zhilexue_ci_test
+          ASTRA_OUTPUT: astra-retest-evidence
+      - name: Upload admin UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-page-screenshots
+          path: admin-page-screenshots
+      - name: Upload Astra retest evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: astra-retest-evidence
+          path: astra-retest-evidence
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v4

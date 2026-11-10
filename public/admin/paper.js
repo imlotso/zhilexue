@@ -208,7 +208,7 @@ function wtPaperPages(cfg) {
       return `<div class="wt-paper-sheet">
     <div class="wp-quote">✧ ${wpEsc(quote)}</div>
     <div class="wp-head">
-      <div class="wp-title">${kindName}默写表 <span class="pen">✏️</span></div>
+      <div class="wp-title">${kindName}默写表 <span class="pen">✏</span></div>
       <div class="wp-range">${wpEsc(range)}${modeTxt ? ` · ${modeTxt}` : ''}</div>
     </div>
     <div class="wp-info"><span>姓名：______________</span><span>日期：______________</span><span>正确率：<b>________</b> / ${cfg.items.length}（________%）</span></div>
@@ -264,7 +264,7 @@ function wtPaperPages(cfg) {
     return `<div class="wt-paper-sheet">
     <div class="wp-quote">✧ ${wpEsc(quote)}</div>
     <div class="wp-head">
-      <div class="wp-title">${kindName}默写表 <span class="pen">✏️</span></div>
+      <div class="wp-title">${kindName}默写表 <span class="pen">✏</span></div>
       <div class="wp-range">${wpEsc(range)}${cfg.mode === 'ph' ? '' : ` · ${modeTxt}`}</div>
     </div>
     <div class="wp-info"><span>姓名：______________</span><span>日期：______________</span><span>正确率：<b>________</b> / ${cfg.items.length}（________%）</span></div>
@@ -317,7 +317,7 @@ async function adminPaperOpen(books) {
   const mask = document.createElement('div');
   mask.className = 'mask';
   mask.innerHTML = `<div class="ap-modal">
-    <div class="ap-mh"><h3>🖨️ 纸质化生成<span class="ap-hint">选好类型、词书和模式，点「生成默写表」即时预览</span></h3>
+    <div class="ap-mh"><h3> 纸质化生成<span class="ap-hint">选好类型、词书和模式，点「生成默写表」即时预览</span></h3>
       <button class="ap-x">&times;</button></div>
     <div class="ap-mb">
       <div class="ap-row"><span class="ap-lb">类型</span>
@@ -332,7 +332,7 @@ async function adminPaperOpen(books) {
       <div id="apPrev" class="ap-prev"><div class="ap-empty">选择好类型、词书和模式后，点下方「生成默写表」</div></div>
     </div>
     <div class="ap-mf">
-      <button class="btn primary-sm" id="apPrint" style="display:none;width:auto;padding:0 22px">🖨️ 打印</button>
+      <button class="btn primary-sm" id="apPrint" style="display:none;width:auto;padding:0 22px"> 打印</button>
       <button class="btn primary-sm" id="apExport" style="display:none;width:auto;padding:0 22px;background:#f0a93c;border-color:#f0a93c">⬇ 导出 PDF</button>
       <button class="btn primary-sm" id="apGo" style="width:auto;padding:0 26px">生成默写表</button>
     </div>

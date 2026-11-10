@@ -21,7 +21,7 @@ const pdfimg = require('./pdfimg');
 const ai = require('./ai');
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 20 * 1024 * 1024 } });
 
 const A4 = [595.28, 841.89]; // A4（pt）
 

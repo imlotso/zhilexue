@@ -184,7 +184,7 @@
       if (!stem || stem.length < 4) return;
       var opts = [];
       el.querySelectorAll('.option,.selectoption,.exam-item__opt,.exam-item__option td').forEach(function (o) {
-        var t = txt(o); if (t) opts.push(t.replace(/^[A-E][.、．]\s*/, ''));
+        var t = txt(o); if (t) opts.push(t.replace(/^[A-J][.、．]\s*/, ''));
       });
       qs.push({
         questionId: String(qid), stem: stem, options: opts.slice(0, 6),
@@ -205,7 +205,7 @@
       var stem = txt(clone); if (!stem || stem.length < 4) return;
       var opts = [];
       el.querySelectorAll('.pt2 td.selectoption label,.pt2 label').forEach(function (o) {
-        var t = txt(o); if (t) opts.push(t.replace(/^[A-E][.、．]\s*/, ''));
+        var t = txt(o); if (t) opts.push(t.replace(/^[A-J][.、．]\s*/, ''));
       });
       qs.push({ questionId: 'jyeoo-' + md5(stem + opts.join('')), stem: stem, options: opts.slice(0, 6), type: '', difficulty: '', knowledge: [], answer: '', analysis: '', checked: true });
     });
@@ -250,7 +250,7 @@
           nodes.push({ site_node_id: id, name: name.replace(/\(\d+\)\s*$/, ''), parent_site_node_id: parentKey, sort: sort });
         }
         sort++;
-        [].slice.call(li.children).forEach(function (c) { if (c.tagName === 'UL') walk(c, id || parentKey); });
+        [].slice.call(li.children).forEach(function (c) { if (c.tagName === 'UL') walk(c, seen[id] ? id : parentKey); });
       });
     }
     [].slice.call(rootEl.children).forEach(function (c) { if (c.tagName === 'UL') walk(c, null); });
@@ -272,15 +272,26 @@
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
     }).then(function (r) { return r.json(); });
   }
-  function pushTree(stage, subject) {
+  function pushTree(stage, subject, kind, edition) {
     var t = parseZujuanTree();
     if (!t || !t.nodes.length) return Promise.resolve({ code: 1, msg: '这一页不是组卷网知识点树页面（找不到 .tk-tree）' });
     // R0-B7：学段 + 学科以老师在悬浮球里选的为准（页面推断的只当默认值）；缺一个都不回传，后端也会拒绝
-    t.stage = stage; t.subject = subject;
-    if (!t.stage || !t.subject) return Promise.resolve({ code: 1, msg: '请先选好学段和学科再采集知识树' });
-    return fetch('/api/mfcap/tree-push?token=' + encodeURIComponent(CAP), {
+    t.stage = stage; t.subject = subject; t.kind = kind;
+    t.edition_selected = edition === '__general__'; t.edition = t.edition_selected ? '' : edition;
+    if (!t.stage || !t.subject || !t.kind || !edition) return Promise.resolve({ code: 1, msg: '请选择学段、学科、树类型和教材版本' });
+    function send() { return fetch('/api/mfcap/tree-push?token=' + encodeURIComponent(CAP), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t)
-    }).then(function (r) { return r.json(); });
+    }).then(function (r) { return r.json(); }); }
+    t.dry = true;
+    return send().then(function (preview) {
+      if (!preview || preview.code !== 0) return preview;
+      var versionLabel = t.edition || '不区分版本';
+      var stageName = { primary: '小学', junior: '初中', senior: '高中' }[stage] || stage;
+      var detail = '目标：' + stageName + ' · ' + subject + ' · ' + versionLabel + ' · ' + (kind === 'textbook' ? '章节树' : '知识点树') + '\n' +
+        (preview.new_tree ? '将新建树' : '合并到：' + preview.tree_name) + '\n新增 ' + preview.created + ' 个节点，合并已有节点 ' + preview.merged + ' 个。\n\n确认导入吗？';
+      if (!window.confirm(detail)) return { code: 0, msg: '已取消导入' };
+      t.dry = false; return send();
+    });
   }
 
   /* ---------- 6. 悬浮工具栏 ---------- */
@@ -324,7 +335,11 @@
       '<div class="mf-treesel" id="mfTreeSel" style="display:' + (site() === 'zujuan' ? 'flex' : 'none') + '">' +
         '<select id="mfTStage" title="知识树要归到哪个学段"><option value="">学段…</option><option value="primary">小学</option><option value="junior">初中</option><option value="senior">高中</option></select>' +
         '<select id="mfTSub" title="知识树要归到哪个学科"><option value="">学科…</option>' + ['数学', '英语', '物理', '化学', '语文', '生物', '历史', '地理', '政治', '科学'].map(function (x) { return '<option>' + x + '</option>'; }).join('') + '</select></div>' +
-      '<button data-act="tree" class="mf-ghost" style="display:' + (site() === 'zujuan' ? 'block' : 'none') + '">🌲 采集本页知识树（并入所选学段学科的树）</button>' +
+      '<div class="mf-treesel" style="display:' + (site() === 'zujuan' ? 'flex' : 'none') + '">' +
+        '<select id="mfTKind" title="树类型"><option value="">树类型…</option><option value="textbook">章节树</option><option value="knowledge">知识点树</option></select>' +
+        '<select id="mfTEdition" title="教材版本"><option value="">教材版本…</option><option>苏教版</option><option>苏科版</option><option>译林版</option><option>沪教版</option><option value="__general__">不区分版本</option><option value="__other__">其他版本</option></select></div>' +
+      '<input id="mfTCustomEdition" placeholder="填写其他教材版本" style="display:none;padding:5px;border:1px solid #cbd5e1;border-radius:6px">' +
+      '<button data-act="tree" class="mf-ghost" style="display:' + (site() === 'zujuan' ? 'block' : 'none') + '">采集本页知识树并预览</button>' +
       '<button data-act="hide" class="mf-ghost" style="background:#f1f5f9;color:#64748b;border:0">收起</button>' +
       '</div></div>';
     document.body.appendChild(bar);
@@ -364,9 +379,12 @@
         }).catch(function (e) { b.disabled = false; say('回传失败：' + e.message, true); });
       } else if (act === 'tree') {
         var tStage = bar.querySelector('#mfTStage').value, tSub = bar.querySelector('#mfTSub').value;
-        if (!tStage || !tSub) return say('先在上面选好「学段」和「学科」，知识树才知道归到哪棵树里', true);
+        var tKind = bar.querySelector('#mfTKind').value, tEdition = bar.querySelector('#mfTEdition').value;
+        if (tEdition === '__other__') tEdition = bar.querySelector('#mfTCustomEdition').value.trim();
+        if (!tStage || !tSub || !tKind || !tEdition) return say('请先选好学段、学科、树类型和教材版本', true);
+        if (tKind === 'textbook' && tEdition === '__general__') return say('章节树需要选择具体教材版本', true);
         b.disabled = true; say('正在解析知识树…');
-        pushTree(tStage, tSub).then(function (j) {
+        pushTree(tStage, tSub, tKind, tEdition).then(function (j) {
           b.disabled = false;
           say(j && j.code === 0 ? (j.msg || '导入完成') + '（回后台「题库管理」查看）' : (j && j.msg || '导入失败'), !(j && j.code === 0));
         }).catch(function (e) { b.disabled = false; say('导入失败：' + e.message, true); });
@@ -381,6 +399,7 @@
       bar.querySelector('#mfCount').textContent = String(basket.length);
     }
     bar.addEventListener('change', function (e) {
+      if (e.target.id === 'mfTEdition') bar.querySelector('#mfTCustomEdition').style.display = e.target.value === '__other__' ? 'block' : 'none';
       if (e.target.matches('.mf-qi input')) {
         var i = Number(e.target.getAttribute('data-i'));
         if (basket[i]) basket[i].checked = e.target.checked;

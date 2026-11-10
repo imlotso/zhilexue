@@ -66,7 +66,7 @@ function makePng(w, h, inkRows) {
   console.log('\n=== 错题重组 · 自测 ===\n');
   const seen = { batches: [], sets: [], items: [] };
   try {
-    const login = await req('/api/login', { method: 'POST', body: { username: '15152099970', password: '123456', role: 'admin' } });
+    const login = await req('/api/login', { method: 'POST', body: { username: 'zlx-ci-admin', password: '123456', role: 'admin' } });
     log(login.code === 0, '校长登录', login.msg);
     const AT = login.data && login.data.token;
     if (!AT) return done();
@@ -250,7 +250,7 @@ function makePng(w, h, inkRows) {
   }
 
   async function cleanup() {
-    const login = await req('/api/login', { method: 'POST', body: { username: '15152099970', password: '123456', role: 'admin' } }).catch(() => null);
+    const login = await req('/api/login', { method: 'POST', body: { username: 'zlx-ci-admin', password: '123456', role: 'admin' } }).catch(() => null);
     const AT = login && login.data && login.data.token;
     if (!AT) return;
     for (const id of seen.sets) await req('/api/admin/wrong/sets/' + id, { method: 'DELETE', token: AT }).catch(() => {});

@@ -669,7 +669,7 @@ function showRebuildResult(out, warns) {
   const url = pdfUrl(out.key, out.file_name);
   const warnBox = (warns && warns.length)
     ? `<div style="background:#fff5e6;color:#c77700;border:1px solid #ffe0b2;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px">
-        ⚠️ ${warns.slice(0, 5).map(esc).join('<br>')}${warns.length > 5 ? `<br>…共 ${warns.length} 条提示` : ''}
+         ${warns.slice(0, 5).map(esc).join('<br>')}${warns.length > 5 ? `<br>…共 ${warns.length} 条提示` : ''}
        </div>` : '';
   modal({
     title: `重组完成：${out.count} 题 / ${out.pages} 页`,
@@ -739,7 +739,7 @@ async function aiSegmentPage() {
   }
 }
 
-/** 把一个框裁成题目图片，加入错题栏（每题一个 ➕，加过的显示 ✅） */
+/** 把一个框裁成题目图片，加入错题栏（每题一个 ➕，加过的显示 ） */
 function addBoxJob(page, ref) {
   const b = page && page.boxes[Number(ref)];
   if (!b) return;
@@ -907,9 +907,9 @@ function camEnv() {
 function camErrorHint(e) {
   const n = (e && e.name) || '';
   if (n === 'NotAllowedError' || n === 'PermissionDeniedError')
-    return '权限被拒绝。① 点浏览器地址栏左侧的 🔒/⚙ 图标 → 把「摄像头」改成「允许」；② Windows 打开 设置 → 隐私和安全性 → 摄像头，确认「允许桌面应用访问你的摄像头」是开着的；改完刷新页面再点一次。';
+    return '权限被拒绝。① 点浏览器地址栏左侧的 /⚙ 图标 → 把「摄像头」改成「允许」；② Windows 打开 设置 → 隐私和安全性 → 摄像头，确认「允许桌面应用访问你的摄像头」是开着的；改完刷新页面再点一次。';
   if (n === 'NotFoundError' || n === 'DevicesNotFoundError')
-    return '没找到摄像头设备。确认 USB 摄像头插好了（笔记本自带摄像头在设备管理器里是否正常），然后点「🔄 重新检测摄像头」。';
+    return '没找到摄像头设备。确认 USB 摄像头插好了（笔记本自带摄像头在设备管理器里是否正常），然后点「 重新检测摄像头」。';
   if (n === 'NotReadableError' || n === 'TrackStartError' || n === 'AbortError' || n === 'SourceUnavailableError')
     return '摄像头被别的程序占用了（相机 App、腾讯会议、钉钉、Zoom，或另一个浏览器标签页正在用）。把那些程序关掉，再点「开启摄像头」。';
   if (n === 'OverconstrainedError' || n === 'ConstraintNotSatisfiedError')
@@ -917,7 +917,7 @@ function camErrorHint(e) {
   if (n === 'SecurityError')
     return '浏览器安全限制：必须用 https:// 或 http://localhost 打开后台页面才能调用摄像头（局域网 IP 直连不行）。';
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
-    return '当前页面环境不提供摄像头接口：请用 https:// 或 http://localhost:3000 打开后台（局域网 IP 不行）。这段时间可以直接用「📎 上传文件」上传图片或 PDF。';
+    return '当前页面环境不提供摄像头接口：请用 https:// 或 http://localhost:3000 打开后台（局域网 IP 不行）。这段时间可以直接用「 上传文件」上传图片或 PDF。';
   return (e && e.message) || '未知错误';
 }
 
@@ -925,15 +925,15 @@ function camErrorHint(e) {
 async function camDiagnose() {
   const box = document.getElementById('wDiag');
   if (!box) return;
-  const ok = (t) => `<div class="w-diag-row ok">✅ ${t}</div>`;
-  const bad = (t) => `<div class="w-diag-row bad">⚠️ ${t}</div>`;
+  const ok = (t) => `<div class="w-diag-row ok"> ${t}</div>`;
+  const bad = (t) => `<div class="w-diag-row bad"> ${t}</div>`;
   const inf = (t) => `<div class="w-diag-row">· ${t}</div>`;
   const out = [];
   const env = camEnv();
 
   if (env.secure) out.push(ok(`页面地址 ${esc(location.protocol)}//${esc(location.host)} 是安全上下文，浏览器允许网页调用摄像头。`));
   else out.push(bad(`当前地址是 ${esc(location.protocol)}//${esc(location.host)}，不是安全上下文——浏览器规定只有 <b>https://</b> 或 <b>localhost / 127.0.0.1</b> 才允许网页调用摄像头，所以电脑明明有摄像头也用不了。`));
-  if (!env.secure) out.push(inf('办法：① 在装了本系统的那台电脑上，用 <b>http://localhost:3000</b> 打开后台；② 手机/其他电脑访问，等域名备案后用 https；③ 现在就想用，直接点「📎 上传文件」上传手机拍好的照片或试卷 PDF，效果完全一样。'));
+  if (!env.secure) out.push(inf('办法：① 在装了本系统的那台电脑上，用 <b>http://localhost:3000</b> 打开后台；② 手机/其他电脑访问，等域名备案后用 https；③ 现在就想用，直接点「 上传文件」上传手机拍好的照片或试卷 PDF，效果完全一样。'));
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     out.push(bad('这个浏览器没有提供摄像头接口（浏览器太旧，或页面不是 https/localhost）。建议用较新的 Chrome / Edge。'));

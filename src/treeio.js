@@ -60,11 +60,13 @@ function normalizeDoc(raw, idx = 0) {
       const it = list[i];
       const o = (typeof it === 'string') ? { name: it } : it;
       if (!o || typeof o !== 'object' || Array.isArray(o)) { bad = `${path}[${i}] 不是节点对象`; break; }
-      const name = clean(o.name).slice(0, NAME_MAX);
+      const name = clean(o.name);
+      if (name.length > NAME_MAX) { bad = `${path}[${i}] 的 name 超过 ${NAME_MAX} 字，请缩短名称后重试`; break; }
       if (!name) { bad = `${path}[${i}] 缺少 name`; break; }
       if (++count > MAX_NODES) { bad = `节点数超过 ${MAX_NODES}`; break; }
       const n = { name };
-      if (clean(o.code)) n.code = clean(o.code).slice(0, 100);
+      if (clean(o.code).length > 100) { bad = `${path}[${i}] 的 code 超过 100 字，请核对外部编号`; break; }
+      if (clean(o.code)) n.code = clean(o.code);
       if (clean(o.note)) n.note = String(o.note).trim();
       if (o.children !== undefined && o.children !== null) n.children = walk(o.children, depth + 1, `${path}[${i}].children`);
       out.push(n);
@@ -94,78 +96,143 @@ function normalizeInput(input) {
   });
 }
 
-/**
- * 导入一棵（已整理过的）树。dry=true 只统计不写库。
- * 返回 { tree_id, name, kind, subject, stage, edition, created_tree, added, existing, total }
- */
-function importDoc(db, doc, { dry = false } = {}) {
-  let tree = db.prepare('SELECT * FROM bank_trees WHERE kind=? AND subject=? AND IFNULL(stage,\'\')=? AND IFNULL(edition,\'\')=? ORDER BY sort, id')
-    .get(doc.kind, doc.subject, doc.stage, doc.edition);
-  let createdTree = false;
+/** 一次预检使用独立快照；文件失败时不污染 CLI 后续文件的预检状态。 */
+function copyPreview(db, previous) {
+  if (previous && previous.db && previous.db !== db) throw new Error('预检上下文不能跨数据库复用');
+  const trees = new Map();
+  if (previous && previous.trees) previous.trees.forEach((state, key) => {
+    trees.set(key, { ...state, tree: { ...state.tree }, maxSort: new Map(state.maxSort),
+      index: new Map([...state.index].map(([k, row]) => [k, { ...row }])) });
+  });
+  return { db, trees };
+}
+
+/** 使用实际表列的比较语义匹配尚未落库的树，不用 JS 猜测数据库排序规则。 */
+function sameVirtualTree(db, identity, doc) {
+  if (identity.every((value, i) => value === [doc.kind, doc.subject, doc.stage, doc.edition][i])) return true;
+  return !!db.prepare(`SELECT 1 AS matched FROM (
+    SELECT kind, subject, stage, edition FROM bank_trees WHERE 1=0
+    UNION ALL SELECT ?,?,?,?
+  ) AS candidate WHERE kind=? AND subject=? AND IFNULL(stage,'')=? AND IFNULL(edition,'')=?`)
+    .get(...identity, doc.kind, doc.subject, doc.stage, doc.edition);
+}
+
+/** 同一批次按实际目标树ID共享索引；新树按同一数据库比较语义解析别名。 */
+function treeState(db, doc, treeId, context) {
+  const tree = treeId ? db.prepare('SELECT * FROM bank_trees WHERE id=?').get(treeId)
+    : db.prepare("SELECT * FROM bank_trees WHERE kind=? AND subject=? AND IFNULL(stage,'')=? AND IFNULL(edition,'')=? ORDER BY sort, id")
+      .get(doc.kind, doc.subject, doc.stage, doc.edition);
+  if (treeId && (!tree || tree.kind !== doc.kind || tree.subject !== doc.subject || (tree.stage || '') !== doc.stage || (tree.edition || '') !== doc.edition)) throw new Error('所选树与学段、学科、版本或树类型不一致');
+  const identity = [doc.kind, doc.subject, doc.stage, doc.edition];
+  const key = tree ? `id:${tree.id}` : `new:${JSON.stringify(identity)}`;
+  if (context.trees.has(key)) return context.trees.get(key);
   if (!tree) {
-    createdTree = true;
-    if (dry) tree = { id: 0, name: doc.name };
-    else {
-      const info = db.prepare('INSERT INTO bank_trees (kind, subject, stage, name, source, edition, sort, created_at) VALUES (?,?,?,?,?,?,?,?)')
-        .run(doc.kind, doc.subject, doc.stage, doc.name, doc.source, doc.edition, 0, now());
-      tree = { id: Number(info.lastInsertRowid), name: doc.name };
+    for (const state of context.trees.values()) {
+      if (!state.tree.id && sameVirtualTree(db, state.identity, doc)) return state;
     }
   }
-  // 内存里的节点索引：key = 父id|名字；maxSort = 每个父下现有最大 sort
-  const index = new Map();
-  const maxSort = new Map();
-  if (tree.id) {
-    db.prepare('SELECT id, parent_id, name, sort, code, note FROM bank_tree_nodes WHERE tree_id=?').all(tree.id).forEach((n) => {
-      const p = n.parent_id == null ? 0 : n.parent_id;
-      const key = `${p}|${n.name}`;
-      if (!index.has(key)) index.set(key, n);
-      maxSort.set(p, Math.max(maxSort.has(p) ? maxSort.get(p) : -1, Number(n.sort) || 0));
-    });
+  const state = { key, identity, tree: tree || { id: 0, name: doc.name }, present: !!tree, index: new Map(), maxSort: new Map(), virtual: 0 };
+  if (tree) db.prepare('SELECT id, parent_id, name, sort, code, note FROM bank_tree_nodes WHERE tree_id=?').all(tree.id).forEach((row) => {
+    const p = row.parent_id == null ? 0 : row.parent_id;
+    const nodeKey = `${p}|${row.name}`;
+    if (!state.index.has(nodeKey)) state.index.set(nodeKey, row);
+    state.maxSort.set(p, Math.max(state.maxSort.has(p) ? state.maxSort.get(p) : -1, Number(row.sort) || 0));
+  });
+  context.trees.set(key, state);
+  return state;
+}
+
+/** 内部合并器；写入前由调用方完成整批只读冲突检查。 */
+function mergeDoc(db, doc, { dry, treeId = 0, context, preserveSourceCode = false }) {
+  const state = treeState(db, doc, treeId, context);
+  const createdTree = !state.present;
+  if (createdTree) {
+    if (!dry) {
+      const info = db.prepare('INSERT INTO bank_trees (kind, subject, stage, name, source, edition, sort, created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .run(doc.kind, doc.subject, doc.stage, doc.name, doc.source, doc.edition, 0, now());
+      state.tree = { id: Number(info.lastInsertRowid), name: doc.name };
+      context.trees.delete(state.key);
+      state.key = `id:${state.tree.id}`;
+      context.trees.set(state.key, state);
+    }
+    state.present = true;
   }
-  const st = { added: 0, existing: 0, total: 0, virtual: 0 };
+  const { tree, index, maxSort } = state;
+  const st = { added: 0, existing: 0, total: 0 };
   const ins = dry ? null : db.prepare('INSERT INTO bank_tree_nodes (tree_id, parent_id, name, sort, code, note, created_at) VALUES (?,?,?,?,?,?,?)');
   const fillMeta = dry ? null : db.prepare('UPDATE bank_tree_nodes SET code=?, note=? WHERE id=?');
-
-  const walk = (list, parent) => {
+  const walk = (list, parent, path) => {
     list.forEach((n) => {
       st.total++;
+      const names = path.concat(n.name);
       const p = parent == null ? 0 : parent;
       const key = `${p}|${n.name}`;
       let row = index.get(key);
       if (row) {
         st.existing++;
-        if (!dry && ((n.code && !clean(row.code)) || (n.note && !clean(row.note)))) {
+        for (const field of ['code', 'note']) {
+          // 采集来源 ID 允许同路径别名，保留首次 code；文件导入和 note 仍严格检查。
+          if (field === 'code' && preserveSourceCode) continue;
+          if (clean(row[field]) && clean(n[field]) && clean(row[field]) !== clean(n[field])) {
+            throw new Error(`节点「${names.join(' / ')}」的 ${field} 冲突，请核对后再导入`);
+          }
+        }
+        if ((n.code && !clean(row.code)) || (n.note && !clean(row.note))) {
           const code = clean(row.code) || n.code || '';
           const note = clean(row.note) || n.note || '';
-          fillMeta.run(code, note, row.id);
+          if (!dry) fillMeta.run(code, note, row.id);
           row.code = code; row.note = note;
         }
       } else {
         st.added++;
         const sort = (maxSort.has(p) ? maxSort.get(p) : -1) + 1;
         maxSort.set(p, sort);
-        let id;
-        if (dry) id = -(++st.virtual);
-        else id = Number(ins.run(tree.id, parent == null ? null : parent, n.name, sort, n.code || '', n.note || '', now()).lastInsertRowid);
+        const id = dry ? -(++state.virtual)
+          : Number(ins.run(tree.id, parent == null ? null : parent, n.name, sort, n.code || '', n.note || '', now()).lastInsertRowid);
         row = { id, parent_id: parent, name: n.name, sort, code: n.code || '', note: n.note || '' };
         index.set(key, row);
       }
-      if (n.children && n.children.length) walk(n.children, row.id);
+      if (n.children && n.children.length) walk(n.children, row.id, names);
     });
   };
-  walk(doc.nodes, null);
+  walk(doc.nodes, null, []);
   return {
     tree_id: tree.id || null, name: tree.name, kind: doc.kind, subject: doc.subject, stage: doc.stage, edition: doc.edition,
     created_tree: createdTree, added: st.added, existing: st.existing, total: st.total,
   };
 }
 
-/** 导入一批树（整个 JSON 文件的内容）。非 dry 时放在一个事务里：中途出错整体回滚 */
-function importAll(db, input, { dry = false } = {}) {
-  const docs = normalizeInput(input);
-  const run = () => docs.map((d) => importDoc(db, d, { dry }));
-  const results = (!dry && typeof db.transaction === 'function') ? db.transaction(run)() : run();
+function mergeDocs(db, docs, options) {
+  return docs.map((doc, i) => {
+    try { return mergeDoc(db, doc, options); }
+    catch (err) { throw new Error(`第 ${i + 1} 棵树（${doc.subject} / ${doc.edition || '通用'}）：${err.message}`); }
+  });
+}
+
+function previewDocs(db, docs, { previewContext, treeId = 0, preserveSourceCode = false } = {}) {
+  const context = copyPreview(db, previewContext);
+  const results = mergeDocs(db, docs, { dry: true, treeId, context, preserveSourceCode });
+  // 所有文档通过后才提交虚拟状态；被跳过的坏文件不会留下半份预检结果。
+  if (previewContext) { previewContext.db = db; previewContext.trees = context.trees; }
   return results;
+}
+
+/** 导入一棵已整理过的树；采集器可保留首次来源 code，默认仍严格检查冲突。 */
+function importDoc(db, doc, { dry = false, treeId = 0, previewContext, preserveSourceCode = false } = {}) {
+  if (dry) return previewDocs(db, [doc], { treeId, previewContext, preserveSourceCode })[0];
+  previewDocs(db, [doc], { treeId, preserveSourceCode });
+  return mergeDoc(db, doc, { dry: false, treeId, context: copyPreview(db), preserveSourceCode });
+}
+
+/** 整个文件先检查冲突再写入；非 dry 仍处于一个事务，SQL 失败整体回滚。 */
+function importAll(db, input, { dry = false, previewContext } = {}) {
+  const docs = normalizeInput(input);
+  if (dry) return previewDocs(db, docs, { previewContext });
+  const run = () => {
+    previewDocs(db, docs);
+    return mergeDocs(db, docs, { dry: false, context: copyPreview(db) });
+  };
+  return typeof db.transaction === 'function' ? db.transaction(run)() : run();
 }
 
 /** 导出一棵树为导入格式（嵌套，按 sort,id 排序）。树不存在返回 null */

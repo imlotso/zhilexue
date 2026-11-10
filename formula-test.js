@@ -42,7 +42,7 @@ function cleanup() {
   console.log('\n=== 公式输入（T8）· 自测 ===\n');
   cleanup();
   const login = async (u, role) => (await req('/api/login', { method: 'POST', body: { username: u, password: '123456', role } })).data.token;
-  const AT = await login('15152099970', 'admin');
+  const AT = await login('zlx-ci-admin', 'admin');
   const sid = db.prepare("INSERT INTO users (role,username,password,name,grade,term,allow_speed,allow_seek,expire_at,status,created_at) VALUES ('student',?,?,'T8学生','九年级','上册',1,1,'2099-12-31',1,'2026-11-02')").run('t8s' + uniq, hash('123456')).lastInsertRowid; made.users.push(sid);
   const ST = await login('t8s' + uniq, 'student');
   log(!!AT && !!ST, '管理员和测试学生登录');
@@ -94,7 +94,8 @@ function cleanup() {
   const sub1 = await req('/api/stu/bank/submit', { method: 'POST', token: ST, body: { kind: 'mfpaper', paper_id: pid, answers: [{ question_id: id1, my_answer: '\\sqrt{2}' }] } });
   log(sub1.code === 0 && sub1.data.correct === 1, '学生提交公式键盘输入的答案，服务端判对', sub1.msg);
   const sub2 = await req('/api/stu/bank/submit', { method: 'POST', token: ST, body: { kind: 'mfpaper', paper_id: pid, answers: [{ question_id: id1, my_answer: '\\sqrt{3}' }] } });
-  log(sub2.code === 0 && sub2.data.wrong === 1, '答错的公式判错', sub2.msg);
+  const wrongFormula = (sub2.data && sub2.data.list || []).find((q) => q.question_id === id1);
+  log(sub2.code === 0 && wrongFormula && wrongFormula.is_correct === false && sub2.data.correct === 0 && sub2.data.wrong === 3 && sub2.data.ungraded_count === 1, '答错的公式判错；未答的客观题计错、问答题待评分', sub2.msg);
 
   // ---------- 5) 页面接线 ----------
   const adm = read('public/admin/index.html'), stu = read('public/index.html');
@@ -111,7 +112,7 @@ function cleanup() {
   let chromium = null;
   try { chromium = require('playwright').chromium; } catch (e) { /* 没装 */ }
   let browser = null;
-  if (chromium) { try { browser = await chromium.launch(); } catch (e) { browser = null; } }
+  if (chromium) { try { browser = await chromium.launch({ ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}), args:['--no-sandbox'] }); } catch (e) { browser = null; } }
   if (!browser) {
     console.log('  ⏭  没有可用的浏览器（Playwright），跳过键盘点击检查');
   } else {
@@ -121,18 +122,25 @@ function cleanup() {
       const sp = await browser.newPage({ viewport: { width: 1100, height: 900 } }); watch(sp, 'stu');
       await sp.goto(BASE + '/'); await sp.waitForTimeout(700);
       await sp.fill('input[type=text],input[type=tel],input:not([type])', 't8s' + uniq); await sp.fill('input[type=password]', '123456'); await sp.keyboard.press('Enter'); await sp.waitForTimeout(1500);
-      await sp.goto(BASE + '/#/papers'); await sp.waitForSelector('.pk-libcard', { timeout: 8000 });
+      await sp.goto(BASE + '/#/papers'); await sp.waitForSelector('.bk-tabs [data-s="数学"]'); await sp.click('.bk-tabs [data-s="数学"]'); await sp.waitForSelector('.pk-libcard', { timeout: 8000 });
       await sp.fill('#pkQ', TAG); await sp.keyboard.press('Enter'); await sp.waitForTimeout(800);
-      await sp.click('.pk-libcard'); await sp.waitForSelector('.quiz-body, #qzBody', { timeout: 8000 });
-      log(await sp.$$eval('.t8-fbtn', (e) => e.length) === 1 && (await sp.$$eval('svg', (e) => e.length)) > 0, '学生端：数学填空题有「公式」按钮，题干里的分数 / 根号已渲染成公式');
-      await sp.click('.t8-fbtn'); await sp.waitForSelector('math-field', { timeout: 15000 });
-      await sp.evaluate(() => document.querySelector('math-field').setValue('\\frac{1}{2}')); await sp.waitForTimeout(200);
+      await sp.click('.pk-libcard [data-lib]'); await sp.waitForSelector('#pkPreviewStart'); await sp.click('#pkPreviewStart'); await sp.waitForSelector('.quiz-body, #qzBody', { timeout: 8000 });
+      await sp.waitForSelector('#qzBody .qz-stem mjx-container svg');
+      log(await sp.$$eval('#qzBody .t8-fbtn', (e) => e.length) === 1 && (await sp.$$eval('#qzBody .qz-stem mjx-container svg', (e) => e.length)) > 0, '学生端：数学填空题有「公式」按钮，题干里的分数 / 根号已渲染成公式');
+      await sp.click('#qzBody .t8-fbtn'); await sp.waitForSelector('math-field', { timeout: 15000 });
+      await sp.evaluate(() => document.querySelector('math-field').setValue('\\frac{1}{2}'));
+      await sp.waitForFunction(() => window.mathVirtualKeyboard && window.mathVirtualKeyboard.visible);
       const kb = await sp.evaluate(() => !!(window.mathVirtualKeyboard && window.mathVirtualKeyboard.visible));
-      await sp.click('.t8-ok'); await sp.waitForTimeout(300);
-      const val = await sp.evaluate(() => [...document.querySelectorAll('textarea,input.t6-fill')].map((x) => x.value).join('|'));
+      await sp.click('.t8-ok'); await sp.waitForSelector('.t8-dlg', { state: 'detached' });
+      // The desktop AI panel has its own textarea; only this question's blank is an answer.
+      const val = await sp.inputValue('#qzBody textarea[data-blank="0"]');
       log(kb && val === '\\frac{1}{2}', '学生端：点「公式」弹出 MathLive 虚拟键盘，输入后答案框里是 \\frac{1}{2}', val);
+      await sp.click('#qzDots [data-i="1"]'); await sp.waitForSelector('#qzBody textarea[data-ans]');
+      await sp.click('#qzDots [data-i="0"]');
+      const stored = await sp.inputValue('#qzBody textarea[data-blank="0"]');
+      log(stored === '\\frac{1}{2}', '学生端：切换题目再返回，公式答案仍保存在作答状态中', stored);
       const ap = await browser.newPage({ viewport: { width: 1300, height: 950 } }); watch(ap, 'admin');
-      await ap.goto(BASE + '/admin/'); await ap.fill('input[type=text],input:not([type])', '15152099970'); await ap.fill('input[type=password]', '123456'); await ap.keyboard.press('Enter'); await ap.waitForTimeout(1500);
+      await ap.goto(BASE + '/admin/'); await ap.fill('input[type=text],input:not([type])', 'zlx-ci-admin'); await ap.fill('input[type=password]', '123456'); await ap.keyboard.press('Enter'); await ap.waitForTimeout(1500);
       await ap.goto(BASE + '/admin/#/mfq'); await ap.waitForTimeout(1500);
       await ap.evaluate((i) => mfQEdit(i, () => {}), id1); await ap.waitForSelector('.t8-bar .t8-fx', { timeout: 8000 });
       await ap.evaluate(() => { const t = document.querySelector('#qeAns'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); });

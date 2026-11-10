@@ -88,7 +88,7 @@ const SAMPLE = (edition, extra) => ({
   console.log('\n=== 知识树教材版本（R2）· 自测 ===\n');
   cleanup();
 
-  const adm = await req('/api/login', { method: 'POST', body: { username: '15152099970', password: '123456', role: 'admin' } });
+  const adm = await req('/api/login', { method: 'POST', body: { username: 'zlx-ci-admin', password: '123456', role: 'admin' } });
   const AT = adm.data && adm.data.token;
   log(!!AT, '管理员登录');
   const dbSaved = db.prepare("SELECT v FROM settings WHERE k='default_editions'").get();

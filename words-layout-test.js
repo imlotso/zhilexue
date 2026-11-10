@@ -76,7 +76,7 @@ const distinct = (rows, f) => [...new Set(rows.map(f).filter((v) => v !== undefi
   setup();
   let browser;
   try {
-    try { browser = await chromium.launch(); } catch (e) { console.log('本机没有可用的浏览器，跳过：' + e.message.split('\n')[0]); cleanup(); process.exit(0); }
+    try { browser = await chromium.launch({ ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}), args:['--no-sandbox'] }); } catch (e) { console.log('本机没有可用的浏览器，跳过：' + e.message.split('\n')[0]); cleanup(); process.exit(0); }
     for (const tier of ['大', '小']) {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       const errs = []; page.on('pageerror', (e) => errs.push(e.message));

@@ -1,3 +1,5 @@
+// R10 首页及嵌入工作台样式，按需加载，独立于各子应用。
+if (!document.getElementById('r10Styles')) { const link = document.createElement('link'); link.id = 'r10Styles'; link.rel = 'stylesheet'; link.href = '/admin/r10.css'; document.head.appendChild(link); }
 /* 管理端 SPA（校长后台 / 分校后台） */
 const $app = document.getElementById('app');
 const ADM = { chapters: [], page: {} };
@@ -5,7 +7,7 @@ const ADM = { chapters: [], page: {} };
 const ic = (name) => `<i class="ai ai-${name}" aria-hidden="true"></i>`;
 window.ic = ic;
 const NAV = [
-  { k: 'dash', t: '首页', i: 'dashboard' },
+  { k: 'dash', t: '工作台', i: 'home' },
   { k: 'branches', t: '分校管理', i: 'building', principalOnly: true },
   { k: 'students', t: '学生管理', i: 'student' },
   { k: 'xreport', t: '学习报告', i: 'chart' },
@@ -23,6 +25,7 @@ const NAV = [
   { k: 'mfc', t: '网络采集', i: 'link' },
   { k: 'mfp', t: '试卷管理', i: 'folder' },
   { k: 'mfi', t: '录题上传', i: 'upload' },
+  { k: 'intake', t: '录题中心', i: 'upload' },
   { k: 'bkfb', t: '错题反馈', i: 'chat' },
   { k: 'mfset', t: 'AI 配置中心', i: 'setting' },
   { k: 'words', t: '词书管理', i: 'book' },
@@ -32,20 +35,23 @@ const NAV = [
   { k: 'oplog', t: '操作日志', i: 'doc', principalOnly: true },
 ];
 const NAV_GROUPS = [
-  { k: 'g-home', t: '首页', i: 'home', leaf: 'dash' },
+  { k: 'g-home', t: '工作台', i: 'home', leaf: 'dash' },
   { k: 'g-org', t: '学生与账号', i: 'building', items: ['branches', 'students', 'xreport'] },
   { k: 'g-res', t: '教学资源', i: 'folder', items: ['chapters', 'videos', 'handouts', 'words', 'letters', 'phonics'] },
-  { k: 'g-bank', t: '智能题库', i: 'doc', items: ['mfq', 'pending', 'ktree', 'mfp', 'paper', 'lessonq', 'bkup'] },
+  { k: 'g-bank', t: '智能题库', i: 'doc', items: ['mfq', 'intake', 'pending', 'ktree', 'mfp', 'paper', 'lessonq', 'bkup'] },
   { k: 'g-study', t: '学情与报告', i: 'chart', items: ['grades', 'talks', 'care', 'aireport'] },
   { k: 'g-sys', t: '系统设置', i: 'setting', items: ['mfset', 'oplog'] },
 ];
 const navItem = (k) => NAV.find((n) => n.k === k);
 const navOf = () => NAV.filter((n) => !n.principalOnly || (Auth.user && Auth.user.role === 'admin'));
-const TITLE = { mfq: '题库管理', pending: '待审核题目', ktree: '知识树管理', mfset: 'AI 配置中心', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '首页', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
+const TITLE = { intake: '录题中心', 'intake-excel': 'Excel 模板导入', mfq: '题库管理', pending: '待审核题目', ktree: '知识树管理', mfset: 'AI 配置中心', mfc: '网络采集', mfp: '试卷管理', mfi: '录题上传', bkfb: '错题反馈记录', grades: '成绩管理', talks: '谈心谈话', care: '家校沟通', dash: '工作台', branches: '分校管理', students: '学生管理', xreport: '学习报告', oplog: '操作日志', chapters: '课程目录', handouts: '讲义资料', videos: '视频管理', paper: '智能组卷', lessonq: '课文习题', mistakelog: '错题记录', bkup: '上传审核', words: '词书管理', letters: '字母乐园', phonics: '音标训练', aireport: 'AI学情诊断', 'aireport-view': '学情报告' };
+TITLE['intake-photo'] = '拍照 / 截图识别';
+TITLE['intake-pdf'] = 'PDF 识别'; TITLE['intake-word'] = 'Word 规则导入';
+TITLE['intake-skill'] = 'JSON / 技能包导入'; TITLE['intake-teacher'] = '老师扫码录题'; TITLE['intake-manual'] = '手动创建';
 function sideFoldGet() { try { return localStorage.getItem('xuexi_admin_side') === '1'; } catch (e) { return false; } }
 function sideFoldSet(v) { try { localStorage.setItem('xuexi_admin_side', v ? '1' : '0'); } catch (e) { /* 忽略 */ } }
 function openGroupsGet() {
-  try { return JSON.parse(localStorage.getItem('xuexi_admin_nav') || '[]'); } catch (e) { return []; }
+  try { return JSON.parse(localStorage.getItem('xuexi_admin_nav') || '["g-bank"]'); } catch (e) { return []; }
 }
 function openGroupsSet(arr) { try { localStorage.setItem('xuexi_admin_nav', JSON.stringify(arr)); } catch (e) { /* 忽略 */ } }
 function navGroupsHTML(cur) {
@@ -74,7 +80,7 @@ function navGroupsHTML(cur) {
       <div class="ng-sub">${items.map((n) => {
         const on = cur === n.k || cur.startsWith(n.k + '-');
         const badge = n.k === 'pending' ? '<em class="t11-badge" id="t11BadgePending" hidden></em>' : '';
-        return `<a data-go="${n.k}" class="${on ? 'on' : ''}" title="${n.t}"><span class="ico">${ic(n.i)}</span><span class="txt">${n.t}</span>${badge}</a>`;
+        return `<a data-go="${n.k}" class="${on ? 'on' : ''}" title="${n.t}"><span class="ico">${ic(n.i)}</span><span class="txt">${cur === 'pending' && n.k === 'pending' ? '待审核' : n.t}</span>${badge}</a>`;
       }).join('')}</div>
     </div>`;
   }).join('');
@@ -82,7 +88,7 @@ function navGroupsHTML(cur) {
 
 // ---------- 业务常量：仅 4 门学科；年级 3-9 年级 + 中考冲刺；每科统一 4 大类课程 ----------
 const SUBJECTS = ['数学', '英语', '物理', '化学'];
-const GRADES = ['三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
+const GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const CATEGORIES = ['同步基础', '同步培优', '专项提升', '中考冲刺'];
 const CATEGORY_MAP = { '数学': CATEGORIES, '英语': CATEGORIES, '物理': CATEGORIES, '化学': CATEGORIES };
 const gradeOptions = (sel) => [''].concat(GRADES).map((g) => `<option value="${g}" ${sel === g ? 'selected' : ''}>${g || '全部年级'}</option>`).join('');
@@ -273,26 +279,32 @@ function modal({ title, body, wide, okText = '保存', onOk, onMount }) {
     </div>` : ''}
   </div>`;
   document.body.appendChild(wrap);
-  const close = () => wrap.remove();
+  let saving = false;
+  const close = () => { if (!saving) wrap.remove(); };
+  if (typeof DialogUX !== 'undefined') DialogUX.bind(wrap);
   wrap.querySelector('.close-x').onclick = close;
   wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
   const c = wrap.querySelector('#mCancel'); if (c) c.onclick = close;
   const errBox = wrap.querySelector('#mErr');
   const errTitle = errBox.querySelector('.el-alert__title') || errBox;
+  errBox.setAttribute('role', 'alert');
   const showErr = (m) => {
     if (errTitle !== errBox) errTitle.textContent = m; else errBox.textContent = m;
     errBox.classList.remove('hide');
     return false;
   };
-  if (onOk) wrap.querySelector('#mOk').onclick = async (btn) => {
-    btn.target.disabled = true;
+  if (onOk) wrap.querySelector('#mOk').onclick = async () => {
+    if (saving) return; saving = true;
+    const controls = [wrap.querySelector('#mOk'), wrap.querySelector('#mCancel'), wrap.querySelector('.close-x')].filter(Boolean);
+    controls.forEach(el=>{el.disabled=true;});wrap.querySelector('[role="dialog"]').setAttribute('aria-busy','true');
     try {
       const r = await onOk(wrap, showErr);
-      if (r === false) { btn.target.disabled = false; return; }
-      close();
-    } catch (e) { showErr(e.message); btn.target.disabled = false; }
+      if (r !== false) { saving = false; close(); }
+    } catch (e) { showErr(e.message || '保存失败，请重试'); }
+    finally { saving = false; if(wrap.isConnected){controls.forEach(el=>{el.disabled=false;});wrap.querySelector('[role="dialog"]').removeAttribute('aria-busy');} }
   };
-  if (onMount) onMount(wrap, showErr);
+  if (onMount) { try { const mounting = onMount(wrap, showErr); if(mounting && mounting.catch)mounting.catch(e=>showErr(e.message || '表单加载失败')); } catch(e) { showErr(e.message || '表单加载失败，请重试'); } }
+  if (typeof r10Enhance === 'function') r10Enhance(wrap);
   return { el: wrap, close };
 }
 
@@ -596,19 +608,22 @@ function renderLogin() {
     <section class="lg2-main">
       <div class="lg2-card-form">
         <div class="lg2-flogo"><img src="/img/logo.jpg" alt="智学课堂"><b>校长/教师登录</b></div>
-        <div id="loginErr" class="alert hide"></div>
-        <form id="loginForm">
+        <div id="loginErr" class="alert hide" role="alert" aria-live="polite"></div>
+        <form id="loginForm" novalidate>
           <div class="field"><label>账号</label><input class="input" name="username" required autocomplete="username" placeholder="请输入账号"></div>
           <div class="field"><label>密码</label><input class="input" name="password" type="password" required autocomplete="current-password" placeholder="请输入密码"></div>
           <button class="btn lg2-submit" type="submit" id="loginBtn">登 录</button>
         </form>
-        <p class="lg2-reg">如需开通账号，请联系校长或平台管理员 · <a href="/" class="lg2-back">返回学生端</a></p>
+        <p class="lg2-reg"><span>如需开通账号，请联系校长或平台管理员</span><a href="/" class="lg2-back">返回学生端</a></p>
       </div>
     </section>
   </div>`;
   document.getElementById('loginForm').onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target, btn = document.getElementById('loginBtn'), err = document.getElementById('loginErr');
+    const missing = !f.username.value.trim() ? f.username : !f.password.value ? f.password : null;
+    if (missing) { err.textContent = missing === f.username ? '请输入账号' : '请输入密码'; err.classList.remove('hide'); missing.focus(); return; }
+    err.classList.add('hide');
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 登录中';
     try {
       const d = await api('/api/login', { method: 'POST', body: { username: f.username.value.trim(), password: f.password.value, role: 'admin' } });
@@ -625,10 +640,10 @@ function shell(inner) {
   const title = TITLE[cur] || '首页';
   const folded = sideFoldGet();
   return `
-  <div class="layout admin-app ${folded ? 'side-fold' : ''}">
+  <div class="layout admin-app ui-rounded-shell ${cur === 'pending' ? 'ui-review-shell' : ''} ${folded ? 'side-fold' : ''}">
     <div class="t11-scrim" id="t11Scrim"></div>
     <aside class="side">
-      <div class="brand">${brandHTML('管理端')}</div>
+      <div class="brand"><div class="zx-logo"><img class="zx-mark" src="/img/ui-brand-20261108.png" alt="智乐学" width="52" height="52"><span class="zx-txt"><b>智乐学</b><em>管理端</em></span></div></div>
       <nav class="nav">${navGroupsHTML(cur)}</nav>
       <div class="side-foot">${u.role === 'branch' ? '分校管理端' : '系统管理端'}</div>
     </aside>
@@ -702,49 +717,42 @@ function bindShell() {
 
 // ------------------------------------------------------------ 数据概览
 async function viewDash() {
-  await loadMeta();
-  const s = await api('/api/admin/stats');
-  const recent = await api('/api/admin/students/recent');
-  // 待审核题目数：取不到（分校账号没有题库权限等）就不显示这一条
-  const bc = await api('/api/admin/bank/mf/ext/badge-counts', { silent: true }).catch(() => null);
-  const pend = bc ? Number(bc.pending) || 0 : 0;
-  const cards = [
-    { i: 'student', v: s.students, l: '学生总数', go: 'students' },
-    { i: 'book', v: s.handouts, l: '讲义数量', go: 'handouts' },
-    { i: 'doc', v: s.exercises, l: '习题数量', go: 'lessonq' },
-    { i: 'video', v: s.videos, l: '视频数量', go: 'videos' },
-    { i: 'list', v: s.chapters, l: '课程目录', go: 'chapters' },
+  const d = await api('/api/admin/dashboard');
+  // 题目审核池尚未按分校隔离，分校首页不展示全局待审核数量。
+  const bc = Auth.user && Auth.user.role === 'admin' ? await api('/api/admin/bank/mf/ext/badge-counts', { silent: true }).catch(() => null) : null;
+  const period = ADM.page.dashPeriod === 'week' ? 'week' : 'today';
+  const data = d[period];
+  const rate = data.answers ? Math.round(data.correct * 100 / data.answers) + '%' : '—';
+  const max = Math.max(1, ...d.trend.map((x) => x.answers));
+  const pending = bc && Number.isFinite(Number(bc.pending)) ? Number(bc.pending) : null;
+  const metrics = [
+    ['活跃学生', data.active, '登录、做题或学习进度有更新'],
+    ['做题量', data.answers, '提交的题目作答次数'],
+    ['答题正确率', rate, '正确作答次数 ÷ 作答次数'],
+    ['视频完播', data.completed, '已完播且进度在所选期间更新'],
+    ['待复习错题', d.due, '截至今天待复习的错题'],
   ];
-  const quick = [
-    { go: 'students', i: 'student', t: '开通学生' }, { go: 'chapters', i: 'list', t: '新增课程' },
-    { go: 'videos', i: 'upload', t: '上传视频' }, { go: 'handouts', i: 'book', t: '上传讲义' },
-    { go: 'mfq', i: 'doc', t: '题库管理' }, { go: 'xreport', i: 'chart', t: '学习报告' },
-  ];
-  return {
-    html: `
-    <div class="grid g4 dash-stats">
-      ${cards.map((c) => `<div class="stat t11-statlink" data-go="${c.go}" title="进入${c.l.replace('数量', '').replace('总数', '')}管理"><div class="ic">${ic(c.i)}</div><div><div class="v">${c.v}</div><div class="l">${c.l}</div></div></div>`).join('')}
+  const quick = [['students','student','学生管理'],['mfq','doc','题库管理'],['pending','list','待审核题目'],['paper','book','智能组卷'],['videos','video','视频管理'],['xreport','chart','学习报告']];
+  return { html: `<section class="r10-dash rounded-dash">
+    <div class="rounded-dash-heading"><h1>教学工作台</h1></div>
+    <div class="rounded-dash-top">
+      <section class="rounded-dash-hero"><div class="rounded-hero-copy"><p class="rounded-eyebrow">录题 <span aria-hidden="true">→</span> 审核 <span aria-hidden="true">→</span> 入库</p><h2>从待审核题目开始</h2><p>逐题核对题干、答案和分类，确认后再入库。</p><button type="button" class="rounded-amber" data-go="pending">进入审核 ${ic('arrow-right')}</button></div><img src="/img/ui-rounded-admin-hero-20261108.png" alt="" width="260" height="260" class="rounded-admin-art"></section>
+      <section class="rounded-quick-card"><h2>${ic('dashboard')} 常用操作</h2><div>${[['intake','upload','导入题目'],['paper','doc','创建试卷'],['videos','video','管理课程']].map(([go,icon,label])=>`<button type="button" data-go="${go}">${ic(icon)}<span>${label}</span>${ic('arrow-right')}</button>`).join('')}</div></section>
     </div>
-    <div class="t11-dash-grid">
-      <div class="card">
-        <div class="card-h"><h3>${ic('flash')} 快捷操作</h3></div>
-        <div class="t11-quick">
-          ${quick.map((q) => `<button class="btn ghost" data-go="${q.go}">${ic(q.i)}<span>${q.t}</span></button>`).join('')}
-        </div>
-        ${pend > 0 ? `<div class="t11-todo" data-go="pending"><span>有 <b>${pend}</b> 道题目等待审核入库</span><span class="link-btn">去处理</span></div>` : ''}
-      </div>
-      <div class="card">
-        <div class="card-h"><h3>${ic('user')} 最近开通</h3><a href="#/students">查看全部</a></div>
-        ${recent.length ? `<table><thead><tr><th>学生</th><th>账号</th><th>年级</th><th>到期</th><th>倍速</th></tr></thead><tbody>
-          ${recent.slice(0, 8).map((r) => `<tr><td><b>${esc(r.name)}</b></td><td>${esc(r.username)}</td>
-            <td>${esc((r.grade || '') + (r.term || '') || '-')}</td>
-            <td>${esc((r.expire_at || '-').slice(0, 10))}</td>
-            <td>${r.allow_speed ? '<span class="tag ok">开启</span>' : '<span class="tag gray">关闭</span>'}</td></tr>`).join('')}
-        </tbody></table>` : '<div class="empty">暂无学生</div>'}
-      </div>
-    </div>`,
-    after: () => document.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => location.hash = '#/' + b.dataset.go),
-  };
+    <section class="rounded-work-section"><h2>${ic('clock')} 今日工作入口</h2><div class="rounded-work-list">
+      ${[['pending','check','待审核题目','处理批量录入与学生拍照来源。','去审核'],['paper','doc','试卷与任务','选择题目，向学生下发练习。','去组卷'],['videos','video','课程与习题','配置视频、小分组和配套练习。','去管理']].map(([go,icon,label,hint,action])=>`<button type="button" data-go="${go}"><span class="rounded-work-icon">${ic(icon)}</span><strong>${label}</strong><span class="rounded-work-hint">${hint}</span><span class="rounded-work-action">${action} ${ic('arrow-right')}</span></button>`).join('')}
+    </div></section>
+    <div class="rounded-dash-bottom">
+      <section class="card rounded-learning-summary"><div class="r10-panel-head"><h2>${ic('chart')} 学情概览</h2><div class="r10-period" role="group" aria-label="统计时间"><button class="${period === 'today' ? 'active' : ''}" data-period="today">今日</button><button class="${period === 'week' ? 'active' : ''}" data-period="week">本周</button></div></div><p class="rounded-summary-caption">当前账号权限范围内的实际学习记录</p><div class="r10-metrics">${metrics.map(([name,value,hint]) => `<div class="r10-metric" title="${esc(hint)}"><span>${name}</span><strong>${value}</strong><small>${esc(hint)}</small></div>`).join('')}</div><button type="button" class="rounded-outline" data-go="xreport">查看学情报告 ${ic('arrow-right')}</button></section>
+      <section class="card rounded-tree-card"><h2>${ic('folder')} 题库组织</h2><button type="button" data-go="ktree">${ic('folder')}<span><strong>章节树</strong><small>按教材章节组织</small></span>${ic('arrow-right')}</button><button type="button" data-go="ktree">${ic('list')}<span><strong>知识点树</strong><small>跨章节定位知识点</small></span>${ic('arrow-right')}</button><p>在知识树管理中切换分类，支持新增与编辑。</p></section>
+    </div>
+    <div class="r10-grid rounded-detail-grid"><section class="card r10-panel"><div class="r10-panel-head"><div><h3>近 14 天学习趋势</h3><p>每日题目作答次数</p></div></div><div class="r10-chart" role="img" aria-label="近14天每日题目作答次数">${d.trend.map((x) => `<div class="r10-bar-col" title="${esc(x.date)}：${x.answers} 次"><span>${x.answers || ''}</span><div class="r10-bar" style="height:${Math.max(x.answers ? 4 : 1, Math.round(x.answers / max * 100))}%"></div><small>${esc(x.date.slice(5))}</small></div>`).join('')}</div></section>
+    <section class="card r10-panel"><div class="r10-panel-head"><div><h3>需要关注</h3><p>及时跟进教学工作</p></div></div><div class="r10-todos">${pending === null ? '' : `<button data-go="pending"><span>待审核题目</span><b>${pending}</b></button>`}<button data-go="bkfb"><span>待处理错题反馈</span><b>${d.feedback}</b></button><button data-go="students"><span>7 天内到期学生</span><b>${d.expiring}</b></button></div></section></div>
+    <section class="card r10-panel rounded-all-actions"><div class="r10-panel-head"><h3>更多管理入口</h3></div><div class="r10-quick">${quick.map(([go,icon,name]) => `<button data-go="${go}">${ic(icon)}<span>${name}</span></button>`).join('')}</div></section>
+  </section>`, after: () => {
+    document.querySelectorAll('.r10-dash [data-go]').forEach((b) => b.onclick = () => { location.hash = '#/' + b.dataset.go; });
+    document.querySelectorAll('.r10-dash [data-period]').forEach((b) => b.onclick = () => { ADM.page.dashPeriod = b.dataset.period; render(); });
+  } };
 }
 
 // ------------------------------------------------------------ 学生管理
@@ -856,7 +864,7 @@ function studentForm(s) {
       <div class="grid g2" style="gap:0 16px">
         <div class="field"><label>姓名 *</label><input class="input" id="fName" value="${esc(s ? s.name : '')}"></div>
         <div class="field"><label>登录账号 *（手机号 / 学号）</label><input class="input" id="fUser" value="${esc(s ? s.username : '')}"></div>
-        ${s ? '' : `<div class="field"><label>初始密码（默认 123456）</label><input class="input" id="fPwd" value="123456"></div>`}
+        ${s ? '' : `<div class="field"><label for="fPwd">初始密码</label><div style="display:flex;align-items:center;gap:8px"><input class="input" id="fPwd" type="password" autocomplete="new-password" style="min-width:0;flex:1" value="123456"><button type="button" class="btn ghost sm" id="fPwdToggle" aria-label="显示初始密码" aria-controls="fPwd" aria-pressed="false" style="width:auto;flex:none">显示</button></div></div>`}
         <div class="field" style="grid-column:1/-1"><label>学段 *<span style="color:var(--text3);font-weight:400">（决定「专项提升 / 中考冲刺」能看到哪些课）</span></label>
           <select class="input" id="fStage">
             ${STAGE_OPTS.map(([v, t]) => `<option value="${v}" ${(s ? s.stage || '' : '') === v ? 'selected' : ''}>${t}</option>`).join('')}
@@ -873,10 +881,17 @@ function studentForm(s) {
       </div>`,
     onMount: (w) => {
       mountElDate(w.querySelector('#fExpire'));
+      const pwdField = w.querySelector('#fPwd'), pwdToggle = w.querySelector('#fPwdToggle');
+      if (pwdField && pwdToggle) pwdToggle.onclick = () => {
+        const visible = pwdField.type === 'password';
+        pwdField.type = visible ? 'text' : 'password';
+        pwdToggle.setAttribute('aria-pressed', String(visible));
+        pwdToggle.classList.toggle('ghost', !visible);
+      };
       // 学段只有 小学/初中 两项，且跟年级联动：选年级自动带出学段（进入弹窗时也先同步一次）
       const g = w.querySelector('#fGrade'), st = w.querySelector('#fStage');
       const syncStage = () => {
-        if (/^[三四五六]年级$/.test(g.value)) st.value = 'primary';
+        if (/^[一二三四五六]年级$/.test(g.value)) st.value = 'primary';
         else if (/^[七八九]年级$|^中考冲刺$/.test(g.value)) st.value = 'junior';
       };
       if (g && st) { g.onchange = syncStage; syncStage(); }
@@ -892,7 +907,7 @@ function studentForm(s) {
       const expire = w.querySelector('#fExpire').value.trim();
       if (!grade) return err('请选择年级');
       if (!stage) return err('请选择学段（小学 / 初中）');
-      const isPrimary = ['三年级', '四年级', '五年级', '六年级'].includes(grade);
+      const isPrimary = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'].includes(grade);
       const isJunior = ['七年级', '八年级', '九年级', '中考冲刺'].includes(grade);
       if ((isPrimary && stage !== 'primary') || (isJunior && stage !== 'junior')) {
         return err(`${grade} 属于${isPrimary ? '小学' : '初中'}，与所选学段不一致`);
@@ -922,7 +937,7 @@ function batchForm() {
     title: '批量开通学生',
     wide: true,
     body: `
-      <p style="color:var(--text2);margin-bottom:12px">每行一个学生，格式：<b>姓名,账号,密码,年级,到期时间,册别</b>。其中<b>年级和到期时间必填</b>，密码可省略（默认 123456），册别可省略（填 上册 / 下册；不填 = 上下册都显示）。<b>学段按年级自动识别</b>（三~六年级 = 小学，七~九年级 / 中考冲刺 = 初中），也可以额外写一列 小学 / 初中 手动指定。</p>
+      <p style="color:var(--text2);margin-bottom:12px">每行一个学生，格式：<b>姓名,账号,密码,年级,到期时间,册别</b>。其中<b>年级和到期时间必填</b>，密码可省略（默认 123456），册别可省略（填 上册 / 下册；不填 = 上下册都显示）。<b>学段按年级自动识别</b>（一~六年级 = 小学，七~九年级 / 中考冲刺 = 初中），也可以额外写一列 小学 / 初中 手动指定。</p>
       <textarea class="input" id="bulk" style="height:220px;font-family:ui-monospace,Consolas,monospace" placeholder="张三,13800000001,123456,七年级,${defExp},上册
 李四,13800000002,,七年级,${defExp},下册
 王五,13800000003,,三年级,${defExp},小学"></textarea>
@@ -1132,7 +1147,7 @@ function chapterForm(c) {
           ${[['', '通用（上下册都显示）'], ['上册', '上册'], ['下册', '下册']].map(([v, t]) => `<option value="${v}" ${(c ? c.term || '' : '') === v ? 'selected' : ''}>${t}</option>`).join('')}
         </select></div>
       <div class="field"><label>章节名称 *（自己创建，如：第一章 有理数）</label><input class="input" id="kName" value="${esc(c ? c.name : '')}" placeholder="输入章节名称，学生端会按这个名字显示课程卡片"></div>
-      <div class="field"><label>二级名称（可选，显示在学生端章节卡片的副标题位置）</label><input class="input" id="kBook" value="${esc(c ? c.book : '')}" placeholder="如：人教版·七年级上册 / 小升初衔接"></div>
+      <div class="field"><label>二级名称（可选，显示在学生端章节卡片的副标题位置）</label><input class="input" id="kBook" value="${esc(c ? c.book : '')}" placeholder="如：苏科版·七年级上册 / 小升初衔接"></div>
       <div class="field"><label>排序（越小越靠前，可不填）</label><input class="input" type="number" id="kSort" value="${c ? c.sort : 0}"></div>
       <p style="color:var(--text3);font-size:12px" id="kTip"></p>`,
     onMount: (w) => {
@@ -1148,8 +1163,8 @@ function chapterForm(c) {
         stageSel.disabled = exam;
         if (exam) stageSel.value = 'junior';
         tip.innerHTML = by
-          ? '🎯 <b>专项提升 / 中考冲刺</b>：学生端按<b>学段</b>显示 —— 小学账号看全部小学专项，初中账号看全部初中专项 + 全部中考冲刺课程，<b>不看年级也不分上下册</b>。接着去「视频管理」上传视频（每个视频 = 一个知识点），再在「讲义资料」里配讲义 / 传习题。'
-          : '📗 <b>同步类</b>：学生端只显示与自己<b>年级、册别</b>一致的章节（册别选「通用」则上下册都能看到）。接着去「视频管理」上传视频（每个视频 = 一个知识点），再在「讲义资料」里配讲义 / 传习题。';
+          ? ' <b>专项提升 / 中考冲刺</b>：学生端按<b>学段</b>显示 —— 小学账号看全部小学专项，初中账号看全部初中专项 + 全部中考冲刺课程，<b>不看年级也不分上下册</b>。接着去「视频管理」上传视频（每个视频 = 一个知识点），再在「讲义资料」里配讲义 / 传习题。'
+          : ' <b>同步类</b>：学生端只显示与自己<b>年级、册别</b>一致的章节（册别选「通用」则上下册都能看到）。接着去「视频管理」上传视频（每个视频 = 一个知识点），再在「讲义资料」里配讲义 / 传习题。';
       };
       sub.onchange = () => {
         cat.innerHTML = (CATEGORY_MAP[sub.value] || []).map((k) => `<option value="${k}">${k}</option>`).join('');
@@ -1868,12 +1883,12 @@ function addVideoForm() {
 // ------------------------------------------------------------ 分校管理（仅校长）
 async function viewBranches() {
   if (Auth.user.role !== 'admin') {
-    return { html: '<div class="empty"><div class="e-ic">🔒</div>仅校长可管理分校账号</div>', after: () => {} };
+    return { html: '<div class="empty"><div class="e-ic"></div>仅校长可管理分校账号</div>', after: () => {} };
   }
   const list = await api('/api/admin/branches');
   return {
     html: `<div class="card">
-      <div class="card-h"><h3>🏢 分校账号 <span class="tag gray">${list.length} 个</span></h3>
+      <div class="card-h"><h3> 分校账号 <span class="tag gray">${list.length} 个</span></h3>
         <button class="btn primary-sm" id="btnAdd">+ 开通分校</button></div>
       <p style="color:var(--text2);font-size:13px;margin-bottom:12px">分校编号开通后固定不变——改名称 / 换登录手机号，已绑定学生与学情数据都不受影响。登录账号即手机号。</p>
       ${list.length ? `<table><thead><tr><th>编号</th><th>分校名称</th><th>登录账号（手机号）</th><th>已开通学生</th><th>到期时间</th><th>状态</th><th>最后登录</th><th>操作</th></tr></thead>
@@ -1891,7 +1906,7 @@ async function viewBranches() {
             <button class="link-btn danger" data-del="${b.id}">删除</button>
           </div></td></tr>`;
         }).join('')}</tbody></table>`
-      : '<div class="empty"><div class="e-ic">🏢</div>还没有分校账号，点击右上角"开通分校"添加</div>'}
+      : '<div class="empty"><div class="e-ic"></div>还没有分校账号，点击右上角"开通分校"添加</div>'}
     </div>`,
     after: () => {
       document.getElementById('btnAdd').onclick = () => branchForm(null);
@@ -1921,7 +1936,7 @@ function branchForm(b) {
     body: `
       ${isEdit ? `<div class="field"><label>分校编号（开通后固定，不可修改）</label><input class="input" value="${esc(b.code || '—')}" disabled></div>` : ''}
       <div class="field"><label>分校名称 *</label><input class="input" id="bName" value="${esc(isEdit ? b.name : '')}" placeholder="如：城南分校"></div>
-      <div class="field"><label>登录账号（手机号）* ${isEdit ? '可修改，改后用新手机号登录，编号与学生绑定不变' : ''}</label><input class="input" id="bUser" value="${esc(isEdit ? (b.username || '') : '')}" placeholder="11 位手机号，如 15152099971"></div>
+      <div class="field"><label>登录账号（手机号）* ${isEdit ? '可修改，改后用新手机号登录，编号与学生绑定不变' : ''}</label><input class="input" id="bUser" value="${esc(isEdit ? (b.username || '') : '')}" placeholder="11 位手机号，如 13800000000"></div>
       ${isEdit ? `
       <div class="field"><label>重置密码（留空 = 不修改）</label><input class="input" id="bPwd" type="text" placeholder="输入新密码，留空保持原密码"></div>`
       : `<div class="field"><label>初始密码（默认 123456）</label><input class="input" id="bPwd" value="123456"></div>`}
@@ -1950,27 +1965,41 @@ function branchForm(b) {
 
 // ------------------------------------------------------------ 路由
 /* ---------------- 学情管理 · 成绩管理（iframe 嵌入校区成绩系统） ---------------- */
-function viewGrades() {
+function r10EmbeddedApp(kind, initial) {
+  const grades = kind === 'grades';
+  const tabs = grades ? [['dashboard','总览看板'],['records','成绩列表'],['tracking','考试对比'],['students','学生档案']] : [['talks','谈心谈话'],['contacts','家校沟通'],['students','学生信息'],['settings','设置']];
+  const src = grades ? '/apps/grades/index.html' : '/apps/care/index.html';
   return {
-    html: `<iframe class="grades-frame" src="/apps/grades/index.html" title="成绩管理"></iframe>`,
+    html: `<div class="r10-embed"><div class="r10-embed-nav" role="navigation" aria-label="${grades ? '成绩管理' : '班主任工作台'}">${tabs.map(([key,label]) => `<button type="button" data-r10-tab="${key}">${label}</button>`).join('')}${grades ? '<div class="r10-embed-actions"><button type="button" data-r10-action="btnCampusManage">校区管理</button><button type="button" data-r10-action="btnPrintPage">打印本页</button></div>' : ''}</div><iframe class="grades-frame" id="r10Embedded" src="${src}#/${initial}" ${grades ? '' : 'allow="microphone; camera"'} title="${grades ? '成绩管理' : '班主任工作台'}"></iframe></div>`,
+    after: () => {
+      const frame = document.getElementById('r10Embedded');
+      const root = frame && frame.closest('.r10-embed');
+      if (!frame || !root) return;
+      const highlight = (key) => root.querySelectorAll('[data-r10-tab]').forEach((button) => { const active = button.dataset.r10Tab === key; button.classList.toggle('active', active); button.setAttribute('aria-current', active ? 'page' : 'false'); });
+      highlight(initial);
+      root.querySelectorAll('[data-r10-tab]').forEach((button) => { button.onclick = () => { frame.contentWindow.location.hash = '#/' + button.dataset.r10Tab; highlight(button.dataset.r10Tab); }; });
+      root.querySelectorAll('[data-r10-action]').forEach((button) => { button.onclick = () => { const target = frame.contentDocument && frame.contentDocument.getElementById(button.dataset.r10Action); if (target) target.click(); }; });
+      frame.addEventListener('load', () => {
+        try {
+          const doc = frame.contentDocument;
+          const style = doc.createElement('style');
+          style.textContent = grades ? '.topbar,.sidebar{display:none!important}.layout{display:block!important}.main{margin:0!important;width:auto!important;max-width:none!important;padding:16px!important}body{background:#f7f5ef!important}' : '.topbar{display:none!important}.content{padding:16px!important}body{background:#f7f5ef!important}';
+          doc.head.appendChild(style);
+          const sync = () => highlight(frame.contentWindow.location.hash.replace(/^#\//,'').split('?')[0] || initial);
+          frame.contentWindow.addEventListener('hashchange', sync); sync();
+        } catch (_) { /* 独立应用仍可在 iframe 中使用 */ }
+      });
+    },
   };
 }
-
-/* ---------------- 学情管理 · 谈心谈话 / 家校沟通（班主任工作台 iframe） ---------------- */
-function viewCareApp(page) {
-  const t = page === 'talks' ? '谈心谈话' : '家校沟通';
-  // care 应用的家校沟通页内部路由名是 contacts（#/care 无效会回落到 talks）
-  const route = page === 'care' ? 'contacts' : page;
-  return {
-    html: `<iframe class="grades-frame" src="/apps/care/index.html#/${route}" allow="microphone; camera" title="${t}"></iframe>`,
-  };
-}
+function viewGrades() { return r10EmbeddedApp('grades', 'dashboard'); }
+function viewCareApp(page) { return r10EmbeddedApp('care', page === 'care' ? 'contacts' : 'talks'); }
 
 const VIEWS = {
   dash: viewDash, branches: viewBranches, students: viewStudents, chapters: viewChapters,
   handouts: viewHandouts, videos: viewVideos,
-  bank: () => viewBank(), paper: () => viewPaper(), lessonq: () => viewLessonQ(), mistakelog: () => viewMistakeLog(), bkup: () => viewUploads(),
-  mfq: () => viewMfBank(), pending: () => viewPending(), ktree: () => viewKTree(), mfc: () => viewMfCapture(), mfp: () => viewMfPapers(), mfi: () => viewMfIntake(), mfset: () => viewMfSet(),
+  bank: () => viewBank(), paper: () => viewPaperR6(), lessonq: () => viewLessonQ(), mistakelog: () => viewMistakeLog(), bkup: () => viewUploads(),
+  intake: () => viewIntakeCenter(), 'intake-excel': () => viewIntakeExcel(), 'intake-word': () => viewIntakeExcel('word'), 'intake-photo': () => viewIntakePhoto(), 'intake-pdf': () => viewIntakePhoto('pdf'), 'intake-skill': () => viewIntakeSkill(), 'intake-teacher': () => viewIntakeTeacher(), 'intake-manual': () => viewIntakeManual(), mfq: () => viewMfBank(), pending: () => viewPending(), ktree: () => viewKTree(), mfc: () => viewMfCapture(), mfp: () => viewMfPapers(), mfi: () => viewMfIntake(), mfset: () => viewMfSet(),
   bkfb: () => viewBankFeedback(),
   words: () => viewWords(),
   letters: () => viewPhonicsLetters(), phonics: () => viewPhonicsPhonetic(),
@@ -1981,9 +2010,34 @@ const VIEWS = {
   talks: () => viewCareApp('talks'), care: () => viewCareApp('care'),
 };
 
+let r10ControlId = 0, r10ViewObserver = null;
+function r10Enhance(root) {
+  if (!root) return;
+  root.querySelectorAll('label:not([for])').forEach(label=>{
+    if(label.querySelector('input,select,textarea'))return;
+    const field=label.closest('.field') || label.parentElement;
+    const controls=field && field.querySelectorAll('input:not([type="hidden"]),select,textarea');
+    if(controls && controls.length===1){const el=controls[0];if(!el.id)el.id='r10-field-'+(++r10ControlId);label.htmlFor=el.id;}
+  });
+  root.querySelectorAll('select,input[placeholder],textarea[placeholder]').forEach(el=>{
+    if(el.getAttribute('aria-label') || el.labels && el.labels.length)return;
+    const title=el.getAttribute('title') || el.getAttribute('placeholder') || (el.tagName==='SELECT' && el.options[0] && el.options[0].textContent);
+    if(title)el.setAttribute('aria-label',title);
+  });
+  root.querySelectorAll('table').forEach(table=>{
+    const head=table.querySelector('thead tr');if(!head)return;
+    [...head.cells].filter(cell=>cell.textContent.trim()==='操作').forEach(cell=>{
+      cell.classList.add('r10-actions-col');const index=cell.cellIndex;
+      table.querySelectorAll('tbody tr').forEach(row=>{if(row.cells.length===head.cells.length && row.cells[index])row.cells[index].classList.add('r10-actions-col');});
+    });
+    let parent=table.parentElement;
+    while(parent && parent!==root){const css=getComputedStyle(parent);if(['auto','scroll'].includes(css.overflowX)){if(parent.scrollWidth>parent.clientWidth+1){parent.tabIndex=0;parent.setAttribute('role','region');parent.setAttribute('aria-label','表格，可横向滚动查看其他列');}break;}parent=parent.parentElement;}
+  });
+}
 let RENDER_SEQ = 0;   // 渲染序号：慢的旧渲染不允许覆盖新渲染（快速连点导航时页面不会串）
 async function render() {
   const mySeq = ++RENDER_SEQ;
+  if(r10ViewObserver){r10ViewObserver.disconnect();r10ViewObserver=null;}
   if (!Auth.token) {
     if (typeof closeWordDrawer === 'function') closeWordDrawer();
     renderLogin();
@@ -2005,6 +2059,8 @@ async function render() {
     if (!document.getElementById('view')) return;   // 页面已被替换
     document.getElementById('view').innerHTML = out.html;
     if (out.after) out.after();
+    const root = document.getElementById('view'); r10Enhance(root);
+    if(root){let queued=false;r10ViewObserver=new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;if(root.isConnected)r10Enhance(root);});});r10ViewObserver.observe(root,{childList:true,subtree:true});}
   } catch (e) {
     if (mySeq !== RENDER_SEQ) return;
     const v = document.getElementById('view');
@@ -2013,7 +2069,7 @@ async function render() {
     const reloadTip = /not defined|is not a function|Failed to fetch|NetworkError/i.test(msg)
       ? `<p style="margin-top:10px;color:#6b7280">页面脚本没有加载全（网络抖动），<a href="javascript:location.reload()" style="color:#2563eb">点此刷新</a>即可恢复。</p>`
       : '';
-    if (v) v.innerHTML = `<div class="empty"><div class="e-ic">⚠️</div>${esc(msg)}${reloadTip}</div>`;
+    if (v) { v.innerHTML = `<div class="empty r10-page-error" role="alert"><div class="e-ic">${ic('info')}</div><p>${esc(msg)}</p>${reloadTip}<button type="button" class="btn primary" id="r10-retry-page">重新加载本页</button></div>`; v.querySelector('#r10-retry-page').onclick = render; }
   }
 }
 window.addEventListener('hashchange', render);
@@ -2026,8 +2082,8 @@ async function mfcapSave(raw) {
   try { d = JSON.parse(raw); if (!d || !Array.isArray(d.questions) || !d.questions.length) d = null; } catch (e) { d = null; }
   if (!d) { toast('书签回传数据无效，请重新点书签采集', 'err'); return; }
   try {
-    await api('/api/admin/bank/mf/capture/batches', { method: 'POST', body: { site: d.site, url: d.url, title: d.title, questions: d.questions } });
-    toast(`书签采集成功：已收到 ${d.questions.length} 题，已存进采集篮，去「智能题库 → 网络采集」入库`, 'ok');
+    await R4Flow.post('/api/admin/bank/mf/capture/batches', 'capture', {site:d.site,url:d.url,title:d.title,questions:d.questions}, d._intake_key);
+    toast(`书签采集成功：已收到 ${d.questions.length} 题，已送入待审核，请核对题目和分类后入库`, 'ok');
     if ((location.hash.replace('#/', '').split('?')[0]) === 'mfc') render();
   } catch (e) { /* api 已提示 */ }
 }
@@ -2040,6 +2096,8 @@ async function mfcapConsume() {
   await mfcapSave(raw);
 }
 (async function boot() {
+  // Page modules are loaded after admin.js; a fast account response must not outrun them.
+  if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, { once: true }));
   await mfcapConsume();
   if (!Auth.token) { location.hash = '#/login'; renderLogin(); return; }
   try { Auth.user = await api('/api/me'); } catch (e) { /* ignore */ }

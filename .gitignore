@@ -13,3 +13,7 @@ public/uploads/
 *.tar.gz
 .env
 .DS_Store
+
+# 扫码上传的运行时照片（不提交用户或测试文件）
+public/pu/
+admin-page-screenshots/

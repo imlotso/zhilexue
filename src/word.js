@@ -29,7 +29,7 @@ const fail = (res, msg = '操作失败') => res.json({ code: 1, msg });
 
 /* ============================================================ 管理端 */
 const admin = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 12 * 1024 * 1024 } });
 
 const bookCols = `b.id, b.title, b.grade, b.kind, b.stage, b.sort, b.remark, b.created_at,
   (SELECT COUNT(*) FROM words w WHERE w.book_id = b.id) AS word_count,

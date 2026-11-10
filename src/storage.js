@@ -11,10 +11,25 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const https = require('https');
 const { UPLOAD_DIR } = require('./db');
 const BUILTIN = require('./builtin-config');
 
 const DRIVER = process.env.STORAGE_DRIVER || 'oss';
+// Explicit opt-in for restored environments reading the original bucket. Local writes stay local.
+const CLOUD_READ_ONLY = process.env.STORAGE_CLOUD_READ_ONLY === '1';
+function assertCloudWritable() {
+  if (!CLOUD_READ_ONLY) return;
+  const error = new Error('云存储只读模式：禁止上传、删除或修改云端文件');
+  error.code = 'STORAGE_CLOUD_READ_ONLY';
+  throw error;
+}
+function failClosedCloudInit() {
+  if (!CLOUD_READ_ONLY) return;
+  const error = new Error('云存储只读模式初始化失败，已停止存储服务');
+  error.code = 'STORAGE_CLOUD_READ_ONLY_INIT_FAILED';
+  throw error; // Never attach or log the SDK error: it may contain configuration secrets.
+}
 
 // 可选：CDN 加速域名（如 cdn.example.com）。配置后，在线播放/预览返回固定的 CDN 直链，
 // 这样才能被 CDN 缓存（签名 URL 每次都不同，缓存命中率恒为 0）。
@@ -40,6 +55,7 @@ if (DRIVER === 'oss') {
       timeout: 600000,
     });
   } catch (e) {
+    failClosedCloudInit();
     console.error('[storage] 阿里云 OSS 初始化失败，回退为本地存储：', e.message);
   }
 }
@@ -84,6 +100,7 @@ if (DRIVER === 'qiniu') {
       uploadHost: process.env.QINIU_UPLOAD_HOST || undefined,
     };
   } catch (e) {
+    failClosedCloudInit();
     console.error('[storage] 七牛云初始化失败，回退为本地存储：', e.message);
   }
 }
@@ -108,11 +125,9 @@ function folderOf(key) {
 const LOCAL_FOLDERS = String(process.env.LOCAL_FOLDERS === undefined ? 'wrong,guidedocs' : process.env.LOCAL_FOLDERS)
   .split(',').map((s) => s.trim()).filter(Boolean);
 
-// ---------------- 题库资源的独立存储口子（T12） ----------------
+// ---------------- 题库资源按目录分类（T12） ----------------
 // 题目的图片 / 音频 / 导入附件统一放在 bank/ 目录（bankFolder()，见 mfbank.js），视频放 videos/，两类资源只靠 key 前缀区分。
-// BANK_BUCKET：可选，将来想把题库资源迁到另一个 Bucket 时填它的名字；缺省为空 = 与视频同一个 Bucket（现状）。
-// 本次只留口子、不做多 Bucket 切换：bucketFor(key) 告诉调用方"这个 key 该去哪个桶"（空串 = 默认桶），
-// 真要拆桶时只需要在 saveFile / getUrlSync / deleteFile 里按它选 client（见 README「题库资源独立存储」）。
+// BANK_BUCKET / bucketFor 为历史预留接口，实际读写均使用当前存储配置，不切换桶、不迁移旧文件。
 const BANK_BUCKET = String(process.env.BANK_BUCKET || '').trim();
 const BANK_PREFIX = String(process.env.BANK_FOLDER || 'bank').trim().replace(/^\/+|\/+$/g, '') || 'bank';
 /** key 是否属于题库资源（bank/ 目录；目录名可由 settings.bank_folder 改，改了之后调用方传入 prefix） */
@@ -123,6 +138,41 @@ function isBankKey(key, prefix) {
 /** 该 key 应该放进哪个 Bucket：题库资源且配了 BANK_BUCKET → 它；否则空串（默认桶） */
 function bucketFor(key, prefix) {
   return BANK_BUCKET && isBankKey(key, prefix) ? BANK_BUCKET : '';
+}
+
+// 图片只保存可稳定恢复的对象 key；不要把 OSS/七牛一小时签名地址写入题目。
+// 同时识别当前配置的存储域名下的历史图片 URL，外站链接绝不能当作本桶 key。
+const BANK_IMAGE_KEY_RE = /^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.(?:png|jpe?g|gif|webp)$/i;
+function bankImageProxyUrl(key) {
+  return '/api/file?' + new URLSearchParams({ key: String(key) }).toString();
+}
+function bankImageKey(value, prefix) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (!/\.(?:png|jpe?g|gif|webp)(?:[?&#]|$)/i.test(text)) return '';
+  let key = '';
+  if (BANK_IMAGE_KEY_RE.test(text)) key = text;
+  else if (text.startsWith('/api/file?')) {
+    try {
+      const u = new URL(text, 'http://localhost');
+      if (u.pathname !== '/api/file' || u.searchParams.getAll('key').length !== 1) return '';
+      key = u.searchParams.get('key') || '';
+    } catch (_) { return ''; }
+  } else if (/^https?:\/\//i.test(text)) {
+    let u;
+    try { u = new URL(text); } catch (_) { return ''; }
+    if (u.username || u.password) return '';
+    const allowedHosts = new Set();
+    if (ossClient) {
+      try { allowedHosts.add(new URL(ossClient.signatureUrl('bank/img/probe.png', { expires: 60 })).host.toLowerCase()); } catch (_) { /* 无效配置不转换历史地址 */ }
+      if (CDN_DOMAIN) { try { allowedHosts.add(new URL('https://' + CDN_DOMAIN).host.toLowerCase()); } catch (_) { /* 保留原地址 */ } }
+    }
+    if (qiniuCtx && qiniuDomain) { try { allowedHosts.add(new URL('https://' + qiniuDomain).host.toLowerCase()); } catch (_) { /* 保留原地址 */ } }
+    if (!allowedHosts.has(u.host.toLowerCase())) return '';
+    try { key = decodeURIComponent(u.pathname.replace(/^\/+/, '')); } catch (_) { return ''; }
+  }
+  if (!BANK_IMAGE_KEY_RE.test(key) || !(isBankKey(key) || isBankKey(key, prefix))) return '';
+  return key;
 }
 
 /** 该 key 是否存到七牛（未启用七牛恒为 false；启用后按 QINIU_FOLDERS 分流） */
@@ -146,6 +196,7 @@ const MIME = {
 };
 
 function putPolicy(key) {
+  assertCloudWritable();
   const qn = qiniuCtx.qiniu;
   // insertOnly=1：只允许新建，防止覆盖已有文件；mimeLimit 放宽（会讲义/视频多类型）
   const policy = new qn.rs.PutPolicy({
@@ -164,6 +215,7 @@ const VIDEO_PART_EXPIRES = 6 * 60 * 60;
 let corsReady = null;
 function ensureOssCors() {
   if (!ossClient) return Promise.resolve();
+  assertCloudWritable();
   if (!corsReady) {
     corsReady = ossClient.putBucketCORS(ossClient.options.bucket, [{
       allowedOrigin: ['https://zhilexue.top', 'https://www.zhilexue.top', 'http://zhilexue.top', 'http://www.zhilexue.top', 'http://localhost:3000', 'http://127.0.0.1:3000'],
@@ -183,6 +235,7 @@ function isVideoKey(key) {
 }
 async function initVideoUpload(originalName, size) {
   if (!ossClient) throw new Error('未启用阿里云存储');
+  assertCloudWritable();
   await ensureOssCors();
   const n = Number(size) || 0;
   if (n <= 0) throw new Error('文件是空的');
@@ -194,6 +247,7 @@ async function initVideoUpload(originalName, size) {
 }
 function signVideoPart(key, uploadId, partNumber) {
   if (!ossClient) throw new Error('未启用阿里云存储');
+  assertCloudWritable();
   if (!isVideoKey(key)) throw new Error('视频文件无效');
   const n = Number(partNumber);
   if (!uploadId || !Number.isInteger(n) || n < 1 || n > 10000) throw new Error('分片参数无效');
@@ -207,6 +261,7 @@ function signVideoPart(key, uploadId, partNumber) {
 }
 async function completeVideoUpload(key, uploadId, parts) {
   if (!ossClient) throw new Error('未启用阿里云存储');
+  assertCloudWritable();
   if (!isVideoKey(key) || !uploadId) throw new Error('视频文件无效');
   const list = (Array.isArray(parts) ? parts : []).map((p) => ({
     number: Number(p.number),
@@ -217,6 +272,7 @@ async function completeVideoUpload(key, uploadId, parts) {
 }
 async function abortVideoUpload(key, uploadId) {
   if (!ossClient || !isVideoKey(key) || !uploadId) return;
+  assertCloudWritable();
   try { await ossClient.abortMultipartUpload(key, String(uploadId)); } catch (e) { /* 已取消或不存在 */ }
 }
 async function videoExists(key) {
@@ -246,6 +302,7 @@ async function saveFile(source, originalName, folder = 'misc') {
   const fromPath = typeof source === 'string';
   const size = fromPath ? fs.statSync(source).size : source.length;
   if (qiniuCtx && qiniuCovers(key)) {
+    assertCloudWritable();
     const token = putPolicy(key);
     const putExtra = new qiniuCtx.qiniu.form_up.PutExtra();
     putExtra.mimeType = MIME[extOf(originalName)] || 'application/octet-stream';
@@ -260,6 +317,7 @@ async function saveFile(source, originalName, folder = 'misc') {
     return { key: ret.key || key, size: ret.size || size };
   }
   if (ossClient && !LOCAL_FOLDERS.includes(folderOf(key))) {
+    assertCloudWritable();
     const mime = MIME[extOf(originalName)] || 'application/octet-stream';
     const opts = { mime, timeout: 600000 };
     // 大文件分片上传，避免整段一次传完卡在 60 秒限制上
@@ -279,6 +337,22 @@ async function saveFile(source, originalName, folder = 'misc') {
 /** 本地磁盘绝对路径（仅 local 驱动有效） */
 function localPath(key) {
   return path.join(UPLOAD_DIR, key);
+}
+
+/** Existing regular local media only. The upload root may be a deployment symlink;
+ * keys may not normalize paths or follow symlinks below that root. */
+function localFilePath(key) {
+  if (typeof key !== 'string' || !/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*(?:\.[A-Za-z0-9]{1,8})?$/.test(key)) return null;
+  try {
+    const root = fs.realpathSync(UPLOAD_DIR);
+    const abs = path.resolve(root, key);
+    const real = fs.realpathSync(abs);
+    if (real !== abs || !real.startsWith(root + path.sep) || !fs.statSync(real).isFile()) return null;
+    return real;
+  } catch (e) {
+    if (['ENOENT', 'ENOTDIR', 'ELOOP'].includes(e.code)) return null;
+    throw e; // Permission / I/O failures must not silently select another copy.
+  }
 }
 
 /**
@@ -314,30 +388,74 @@ function unlinkLocal(abs, tries = 5) {
   return true;
 }
 
-/** 读出文件内容。云端没有时再看本地（旧文件可能还在磁盘上）。 */
+// 七牛读取只访问当前配置的存储域名，不接受调用方传入网址或跳转。
+// readBuffer 也服务 PDF 预览，沿用上传上限 100 MiB，防止响应无限占用内存。
+function readQiniuBuffer(key) {
+  if (!qiniuCovers(key) || typeof key !== 'string' || !key || key.startsWith('/') || key.includes('\\') || key.split('/').includes('..') || /^[a-z][a-z0-9+.-]*:/i.test(key) || /[?#\x00-\x1f\x7f]/.test(key)) return Promise.resolve(null);
+  let url, configured;
+  try { url = new URL(getUrlSync(key)); configured = new URL('https://' + qiniuDomain); } catch (_) { return Promise.resolve(null); }
+  if (url.protocol !== 'https:' || url.host !== configured.host || url.username || url.password) return Promise.resolve(null);
+  const max = 100 * 1024 * 1024;
+  return new Promise((resolve) => {
+    let finished = false, timer, req;
+    const done = (value) => { if (finished) return; finished = true; clearTimeout(timer); resolve(value); };
+    try {
+      const { agentForAiRequest } = require('./ai-proxy');
+      req = https.request(url, { method: 'GET', agent: agentForAiRequest(url) }, (res) => {
+        if (res.statusCode !== 200 || Number(res.headers['content-length']) > max) { res.destroy(); return done(null); }
+        let total = 0; const parts = [];
+        res.on('data', (chunk) => { total += chunk.length; if (total > max) { res.destroy(); done(null); } else parts.push(chunk); });
+        res.on('error', () => done(null));
+        res.on('aborted', () => done(null));
+        res.on('end', () => done(Buffer.concat(parts)));
+      });
+      req.on('error', () => done(null));
+      timer = setTimeout(() => { req.destroy(); done(null); }, 30000);
+      req.end();
+    } catch (_) { if (req) req.destroy(); done(null); }
+  });
+}
+
+/** OSS 混合读取优先已有本地文件；缺失时仍读原 key 的云端对象。七牛分流保持不变。 */
 async function readBuffer(key) {
-  if (!key) return null;
+  if (typeof key !== 'string' || !key || key.startsWith('/') || key.includes('\\') || key.split('/').includes('..') || /^[a-z][a-z0-9+.-]*:/i.test(key) || /[?#\x00-\x1f\x7f]/.test(key)) return null;
+  if (ossClient) {
+    const abs = localFilePath(key);
+    if (abs) return fs.readFileSync(abs);
+  }
+  if (qiniuCovers(key)) {
+    const b = await readQiniuBuffer(key);
+    if (b) return b;
+  }
   if (ossClient) {
     try {
       const r = await ossClient.get(key);
       if (r && r.content) return r.content;
     } catch (e) { /* 对象不在桶里 */ }
   }
-  const abs = localPath(key);
-  if (fs.existsSync(abs)) return fs.readFileSync(abs);
+  const abs = localFilePath(key);
+  if (abs) return fs.readFileSync(abs);
   return null;
+}
+
+/** Preflight destructive callers before they remove database rows or retained local copies.
+ * Uses the unchanged cloud-write policy, never the local-first read routing. */
+function assertDeleteAllowed(key) {
+  if (key && (qiniuCovers(key) || (ossClient && !LOCAL_FOLDERS.includes(folderOf(key))))) assertCloudWritable();
 }
 
 /** 删除文件 */
 async function deleteFile(key) {
   if (!key) return;
   if (qiniuCovers(key)) {
+    assertCloudWritable();
     try {
       await new Promise((resolve) => qiniuCtx.bucketMgr.delete(qiniuCtx.bucket, key, () => resolve()));
     } catch (e) { /* ignore */ }
     return;
   }
   if (ossClient && !LOCAL_FOLDERS.includes(folderOf(key))) {
+    assertCloudWritable();
     try { await ossClient.delete(key); } catch (e) { /* ignore */ }
     return;
   }
@@ -365,7 +483,7 @@ function getUrlSync(key, downloadName) {
     }
     return base;
   }
-  if (ossClient) {
+  if (ossClient && isCloudKey(key)) {
     // ① 配了 CDN 且是「在线播放/预览」→ 返回固定直链，交给 CDN 缓存和加速
     //    下载（要指定保存文件名）仍走签名 URL，因为 CDN 直链无法动态设置响应头
     if (CDN_DOMAIN && !downloadName) {
@@ -405,17 +523,17 @@ function driverName() {
   return '本地磁盘';
 }
 
-/** 该 key 是否存在云端（/api/file 据此决定重定向还是直接回本地文件） */
+/** 该 key 是否应走云端读取；仅选择路由，不证明云端对象存在。 */
 function isCloudKey(key) {
-  if (LOCAL_FOLDERS.includes(folderOf(key))) return false;   // 本地目录（如 phonics 讲义）即使在云驱动下也走服务器磁盘
-  if (ossClient) return true;
+  if (ossClient) return !localFilePath(key); // LOCAL_FOLDERS controls new writes, not historic OSS reads.
+  if (LOCAL_FOLDERS.includes(folderOf(key))) return false;
   return qiniuCovers(key);
 }
 
 module.exports = {
-  saveFile, deleteFile, getUrl, getUrlSync, localPath, readBuffer,
+  saveFile, deleteFile, assertDeleteAllowed, getUrl, getUrlSync, localPath, localFilePath, readBuffer,
   isOss, isQiniu, isCloudKey, usingCdn, driverName, getQiniuDomain,
   isVideoKey, initVideoUpload, signVideoPart, completeVideoUpload, abortVideoUpload, videoExists,
-  DRIVER, CDN_DOMAIN, QINIU_FOLDERS, LOCAL_FOLDERS,
-  BANK_BUCKET, isBankKey, bucketFor,
+  DRIVER, CLOUD_READ_ONLY, CDN_DOMAIN, QINIU_FOLDERS, LOCAL_FOLDERS,
+  BANK_BUCKET, isBankKey, bucketFor, bankImageKey, bankImageProxyUrl,
 };

@@ -1,0 +1,2 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
+test('quiz carries approved warm green rounded treatment without changing answer handling',()=>{const css=fs.readFileSync('public/css/ui-quiz-20261108.css','utf8');assert.match(css,/--uq-blue:#0c5947/);assert.match(css,/rounded-quiz-focus/);assert.match(css,/background:#ffc354/);const js=fs.readFileSync('public/js/bank.js','utf8');assert.match(js,/专注这一题/);assert.match(js,/id="qzCheckOne"/);assert.match(js,/id="qzBarFill"/);});

@@ -1,0 +1,10 @@
+body.t11 .kt-drag { cursor: grab; color: #718096; padding: 3px 5px; user-select: none; }
+body.t11 .kt-drag:active { cursor: grabbing; }
+body.t11 .kt-map-selects, body.t11 .kt-map-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+body.t11 .kt-map-selects { margin: 12px 0; }
+body.t11 .kt-map-selects select, body.t11 .kt-map-panels input.inp { width: 100%; }
+body.t11 .kt-map-list { height: 310px; overflow: auto; border: 1px solid #dce3ea; border-radius: 6px; }
+body.t11 .kt-map-item { display: block; width: 100%; border: 0; background: transparent; text-align: left; padding: 8px; overflow-wrap: anywhere; cursor: pointer; }
+body.t11 .kt-map-item:hover, body.t11 .kt-map-item.selected { background: #eaf4ff; }
+body.t11 .kt-map-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; }
+@media (max-width: 600px) { body.t11 .kt-map-panels { grid-template-columns: 1fr; } body.t11 .kt-map-list { height: 150px; } }

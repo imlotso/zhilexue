@@ -27,12 +27,12 @@ async function viewAireport() {
       <div class="card-h"><h3>AI学情诊断</h3><span class="tag gray">江苏地区学情口径</span></div>
       <div class="ar-entry">
         <button class="ar-entry-card" id="arPcBtn">
-          <span class="ar-entry-ic">💻</span>
+          <span class="ar-entry-ic">${ic('doc')}</span>
           <span class="ar-entry-t">电脑上传 · 分析</span>
           <span class="ar-entry-d">在本机选择试卷照片 / PDF 上传，填写学生信息后开始分析</span>
         </button>
         <button class="ar-entry-card" id="arScanBtn">
-          <span class="ar-entry-ic">📱</span>
+          <span class="ar-entry-ic">${ic('phone')}</span>
           <span class="ar-entry-t">手机扫码 · 分析</span>
           <span class="ar-entry-d">微信扫一扫，在手机上拍照上传试卷，报告自动汇总到这里</span>
         </button>
@@ -94,7 +94,7 @@ function openArUpload() {
         <div class="field"><label>报告标题</label><input class="input" id="arTitle" placeholder="留空自动生成"></div>
       </div>
       <div class="ar-upload-zone" id="arZone">
-        <b>📄 上传试卷</b>
+        <b> 上传试卷</b>
         <p>支持照片（png / jpg / webp）和 PDF，最多 6 张；PDF 自动按页拆分</p>
         <label class="btn primary-sm">选择文件<input type="file" id="arFiles" accept="image/*,.pdf,application/pdf" multiple style="display:none"></label>
       </div>
@@ -240,7 +240,7 @@ async function startArAnalysis(w, err) {
 async function viewAireportView() {
   const id = (location.hash.split('?')[1] || '').match(/id=(\d+)/);
   AR.viewId = id ? id[1] : '';
-  if (!AR.viewId) return { html: '<div class="card"><div class="empty"><div class="e-ic">🤖</div>未指定报告，去 <a href="#/aireport">AI学情诊断</a> 选择一份</div></div>' };
+  if (!AR.viewId) return { html: '<div class="card"><div class="empty"><div class="e-ic"></div>未指定报告，去 <a href="#/aireport">AI学情诊断</a> 选择一份</div></div>' };
   const r = await api('/api/admin/report/' + AR.viewId);
 
   if (r.status === 'pending') {
@@ -249,7 +249,7 @@ async function viewAireportView() {
       <div style="margin-top:10px"><a class="btn ghost" href="#/aireport">← 返回列表</a></div></div></div>` };
   }
   if (r.status === 'failed') {
-    return { html: `<div class="card"><div class="empty"><div class="e-ic">❌</div>分析失败：${esc(r.error || '未知原因')}
+    return { html: `<div class="card"><div class="empty"><div class="e-ic"></div>分析失败：${esc(r.error || '未知原因')}
       <div style="margin-top:10px"><button class="btn primary-sm" id="arRetry">重新分析</button> <a class="btn ghost" href="#/aireport">← 返回列表</a></div></div></div>`,
       after: () => { const b = document.getElementById('arRetry'); if (b) b.onclick = async () => { await api('/api/admin/report/' + AR.viewId + '/retry', { method: 'POST' }); toast('已重新发起', 'ok'); render(); }; } };
   }

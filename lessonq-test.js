@@ -65,7 +65,7 @@ function cleanup() {
   const uB = db.prepare("INSERT INTO users (role,username,password,name,grade,term,allow_speed,allow_seek,expire_at,status,created_at) VALUES ('student',?,?,?,?,?,1,1,'2099-12-31',1,?)")
     .run('t6s' + uniq + 'b', hash('123456'), 'T6学生乙', '七年级', '上册', now).lastInsertRowid;
   const login = async (u, role) => (await req('/api/login', { method: 'POST', body: { username: u, password: '123456', role } })).data.token;
-  const AT = await login('15152099970', 'admin');
+  const AT = await login('zlx-ci-admin', 'admin');
   const TA = await login('t6s' + uniq + 'a', 'student');
   const TB = await login('t6s' + uniq + 'b', 'student');
   log(AT && TA && TB, '造数 + 登录：1 门课、1 个小分组（2 个视频）、1 个不分组视频、7 道题（含 1 道问答）');

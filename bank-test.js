@@ -61,7 +61,7 @@ makeBankTemplate(tmp, '英语');
   const cloze = items.filter((q) => q.material && q.type === 'single');
   t('模板自洽：完形/阅读原文沿用', cloze.length >= 2);
   const r = items.find((q) => q.type === 'sort' && q.stem === '将所给的词块排列成一句通顺的话');
-  t('模板自洽：组合题词块拆分', r && r.options.length === 4 && r.answer === '1,2,3,4');
+  t('模板自洽：组合题词块拆分但不把原顺序当正式答案', r && r.options.length === 4 && r.answer === '');
   const sortQ = items.find((q) => q.type === 'sort' && q.answer.includes(','));
   t('模板自洽：排序答案为序号序列', !sortQ || /^[0-9,]+$/.test(sortQ.answer));
 }

@@ -344,15 +344,15 @@ function mockWrongAnalysis() {
 
 /**
  * 识别单道错题并生成举一反三变式题
- * @param {{buf:Buffer, mime?:string, hint?:string}} p
+ * @param {{buf?:Buffer, mime?:string, images?:Array<{buf:Buffer,mime:string}>, hint?:string}} p
  */
-async function analyzeWrongQuestion({ buf, mime, hint }) {
+async function analyzeWrongQuestion({ buf, mime, images, hint }) {
   const cfg = getConfig();
   if (cfg.mock) return { info: mockWrongAnalysis(), model: 'mock（演示模式）' };
   const { text, model } = await visionChat({
     system: WRONG_SYSTEM_PROMPT,
     userText: hint || '请识别这道题，并按约定 JSON 输出 2 道举一反三的变式题。',
-    images: [{ buf, mime }],
+    images: Array.isArray(images) && images.length ? images : [{ buf, mime }],
     timeoutMs: 180000,
     temperature: 0.3,
   });

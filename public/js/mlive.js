@@ -11,6 +11,31 @@
   'use strict';
   var BASE = '/vendor/mathlive/';
   var loading = null;
+  // MathLive 0.109.2 的简体中文词典遗漏了插入子菜单等文案。
+  // 使用库的词典扩展接口，不改供应商代码及公式模板。
+  var CHINESE_STRINGS = {
+    'tooltip.cut to clipboard': '剪切到剪贴板',
+    'tooltip.paste from clipboard': '从剪贴板粘贴',
+    'tooltip.menu': '公式菜单',
+    'tooltip.toggle virtual keyboard': '切换虚拟键盘',
+    'menu.insert': '插入',
+    'menu.insert.abs': '绝对值',
+    'menu.insert.nth-root': 'n 次根',
+    'menu.insert.log-base': '以 a 为底的对数',
+    'menu.insert.heading-calculus': '微积分',
+    'menu.insert.derivative': '导数',
+    'menu.insert.nth-derivative': 'n 阶导数',
+    'menu.insert.integral': '积分',
+    'menu.insert.sum': '求和',
+    'menu.insert.product': '连乘',
+    'menu.insert.heading-complex-numbers': '复数',
+    'menu.insert.modulus': '模',
+    'menu.insert.argument': '辐角',
+    'menu.insert.real-part': '实部',
+    'menu.insert.imaginary-part': '虚部',
+    'menu.insert.conjugate': '共轭',
+    'menu.copy-as-typst': '复制为 Typst',
+  };
 
   /** 懒加载 MathLive；失败时 reject，调用方提示"公式键盘加载失败" */
   function load() {
@@ -50,9 +75,11 @@
       '<div class="t8-f"><button type="button" class="btn ghost t8-cancel">取消</button><button type="button" class="btn primary t8-ok" disabled>插入</button></div>' +
       '</div>';
     document.body.appendChild(mask);
-    var mf = null;
+    if (typeof DialogUX !== 'undefined') DialogUX.bind(mask);
+    var mf = null, keyboardHost = null;
     function close() {
       try { if (window.mathVirtualKeyboard) window.mathVirtualKeyboard.hide(); } catch (e) { /* 忽略 */ }
+      if (window.mathVirtualKeyboard && window.mathVirtualKeyboard.container === keyboardHost) window.mathVirtualKeyboard.container = document.body;
       mask.remove();
     }
     mask.querySelector('.t8-x').onclick = close;
@@ -61,21 +88,53 @@
     var ok = mask.querySelector('.t8-ok');
     ok.onclick = function () {
       var latex = mf ? String(mf.getValue('latex') || '').trim() : '';
-      if (!latex) { mask.querySelector('.t8-tip').textContent = '还没有输入公式'; return; }
+      if (!latex) {
+        mask.querySelector('.t8-tip').textContent = '还没有输入公式';
+        // 点击插入会移走焦点；空输入时归还给公式框，让屏幕键盘可以继续输入。
+        if (mf) mf.focus();
+        return;
+      }
       close();
       if (opt.onOk) opt.onOk(opt.delimit === false ? latex : '\\(' + latex + '\\)', latex);
     };
     load().then(function () {
+      if (!mask.isConnected) return;
+      var ME = customElements.get('math-field');
+      ME.strings = { 'zh-cn': CHINESE_STRINGS };
+      ME.locale = 'zh-cn';
       mf = document.createElement('math-field');
       mf.className = 't8-mf';
+      mf.setAttribute('aria-label', '公式输入框');
       mf.setAttribute('math-virtual-keyboard-policy', 'manual');   // 我们自己在下面 show()，不依赖"是不是触屏设备"
       mf.textContent = opt.latex || '';
       var box = mask.querySelector('.t8-box');
       box.innerHTML = '';
+      // 库在脚本初始化时缓存了 SVG 名称，切 locale 不会更新它们。
+      function localizeControls() {
+        var root = mf.shadowRoot;
+        if (!root) return;
+        [['menu-toggle', '公式菜单'], ['virtual-keyboard-toggle', '切换虚拟键盘']].forEach(function (item) {
+          var control = root.querySelector('[part="' + item[0] + '"]');
+          if (!control) return;
+          control.setAttribute('aria-label', item[1]);
+          control.setAttribute('title', item[1]);
+          var icon = control.querySelector('svg');
+          if (icon) { icon.setAttribute('aria-label', item[1]); icon.setAttribute('aria-hidden', 'true'); }
+        });
+      }
+      mf.addEventListener('mount', localizeControls);
       box.appendChild(mf);
+      localizeControls();
+      // 放进同一焦点范围，但不参与弹层的横向 flex 布局。
+      keyboardHost = document.createElement('div');
+      keyboardHost.className = 't8-keyboard-host';
+      keyboardHost.style.cssText = 'position:fixed;inset:0;pointer-events:none';
+      mask.appendChild(keyboardHost);
+      if (window.mathVirtualKeyboard) window.mathVirtualKeyboard.container = keyboardHost;
       ok.disabled = false;
       mf.addEventListener('keydown', function (e) { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) ok.click(); });
       setTimeout(function () {
+        if (!mask.isConnected) return;
         mf.focus();
         try { if (window.mathVirtualKeyboard) window.mathVirtualKeyboard.show(); } catch (e) { /* 忽略 */ }
       }, 60);

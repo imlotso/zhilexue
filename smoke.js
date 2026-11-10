@@ -35,7 +35,7 @@ const fileForm = (fields, fileName, content) => {
 
   // ---------- 管理端 ----------
   console.log('【校长后台】');
-  const adminLogin = await req('/api/login', { method: 'POST', body: { username: '15152099970', password: '123456', role: 'admin' } });
+  const adminLogin = await req('/api/login', { method: 'POST', body: { username: 'zlx-ci-admin', password: '123456', role: 'admin' } });
   log(adminLogin.code === 0, '校长登录', adminLogin.msg);
   const AT = adminLogin.data && adminLogin.data.token;
   if (!AT) return done();
@@ -530,7 +530,7 @@ const fileForm = (fields, fileName, content) => {
     log(!!CT, 'B1 取得采集票据', tk.msg);
     const bm = await req(MF + '/capture/bookmarklet?base=' + encodeURIComponent('http://example.test'), { token: AT });
     const bmJs = (bm.data && bm.data.js) || '';
-    log(bmJs.includes("API='http://example.test/api/mfcap/push'") && !bmJs.includes('/api/admin/bank/mf/capture/push'), 'B1 书签脚本回传地址是 /api/mfcap/push（不再是后台接口）');
+    log(bmJs.includes('var BASE="http://example.test";') && bmJs.includes("var API=BASE+'/api/mfcap/push';") && bmJs.includes('fetch(API,') && !bmJs.includes('/api/admin/bank/mf/capture/push'), 'B1 书签脚本回传地址是 /api/mfcap/push（不再是后台接口）');
     log(!/else\{\s*try\{localStorage\.removeItem/.test(bmJs) && /回传失败/.test(bmJs), 'B1 书签脚本回传失败时不再无条件清除本地票据');
     const pre = await rawReq('/api/mfcap/push', { method: 'OPTIONS', headers: { Origin: 'https://zujuan.xkw.com', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization,content-type' } });
     const allowM = String(pre.h.get('access-control-allow-methods') || ''), allowH = String(pre.h.get('access-control-allow-headers') || '').toLowerCase();
@@ -566,8 +566,11 @@ const fileForm = (fields, fileName, content) => {
     log(noStage.code !== 0 && /学段/.test(noStage.msg) && noSub.code !== 0 && /学科/.test(noSub.msg), 'B7 缺学段 / 缺学科的知识树导入被拒，并给出中文提示', `${noStage.msg} | ${noSub.msg}`);
     const capTreeNo = await rawReq('/api/mfcap/tree-push', { method: 'POST', headers: { Authorization: 'Bearer ' + CT }, body: { site: 'zujuan', root_id: 'r0', nodes: nodesA } });
     log(capTreeNo.j && capTreeNo.j.code !== 0 && /学段|学科/.test(capTreeNo.j.msg), 'B7 注入脚本走的 /api/mfcap/tree-push 同样要求学段学科');
-    const existingTree = trees0.find((t) => t.kind === 'knowledge' && t.stage === 'senior' && t.subject === '生物');
-    const imp1 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0', root_name: 'R0树' + uniq, stage: '高中', subject: '生物', nodes: nodesA } });
+    const missingKind = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', stage: 'senior', subject: '生物', nodes: nodesA } });
+    const missingEdition = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', stage: 'senior', subject: '生物', kind: 'knowledge', nodes: nodesA } });
+    log(missingKind.code !== 0 && /章节树|知识点树/.test(missingKind.msg) && missingEdition.code !== 0 && /版本/.test(missingEdition.msg), 'B7 未选择树类型或版本时拒绝导入');
+    const existingTree = trees0.find((t) => t.kind === 'knowledge' && t.stage === 'senior' && t.subject === '生物' && !t.edition);
+    const imp1 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0', root_name: 'R0树' + uniq, stage: '高中', subject: '生物', kind: 'knowledge', edition_selected: true, nodes: nodesA } });
     log(imp1.code === 0 && imp1.data.created === 3 && (!existingTree || imp1.data.tree_id === existingTree.id), 'B7 带学段学科（高中/生物）导入：新增 3 个节点' + (existingTree ? '，并入已有的树' : '，新建树'), imp1.msg);
     const nodesB = [
       { site_node_id: 'r0b-1', name: 'R0根章' + uniq, parent_site_node_id: null, sort: 0 },
@@ -575,14 +578,24 @@ const fileForm = (fields, fileName, content) => {
       { site_node_id: 'r0b-3', name: 'R0点' + uniq, parent_site_node_id: 'r0b-2', sort: 0 },
       { site_node_id: 'r0b-4', name: 'R0新点' + uniq, parent_site_node_id: 'r0b-2', sort: 1 },
     ];
-    const imp2 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0-other', root_name: '另一个根' + uniq, stage: 'senior', subject: '生物', nodes: nodesB } });
+    const repeatBody = { site: 'zujuan', root_id: 'r0-other', root_name: '另一个根' + uniq, stage: 'senior', subject: '生物', kind: 'knowledge', edition_selected: true, nodes: nodesB };
+    const preview2 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { ...repeatBody, dry: true } });
+    const previewNodesResponse = await req(MF + `/trees/${imp1.data.tree_id}/nodes`, { token: AT });
+    const afterPreview = (previewNodesResponse.data || {}).list || [];
+    log(preview2.code === 0 && previewNodesResponse.code === 0 && preview2.data.created === 1 && preview2.data.merged === 3 && !afterPreview.some((n) => n.name === 'R0新点' + uniq),
+      'B7 不同来源 ID 的同路径预览只统计，不提前新增节点', preview2.msg);
+    const imp2 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: repeatBody });
     log(imp2.code === 0 && imp2.data.tree_id === imp1.data.tree_id && imp2.data.created === 1, 'B7 同学段学科再导入（站点节点 id 不同、名字相同）：并入同一棵树，同父同名不重复建，只新增 1 个', imp2.msg);
     const trees1 = ((await req(MF + '/trees', { token: AT })).data || {}).list || [];
-    log(trees1.filter((t) => t.kind === 'knowledge' && t.stage === 'senior' && t.subject === '生物').length === 1 && trees1.filter((t) => !t.stage || !t.subject).length === orphan0,
-      'B7 没有产生「学段学科为空」的孤儿树；同学段学科的知识树只有一棵');
+    log(trees1.filter((t) => t.kind === 'knowledge' && t.stage === 'senior' && t.subject === '生物' && !t.edition).length === 1 && trees1.filter((t) => !t.stage || !t.subject).length === orphan0,
+      'B7 没有产生「学段学科为空」的孤儿树；同学段学科和版本的知识树只有一棵');
     const impNodes = ((await req(MF + `/trees/${imp1.data.tree_id}/nodes`, { token: AT })).data || {}).list || [];
     const rootN = impNodes.find((n) => n.name === 'R0根章' + uniq), midN = impNodes.find((n) => n.name === 'R0节' + uniq), leafN = impNodes.find((n) => n.name === 'R0点' + uniq);
     log(rootN && midN && leafN && !rootN.parent_id && midN.parent_id === rootN.id && leafN.parent_id === midN.id, 'B7 导入后层级正确（根 → 节 → 点）');
+    const imp3 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: repeatBody });
+    const repeatedNodes = ((await req(MF + `/trees/${imp1.data.tree_id}/nodes`, { token: AT })).data || {}).list || [];
+    log(imp3.code === 0 && imp3.data.created === 0 && JSON.stringify(repeatedNodes) === JSON.stringify(impNodes),
+      'B7 重复采集新增 0，已有节点 ID、顺序和层级保持不变', imp3.msg);
 
     // —— B10：节点题数 = 自身 + 所有子孙节点上的题目去重数 ——
     const mkQ = async (stem, nodes, extra = {}) => (await req(MF + '/questions', { method: 'POST', token: AT, body: Object.assign({ type: 'single', stem: stem + uniq, options: ['甲', '乙'], answer: 'A', subject: '生物', stage: 'senior', nodes }, extra) })).data.id;
@@ -619,12 +632,15 @@ const fileForm = (fields, fileName, content) => {
     log(nonBank.status === 401, 'B9 票据只对 bank/ 目录的图片有效：videos/ 下的文件即使签了名也不放行', 'status=' + nonBank.status);
     const asLogin = await req('/api/admin/students', { token: ftOf(imgUrl) });
     log(asLogin.code === 401, 'B9 票据不能当登录令牌用');
-    // 题目里存的是不带 ft 的原始地址：读题目时自动换成新票据（后台 + 学生端）
+    // 题图稳定地址可从对象 key 生成；历史上存了过期 ft 的题目读取时也要换成有效票据。
     const rawImg = imgUrl.replace(/&ft=[^&]+/, '');
-    const qImg = await mkQ('R0带图题', [], { images: [rawImg] });
+    const imageStore = require('./src/storage');
+    log(imageStore.bankImageProxyUrl(imgKey) === rawImg && imageStore.bankImageKey(imgUrl, 'bank') === imgKey, 'B9 题图稳定地址可由对象 key 恢复并识别旧票据');
+    const legacyImg = rawImg + '&ft=' + signFileTicket(imgKey, -60);
+    const qImg = await mkQ('R0带图题', [], { images: [legacyImg] });
     const qGet = await req(MF + '/questions/' + qImg, { token: AT });
     const gotImgs = (qGet.data && (qGet.data.question || qGet.data).images) || [];
-    log(gotImgs.length === 1 && /&ft=\d+\./.test(gotImgs[0]), 'B9 后台读题目时题图地址带票据', gotImgs[0]);
+    log(gotImgs.length === 1 && /&ft=\d+\./.test(gotImgs[0]) && gotImgs[0] !== legacyImg, 'B9 后台读题目时旧过期票据被替换', gotImgs[0]);
     const imgFetch2 = gotImgs[0] ? await fetch(BASE + gotImgs[0]) : null;
     log(imgFetch2 && imgFetch2.status === 200, 'B9 用题目里返回的图片地址能直接取到图');
 

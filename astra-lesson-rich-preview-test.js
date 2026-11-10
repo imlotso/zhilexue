@@ -1,0 +1,12 @@
+'use strict';
+const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');const path=require('node:path');
+const source=fs.readFileSync(path.join(__dirname,'public/admin/bankui.js'),'utf8');const api=fs.readFileSync(path.join(__dirname,'public/js/api.js'),'utf8');
+const box={esc:v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')};vm.runInNewContext(api.slice(api.indexOf('function optText('),api.indexOf('/** 展示用文本')),box);vm.runInNewContext(source,box);
+const q=(more={})=>({id:1,type:'single',stem:'题干',options:['甲','乙'],answer:'A',images:[],...more});
+test('lesson preview includes reading material',()=>assert.match(box.bkQRich(q({material:'阅读第一行\n第二行'}),0),/阅读第一行<br>第二行/));
+test('lesson preview renders option image at its option position',()=>assert.match(box.bkQRich(q({options:['选项[图1]'],images:['/opt.png']}),0),/选项<img[^>]*src="\/opt.png"/));
+test('lesson preview includes matching prompts',()=>assert.match(box.bkQRich(q({type:'sort',match_prompts:['左侧[图1]'],images:['/prompt.png']}),0),/左侧<img/));
+test('lesson preview renders analysis and answer figures',()=>{const h=box.bkQRich(q({answer:'[图1]',analysis:'过程\n[图2]',images:['/ans.png','/analysis.png']}),0);assert.match(h,/答案<\/span><img[^>]*src="\/ans.png"/);assert.match(h,/过程<br><img[^>]*src="\/analysis.png"/);});
+test('used image is not duplicated in rest gallery',()=>{const h=box.bkQRich(q({material:'[图1]',images:['/used.png','/rest.png']}),0);assert.equal((h.match(/src="\/used.png"/g)||[]).length,1);assert.equal((h.match(/src="\/rest.png"/g)||[]).length,1);});
+test('rich content escapes html while preserving latex',()=>{const h=box.bkQRich(q({material:'<script>x</script> \\(x\\)',analysis:'<img onerror=x>'}),0);assert.match(h,/&lt;script&gt;/);assert.match(h,/\\\(x\\\)/);assert.doesNotMatch(h,/<script>|<img onerror/);});
+test('missing image placeholder remains visible and does not produce invalid image',()=>{const h=box.bkQRich(q({material:'[图8]'}),0);assert.match(h,/\[图8\]/);assert.doesNotMatch(h,/src="undefined"/);});

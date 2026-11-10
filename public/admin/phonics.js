@@ -572,7 +572,7 @@ function phCourseForm(item) {
         <div id="phCoverBox">${coverPreview()}</div>
         <div style="display:flex;gap:8px;margin-top:8px">
           <button class="btn ghost" id="phCoverUpBtn">${ic('plus')} 上传封面</button>
-          <button class="btn ghost" id="phCoverAiBtn">✨ AI 生成封面</button>
+          <button class="btn ghost" id="phCoverAiBtn"> AI 生成封面</button>
           <input type="file" id="phCoverFile" accept="image/*" hidden>
         </div></div>
       <div class="field"><label>课程配套讲义（PDF / 图片 / 文档，选完自动上传存服务器；整个课程共用，学生端课程页「资料下载」处可下载）</label>
@@ -603,14 +603,14 @@ function phCourseForm(item) {
         const title = titleInput.value.trim();
         if (!title) return toast('请先填写课程标题，AI 会根据标题画封面', 'warn');
         aiBtn.disabled = true;
-        aiBtn.textContent = '✨ AI 绘制中…（约 10 秒）';
+        aiBtn.textContent = ' AI 绘制中…（约 10 秒）';
         try {
           const r = await api('/api/admin/phonics/course-cover-ai', { method: 'POST', body: { title } });
           cover = r.key;
           refresh();
           toast(r.fallback ? 'AI 忙，已用模板封面生成' : '封面已生成', 'ok');
         } catch (e) { toast(e.message || '生成失败', 'warn'); }
-        finally { aiBtn.disabled = false; aiBtn.textContent = '✨ AI 生成封面'; }
+        finally { aiBtn.disabled = false; aiBtn.textContent = ' AI 生成封面'; }
       };
       /* 课程讲义行（与课时讲义同一套绑定） */
       const docBox = w.querySelector('#phCourseDocsBox');
@@ -640,7 +640,7 @@ function phCourseDocsForm(c) {
   modal({
     title: '课程资料：' + (c.title || ''),
     body: `
-      <p class="w-tip" style="margin:0 0 10px">整个课程共用的配套讲义（PDF / 图片 / 文档），选完自动上传存服务器；学生端课程页「📄 资料下载」处可下载，此处每行也可直接下载。</p>
+      <p class="w-tip" style="margin:0 0 10px">整个课程共用的配套讲义（PDF / 图片 / 文档），选完自动上传存服务器；学生端课程页「 资料下载」处可下载，此处每行也可直接下载。</p>
       <div id="phCourseDocsBox">${phCiDocsHTML(docs)}</div>`,
     okText: '保存',
     onMount: (w) => {
@@ -688,7 +688,7 @@ function phCourseItemForm(item) {
       const titleInput = w.querySelector('#phITitle');
       const fname = (n) => String(n || '').replace(/\.[^.]+$/, '');
       const renderBatch = () => {
-        listEl.innerHTML = batch.map((b, i) => `<div style="font-size:12.5px;color:var(--text2)">📄 ${esc(i + 1 + '. ' + fname(b.name))} — ${b.key ? '<span style="color:var(--ok,#0e9f5f)">已上传</span>' : esc(b.status || '')}</div>`).join('');
+        listEl.innerHTML = batch.map((b, i) => `<div style="font-size:12.5px;color:var(--text2)"> ${esc(i + 1 + '. ' + fname(b.name))} — ${b.key ? '<span style="color:var(--ok,#0e9f5f)">已上传</span>' : esc(b.status || '')}</div>`).join('');
         if (batch.length > 1) { titleInput.value = ''; titleInput.disabled = true; titleInput.placeholder = '批量模式：每个课时标题自动用文件名'; }
         else if (!batch.length) { titleInput.disabled = false; }
       };
@@ -824,7 +824,7 @@ function phCourseHTML() {
   <div class="card">
     <div class="card-h"><h3>${ic('play')} 系统课课程</h3>
       <button class="btn primary-sm" id="phCNew">${ic('plus')} 新建课程</button></div>
-    <p class="w-tip" style="margin:0 0 10px">学生端「音标训练 → 系统课」按排序显示课程卡片；点「管理课时」给课程上传多个视频（按分类分组展示）。编辑课程里可上传或 AI 生成封面；点「资料」上传/下载课程配套讲义（学生端课程页「📄 资料下载」可下载）。</p>
+    <p class="w-tip" style="margin:0 0 10px">学生端「音标训练 → 系统课」按排序显示课程卡片；点「管理课时」给课程上传多个视频（按分类分组展示）。编辑课程里可上传或 AI 生成封面；点「资料」上传/下载课程配套讲义（学生端课程页「 资料下载」可下载）。</p>
     ${courses.length ? `<table><thead><tr><th>封面</th><th>排序</th><th>课程标题</th><th>说明</th><th>课时数</th><th style="width:220px">操作</th></tr></thead><tbody>${courses.map((c) => {
       const thumb = c.cover ? `/api/file?key=${encodeURIComponent(c.cover)}&token=${encodeURIComponent(Auth.token || '')}` : '';
       return `
@@ -1027,7 +1027,7 @@ function phQuizHTML() {
     <div class="card-h"><h3>${ic('book')} 训练场题库</h3>
       <div style="display:flex;gap:8px">
         <button class="btn ghost" id="phQTemplate">⬇ 下载导入模板</button>
-        <button class="btn ghost" id="phQImport">📥 批量导入</button>
+        <button class="btn ghost" id="phQImport"> 批量导入</button>
         <input type="file" id="phQImportFile" accept=".xlsx,.xls" hidden>
         <button class="btn primary-sm" id="phQNew">${ic('plus')} 新增题目</button>
       </div></div>
@@ -1088,7 +1088,7 @@ function phQuizBind() {
         const errs = (j.data.errors || []);
         toast('已导入 ' + j.data.added + ' 题' + (j.data.failed ? '，' + j.data.failed + ' 条格式错误被跳过' + (errs.length ? '：' + errs[0] : '') : ''), errs.length ? 'warn' : 'ok');
       } catch (e) { toast(e.message || '导入失败', 'warn'); }
-      finally { ib.disabled = false; ib.textContent = '📥 批量导入'; ifile.value = ''; }
+      finally { ib.disabled = false; ib.textContent = ' 批量导入'; ifile.value = ''; }
     };
   }
   document.querySelectorAll('[data-phqmode]').forEach((b) => b.onclick = () => { PH.quizMode = b.dataset.phqmode; render(); });
@@ -1121,8 +1121,8 @@ async function viewPhonics() {
   }
   /* 页内子版块导航按钮：点一个进入一个（字母乐园 / 音标训练） */
   const TABS = isLetter
-    ? [['list', '📋 字母列表'], ['song', '🎵 字母歌视频'], ['material', '📄 配套资料']]
-    : [['list', '🔊 音标列表'], ['course', '🎬 系统课课程'], ['quiz', '📝 训练题库'], ['material', '📄 配套资料']];
+    ? [['list', ' 字母列表'], ['song', ' 字母歌视频'], ['material', ' 配套资料']]
+    : [['list', ' 音标列表'], ['course', ' 系统课课程'], ['quiz', ' 训练题库'], ['material', ' 配套资料']];
   const tabBar = `
     <div class="card" style="margin-bottom:14px">
       <div class="toolbar" style="margin:0">

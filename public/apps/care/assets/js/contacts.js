@@ -61,6 +61,7 @@
     }).join('');
 
     document.getElementById('ctEmpty').hidden = rows.length > 0;
+    document.getElementById('ctEmpty').textContent = all.length ? '未找到符合筛选条件的沟通记录，请调整或重置筛选。' : '暂无沟通记录，点击「添加沟通记录」开始记录。';
     document.getElementById('ctMeta').textContent =
       '共 ' + rows.length + ' 条' + (rows.length !== all.length ? '（全部 ' + all.length + ' 条）' : '');
 
@@ -86,7 +87,7 @@
   function view(id) {
     var c = store.communications.get(id);
     if (!c) return;
-    ui.modal({
+    var detail = ui.modal({
       title: '家校沟通记录详情',
       wide: true,
       bodyHTML:
@@ -101,10 +102,14 @@
         '<div class="detail-row"><div class="detail-k">沟通内容</div><div class="detail-v" style="white-space:pre-wrap">' + esc(c.content || '—') + '</div></div>' +
         (c.audioUrl
           ? '<div class="detail-row"><div class="detail-k">沟通录音</div><div class="detail-v">' +
-            '<audio controls style="width:100%" src="' + esc(c.audioUrl) + '"></audio></div></div>'
+            '<button class="btn" id="detailAudio" type="button">安全收听录音</button></div></div>'
           : '') +
         '<div class="detail-row"><div class="detail-k">跟进结果</div><div class="detail-v">' + esc(c.result || '—') + '</div></div>',
       buttons: [{ text: '关闭', cls: 'btn btn-primary' }]
+    });
+    var audioButton = $('#detailAudio', detail.el);
+    if (audioButton) audioButton.addEventListener('click', function () {
+      ui.playAudio(c.audioUrl, '沟通录音 · ' + (c.studentName || ''));
     });
   }
 
@@ -179,7 +184,7 @@
       '</select></label>' +
 
       '<div class="field full"><span class="field-lab">沟通内容 *（可直接手动输入）</span>' +
-      '<textarea class="input" id="fContent" rows="6" placeholder="可直接手动输入沟通内容"></textarea>' +
+      '<textarea aria-label="沟通内容" aria-required="true" class="input" id="fContent" rows="6" placeholder="可直接手动输入沟通内容"></textarea>' +
       '</div>' +
 
       '<div class="field full"><span class="field-lab">沟通录音（选填，上传后可在记录中收听）</span>' +
@@ -210,15 +215,18 @@
     bind(ctx, refs);
 
     function saveRecord(c) {
+      if (refs.audioPending) { ui.toast('录音正在上传，请稍候再保存', 'err'); return false; }
       var sid = refs.stuCombo.getValue();
-      if (!sid) { ui.toast('请选择学生', 'err'); return false; }
+      if (!sid) { ui.fieldError(refs.stuCombo.input, '请选择学生'); ui.toast('请选择学生', 'err'); return false; }
+      ui.fieldError(refs.stuCombo.input, '');
       var text = $('#fContent', c.el).value.trim();
-      if (!text) { ui.toast('请填写沟通内容', 'err'); $('#fContent', c.el).focus(); return false; }
+      if (!text) { ui.fieldError($('#fContent', c.el), '请填写沟通内容'); ui.toast('请填写沟通内容', 'err'); return false; }
+      ui.fieldError($('#fContent', c.el), '');
 
       var relation = refs.contactCombo.getValue();
       var info = contactInfo(sid, relation);
 
-      store.communications.add({
+      var saved = store.communications.add({
         date: $('#fDate', c.el).value || ui.today(),
         studentId: sid,
         studentName: (global.App.studentById(sid) || {}).name || '',
@@ -230,8 +238,8 @@
         result: $('#fResult', c.el).value.trim(),
         audioUrl: refs.audioUrl || ''
       });
-      ui.toast('已保存沟通记录', 'ok');
-      return true;
+      function done() { ui.toast('已保存沟通记录', 'ok'); return true; }
+      return saved && typeof saved.then === 'function' ? saved.then(done) : done();
     }
   }
 
@@ -250,6 +258,7 @@
     });
     $('#fStuSlot', el).appendChild(stuCombo.el);
     refs.stuCombo = stuCombo;
+    stuCombo.input.setAttribute('aria-label', '学生'); stuCombo.input.setAttribute('aria-required', 'true');
     if (!opts.length) ui.toast('学生信息为空，请先到「学生信息」添加学生', 'err');
 
     /* 联系人下拉 */
@@ -261,26 +270,37 @@
     $('#fContactSlot', el).appendChild(contactCombo.el);
     contactCombo.setValue('爸爸', true);
     refs.contactCombo = contactCombo;
+    contactCombo.input.setAttribute('aria-label', '联系人');
 
     /* 录音文件上传 */
     var audioBtn = $('#fAudioBtn', el);
     var audioFile = $('#fAudioFile', el);
     var audioName = $('#fAudioName', el);
+    audioName.setAttribute('role', 'status');
+    $('#fContent', el).addEventListener('input', function () { ui.fieldError(this, ''); });
 
     audioBtn.addEventListener('click', function () { audioFile.click(); });
     audioFile.addEventListener('change', function () {
       var f = audioFile.files && audioFile.files[0];
       if (!f) return;
       if (f.size > 50 * 1024 * 1024) { ui.toast('录音文件不能超过 50MB', 'err'); return; }
+      var saveButton = el.querySelector('.modal-foot .btn-primary');
+      audioBtn.disabled = true; saveButton.disabled = true; audioBtn.setAttribute('aria-busy', 'true');
+      refs.audioPending = true;
+      audioName.dataset.state = 'pending';
       audioName.textContent = '正在上传「' + f.name + '」…';
       ui.uploadAudio(f).then(function (d) {
-        refs.audioUrl = d.url;
+        refs.audioUrl = d.url; audioName.dataset.state = 'success';
         audioName.textContent = '已上传「' + (d.name || f.name) + '」，保存记录后可随时收听';
         ui.toast('录音已上传', 'ok');
       }).catch(function (e) {
         refs.audioUrl = '';
-        audioName.textContent = '未选择录音';
+        audioName.dataset.state = 'error';
+        audioName.textContent = '上传失败，请重试；填写的内容仍保留';
         ui.toast(e.message || '录音上传失败', 'err');
+      }).finally(function () {
+        refs.audioPending = false;
+        audioBtn.disabled = false; saveButton.disabled = false; audioBtn.removeAttribute('aria-busy');
       });
       audioFile.value = '';
     });
