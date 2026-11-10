@@ -227,10 +227,8 @@ function buildDocx(paras) {
   const photo1 = `run:${runPhoto}:0`;
   const ed = await req(`${MF}/ext/pending/item`, { method: 'PUT', token: AT, body: { id: photo1, patch: { stem: 'T3拍照一改' + uniq, answer: 'A', analysis: '改后的解析', point: 'T3点', difficulty: 4, type: 'multi', options: [{ label: 'A', text: '甲甲' }, { label: 'B', text: '乙乙' }, { label: 'C', text: '丙' }] } } });
   log(ed.code === 0 && ed.data.stem === 'T3拍照一改' + uniq && ed.data.type === 'multi' && ed.data.options.length === 3 && ed.data.difficulty === 4 && ed.data.analysis === '改后的解析', '编辑拍照识别的题卡：题干/答案/解析/题型/选项/难度', ed.msg);
-  // 夹具模拟的是未记录识别来源的历史题，修改后需先由老师核对当前答案和解析。
-  const reviewedAnswer = ed.data && await req(`${MF}/intake/runs/${runPhoto}/aifill/confirm`, { method: 'POST', token: AT, body: { index: 0, legacy: true, expected: ed.data.ai_legacy_signature, fields: ['answer'] } });
-  const reviewed = reviewedAnswer && reviewedAnswer.code === 0 && await req(`${MF}/intake/runs/${runPhoto}/aifill/confirm`, { method: 'POST', token: AT, body: { index: 0, legacy: true, expected: ed.data.ai_legacy_signature, fields: ['analysis'] } });
-  log(!!(ed.data && ed.data.ai_legacy_pending && reviewedAnswer && reviewedAnswer.code === 0 && reviewed && reviewed.code === 0), '历史拍照识别答案和解析由老师逐项核对后才能入库', reviewed && reviewed.msg);
+  // 原页标记不能证明已有答案、解析是 AI 生成，保留来源不明提示和原页、图文审核。
+  log(!!(ed.data && !ed.data.ai_legacy_pending && ed.data.ai_origin_uncertain), '历史拍照题不虚构 AI 补全状态', ed.msg);
   const photoReviewed = findRun(await pend(`&source=photo&batch_id=${runPhoto}`), runPhoto).find((x) => x.index === 0);
   if (photoReviewed && photoReviewed.figure_review_issue) {
     const f = await req(`${MF}/ext/pending/figure/confirm`, { method: 'POST', token: AT, body: { id: photoReviewed.id, expected: photoReviewed.figure_review_signature } });

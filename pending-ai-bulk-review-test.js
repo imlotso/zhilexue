@@ -37,7 +37,12 @@ function fixture(t, captureModel = false, allowCommit = false) {
   raw.prepare("INSERT INTO mf_recog_runs VALUES(1,'合成批次','数学','primary','四年级','word','recognized','',?,'[]','2026-11-09')").run(JSON.stringify(cards));
   raw.prepare("INSERT INTO mf_capture_batches VALUES(2,'合成采集','数学','primary','四年级','pending',?,'2026-11-09')").run(JSON.stringify([{stem:'采集原题', type:'fill',options:[],answer:'已有答案',analysis:'',images:['/bank/cap.png']}]));
   for (const [id,user] of [[3,101],[4,201]]) raw.prepare("INSERT INTO paper_uploads VALUES(?,?,'pending',0,'数学','primary','四年级','[]','','2026-11-09','','','',?)").run(id,user,JSON.stringify({stem:'扫码原题 '+id,type:'fill',options:[],answer:'',analysis:''}));
-  const db = { prepare: sql => raw.prepare(sql.replace(/ FOR UPDATE\b/g,'')), transaction: fn => (...args) => {
+  let failCommitUpdate=false;
+  const db = { exec: sql => raw.exec(sql), prepare: sql => {
+    const statement=raw.prepare(sql.replace(/ FOR UPDATE\b/g,''));
+    if(failCommitUpdate && sql.startsWith('UPDATE mf_recog_runs SET drafts=?, status=? WHERE id=?')) return {get:(...a)=>statement.get(...a),all:(...a)=>statement.all(...a),run:()=>{throw Error('synthetic batch update failure');}};
+    return statement;
+  }, transaction: fn => (...args) => {
     raw.exec('BEGIN'); try { const value = fn(...args); raw.exec('COMMIT'); return value; } catch(e) { raw.exec('ROLLBACK'); throw e; }
   } };
   const handlers = new Map(), modelRequests = [];
@@ -78,7 +83,7 @@ function fixture(t, captureModel = false, allowCommit = false) {
   const entry=(item,patch={})=>({id:item.id,expected:item.edit_signature,patch});
   const review=async(items,user)=>call('POST /ext/pending/ai-review',{items:items.map(item=>entry(item))},user);
   const edit=async(items,user)=>call('PUT /ext/pending/items',{items},user);
-  return {raw,call,list,snapshot,entry,review,edit,modelRequests};
+  return {raw,call,list,snapshot,entry,review,edit,modelRequests,handlers,failCommitUpdate:()=>{failCommitUpdate=true;}};
 }
 
 test('AI review covers selected sources, leaves existing answers and unrelated cards unchanged',async t=>{
@@ -145,6 +150,13 @@ test('bulk edits do not clear image or original-content final review gates',asyn
   const r=await f.edit([f.entry(item,{analysis:'人工修改'})]);assert.equal(r.code,0,r.msg);
   const after=(await f.list()).find(x=>x.id===item.id);assert.equal(after.content_review_pending,true);assert.deepEqual(after.images,item.images);
 });
+test('explicit type confirmation can be saved with an unchanged type',async t=>{
+  const f=fixture(t),cards=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);
+  cards[1].type_unconfirmed=true;f.raw.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=1').run(JSON.stringify(cards));
+  const item=(await f.list()).find(x=>x.kind==='run'&&x.index===1),r=await f.edit([f.entry(item,{type:item.type,type_confirmed:true})]);
+  assert.equal(r.code,0,r.msg);const after=(await f.list()).find(x=>x.id===item.id);assert.equal(after.type_unconfirmed,false);
+  assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+});
 test('unchanged original-page confirmation checks the snapshot and preserves every question value',async t=>{
   const f=fixture(t),item=(await f.list()).find(x=>x.kind==='run'&&x.index===0),before=f.snapshot();
   const stale=await f.call('POST /ext/pending/content/confirm',{id:item.id,expected:'stale-signature'});assert.notEqual(stale.code,0);assert.equal(f.snapshot(),before);
@@ -152,6 +164,100 @@ test('unchanged original-page confirmation checks the snapshot and preserves eve
   const after=(await f.list()).find(x=>x.id===item.id);assert.equal(after.content_review_pending,false);
   for(const field of ['stem','answer','analysis','material','options','images'])assert.deepEqual(after[field],item[field]);
   assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+});
+
+test('old imports without an AI-fill marker do not require fake AI confirmations',async t=>{
+  const f=fixture(t),cards=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);
+  Object.assign(cards[1],{page:1,via:'word',answer:'原有答案',analysis:'原有解析'});delete cards[1]._ai_review_schema;
+  f.raw.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=1').run(JSON.stringify(cards));
+  const item=(await f.list()).find(x=>x.kind==='run'&&x.index===1);
+  assert.equal(item.ai_legacy_pending,false);assert.equal(item.ai_origin_uncertain,true);
+  assert.equal(item.answer,'原有答案');assert.equal(item.analysis,'原有解析');
+});
+
+test('one explicit legacy review covers existing fields and never imports',async t=>{
+  const f=fixture(t),cards=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);
+  Object.assign(cards[1],{ai_filled:true,answer:'已有答案',analysis:'已有解析',point:'已有分类'});
+  f.raw.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=1').run(JSON.stringify(cards));
+  const item=(await f.list()).find(x=>x.kind==='run'&&x.index===1), before=f.snapshot();
+  const stale=await f.call('POST /intake/runs/:id/aifill/confirm',{index:1,legacy:true,expected:'stale',fields:item.ai_legacy_pending_fields});
+  assert.notEqual(stale.code,0);assert.equal(f.snapshot(),before);
+  const ok=await f.call('POST /intake/runs/:id/aifill/confirm',{index:1,legacy:true,expected:item.ai_legacy_signature,fields:item.ai_legacy_pending_fields});
+  assert.equal(ok.code,0,ok.msg);assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+  const after=(await f.list()).find(x=>x.id===item.id);assert.equal(after.ai_legacy_pending,false);
+  assert.equal(after.answer,'已有答案');assert.equal(after.analysis,'已有解析');
+});
+test('changed questions can recheck adopted answer and analysis together without importing',async t=>{
+  const f=fixture(t),cards=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);
+  Object.assign(cards[1],{answer:'5',analysis:'原有解析',ai_answer_review:{fields:{answer:{basis:'old',value:'5'},analysis:{basis:'old',value:'原有解析'}}}});
+  f.raw.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=1').run(JSON.stringify(cards));
+  let item=(await f.list()).find(x=>x.kind==='run'&&x.index===1);assert.equal(item.ai_review_pending_fields.length,2);
+  const result=await f.call('POST /intake/runs/:id/aifill/confirm',{index:1,recheck:true,expected:item.ai_review_signature,fields:['answer','analysis']});
+  assert.equal(result.code,0,result.msg);item=(await f.list()).find(x=>x.id===item.id);assert.equal(item.ai_review_pending_fields.length,0);
+  assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+});
+
+test('batch legacy review is atomic, snapshot-bound, and separate from import',async t=>{
+  const f=fixture(t),cards=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);
+  for(const i of [1,2]) Object.assign(cards[i],{ai_filled:true,answer:'答案'+i,analysis:'解析'+i,point:'分类'+i});
+  f.raw.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=1').run(JSON.stringify(cards));
+  let rows=(await f.list()).filter(x=>x.kind==='run'&&x.index>0), entries=rows.map(x=>({id:x.id,expected:x.edit_signature,legacy_expected:x.ai_legacy_signature,fields:x.ai_legacy_pending_fields}));
+  const before=f.snapshot(),stale=JSON.parse(JSON.stringify(entries));stale[1].expected='outdated';
+  assert.notEqual((await f.call('POST /ext/pending/legacy-confirm',{items:stale})).code,0);assert.equal(f.snapshot(),before);
+  const ok=await f.call('POST /ext/pending/legacy-confirm',{items:entries});assert.equal(ok.code,0,ok.msg);assert.equal(ok.data.confirmed,2);
+  rows=(await f.list()).filter(x=>x.kind==='run'&&x.index>0);assert(rows.every(x=>!x.ai_legacy_pending));
+  assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+  assert.deepEqual(Array.from(rows,x=>x.answer),['答案1','答案2']);
+});
+
+test('final commit rejects a concurrently edited answer before writing or changing review state',async t=>{
+  const f=fixture(t,false,true),item=(await f.list()).find(x=>x.kind==='run'&&x.index===1);
+  const changed=await f.call('PUT /ext/pending/item',{id:item.id,patch:{answer:'并发人工答案'}});assert.equal(changed.code,0,changed.msg);
+  const before=f.snapshot(),r=await f.call('POST /ext/pending/commit',{ids:[item.id],items:[{id:item.id,expected:item.edit_signature}],detailed:true});
+  assert.notEqual(r.code,0);assert.equal(f.snapshot(),before);assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+});
+
+test('explicit snapshot-bound batch commit imports a correct unchanged item and reports a missing image separately',async t=>{
+  const f=fixture(t,false,true),cards=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);
+  Object.assign(cards[1],{page:1,via:'word',answer:'原有答案',analysis:'原有解析'});delete cards[1]._ai_review_schema;
+  Object.assign(cards[2],{stem:'请看[图1]作答',figures:[]});
+  f.raw.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=1').run(JSON.stringify(cards));
+  const rows=(await f.list()).filter(x=>x.kind==='run'&&x.index>0);
+  const r=await f.call('POST /ext/pending/commit',{ids:rows.map(x=>x.id),items:rows.map(x=>({id:x.id,expected:x.edit_signature})),detailed:true});
+  assert.equal(r.code,0,r.msg);assert.equal(r.data.committed,1);assert.equal(r.data.failed.length,1);assert.match(r.data.failed[0].msg,/图/);
+  const left=(await f.list()).filter(x=>x.kind==='run');assert(left.some(x=>x.index===2));assert(!left.some(x=>x.index===1));
+  assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,1);
+});
+test('per-item import failures roll back their insert while successful items remain explicit',async t=>{
+  const f=fixture(t,false,true),rows=(await f.list()).filter(x=>x.kind==='run'&&x.index>0);
+  const r=await f.call('POST /ext/pending/commit',{ids:rows.map(x=>x.id),items:rows.map(x=>({id:x.id,expected:x.edit_signature})),detailed:true});
+  assert.equal(r.code,0,r.msg);assert.equal(r.data.committed,1);assert.equal(r.data.failed.length,1);
+  assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,1);
+  assert.equal((await f.list()).filter(x=>x.kind==='run'&&x.index>0).length,1);
+});
+test('failure saving the batch status rolls back newly inserted questions',async t=>{
+  const f=fixture(t,false,true),item=(await f.list()).find(x=>x.kind==='run'&&x.index===1),before=f.snapshot();f.failCommitUpdate();
+  const r=await f.call('POST /ext/pending/commit',{ids:[item.id],items:[{id:item.id,expected:item.edit_signature}],detailed:true});
+  assert.notEqual(r.code,0);assert.equal(f.snapshot(),before);assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+});
+
+test('synthetic HTTP flow confirms once, persists after reload and imports only on explicit final request',async t=>{
+  const express=require('express'),f=fixture(t,false,true),cards=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);
+  Object.assign(cards[1],{ai_filled:true,answer:'5',analysis:'2加3',point:'加法'});
+  f.raw.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=1').run(JSON.stringify(cards));
+  const app=express();app.use(express.json());app.use((req,res,next)=>{req.user=principal;next();});
+  for(const [key,fns] of f.handlers){const [method,url]=key.split(' ');app[method.toLowerCase()](url,...fns);}
+  const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});t.after(()=>new Promise(resolve=>server.close(resolve)));
+  const base='http://127.0.0.1:'+server.address().port;
+  const http=async(method,url,body)=>{const response=await fetch(base+url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});return response.json();};
+  const list=async()=>(await http('GET','/ext/pending?size=20')).data.list;
+  let item=(await list()).find(x=>x.kind==='run'&&x.index===1);
+  const reviewed=await http('POST','/intake/runs/1/aifill/confirm',{index:1,legacy:true,expected:item.ai_legacy_signature,fields:item.ai_legacy_pending_fields});
+  assert.equal(reviewed.code,0,reviewed.msg);assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+  item=(await list()).find(x=>x.kind==='run'&&x.index===1);assert.equal(item.ai_legacy_pending,false);
+  const commit=await http('POST','/ext/pending/commit',{ids:[item.id],items:[{id:item.id,expected:item.edit_signature}],detailed:true});
+  assert.equal(commit.code,0,commit.msg);assert.equal(commit.data.committed,1);assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,1);
+  assert(!(await list()).some(x=>x.id===item.id));
 });
 test('bulk edit refuses a legacy scan whose question is shared by an unselected pending record',async t=>{
   const f=fixture(t);f.raw.exec("INSERT INTO questions(id,stem,type,options,answer,analysis,material) VALUES(9,'旧扫码题','fill','[]','原答案','','原材料'); UPDATE paper_uploads SET question_id=9 WHERE id IN(3,4)");

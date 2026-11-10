@@ -477,10 +477,11 @@ function mfCardHtml(c, i, cats) {
   const ptInList = !pt || cats.points.includes(pt);
   const df = Math.min(5, Math.max(1, Number(c.difficulty) || 3));
   const suggestion = c.ai_answer_suggestion || null;
-  const legacyPending = !c.ai_legacy_reviewed && (c.ai_filled || (!c._ai_review_schema && (Number(c.page) > 0 || ['semi', 'word'].includes(c.via)) && (String(c.answer || '').trim() || String(c.analysis || '').trim())));
+  const legacyPending = !c.ai_legacy_reviewed && !!c.ai_filled;
+  const unknownOrigin = !c.ai_filled && !c._ai_review_schema && (Number(c.page) > 0 || ['semi', 'word'].includes(c.via)) && (String(c.answer || '').trim() || String(c.analysis || '').trim());
   return `<div class="mf-card2 mf-wk-card" data-ci="${i}">
     <div class="mf-wk-chead"><label><input type="checkbox" class="wkck" value="${i}" ${c.checked === false ? '' : 'checked'}> 第 ${i + 1} 张</label>
-      <span class="mf-wk-cmeta">${[c.page ? `第${c.page}页` : '', c.qno ? `题号 ${esc(String(c.qno))}` : '', c.via === 'semi' ? '◐ 半自动' : (c.via === 'word' ? 'Word' : ''), legacyPending ? '历史来源待核对' : ''].filter(Boolean).join(' · ')}</span>
+      <span class="mf-wk-cmeta">${[c.page ? `第${c.page}页` : '', c.qno ? `题号 ${esc(String(c.qno))}` : '', c.via === 'semi' ? '◐ 半自动' : (c.via === 'word' ? 'Word' : ''), legacyPending ? '历史补全待核对' : unknownOrigin ? '历史来源未记录' : ''].filter(Boolean).join(' · ')}</span>
       <span class="sp"></span><button class="btn ghost xs" data-aifill="${i}" title="生成需老师确认的答案或解析建议">AI 建议</button><button class="btn ghost xs" data-delcard="${i}">删</button></div>
     <div class="mf-wk-cgrid">
       <div class="field"><label>题型</label><select class="inp" data-f="questionType" data-i="${i}">${types.map((t) => `<option ${c.questionType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
@@ -494,7 +495,7 @@ function mfCardHtml(c, i, cats) {
       <div class="field wide"><label>选项（一行一个，如 A. xxx）</label><textarea class="inp" rows="2" data-f="options" data-i="${i}">${esc((c.options || []).map(optDisplay).join('\n'))}</textarea></div>
       <div class="field wide"><label>答案</label><textarea class="inp" rows="1" data-f="answer" data-i="${i}">${esc(c.answer || '')}</textarea></div>
       <div class="field wide"><label>解析</label><textarea class="inp" rows="2" data-f="analysis" data-i="${i}">${esc(c.analysis || '')}</textarea></div>
-    </div>${legacyPending ? '<div class="mf-tip">历史题目答案或解析的来源无法确认，请到待审核对照原文并确认后再入库。</div>' : ''}
+    </div>${legacyPending ? '<div class="mf-tip">历史补全记录未标明字段来源，请在待审核对照原文后整体核对。</div>' : unknownOrigin ? '<div class="mf-tip">历史内容来源未记录，请在待审核结合原文核对。</div>' : ''}
     ${suggestion ? `<div class="mf-tip"><b>${suggestion.source === 'recognition' ? 'AI 转写内容（请对照原文核对，未经确认不会入库）' : 'AI 建议（未经确认，不会入库）'}</b>${suggestion.source !== 'recognition' ? '<p>建议仅依据题目文字生成，未读取题图；答案和解析可能不一致，请分别核对。</p>' : ''}${suggestion.answer ? `<div><b>答案建议：</b>${esc(suggestion.answer)} ${!String(c.answer || '').trim() ? `<button type="button" class="btn ghost xs" data-ai-accept="answer" data-ai-index="${i}">采纳答案</button>` : ''}</div>` : ''}${suggestion.analysis ? `<div><b>解析建议：</b>${esc(suggestion.analysis)} ${!String(c.analysis || '').trim() ? `<button type="button" class="btn ghost xs" data-ai-accept="analysis" data-ai-index="${i}">采纳解析</button>` : ''}</div>` : ''}</div>` : ''}</div>`;
 }
 

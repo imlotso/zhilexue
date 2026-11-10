@@ -76,7 +76,7 @@ module.exports = function mountPending(d) {
       ai_recognized: !!c.ai_recognized, ai_point_suggestion: str(c.ai_point_suggestion), upload_note: str(c.upload_note),
       ai_answer_suggestion: c.ai_answer_suggestion ? { ...c.ai_answer_suggestion, stale: c.ai_answer_suggestion.basis !== AiAnswerReview.signature(c) || c.ai_answer_suggestion.scope !== JSON.stringify([run.subject || '', run.stage || '', run.grade || '']) } : null,
       ai_answer_discard_history: Array.isArray(c.ai_answer_discard_history) ? c.ai_answer_discard_history : [], ai_discard_signature: AiAnswerReview.discardSignature(c, JSON.stringify([run.subject || '', run.stage || '', run.grade || ''])),
-      ai_legacy_pending: AiAnswerReview.legacyPending(c), ai_legacy_pending_fields: AiAnswerReview.legacyPendingFields(c), ai_legacy_signature: AiAnswerReview.legacyPending(c) ? AiAnswerReview.legacySignature(c) : '',
+      ai_legacy_pending: AiAnswerReview.legacyPending(c), ai_legacy_pending_fields: AiAnswerReview.legacyPendingFields(c), ai_legacy_signature: AiAnswerReview.legacyPending(c) ? AiAnswerReview.legacySignature(c) : '', ai_origin_uncertain: AiAnswerReview.legacyUnknownOrigin(c),
       ai_answer_review: c.ai_answer_review || null,
       ai_review_pending_fields: AiAnswerReview.reviewedPendingFields(c, JSON.stringify([run.subject || '', run.stage || '', run.grade || ''])), ai_review_signature: AiAnswerReview.signature(c),
       tags: Array.isArray(c.suggestedTags) ? c.suggestedTags : [], images: safeImages(images, c._image_errors), image_errors: Array.isArray(c._image_errors) ? c._image_errors : [], created_at: str(run.created_at),
@@ -241,6 +241,25 @@ module.exports = function mountPending(d) {
     });
   }
 
+  // 一次明确核对所选历史内容，仅保存核对记录，绝不入库。
+  admin.post('/ext/pending/legacy-confirm', (req, res) => {
+    try {
+      selectedSnapshots(req);
+      const count = db.transaction(() => {
+        const entries = req.body.items;
+        const runs = [...new Set(entries.map((entry) => { const p = parseId(entry.id); if (!p || p.kind !== 'run') throw new Error('只能核对带历史补全记录的录题草稿'); return p.batch; }))].sort((a,b) => a-b);
+        runs.forEach((id) => { if (!db.prepare('SELECT id FROM mf_recog_runs WHERE id=? FOR UPDATE').get(id)) throw new Error(STALE); });
+        const selected = selectedSnapshots(req);
+        selected.forEach(({ entry, item }) => {
+          if (!item.ai_legacy_pending || JSON.stringify(entry.fields) !== JSON.stringify(item.ai_legacy_pending_fields)) throw new Error('历史待核对内容已变化，请刷新后重新选择；本批未确认');
+          mutateExternalAi(req, item.id, ({target}) => AiAnswerReview.confirmLegacy(target, entry.fields, entry.legacy_expected, req.user.id, now()), true);
+        });
+        return selected.length;
+      })();
+      return ok(res, { confirmed: count }, `已核对 ${count} 题，仍在待审核；请单独执行入库`);
+    } catch (e) { return fail(res, e.message || '核对失败，本批未确认', e.code || 1); }
+  });
+
   // AI 初审仅保存独立报告与答案/解析建议。不能自动通过原页、图片或人工终审。
   admin.post('/ext/pending/ai-review', async (req, res) => {
     let selected;
@@ -350,17 +369,16 @@ module.exports = function mountPending(d) {
     const scopeError = scanAccessError(req, [id]);
     if (scopeError) return fail(res, scopeError, 403);
     const fields = [...new Set(Array.isArray(b.fields) ? b.fields : [])];
-    if (fields.length !== 1 || fields.some((x) => !['answer', 'analysis'].includes(x))) return fail(res, '请逐项选择要采纳的答案或解析建议');
+    if (!fields.length || fields.length !== (Array.isArray(b.fields) ? b.fields.length : 0) || fields.some((x) => !['answer', 'analysis'].includes(x)) || (b.recheck !== true && fields.length !== 1)) return fail(res, '请选择要核对的答案或解析');
     try {
       mutateExternalAi(req, id, ({ p, row, target, item }) => {
         if (b.recheck === true) {
-          const field = fields[0];
-          if (str(b.expected) !== AiAnswerReview.signature(item) || !AiAnswerReview.reviewedPendingFields(item).includes(field)) throw new Error('题目已变化，请重新核对');
-          const stamp = { confirmed_by: req.user.id, confirmed_at: now(), basis: AiAnswerReview.contextSignature(item), value: str(item[field]) };
-          target.ai_answer_review.fields[field] = stamp;
+          if (str(b.expected) !== AiAnswerReview.signature(item) || fields.some((field) => !AiAnswerReview.reviewedPendingFields(item).includes(field))) throw new Error('题目已变化，请重新核对');
+          const stamps = Object.fromEntries(fields.map((field) => [field, { confirmed_by: req.user.id, confirmed_at: now(), basis: AiAnswerReview.contextSignature(item), value: str(item[field]) }]));
+          Object.assign(target.ai_answer_review.fields, stamps);
           if (p.kind === 'up' && row.question_id) {
             const metadata = parseObj(db.prepare('SELECT ai_review_metadata FROM questions WHERE id=?').get(row.question_id).ai_review_metadata);
-            metadata.fields = { ...(metadata.fields || {}), [field]: stamp };
+            metadata.fields = { ...(metadata.fields || {}), ...stamps };
             db.prepare('UPDATE questions SET ai_review_metadata=? WHERE id=?').run(jstr(metadata), row.question_id);
           }
           return;
@@ -939,6 +957,13 @@ module.exports = function mountPending(d) {
   // ------------------------------------------------------------ 入库（逐题 / 批量）
   admin.post('/ext/pending/commit', (req, res) => {
     const b = req.body || {};
+    const perform = (res, locked) => {
+    // 新版页面持有批次行锁时，以保存点隔离每道题的失败，不能嵌套 START TRANSACTION。
+    const itemTransaction = (fn) => locked ? () => {
+      db.exec('SAVEPOINT pending_commit_item');
+      try { const result = fn(); db.exec('RELEASE SAVEPOINT pending_commit_item'); return result; }
+      catch (e) { db.exec('ROLLBACK TO SAVEPOINT pending_commit_item'); db.exec('RELEASE SAVEPOINT pending_commit_item'); throw e; }
+    } : db.transaction(fn);
     const scopeError = scanAccessError(req, Array.isArray(b.ids) ? b.ids : []);
     if (scopeError) return fail(res, scopeError, 403);
     if (b.expected_scope && typeof b.expected_scope === 'object') {
@@ -1025,7 +1050,7 @@ module.exports = function mountPending(d) {
           if (c._lesson_video_id && !video) throw new Error('关联视频已删除，请重新选择视频');
           const section = c._lesson_section_id ? db.prepare('SELECT id, chapter_id FROM sections WHERE id=?').get(int(c._lesson_section_id)) : null;
           if (c._lesson_section_id && !section) throw new Error('关联小分组已删除，请重新选择小分组');
-          const ids = db.transaction(() => {
+          const ids = itemTransaction(() => {
             // 允许原卷只出现图 3 等稀疏编号；入库时连同占位符一起压紧，保持图号与图片位置一致。
             const result = commitRunCards(run, [ImageReview.compact(JSON.parse(JSON.stringify(c)))], opt);
             attachNodes(result[0], itemNodes);
@@ -1075,7 +1100,7 @@ module.exports = function mountPending(d) {
           const itemNodes = draftNodesFor(q, subject, stage, opt.grade || q.grade || bt.grade, latest);
           // 无来源题号的题使用稳定的批次内编号，避免漏题和重复入库。
           if (!q.questionId || /^temp-/.test(str(q.questionId))) q.questionId = `review-${batchId}-${i}-${fpOf(stemOfCap(q))}`;
-          const r = db.transaction(() => {
+          const r = itemTransaction(() => {
             const result = commitCaptureItems(bt, [ImageReview.compact(JSON.parse(JSON.stringify(q)))], { subject, stage, grade: opt.grade || q.grade, node_ids: opt.node_ids, tags: opt.tags });
             if (result.ids.length) attachNodes(result.ids[0], itemNodes);
             return result;
@@ -1115,7 +1140,7 @@ module.exports = function mountPending(d) {
       }
       try {
         const itemNodes = draftNodesFor(parseObj(up.draft_json), str(subj).trim(), stg, grd, commitItems.get(`up:${upId}`));
-        const qid = db.transaction(() => {
+        const qid = itemTransaction(() => {
           let id = up.question_id;
           if (!id) {
             const draft = parseObj(up.draft_json);
@@ -1150,8 +1175,30 @@ module.exports = function mountPending(d) {
       } catch (e) { failed.push({ id: `up:${upId}`, msg: '入库失败：' + e.message }); }
     });
 
-    if (!questionIds.length) return fail(res, failed.length ? failed[0].msg : '没有可入库的题目');
+    if (!questionIds.length && !b.detailed) return fail(res, failed.length ? failed[0].msg : '没有可入库的题目');
     return ok(res, { committed: questionIds.length, question_ids: questionIds, failed }, `已入库 ${questionIds.length} 题${failed.length ? `，${failed.length} 题失败` : ''}`);
+    };
+    if (!Object.hasOwn(b, 'items')) return perform(res, false); // 兼容旧调用方
+    try {
+      if (!Array.isArray(b.ids) || !Array.isArray(b.items) || b.ids.length !== b.items.length || b.items.some((entry) => !b.ids.includes(entry && entry.id))) throw new Error('入库范围与题目快照不一致，请重新选择');
+      selectedSnapshots(req); // 校验数量、重复和权限后再加锁；事务内再次检查快照。
+      let result;
+      db.transaction(() => {
+        // 在开始一致性读取前按固定顺序锁定来源及历史扫码题，防止审核与保存覆盖并发修改。
+        const locks = [...new Map(b.items.map((entry) => { const p = entry && parseId(entry.id); if (!p) throw new Error('题目标识无效'); return [`${p.kind}:${p.batch}`, p]; })).entries()].sort(([a], [b]) => a.localeCompare(b));
+        const scanQuestions = [];
+        for (const [, p] of locks) {
+          const table = p.kind === 'run' ? 'mf_recog_runs' : p.kind === 'cap' ? 'mf_capture_batches' : 'paper_uploads';
+          const row = db.prepare(`SELECT * FROM ${table} WHERE id=? FOR UPDATE`).get(p.batch);
+          if (!row) throw new Error(STALE);
+          if (p.kind === 'up' && row.question_id) scanQuestions.push(Number(row.question_id));
+        }
+        [...new Set(scanQuestions)].sort((a,b) => a-b).forEach((id) => { if (!db.prepare('SELECT id FROM questions WHERE id=? FOR UPDATE').get(id)) throw new Error(STALE); });
+        selectedSnapshots(req);
+        perform({ json(value) { result = value; return value; } }, true);
+      })();
+      return res.json(result);
+    } catch (e) { return fail(res, e.message || '入库前题目已变化，请刷新后重试；本批未入库', e.code || 1); }
   });
 
   // ------------------------------------------------------------ 删除（批量）

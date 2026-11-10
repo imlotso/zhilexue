@@ -2160,20 +2160,13 @@ admin.post('/intake/runs/:id/aifill/confirm', (req, res) => {
   const scope = JSON.stringify([run.subject || '', run.stage || '', run.grade || '']);
   if (b.recheck === true) {
     const fields = [...new Set(Array.isArray(b.fields) ? b.fields : [])];
-    if (fields.length !== 1 || !AiAnswerReview.reviewedPendingFields(card, scope).includes(fields[0])) return fail(res, '请逐项选择需重新核对的答案或解析');
+    if (!fields.length || fields.length !== (b.fields || []).length || fields.some((field) => !AiAnswerReview.reviewedPendingFields(card, scope).includes(field))) return fail(res, '需重新核对的内容已变化，请刷新后重试');
     if (String(b.expected || '') !== signature) return fail(res, '题目已变化，请重新核对');
-    const field = fields[0], q = card._q || card;
-    card.ai_answer_review.fields[field] = { confirmed_by: req.user.id, confirmed_at: now(), basis: AiAnswerReview.contextSignature(card, scope), value: String(q[field] || '') };
+    const q = card._q || card;
+    fields.forEach((field) => { card.ai_answer_review.fields[field] = { confirmed_by: req.user.id, confirmed_at: now(), basis: AiAnswerReview.contextSignature(card, scope), value: String(q[field] || '') }; });
   } else if (b.legacy === true) {
-    const fields = [...new Set(Array.isArray(b.fields) ? b.fields : [])];
-    if (fields.length !== 1 || !AiAnswerReview.legacyPendingFields(card).includes(fields[0])) return fail(res, '请逐项选择待核对的答案、解析或分类');
-    if (String(b.expected || '') !== AiAnswerReview.legacySignature(card)) return fail(res, '题目或分类已变化，请重新核对');
-    card._ai_card_id = card._ai_card_id || AiAnswerReview.token();
-    card.ai_legacy_reviewed_fields = { ...(card.ai_legacy_reviewed_fields || {}), [fields[0]]: AiAnswerReview.legacySignature(card) };
-    card.ai_legacy_reviewed = !AiAnswerReview.legacyPending(card);
-    const stamp = { confirmed_by: req.user.id, confirmed_at: now() };
-    const review = card.ai_answer_review || {};
-    card.ai_answer_review = { ...review, legacy_confirmed: card.ai_legacy_reviewed, legacy_fields: { ...(review.legacy_fields || {}), [fields[0]]: stamp } };
+    try { AiAnswerReview.confirmLegacy(card, b.fields, b.expected, req.user.id, now()); }
+    catch (e) { return fail(res, e.message); }
   } else {
     const suggestion = card.ai_answer_suggestion;
     if (suggestion && suggestion.source === 'review') return fail(res, '请在编辑并核对建议中确认 AI 初审内容，以保留审核报告和修改记录');

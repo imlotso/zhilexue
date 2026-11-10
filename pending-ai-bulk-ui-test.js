@@ -105,7 +105,7 @@ test('unmodified questions can proceed while actual image and AI review gates re
  assert.equal(f.document.querySelector('#pd-current-commit').disabled,false);assert.match(f.document.querySelector('#pd-commit-hint').textContent,/无需修改/);
  row.figure_review_required=true;row.figure_review_issue='图文待确认';row.ai_review_pending_fields=['answer','analysis'];await f.ctx.render();
  assert.equal(f.document.querySelector('#pd-current-commit').disabled,true);const hint=f.document.querySelector('#pd-commit-hint').textContent;assert.match(hint,/图文/);assert.match(hint,/答案.*解析/);
- assert.ok(f.document.querySelector('[data-act="confirm-figure"]'));assert.ok(f.document.querySelector('[data-act="recheck-answer"]'));assert.ok(f.document.querySelector('[data-act="recheck-analysis"]'));assert.equal(f.calls.length,0);
+ assert.ok(f.document.querySelector('[data-act="confirm-figure"]'));assert.ok(f.document.querySelector('[data-act="recheck-review"]'));assert.equal(f.document.querySelectorAll('[data-act^="recheck-"]').length,1);assert.equal(f.calls.length,0);
 });
 test('bulk editor sends only changed fields with the selected card snapshot and no import',async t=>{
  const f=fixture(t),w=f.open();w.querySelector('[data-pd-field="answer"]').value='老师手改';await w.querySelector('#mOk').onclick();assert.equal(f.calls.length,1);assert.ok(f.calls[0].url.endsWith('/ext/pending/items'));

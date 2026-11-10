@@ -33,9 +33,9 @@ const denyNetwork = () => { throw Error('合成组件禁止网络请求'); };
 window.fetch = async () => denyNetwork(); window.open = denyNetwork;
 window.XMLHttpRequest = window.WebSocket = window.EventSource = denyNetwork;
 navigator.sendBeacon = denyNetwork;
-window.fixtureCalls = []; window.fixtureSaveFailure = false;
+window.fixtureCalls = []; window.fixtureSaveFailure = false; window.fixtureCommitFailure = false;
 const fixtureRows = Array.from({length:12}, (_,i) => ({
-  id: 'fixture-' + (i + 1), kind:'run', batch_id:88, index:i, source:'word', source_label:'Word 导入', batch_title:'三年级数学练习',
+  id: 'fixture-' + (i + 1), edit_signature:'fixture-signature-'+i, kind:'run', batch_id:88, index:i, source:'word', source_label:'Word 导入', batch_title:'三年级数学练习',
   qno: String(i + 1), type:'single', type_name:'单选题', subject:'数学', stage:'primary', grade:'三年级', edition:'苏教版',
   point:'两步混合运算', chapter_id:1, stem:i===0?'计算 36 + 12 × 3 时，正确的计算顺序是（    ）。': ['混合运算的应用','脱式计算','看图列式','有余数的除法','解决问题'][i%5],
   options:['先算加法，再算乘法','从左到右依次计算','先算乘法，再算加法','先把三个数相加'], answer:i===1?'':'C', analysis:'没有括号时，先乘除，后加减。\n先算 12 × 3，再与 36 相加。',
@@ -61,16 +61,40 @@ async function api(url, options={}) {
     if(window.fixtureHoldSave) await new Promise(resolve=>{window.fixtureResumeSave=resolve;});
     const item=fixtureRows.find(x=>x.id===options.body.id); Object.assign(item,options.body.patch); return JSON.parse(JSON.stringify(item));
   }
+  if (url.endsWith('/ext/pending/items') && options.method === 'PUT') {
+    if(window.fixtureSaveFailure) throw Error('合成保存失败');
+    if(window.fixtureHoldSave) await new Promise(resolve=>{window.fixtureResumeSave=resolve;});
+    const entry=options.body.items[0],item=fixtureRows.find(x=>x.id===entry.id);
+    assertFixture(item && item.edit_signature===entry.expected,'snapshot');Object.assign(item,entry.patch);if(entry.patch.type_confirmed)item.type_unconfirmed=false;item.edit_signature+='-saved';
+    return {saved:1,list:[JSON.parse(JSON.stringify(item))]};
+  }
   if (url.endsWith('/ext/pending/content/confirm')) {
     const item=fixtureRows.find(x=>x.id===options.body.id); assertFixture(item.content_review_signature===options.body.expected,'content signature');
     item.content_review_pending=false; return {};
+  }
+  if (url.endsWith('/aifill/confirm') && options.body.legacy) {
+    const item=fixtureRows.find(x=>x.index===options.body.index);
+    assertFixture(item && item.ai_legacy_signature===options.body.expected,'legacy snapshot');
+    item.ai_legacy_pending=false;item.ai_legacy_pending_fields=[];item.edit_signature+='-reviewed';return {};
+  }
+  if (url.endsWith('/aifill/confirm') && options.body.recheck) {
+    const item=fixtureRows.find(x=>x.index===options.body.index);
+    assertFixture(item && item.ai_review_signature===options.body.expected,'recheck snapshot');
+    item.ai_review_pending_fields=[];item.edit_signature+='-rechecked';return {};
+  }
+  if (url.endsWith('/ext/pending/legacy-confirm')) {
+    for(const entry of options.body.items){const item=fixtureRows.find(x=>x.id===entry.id);assertFixture(item && item.edit_signature===entry.expected && item.ai_legacy_signature===entry.legacy_expected,'batch snapshot');}
+    for(const entry of options.body.items){const item=fixtureRows.find(x=>x.id===entry.id);item.ai_legacy_pending=false;item.ai_legacy_pending_fields=[];item.edit_signature+='-reviewed';}
+    return {confirmed:options.body.items.length};
   }
   if (url.includes('/ext/pending/original?')) return {url:fixtureImage,page:1,total:2};
   if (url.endsWith('/ext/pending/batches')) return {list:[],counts:{},total:0};
   if (url.includes('/trees/') && url.endsWith('/nodes')) return {list:[]};
   if (url.endsWith('/ext/pending/commit')) {
-    const item=fixtureRows.find(x=>x.id===options.body.ids[0]);
-    return item.content_review_pending ? {committed:0,failed:[{msg:'请先核对内容'}]} : {committed:1,failed:[]};
+    const rows=options.body.ids.map(id=>fixtureRows.find(x=>x.id===id));
+    for(const entry of options.body.items || []) {const item=fixtureRows.find(x=>x.id===entry.id);assertFixture(item && item.edit_signature===entry.expected,'commit snapshot');}
+    if(window.fixtureCommitFailure) return {committed:0,failed:rows.map(x=>({id:x.id,msg:'合成：题图缺失，请先补图'}))};
+    return rows.some(x=>x.content_review_pending) ? {committed:0,failed:[{id:rows[0].id,msg:'请先核对内容'}]} : {committed:rows.length,failed:[]};
   }
   throw Error('未定义的合成接口：'+url);
 }
@@ -91,7 +115,7 @@ async function render() {
   window.fixtureReady=true;
 }
 const fixtureInitialRows=JSON.parse(JSON.stringify(fixtureRows));
-window.fixture={ reset:()=>{fixtureRows.splice(0,fixtureRows.length,...JSON.parse(JSON.stringify(fixtureInitialRows)));window.fixtureCalls=[];window.fixtureSaveFailure=false;window.fixtureHoldSave=false;ADM.page={};return render();}, rows:fixtureRows, state:()=>ADM.page.pd, refresh:render, selectBatch:pdSelectBatch, navigate:(page)=>{ADM.page.pdPage=page;return render();} };
+window.fixture={ reset:()=>{fixtureRows.splice(0,fixtureRows.length,...JSON.parse(JSON.stringify(fixtureInitialRows)));window.fixtureCalls=[];window.fixtureSaveFailure=false;window.fixtureCommitFailure=false;window.fixtureHoldSave=false;ADM.page={};return render();}, rows:fixtureRows, state:()=>ADM.page.pd, refresh:render, selectBatch:pdSelectBatch, navigate:(page)=>{ADM.page.pdPage=page;return render();} };
 location.hash='#/pending'; render();
 `;
 const regressionSource = String.raw`
@@ -153,7 +177,7 @@ window.fixture.runRegression = async function() {
     check('入库仍经原有分类弹窗',!!$('#pdB-stage') && !!$('#pdB-knode') && !!$('#pdB-cnode'));
     check('打开弹窗不提交',!fixtureCalls.some(c=>c.url.endsWith('/commit')));await click('#mCancel');
     await click('[data-act="edit"]');await wait(()=>$('#pdE-stem'));await input('#pdE-stem','合成编辑后的题目');await click('#mOk');await wait(()=>fixture.rows[0].stem==='合成编辑后的题目');
-    check('编辑走现有保存接口',fixtureCalls.some(c=>c.method==='PUT' && c.body.patch.stem==='合成编辑后的题目'));
+    check('编辑走安全快照保存接口',fixtureCalls.some(c=>c.method==='PUT' && c.body.items && c.body.items[0].patch.stem==='合成编辑后的题目'));
     await click('details.pd-advanced summary'); check('全部批量工具可达',['pd-bcommit','pd-bmerge','pd-bclassify','pd-bai','pd-bdel','pd-excel','pd-word'].every(id=>!!document.getElementById(id)));
     $('[data-sel="fixture-1"]').checked=true;$('[data-sel="fixture-1"]').dispatchEvent(new Event('change',{bubbles:true}));
     await click('[data-review="no_answer"]');await wait(()=>document.querySelectorAll('[data-review-row]').length===1);

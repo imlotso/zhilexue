@@ -110,10 +110,10 @@ function pdReviewBlockers(it) {
   if (it.figure_review_required && it.figure_review_issue) out.push({ message: '请对照原页确认图文归属。', target: '[data-act="confirm-figure"]' });
   if (it.ai_legacy_pending) {
     const fields = (it.ai_legacy_pending_fields || []).filter((key) => Object.hasOwn(names, key));
-    out.push({ message: `历史 AI 内容待逐项确认${fields.length ? '：' + fields.map((key) => names[key]).join('、') : ''}；无需修改也可确认。`, target: fields.length ? `[data-act="legacy-${fields[0]}"]` : '.pd-question-body' });
+    out.push({ message: `历史补全记录待整体核对${fields.length ? '：' + fields.map((key) => names[key]).join('、') : ''}；无需修改也可核对。`, target: '[data-act="legacy-review"]' });
   }
   const pendingFields = it.ai_review_pending_fields || [], recheck = pendingFields.filter((key) => key === 'answer' || key === 'analysis');
-  if (pendingFields.length) out.push({ message: `题目已变化，请重新确认已采用的 AI 内容${recheck.length ? '：' + recheck.map((key) => names[key]).join('、') : ''}。`, target: recheck.length ? `[data-act="recheck-${recheck[0]}"]` : '.pd-question-body' });
+  if (pendingFields.length) out.push({ message: `题目已变化，请重新核对已采用的 AI 内容${recheck.length ? '：' + recheck.map((key) => names[key]).join('、') : ''}。`, target: recheck.length ? '[data-act="recheck-review"]' : '.pd-question-body' });
   return out;
 }
 function pdReviewBlocker(it) { const first = pdReviewBlockers(it)[0]; return first ? first.message : ''; }
@@ -143,9 +143,10 @@ function pdClassificationHTML(it) {
     </div>
     ${(it.draft_node_ids || []).length ? `<div class="pd-class-notice"><strong>已保存 ${it.draft_node_ids.length} 个分类树节点</strong><p>${it.draft_node_stale ? '题目范围已变化，须重新核对分类节点。' : '再次打开 AI 分类建议可查看或调整，入库时会再次核验。'}</p></div>` : ''}
     ${it.ai_point_suggestion ? `<div class="pd-class-notice"><strong>${ic('help')} AI 分类建议 · 待老师核对</strong><p>${esc(it.ai_point_suggestion)}</p><small>建议不等于已确认分类，请核对后填写。</small></div>` : `<p class="pd-class-help">分类修改保存到待审核题目。章节 / 知识点树节点在入库前统一核对。</p>`}
-    <button type="button" class="btn primary pd-class-save" data-act="save-classification">保存分类</button>
+    <div class="pd-class-actions"><button type="button" class="btn primary pd-class-save" data-act="save-classification">保存分类</button>
+    <button type="button" class="btn primary pd-class-add" data-act="commit-current">当前题加入题库</button></div>
     <button type="button" class="btn ghost pd-class-discard" data-act="discard-classification" hidden>撤销修改</button>
-    <p class="pd-class-help">保存不代表入库；最终归属请在「核对并入库」中确认。</p>
+    <p class="pd-class-help" id="pd-class-commit-hint" aria-live="polite">保存分类不会入库；加入题库前可再次核对。</p>
   </aside>`;
 }
 
@@ -214,8 +215,9 @@ async function viewPending() {
         ${preview.rest ? `<div class="pd-imgs">${preview.rest}</div>` : ''}
         <div class="pd-ans"><div class="pd-answer-line"><b>参考答案</b><span>${pdInlineReview(it, 'answer', it.answer ? pdBr(it.answer) : '<span class="pd-warn">未填</span>')}</span></div><div class="pd-ana"><b>解析</b><div>${pdInlineReview(it, 'analysis', it.analysis ? preview.analysis : '<span class="pd-warn">未填</span>')}</div></div></div>
         ${it.content_review_required ? `<div class="pd-upload-note pd-content-review"><b>${it.content_review_pending ? '请对照原页核对题型、题干、选项、公式、共同材料和小问' : '老师已核对当前题目内容'}</b>${it.content_review_pending ? '<p>AI 识别内容可能包含推断、漏字或串题，请以原页为准。内容无误无需修改时，也请点击下方“确认已对照原页”。</p>' : ''}${it.cross_page_review_required ? '<p>此题涉及跨页内容，请逐页核对并补全关联。</p>' : ''}${(it.recognition_notes || []).map((note) => `<p>AI 提示（可能包含推断，请对照原页核对）：${esc(note)}</p>`).join('')}</div>` : ''}
-        ${it.ai_legacy_pending ? `<div class="pd-upload-note"><b>历史 AI 补全内容待核对：</b>来源无法确定，请对照原文逐项确认。 ${(it.ai_legacy_pending_fields || []).includes('answer') ? '<button type="button" class="btn ghost sm" data-act="legacy-answer">确认答案</button>' : ''} ${(it.ai_legacy_pending_fields || []).includes('analysis') ? '<button type="button" class="btn ghost sm" data-act="legacy-analysis">确认解析</button>' : ''} ${(it.ai_legacy_pending_fields || []).includes('classification') ? '<button type="button" class="btn ghost sm" data-act="legacy-classification">确认分类</button>' : ''}</div>` : ''}
-        ${(it.ai_review_pending_fields || []).length ? `<div class="pd-upload-note"><b>题目内容已变化：</b>已采纳的 AI 内容须对照当前题目逐项重新核对。 ${(it.ai_review_pending_fields || []).includes('answer') ? '<button type="button" class="btn ghost sm" data-act="recheck-answer">重新确认答案</button>' : ''} ${(it.ai_review_pending_fields || []).includes('analysis') ? '<button type="button" class="btn ghost sm" data-act="recheck-analysis">重新确认解析</button>' : ''}</div>` : ''}
+        ${it.ai_origin_uncertain ? '<div class="pd-upload-note"><b>历史内容来源未记录：</b>请结合原文自行核对；系统不会将已有答案或解析认定为 AI 生成。</div>' : ''}
+        ${it.ai_legacy_pending ? `<div class="pd-upload-note"><b>历史补全记录待核对：</b>旧记录没有保存具体哪些字段由 AI 补全，请对照原文核对当前${esc((it.ai_legacy_pending_fields || []).map(x => ({answer:'答案',analysis:'解析',classification:'分类'})[x]).filter(Boolean).join('、'))}。<br><button type="button" class="btn ghost sm" data-act="legacy-review">已核对当前内容</button> <small>仅保存核对状态，不入库。</small></div>` : ''}
+        ${(it.ai_review_pending_fields || []).length ? `<div class="pd-upload-note"><b>题目内容已变化：</b>请重新核对已采用的 AI ${esc((it.ai_review_pending_fields || []).map(x => ({answer:'答案',analysis:'解析'})[x]).filter(Boolean).join('、'))}。 <button type="button" class="btn ghost sm" data-act="recheck-review">已重新核对当前内容</button> <small>仅保存核对状态，不入库。</small></div>` : ''}
         ${pdAiReviewReport(it)}
         ${it.ai_answer_suggestion ? `<div class="pd-upload-note"><b>AI 建议待处理</b><p>建议仅依据文字，未读取题图或音频；保存后仍须核对入库。</p><button type="button" class="btn ghost sm" data-act="bulk-edit">编辑并核对建议</button> <button type="button" class="btn ghost sm" data-act="discard-ai">舍弃全部未处理建议</button></div>` : ''}
         ${(it.ai_answer_discard_history || []).length ? `<details class="pd-upload-note"><summary>查看已舍弃 AI 内容（${it.ai_answer_discard_history.length}）</summary>${it.ai_answer_discard_history.map((h) => `<div><b>操作人：</b>${esc(String(h.discarded_by || ''))} <b>时间：</b>${esc(h.discarded_at || '')}${h.answer ? `<p><b>答案：</b>${pdBr(h.answer)}</p>` : ''}${h.analysis ? `<p><b>解析：</b>${pdBr(h.analysis)}</p>` : ''}</div>`).join('')}</details>` : ''}
@@ -317,7 +319,7 @@ async function viewPending() {
       workspace.addEventListener('click', (event) => {
         const button = event.target.closest('button,a'); if (!button) return;
         const changesView = button.dataset.act !== 'original' && button.matches('#pd-breview,#pd-bedit,#pd-bapply-stem,#pd-bapply-answer,#pd-bfill-review,#pd-bcommit,#pd-bmerge,#pd-merge-clear,#pd-bclassify,#pd-bai,#pd-bdel,#pd-batches,#pd-clear-batch,#pd-excel,#pd-word,[data-page],[data-src],[data-review],.nav [data-go],#btnOut');
-        const changesItem = button.dataset.act && !['save-classification', 'discard-classification', 'original'].includes(button.dataset.act);
+        const changesItem = button.dataset.act && !['save-classification', 'discard-classification', 'commit-current', 'original'].includes(button.dataset.act);
         const selectsOther = button.dataset.selectItem && button.dataset.selectItem !== st.active;
         if ((changesView || changesItem || selectsOther) && !canLeaveClassification()) { event.preventDefault(); event.stopImmediatePropagation(); }
       }, true);
@@ -336,6 +338,11 @@ async function viewPending() {
         if (classificationSaving) blockers.unshift({ message: '正在保存分类，请稍候。', target: '' });
         firstBlocker = blockers[0] || null;
         $('pd-current-commit').disabled = !!firstBlocker;
+        const direct = document.querySelector('#pd-preview [data-act="commit-current"]');
+        const actualBlocker = classificationSaving ? '正在保存分类，请稍候。' : pdReviewBlocker(item);
+        if (direct) direct.disabled = !!actualBlocker;
+        const classHint = document.querySelector('#pd-class-commit-hint');
+        if (classHint) classHint.textContent = actualBlocker || (dirty ? '点击加入题库会先保存当前分类，再请你确认入库。' : '保存分类不会入库；加入题库前可再次核对。');
         const discard = document.querySelector('#pd-preview [data-act="discard-classification"]'); if (discard) discard.hidden = !dirty;
         $('pd-commit-hint').textContent = blockers.length ? blockers.map((blocker) => blocker.message).join(' ') : '题目无需修改时，可直接点击“核对并入库”；之后还会核对分类。';
         $('pd-review-next').hidden = !firstBlocker || !firstBlocker.target;
@@ -418,17 +425,35 @@ async function viewPending() {
           document.querySelectorAll('#pd-preview [data-class-field]').forEach((field) => { field.value = it[field.dataset.classField] || ''; });
           updateCommitState(); return;
         }
+        if (b.dataset.act === 'commit-current') {
+          if (b.disabled || classificationSaving || pdReviewBlocker(it)) return;
+          const patch = classificationPatch();
+          if (!patch.subject || !patch.stage) return toast('请先选择学科和学段', 'err');
+          if (pdClassificationChanged(it, patch)) {
+            classificationSaving = true;
+            const fields = [...document.querySelectorAll('#pd-preview [data-class-field], #pd-preview [data-act="save-classification"], #pd-preview [data-act="discard-classification"]')];
+            fields.forEach((field) => { field.disabled = true; }); updateCommitState();
+            try {
+              const saved = await api(`${PD_API}/ext/pending/items`, { method: 'PUT', body: { items: [{ id: it.id, expected: it.edit_signature, patch }] } });
+              const updated = saved.list && saved.list.find((item) => item.id === it.id);
+              if (!updated) throw new Error('分类已保存但题目状态已变化，请刷新后重新核对');
+              byId[it.id] = updated;
+              classificationSaving = false; fields.forEach((field) => { field.disabled = false; }); updateCommitState();
+              toast('分类已保存，尚未入库', 'ok');
+            } catch (err) { classificationSaving = false; fields.forEach((field) => { field.disabled = false; }); updateCommitState(); toast(err.message || '分类保存失败，请重试', 'err'); return; }
+          }
+          return pdBatchCommit([it.id], byId);
+        }
         if (b.dataset.act === 'save-classification') {
           if (b.disabled) return;
           const card = b.closest('.pd-item');
           const patch = Object.fromEntries([...card.querySelectorAll('[data-class-field]')].map((field) => [field.dataset.classField, field.value.trim()]));
           if (!patch.subject || !patch.stage) return toast('请先选择学科和学段', 'err');
-          const expected = Object.fromEntries(['stem', 'type', 'question_subtype', 'subject', 'stage', 'difficulty', 'difficulty_score_10'].map((key) => [key, it[key] == null ? '' : it[key]]));
           classificationSaving = true;
           const fields = [...card.querySelectorAll('[data-class-field], [data-act="discard-classification"]')]; fields.forEach((field) => { field.disabled = true; });
           b.disabled = true; b.textContent = '保存中…'; updateCommitState();
           try {
-            await api(`${PD_API}/ext/pending/item`, { method: 'PUT', body: { id: it.id, patch, expected } });
+            await api(`${PD_API}/ext/pending/items`, { method: 'PUT', body: { items: [{ id: it.id, patch, expected: it.edit_signature }] } });
             toast('分类已保存，题目仍在待审核', 'ok'); render();
           } catch (err) { classificationSaving = false; fields.forEach((field) => { field.disabled = false; }); b.disabled = false; b.textContent = '保存分类'; updateCommitState(); }
           return;
@@ -468,12 +493,12 @@ async function viewPending() {
           try { await api(`${PD_API}/ext/pending/figure/confirm`, { method: 'POST', body: { id: it.id, expected: it.figure_review_signature } }); toast('图文归属已确认', 'ok'); render(); } catch (err) { /* api 已提示 */ }
           return;
         }
-        if (['legacy-answer', 'legacy-analysis', 'legacy-classification', 'ai-answer', 'ai-analysis', 'recheck-answer', 'recheck-analysis'].includes(b.dataset.act)) {
+        if (['legacy-review', 'ai-answer', 'ai-analysis', 'recheck-review'].includes(b.dataset.act)) {
           const legacy = b.dataset.act.startsWith('legacy-');
           const recheck = b.dataset.act.startsWith('recheck-');
-          const fields = [b.dataset.act.endsWith('-answer') ? 'answer' : b.dataset.act.endsWith('-classification') ? 'classification' : 'analysis'];
-          if (legacy && !(await elConfirm({ title: `确认历史${fields[0] === 'answer' ? '答案' : fields[0] === 'classification' ? '分类' : '解析'}`, message: '历史内容来源不确定，请对照原文核对当前内容。如需修改，请先点编辑。', okText: '已核对并确认' }))) return;
-          if (recheck && !(await elConfirm({ title: `重新确认${fields[0] === 'answer' ? '答案' : '解析'}`, message: '题目或图片已变化，请核对当前内容仍与这道题匹配。', okText: '已核对并确认' }))) return;
+          const fields = legacy ? (it.ai_legacy_pending_fields || []) : recheck ? (it.ai_review_pending_fields || []).filter(x => x === 'answer' || x === 'analysis') : [b.dataset.act.endsWith('-answer') ? 'answer' : 'analysis'];
+          if (legacy && !(await elConfirm({ title: '核对当前历史内容', message: `请对照原文核对${fields.map(x => ({answer:'答案',analysis:'解析',classification:'分类'})[x]).join('、')}。旧记录未标明具体字段的来源；确认只保存核对状态，不会入库。`, okText: '已核对，保留待审核' }))) return;
+          if (recheck && !(await elConfirm({ title: '重新核对已采用的 AI 内容', message: `题目或图片已变化，请核对${fields.map(x => x === 'answer' ? '答案' : '解析').join('、')}仍与当前题目匹配。确认只保存核对状态，不会入库。`, okText: '已核对，保留待审核' }))) return;
           const body = legacy ? { index: it.index, legacy: true, expected: it.ai_legacy_signature, fields } : recheck ? { ...(it.kind === 'run' ? { index: it.index } : { id: it.id }), recheck: true, expected: it.ai_review_signature, fields } : it.kind === 'run' ? { index: it.index, token: it.ai_answer_suggestion.token, fields } : { id: it.id, token: it.ai_answer_suggestion.token, fields };
           const url = it.kind === 'run' ? `${PD_API}/intake/runs/${it.batch_id}/aifill/confirm` : `${PD_API}/ext/pending/ai-answer/confirm`;
           try { await api(url, { method: 'POST', body }); toast('已确认，题目仍在待审核', 'ok'); render(); } catch (err) { /* api 已提示 */ }
@@ -564,15 +589,19 @@ async function pdDelete(ids) {
  *  学科、学段是必填的：题目自己已经有就沿用（单题时直接预选），没有就必须在这里选，否则不让入库（R0-B8）。 */
 async function pdBatchCommit(ids, byId) {
   const items = ids.map((id) => byId[id]).filter(Boolean);
+  if (!items.length || items.length !== ids.length || items.length > 20 || items.some((item) => !item.edit_signature)) return toast('请选择本页 1 到 20 题；题目已变化时请刷新后重新选择', 'err');
   const one = items.length === 1;
+  const legacyItems = items.filter((item) => item.kind === 'run' && item.ai_legacy_pending);
+  const blockers = items.map((item, index) => ({ index, messages: pdReviewBlockers(item).map((blocker) => blocker.message) })).filter((entry) => entry.messages.length);
   const lack = (k) => items.some((i) => !i[k]);
   const same = (k) => { const vs = [...new Set(items.map((i) => i[k] || ''))]; return vs.length === 1 ? vs[0] : ''; };
   const lackLabel = (k) => (lack(k) ? '请选择（必填）' : '沿用各题');
   const star = (k) => (lack(k) ? ' <b style="color:#dc2626">*</b>' : '');
   const trees = await tpTrees();
-  modal({
-    title: one ? '入库这道题' : `批量入库（${items.length} 题）`, okText: '入库', wide: false,
-    body: `<p class="pd-tip" style="margin-top:0">来源：${esc([...new Set(items.map((i) => i.source_label))].join('、'))}。${one ? '确认学科、学段、年级和归属的章节 / 知识点后入库；学科和学段必须有。' : '下面不填就沿用每道题自己的学科/学段/年级，题目自己没有学科或学段的必须在这里选。'}</p>
+  const dialog = modal({
+    title: one ? '确认当前题入库' : `确认批量入库（本页所选 ${items.length} 题）`, okText: '确认入库', wide: false,
+    body: `<p class="pd-tip" style="margin-top:0">本次范围：${one ? '当前 1 题' : `本页勾选的 ${items.length} 题`}；来源：${esc([...new Set(items.map((i) => i.source_label))].join('、'))}。${one ? '确认学科、学段、年级和归属的章节 / 知识点后入库；学科和学段必须有。' : '下面不填就沿用各题分类；缺学科或学段的题需先补齐。'}</p>
+      ${blockers.length ? `<div class="pd-upload-note"><b>${blockers.length} 题还有待处理项，未满足条件的题不会入库</b><details><summary>查看各题原因</summary><ul>${blockers.map((entry) => `<li>所选第 ${entry.index + 1} 题：${esc(entry.messages.join(' '))}</li>`).join('')}</ul></details>${legacyItems.length ? `<p>${legacyItems.length} 题有历史补全记录，旧记录未标明具体字段来源。请先逐题查看原文和当前内容；确认仅保存核对状态，接下来仍需单独点击入库。</p><button type="button" class="btn ghost sm" id="pdB-legacy">批量确认已核对的历史内容（${legacyItems.length} 题）</button>` : ''}</div>` : '<p class="hint">已满足页面核对条件，最终仍会校验题目、图片和分类。</p>'}
       <div class="pd-grid">
         <div class="field"><label>学科${one ? '' : '（统一改）'}${star('subject')}</label><select id="pdB-sub" class="input">${pdOpts(PD_SUBJECTS, same('subject'), lackLabel('subject'))}</select></div>
         <div class="field"><label>学段${star('stage')}</label><select id="pdB-stage" class="input">${pdOpts(PD_STAGES.slice(1), same('stage'), lackLabel('stage'))}</select></div>
@@ -587,6 +616,17 @@ async function pdBatchCommit(ids, byId) {
       <p class="hint">${items.some((item) => (item.draft_node_ids || []).length) ? `其中 ${items.filter((item) => (item.draft_node_ids || []).length).length} 题已有待审核分类节点，入库时将逐题验证并保留。` : ''}选择分类节点时，仅显示对应学科和学段的树；不同学科或学段的题目请分批归类，或先统一修改。</p>
       <div class="field"><label>标签（可选，多个用空格或逗号隔开）</label><input id="pdB-tags" class="input" placeholder="如：期中 易错"></div>`,
     onMount: (w) => {
+      const reviewButton = w.querySelector('#pdB-legacy');
+      if (reviewButton) reviewButton.onclick = async () => {
+        if (reviewButton.disabled) return;
+        const eligible = legacyItems.map((item) => ({ id: item.id, expected: item.edit_signature, legacy_expected: item.ai_legacy_signature, fields: item.ai_legacy_pending_fields }));
+        if (!(await elConfirm({ title: `核对所选历史内容（${eligible.length} 题）`, message: `请先逐题对照原文和当前内容。只确认本次选中且有历史补全记录的 ${eligible.length} 题；其余 ${items.length - eligible.length} 题跳过。此操作不会入库。`, okText: '已核对，保留待审核' }))) return;
+        reviewButton.disabled = true; w.querySelector('#mOk').disabled = true;
+        try {
+          const result = await api(`${PD_API}/ext/pending/legacy-confirm`, { method: 'POST', body: { items: eligible } });
+          dialog.close(); toast(`已核对 ${result.confirmed} 题，仍在待审核，请单独入库`, 'ok'); render();
+        } catch (err) { reviewButton.disabled = false; w.querySelector('#mOk').disabled = false; toast(err.message || '核对失败，本批未确认', 'err'); }
+      };
       let treeRequest = 0;
       const refreshTrees = () => {
         ++treeRequest;
@@ -634,9 +674,10 @@ async function pdBatchCommit(ids, byId) {
       if ((v('#pdB-ktree') && !v('#pdB-knode')) || (v('#pdB-ctree') && !v('#pdB-cnode'))) { toast('请选择树中的节点，或将分类树改为不挂', 'err'); return false; }
       const nodes = [v('#pdB-knode'), v('#pdB-cnode')].filter(Boolean).map(Number);
       const tags = v('#pdB-tags').split(/[\s,，、]+/).filter(Boolean);
-      const r = await api(`${PD_API}/ext/pending/commit`, { method: 'POST', body: { ids, subject: v('#pdB-sub'), stage: v('#pdB-stage'), grade: v('#pdB-grade'), node_ids: nodes, tags } });
-      toast(`已入库 ${r.committed} 题${r.failed.length ? `；${r.failed.length} 题失败：${r.failed[0].msg}` : ''}`, r.failed.length ? 'err' : 'ok');
+      const r = await api(`${PD_API}/ext/pending/commit`, { method: 'POST', body: { ids, items: items.map((item) => ({ id: item.id, expected: item.edit_signature })), detailed: true, subject: v('#pdB-sub'), stage: v('#pdB-stage'), grade: v('#pdB-grade'), node_ids: nodes, tags } });
+      toast(`已入库 ${r.committed} 题${r.failed.length ? `；${r.failed.length} 题未入库` : ''}`, r.failed.length ? 'err' : 'ok');
       render();
+      if (r.failed.length) setTimeout(() => modal({ title: '入库结果', body: `<p>本次选择 ${items.length} 题：已入库 ${r.committed} 题，未入库 ${r.failed.length} 题。未入库的题仍在待审核。</p><ul>${r.failed.map((failure) => { const index = items.findIndex((item) => item.id === failure.id || item.id.startsWith(failure.id + ':')); return `<li>${index < 0 ? '题目' : `所选第 ${index + 1} 题`}：${esc(failure.msg)}</li>`; }).join('')}</ul>` }), 0);
     },
   });
 }
@@ -1017,6 +1058,19 @@ async function pdAiFill(ids, byId) {
 /** 编辑单题 */
 function pdEdit(it) {
   let pdAud = null;   // 听力音频字段（T7）
+  let baselinePatch;
+  const readPatch = (w) => {
+    const v = (id) => w.querySelector(id).value;
+    const patch = {
+      type: v('#pdE-type'), question_subtype: v('#pdE-subtype'), match_prompts: v('#pdE-match').split(/\r?\n/).map((s) => s.trim()).filter(Boolean), subject: v('#pdE-sub'), stage: v('#pdE-stage'), grade: v('#pdE-grade'), difficulty: Number(v('#pdE-diff')), difficulty_score_10: v('#pdE-diff10') ? Number(v('#pdE-diff10')) : null,
+      stem: v('#pdE-stem').trim(), answer: v('#pdE-ans').trim(), analysis: v('#pdE-ana').trim(), point: v('#pdE-point').trim(),
+      options: [...w.querySelectorAll('.pd-opt')].map((x, i) => ({ label: String.fromCharCode(65 + i), text: x.value.trim() })).filter((o) => o.text),
+    };
+    if (w.querySelector('#pdE-mat')) patch.material = v('#pdE-mat').trim();
+    if (it.type_unconfirmed && w.querySelector('#pdE-type-confirm').checked) patch.type_confirmed = true;
+    if (pdAud) { patch.audio_key = pdAud.get(); patch.audio_play_limit = pdAud.getLimit(); }
+    return patch;
+  };
   const optRow = (o, i) => `<div class="pd-optrow"><button type="button" class="pd-optlb" aria-label="将选项 ${String.fromCharCode(65 + i)} 设为答案" aria-pressed="false">${String.fromCharCode(65 + i)}</button><input class="input pd-opt" value="${esc(optText(o))}" aria-label="选项 ${String.fromCharCode(65 + i)} 内容"><button type="button" class="link-btn danger" data-delopt>删</button></div>`;
   modal({
     title: `编辑题目 · ${it.source_label}`, okText: '保存', wide: true,
@@ -1092,20 +1146,16 @@ function pdEdit(it) {
         }
         row.remove(); relabel(); paintAnswer();
       };
+      baselinePatch = readPatch(w);
     },
     onOk: async (w) => {
-      const v = (id) => w.querySelector(id).value;
-      const patch = {
-        type: v('#pdE-type'), question_subtype: v('#pdE-subtype'), match_prompts: v('#pdE-match').split(/\r?\n/).map((s) => s.trim()).filter(Boolean), subject: v('#pdE-sub'), stage: v('#pdE-stage'), grade: v('#pdE-grade'), difficulty: Number(v('#pdE-diff')), difficulty_score_10: v('#pdE-diff10') ? Number(v('#pdE-diff10')) : null,
-        stem: v('#pdE-stem').trim(), answer: v('#pdE-ans').trim(), analysis: v('#pdE-ana').trim(), point: v('#pdE-point').trim(),
-        options: [...w.querySelectorAll('.pd-opt')].map((x, i) => ({ label: String.fromCharCode(65 + i), text: x.value.trim() })).filter((o) => o.text),
-      };
-      if (w.querySelector('#pdE-mat')) patch.material = v('#pdE-mat').trim();
-      if (it.type_unconfirmed && w.querySelector('#pdE-type-confirm').checked) patch.type_confirmed = true;
-      if (pdAud) { patch.audio_key = pdAud.get(); patch.audio_play_limit = pdAud.getLimit(); }
+      const patch = readPatch(w);
       if (!patch.stem) { toast('题干不能为空', 'err'); return false; }
-      await api(`${PD_API}/ext/pending/item`, { method: 'PUT', body: { id: it.id, patch } });
-      toast('已保存', 'ok');
+      const changed = Object.fromEntries(Object.entries(patch).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(baselinePatch && baselinePatch[key])));
+      if (changed.type_confirmed) changed.type = patch.type;
+      if (!Object.keys(changed).length) { toast('题目无需修改，仍在待审核', 'ok'); return; }
+      await api(`${PD_API}/ext/pending/items`, { method: 'PUT', body: { items: [{ id: it.id, patch: changed, expected: it.edit_signature }] } });
+      toast('已保存修改，题目仍在待审核', 'ok');
       render();
     },
   });

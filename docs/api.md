@@ -217,16 +217,18 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 - 录题批次、技能包、网络采集及扫码题进入正式题库时，单选/多选须至少有两个非空选项；未填答案可保留空白并按未评分处理。即使老师已确认识别内容，缺选项仍不能入库。旧题库直接新增/编辑也允许客观题答案留空，非空时仍校验格式和选项范围。
 - `POST /api/admin/bank/mf/intake/runs/:id/aifill` 保留旧路径，改为仅对原题缺失的答案或解析生成独立的 AI 建议，不自动改写正式字段或分类。可传 `{indexes:[...]}` 选择题卡；待审核页同时传 `expected:[{index,signature,subject,stage,grade}]`，在调用模型前校验所选题目的快照和范围，旧调用不传时保持兼容；建议需老师审核后逐项采纳。
 - 未采纳建议不会因再次生成而被自动覆盖。老师可在待审核显式舍弃：录题批次调用 `POST /intake/runs/:id/aifill/discard`（`{index,token,expected}`），采集和扫码调用 `POST /ext/pending/ai-answer/discard`（`{id,token,expected}`）；`expected` 使用待审核项 `ai_discard_signature`，与当前题目和批次范围绑定。只有 token 和快照均匹配才会舍弃，已填写的正式答案和解析不变。被舍弃建议原内容、来源、操作人、时间和事件 ID 保存在 `ai_answer_discard_history`；人工合并保留记录，入库时写入题目 `ai_review_metadata.discarded_suggestions`。
-- `POST /api/admin/bank/mf/intake/runs/:id/aifill/confirm` 接收 `{index,token,fields:["answer"]}` 或 `{index,token,fields:["analysis"]}`；每次必须且只能确认一项。建议的题目内容或批次学科、学段、年级改变后需重新生成。已采纳建议对应的题面变更时保留原值并禁止直接入库，老师须分别提交 `{index,recheck:true,expected,fields:[字段]}` 重新核对。采纳后题卡仍需经过待审核入库。
-- 历史 `ai_filled` 和来源不明的历史识别题卡必须由老师逐项核对当前答案和解析，分别提交 `{index,legacy:true,expected,fields:["answer"]}`、`{index,legacy:true,expected,fields:["analysis"]}` 后才能入库。旧版 AI 补全记录若含章节、知识点、难度或标签，还需单独提交 `fields:["classification"]` 核对分类。每项确认绑定题目及分类快照，变化后须重新核对。升级前已经核对的旧记录保留原状态；保存工作台题卡不能直接伪造审核状态。已入库且缺少来源标识的旧记录无法可靠判断是否曾由 AI 补全。
+- `POST /api/admin/bank/mf/intake/runs/:id/aifill/confirm` 接收 `{index,token,fields:["answer"]}` 或 `{index,token,fields:["analysis"]}`；每次必须且只能确认一项。建议的题目内容或批次学科、学段、年级改变后需重新生成。已采纳建议对应的题面变更时保留原值并禁止直接入库，老师可一次提交 `{index,recheck:true,expected,fields:[字段...]}` 重新核对选中的答案和解析。采纳后题卡仍需经过待审核入库。
+- 历史 `ai_filled` 记录不包含逐字段来源：列出当前需要核对的答案、解析和分类，由老师对照原文后可一次提交 `{index,legacy:true,expected,fields:[...]}` 核对，快照变化后重新核对。无 `ai_filled` 且来源未记录的历史识别内容显示来源不明提示，不再声称或强制确认不存在的 AI 补全；仍保留原页、题图、题型和其他必要审核。旧记录无法可靠判断具体字段是否由 AI 产生。
+- `POST /api/admin/bank/mf/ext/pending/legacy-confirm`：`{items:[{id,expected,legacy_expected,fields}]}`，最多 20 个有旧补全记录的待审题；按锁和完整快照校验，任何冲突整批不确认。操作仅记核对人和时间，不入库。单题核对同样仅保存核对状态。
+- 待审核页面的 `POST /ext/pending/commit` 随 `ids` 提交等长的 `items:[{id,expected}]` 和 `detailed:true`；先锁来源并核对完整快照，冲突则全批不入库；逐题业务校验失败可部分成功，返回所有 `failed` 原因，全部失败也返回详细列表。原调用不传 `items` 时保持旧行为。
 
 ### 学生题目短期授权
 
 课文和小分组练习、试卷、扫码自组卷、错题重练、同类题及复习队列返回的每道题包含 `quiz_ticket`，不包含答案和解析。`POST /api/stu/bank/check` 的每个 `items[]`、`POST /api/stu/bank/ai-explain` 和 `/ai-explain/stream` 的请求体，以及 `kind=self` 交卷的每个 `answers[]` 必须携带对应题目的 `quiz_ticket`。票据绑定学生与题号，有效期为签发后 2 小时；缺失、过期或不匹配返回 403，并提示重新打开练习，旧客户端应更新后重新取题。普通卷、真题卷、课文和错题等其他交卷路径仍执行原有服务端范围校验。
 
 票据在有效期内有效；老师撤销下发或试卷改为未发布后，之前签发的票据最多仍可用于原题核对或 AI 讲解 2 小时，不能重新取回撤销后的试卷，也不能绕过原有试卷交卷校验。核对接口单次最多处理 50 题；此上限不是调用频率限流。
-- 网络采集和学生扫码题使用 `POST /api/admin/bank/mf/ext/pending/ai-answer`（`{ids}`，最多 20 题）生成独立建议；`POST /ext/pending/ai-answer/confirm`（`{id,token,fields}`）每次只确认一个字段，题面变更后可用 `{id,recheck:true,expected,fields:[字段]}` 逐项重新核对。生成与确认时检查题干、选项、答案及学科范围，确认时锁定来源记录；纯图片且尚无题干文字的扫码题需先补录或识别题干。当前解题建议只基于文字，界面提示未读取题图，老师须结合原图逐项核对。历史扫码题如已提前入库，确认后才补写所选字段；直接修改题面时，如会使其中已确认 AI 内容失效，须先由老师主动清除相关字段，避免旧答案对外继续可见。
-- 拍照识别、文字整理和工作台 Word 的模型识别答案/解析保存为标记 `source=recognition` 的待确认内容，老师对照原文逐项确认后方可作为正式答案/解析；模型推荐的知识点标签不会自动入库。历史带原页或旧模型整理标记且已有答案或解析的题卡因无法区分来源，保留原值并要求老师核对后入库；纯人工题无需此步骤。
+- 网络采集和学生扫码题使用 `POST /api/admin/bank/mf/ext/pending/ai-answer`（`{ids}`，最多 20 题）生成独立建议；`POST /ext/pending/ai-answer/confirm`（`{id,token,fields}`）每次只确认一个字段，题面变更后可用 `{id,recheck:true,expected,fields:[字段...]}` 一次重新核对现有的答案和解析。生成与确认时检查题干、选项、答案及学科范围，确认时锁定来源记录；纯图片且尚无题干文字的扫码题需先补录或识别题干。当前解题建议只基于文字，界面提示未读取题图，老师须结合原图逐项核对。历史扫码题如已提前入库，确认后才补写所选字段；直接修改题面时，如会使其中已确认 AI 内容失效，须先由老师主动清除相关字段，避免旧答案对外继续可见。
+- 拍照识别、文字整理和工作台 Word 的模型识别答案/解析保存为标记 `source=recognition` 的待确认内容，老师对照原文逐项确认后方可作为正式答案/解析；模型推荐的知识点标签不会自动入库。历史带原页或旧模型整理标记但未记录补全来源的题卡保留原值并提示来源不明，不虚构 AI 生成记录；实际原页、图片和题型审核门槛仍然生效。
 - 自动采集 AI 兜底无法核实模型返回的答案和解析来自原文，保守留空，模型推断题型需老师确认。建议签名包括题图、音频、匹配题左项和细分题型，内容变化须重新核对。
 
 ### 多选题少选分和无答案试题

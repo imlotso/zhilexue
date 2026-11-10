@@ -77,11 +77,11 @@ const reviewedPendingFields = (card, scope = '') => {
   });
 };
 const token = () => crypto.randomBytes(16).toString('hex');
+// 只有旧版明确记录过补全才视作 AI 补全。历史识别题的来源不明，不能推断它一定由 AI 生成。
+const legacyUnknownOrigin = (card) => !!(card && !card.ai_filled && !card._ai_review_schema && (Number(card.page) > 0 || ['semi', 'word'].includes(card.via)) && (str((card._q || card).answer).trim() || str((card._q || card).analysis).trim()));
 const legacyPendingFields = (card) => {
   if (!card) return [];
-  // 旧版识别未保留模型来源；带原页或工作台模型整理标记的历史题需保守核对，原值不动。
-  const possibleRecognition = !card._ai_review_schema && (Number(card.page) > 0 || ['semi', 'word'].includes(card.via));
-  if (!card.ai_filled && !possibleRecognition) return [];
+  if (!card.ai_filled) return [];
   // 保留升级前已确认的历史记录；新版逐字段确认记录与当前题目快照绑定。
   if (card.ai_legacy_reviewed && !card.ai_legacy_reviewed_fields) return [];
   const q = card._q || card;
@@ -91,5 +91,16 @@ const legacyPendingFields = (card) => {
   return ['answer', 'analysis', 'classification'].filter((field) => (field === 'classification' ? classification : !!str(q[field]).trim()) && reviewed[field] !== current);
 };
 const legacyPending = (card) => legacyPendingFields(card).length > 0;
+function confirmLegacy(card, fields, expected, actor, at) {
+  const pending = legacyPendingFields(card);
+  if (!Array.isArray(fields) || !fields.length || new Set(fields).size !== fields.length || fields.some((field) => !pending.includes(field))) throw new Error('待核对内容已变化，请刷新后重新核对');
+  if (String(expected || '') !== legacySignature(card)) throw new Error('题目或分类已变化，请重新核对');
+  card._ai_card_id = card._ai_card_id || token();
+  const sig = legacySignature(card), stamp = { confirmed_by: actor, confirmed_at: at };
+  card.ai_legacy_reviewed_fields = { ...(card.ai_legacy_reviewed_fields || {}), ...Object.fromEntries(fields.map((field) => [field, sig])) };
+  card.ai_legacy_reviewed = !legacyPending(card);
+  const review = card.ai_answer_review || {};
+  card.ai_answer_review = { ...review, legacy_confirmed: card.ai_legacy_reviewed, legacy_fields: { ...(review.legacy_fields || {}), ...Object.fromEntries(fields.map((field) => [field, stamp])) } };
+}
 
-module.exports = { values, signature, discardSignature, discardSuggestion, withDiscardHistory, legacySignature, contextSignature, reviewedPendingFields, token, legacyPending, legacyPendingFields };
+module.exports = { values, signature, discardSignature, discardSuggestion, withDiscardHistory, legacySignature, contextSignature, reviewedPendingFields, token, legacyPending, legacyPendingFields, legacyUnknownOrigin, confirmLegacy };
