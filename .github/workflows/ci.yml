@@ -9,6 +9,7 @@ env:
   STORAGE_DRIVER: local
   AI_MOCK: '1'
   TTS_MOCK: '1'
+  ZLX_ISOLATED_TEST: '1'
 
 jobs:
   unit:

@@ -35,7 +35,10 @@ for(const change of [{stem:'另一题'},{material:'新材料'},{options:[{label:
 assert.deepStrictEqual(review.reviewedPendingFields({...reviewedCard,answer:'教师手填'},'scope'),[],'手工替换的答案不应冒充 AI 建议');
 const port=Number(process.env.TEST_PORT)||3019;
 process.env.PORT=String(port);
+require('./test/isolated-accounts').assertIsolated();
 const {db}=require('./src/db');
+const accounts = require('./test/isolated-accounts').create(db);
+process.on('exit', accounts.dispose);
 const mf=require('./src/mfcollect');
 mf.mfAiInvoke=async()=>({text:JSON.stringify({items:Array.from({length:20},(_,i)=>({i,answer:'5',analysis:'先加后算'}))})});
 require('./src/app');
@@ -56,7 +59,7 @@ async function testCapturedAndScanned(){
     assert.strictEqual(extracted.data.questions[0].answer,'');assert.strictEqual(extracted.data.questions[0].analysis,'');
     assert.strictEqual(extracted.data.questions[0].type_unconfirmed,true,'模型推断题型必须由老师确认');
   } finally { mf.fetchPageAuto=oldFetch; ai.chat=oldChat; }
-  const now='2026-11-05 00:00:00', student=db.prepare("SELECT id FROM users WHERE username='13800000001'").get().id;
+  const now='2026-11-05 00:00:00', student=accounts.student.id;
   const payload=[0,1,2,3,4].map(i=>({site:'zujuan',questionId:'ai-cap-'+Date.now()+'-'+i,stem:`采集建议${i} ____`,type:'fill',options:[],answer:i===3?'采集答案':'',analysis:'',...(i===4?{type_unconfirmed:true}:{})}));
   const existing=db.prepare("INSERT INTO questions (subject,grade,type,stem,options,answer,analysis,difficulty,sort,stage,images,source_type,source_detail,created_at) VALUES ('数学','七年级','fill',?,'[]','已有正式答案','',3,0,'junior','[]','capture',?,?)").run(payload[3].stem,JSON.stringify({site:'zujuan',questionId:payload[3].questionId}),now).lastInsertRowid;qIds.push(existing);
   const batch=db.prepare('INSERT INTO mf_capture_batches (title,site,url,subject,stage,grade,payload,status,created_at) VALUES (?,?,?,?,?,?,?,?,?)').run('AI采集建议验证','zujuan','', '数学','junior','七年级',JSON.stringify(payload),'pending',now).lastInsertRowid; batchIds.push(batch);
@@ -126,7 +129,7 @@ async function testRecognizedAnswers(){
     }
   } finally { storage.readBuffer=oldRead; mf.mfAiInvoke=oldInvoke; }
 }
-(async()=>{for(let i=0;i<50;i++){try{await fetch(base+'/');break}catch{await new Promise(r=>setTimeout(r,100))}}const login=await req('/api/login',{username:'15152099970',password:'123456',role:'admin'});assert.strictEqual(login.code,0,login.msg);token=login.data.token;
+(async()=>{for(let i=0;i<50;i++){try{await fetch(base+'/');break}catch{await new Promise(r=>setTimeout(r,100))}}const login=await req('/api/login',{username:accounts.admin.username,password:accounts.admin.password,role:'admin'});assert.strictEqual(login.code,0,login.msg);token=login.data.token;
 const run=create([card('2+3=____'),{...card('6-1=____'),_q:{stem:'6-1=____',subject:'数学',stage:'junior',grade:'七年级',type:'fill',options:[],answer:'',analysis:'',detail:{test:'ai-review',stamp:Date.now()}}},{...card('旧题'),answer:'旧答案',analysis:'旧解析',point:'旧分类',ai_filled:true},{...card('历史有原页题'),page:1,answer:'保留旧答案',analysis:'保留旧解析'},{...card('纯人工题'),answer:'人工答案',analysis:'人工解析'}]);
 let j=await req(prefix+'/intake/runs/'+run+'/aifill',{indexes:[0,1]});assert.strictEqual(j.code,0,j.msg);let cards=JSON.parse(db.prepare('SELECT drafts FROM mf_recog_runs WHERE id=?').get(run).drafts);assert.strictEqual(cards[0].answer,'');assert.strictEqual(cards[0].analysis,'');assert.strictEqual(cards[0].ai_answer_suggestion.answer,'5');assert.strictEqual(cards[1]._q.answer,'');
 let items=await getItems(run),first=items.find(x=>x.index===0),second=items.find(x=>x.index===1),legacy=items.find(x=>x.index===2);assert(first.ai_answer_suggestion&&!first.ai_answer_suggestion.stale);assert(legacy.ai_legacy_pending);

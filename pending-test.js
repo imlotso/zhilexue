@@ -9,7 +9,10 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const XLSX = require('xlsx');
+require('./test/isolated-accounts').assertIsolated();
 const { db } = require('./src/db');
+const accounts = require('./test/isolated-accounts').create(db);
+process.on('exit', accounts.dispose);
 
 const BASE = process.env.BASE || 'http://localhost:3000';
 const MF = '/api/admin/bank/mf';
@@ -64,9 +67,9 @@ function buildDocx(paras) {
 
 (async () => {
   console.log('\n=== 待审核题目 · 自测 ===\n');
-  const adm = await req('/api/login', { method: 'POST', body: { username: '15152099970', password: '123456', role: 'admin' } });
+  const adm = await req('/api/login', { method: 'POST', body: { username:accounts.admin.username, password:accounts.admin.password, role: 'admin' } });
   const AT = adm.data && adm.data.token;
-  const stuLogin = await req('/api/login', { method: 'POST', body: { username: '13800000001', password: '123456', role: 'student' } });
+  const stuLogin = await req('/api/login', { method: 'POST', body: { username:accounts.student.username, password:accounts.student.password, role: 'student' } });
   const ST = stuLogin.data && stuLogin.data.token;
   const made = { questions: [], runs: [], batches: [], ups: [] };
   // 测试库可能保留真实试卷草稿；收集全部分页后再按本次夹具定位，不能依赖它刚好处于第一页。
@@ -174,7 +177,7 @@ function buildDocx(paras) {
   log((await req(`${MF}/questions?kw=T3技能包题一${uniq}&size=5`, { token: AT })).data.total === 0, '导入后题库里没有技能包的题（先在待审核）');
 
   // ================= 夹具：拍照识别 / 采集 / 手机扫码（直接写库） =================
-  const stuId = db.prepare("SELECT id FROM users WHERE username='13800000001'").get().id;
+  const stuId = accounts.student.id;
   const runPhoto = db.prepare(`INSERT INTO mf_recog_runs (title, subject, stage, grade, source_kind, source_name, status, pages, drafts, ocr_texts, error, created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run('T3拍照' + uniq, '数学', 'junior', '七年级', 'image', 'T3.jpg', 'recognized', JSON.stringify([{ key: 'bank/recog/t3-source.png' }]),
     JSON.stringify([{ page: 1, questionType: '单选', stem: 'T3拍照一' + uniq, options: [{ label: 'A', content: '甲' }, { label: 'B', content: '乙' }], answer: 'B', analysis: '', checked: true, figures: [] },
