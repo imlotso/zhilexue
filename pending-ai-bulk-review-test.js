@@ -145,6 +145,14 @@ test('bulk edits do not clear image or original-content final review gates',asyn
   const r=await f.edit([f.entry(item,{analysis:'人工修改'})]);assert.equal(r.code,0,r.msg);
   const after=(await f.list()).find(x=>x.id===item.id);assert.equal(after.content_review_pending,true);assert.deepEqual(after.images,item.images);
 });
+test('unchanged original-page confirmation checks the snapshot and preserves every question value',async t=>{
+  const f=fixture(t),item=(await f.list()).find(x=>x.kind==='run'&&x.index===0),before=f.snapshot();
+  const stale=await f.call('POST /ext/pending/content/confirm',{id:item.id,expected:'stale-signature'});assert.notEqual(stale.code,0);assert.equal(f.snapshot(),before);
+  const confirmed=await f.call('POST /ext/pending/content/confirm',{id:item.id,expected:item.content_review_signature});assert.equal(confirmed.code,0,confirmed.msg);
+  const after=(await f.list()).find(x=>x.id===item.id);assert.equal(after.content_review_pending,false);
+  for(const field of ['stem','answer','analysis','material','options','images'])assert.deepEqual(after[field],item[field]);
+  assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+});
 test('bulk edit refuses a legacy scan whose question is shared by an unselected pending record',async t=>{
   const f=fixture(t);f.raw.exec("INSERT INTO questions(id,stem,type,options,answer,analysis,material) VALUES(9,'旧扫码题','fill','[]','原答案','','原材料'); UPDATE paper_uploads SET question_id=9 WHERE id IN(3,4)");
   const item=(await f.list()).find(x=>x.id==='up:3'),before=f.snapshot();const r=await f.edit([f.entry(item,{answer:'只能改选中题'})]);assert.notEqual(r.code,0);assert.equal(f.snapshot(),before);

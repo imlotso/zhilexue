@@ -237,6 +237,35 @@ if(require.main===module && process.argv.includes('--browser')) {
 }
 
 if(require.main===module && process.argv.includes('--browser')) {
+ test('no-change review and blocker guidance work in desktop and mobile browser',async()=>{
+  const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',args:['--no-sandbox']});
+  try{for(const width of [1440,390]){
+   const page=await browser.newPage({viewport:{width,height:width===390?844:1058}});
+   try{
+    const requests=[];await page.route('**/*',r=>{requests.push(r.request().url());return r.abort()});
+    await page.setContent(buildFixture());await page.waitForFunction(()=>window.fixtureReady);
+    await page.evaluate(async()=>{const x=fixture.rows[0];x.options=x.options.map((text,i)=>({label:String.fromCharCode(65+i),text}));x.edit_signature='synthetic-snapshot';x.ai_answer_suggestion={source:'review',token:'same',stem:x.stem,answer:x.answer,analysis:x.analysis};await fixture.refresh();window.fixtureCalls=[];});
+    assert.equal(await page.locator('#pd-current-commit').isEnabled(),false);
+    assert.match(await page.locator('#pd-commit-hint').innerText(),/原页.*无需修改/);
+    await page.locator('#pd-review-next').click();assert.equal(await page.locator('[data-act="content-review"]').evaluate(e=>document.activeElement===e),true);
+    await page.locator('[data-act="bulk-edit"]').click();await page.locator('#mOk').click();await page.locator('.mask').waitFor({state:'detached'});
+    assert.equal(await page.locator('#pd-current-commit').isEnabled(),false);
+    assert.deepEqual(await page.evaluate(()=>fixtureCalls.filter(c=>c.method!=='GET')),[]);
+    await page.locator('[data-act="content-review"]').click();await page.locator('#elcOk').click();await page.waitForFunction(()=>!document.getElementById('pd-current-commit').disabled);
+    assert.match(await page.locator('#pd-commit-hint').innerText(),/无需修改/);
+    assert.deepEqual(await page.evaluate(()=>fixtureCalls.filter(c=>c.method!=='GET').map(c=>c.url.split('/').slice(-2).join('/'))),['content/confirm']);
+    await page.evaluate(async()=>{const x=fixture.rows[0];x.figure_missing=[1];x.figure_review_required=true;x.figure_review_issue='待核对';x.ai_legacy_pending=true;x.ai_legacy_pending_fields=['answer','analysis','classification'];await fixture.refresh();window.fixtureCalls=[];});
+    const hint=await page.locator('#pd-commit-hint').innerText();assert.match(hint,/题图/);assert.match(hint,/图文/);assert.match(hint,/答案.*解析.*分类/);
+    await page.locator('#pd-review-next').click();assert.equal(await page.locator('.pd-image-missing').first().evaluate(e=>document.activeElement===e),true);
+    await page.evaluate(async()=>{fixture.rows[0].figure_missing=[];await fixture.refresh();});await page.locator('#pd-review-next').click();
+    assert.equal(await page.locator('[data-act="confirm-figure"]').evaluate(e=>e.closest('details').open&&document.activeElement===e),true);
+    assert.deepEqual(await page.evaluate(()=>fixtureCalls.filter(c=>c.method!=='GET')),[]);assert.deepEqual(requests,[]);
+   }finally{await page.close()}
+  }}finally{await browser.close()}
+ });
+}
+
+if(require.main===module && process.argv.includes('--browser')) {
  test('review navigation settles closed on fresh mobile and desktop-to-mobile resize',async()=>{
   fs.mkdirSync(path.join(ROOT,'docs/ui-evidence-20261108/review'),{recursive:true});
   const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',args:['--no-sandbox']});

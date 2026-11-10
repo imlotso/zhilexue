@@ -60,5 +60,5 @@ test('review queue retains source badges, pending validation, and distinct save/
   const view=await c.viewPending();
   assert.match(view.html,/pd-row-source/);
   assert.match(view.html,/data-act="save-classification"/);assert.match(view.html,/id="pd-current-commit"/);
-  assert.equal(c.pdReviewBlocker({content_review_pending:true}),'请先对照原页核对内容');
+  assert.match(c.pdReviewBlocker({content_review_pending:true}),/对照原页.*无需修改/);
 });

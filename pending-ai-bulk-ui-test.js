@@ -71,9 +71,28 @@ for(const [name,change] of [
 test('bulk editor renders only selected cards and does not prefill AI or save by opening',t=>{
  const f=fixture(t),w=f.open();assert.equal(w.querySelectorAll('[data-pd-bulk-index]').length,2);assert.equal(w.querySelector('[data-pd-field="answer"]').value,'原答案 0');assert.equal(f.calls.length,0);assert.ok(!w.textContent.includes('合成题 2'));
 });
+test('unchanged bulk editor closes without writing and explains how to continue review',async t=>{
+ const f=fixture(t),w=f.open();await w.querySelector('#mOk').onclick();
+ assert.equal(f.calls.length,0);assert.equal(f.document.querySelector('.mask'),null);
+ assert.ok(f.messages.some(m=>/无需保存/.test(m.message)&&/核对/.test(m.message)));
+});
+test('commit guidance shows every actual blocker and locates the first required action without writing',async t=>{
+ const f=await pendingPage(t),row=f.rows[0];Object.assign(row,{content_review_required:true,content_review_pending:true,figure_missing:[1],ai_legacy_pending:true,ai_legacy_pending_fields:['answer','analysis','classification']});await f.ctx.render();
+ const hint=f.document.querySelector('#pd-commit-hint'),next=f.document.querySelector('#pd-review-next');
+ assert.equal(f.document.querySelector('#pd-current-commit').disabled,true);
+ assert.match(hint.textContent,/原页/);assert.match(hint.textContent,/题图/);assert.match(hint.textContent,/答案.*解析.*分类/);assert.match(hint.textContent,/无需修改/);
+ assert.ok(next&&!next.hidden);let scrolled=false;const content=f.document.querySelector('[data-act="content-review"]');content.scrollIntoView=()=>{scrolled=true};next.click();assert.equal(scrolled,true);assert.equal(f.calls.length,0);
+});
+test('unmodified questions can proceed while actual image and AI review gates remain specific',async t=>{
+ const f=await pendingPage(t),row=f.rows[0];row.ai_answer_suggestion={source:'review',stem:'合成建议',token:'x'};await f.ctx.render();
+ assert.equal(f.document.querySelector('#pd-current-commit').disabled,false);assert.match(f.document.querySelector('#pd-commit-hint').textContent,/无需修改/);
+ row.figure_review_required=true;row.figure_review_issue='图文待确认';row.ai_review_pending_fields=['answer','analysis'];await f.ctx.render();
+ assert.equal(f.document.querySelector('#pd-current-commit').disabled,true);const hint=f.document.querySelector('#pd-commit-hint').textContent;assert.match(hint,/图文/);assert.match(hint,/答案.*解析/);
+ assert.ok(f.document.querySelector('[data-act="confirm-figure"]'));assert.ok(f.document.querySelector('[data-act="recheck-answer"]'));assert.ok(f.document.querySelector('[data-act="recheck-analysis"]'));assert.equal(f.calls.length,0);
+});
 test('bulk editor sends only changed fields with the selected card snapshot and no import',async t=>{
  const f=fixture(t),w=f.open();w.querySelector('[data-pd-field="answer"]').value='老师手改';await w.querySelector('#mOk').onclick();assert.equal(f.calls.length,1);assert.ok(f.calls[0].url.endsWith('/ext/pending/items'));
- assert.deepEqual(f.calls[0].options.body.items,[{id:f.rows[0].id,expected:'snapshot-0',patch:{answer:'老师手改'}}]);assert.ok(!f.document.querySelector('.mask'));
+ assert.deepEqual(f.calls[0].options.body.items,[{id:f.rows[0].id,expected:'snapshot-0',patch:{answer:'老师手改'}}]);assert.ok(!f.document.querySelector('.mask'));assert.ok(f.messages.some(m=>/保存 1 题/.test(m.message)&&/1 题无需保存/.test(m.message)));
 });
 test('AI text stays editable and requires per-card human confirmation before bulk save',async t=>{
  const f=fixture(t),w=f.open(),row=w.querySelector('[data-pd-bulk-index="0"]');row.querySelector('[data-pd-suggestion="answer"]').click();const field=row.querySelector('[data-pd-field="answer"]');assert.equal(field.value,'AI参考答案');field.value='老师修订';field.dispatchEvent(new f.ctx.window.Event('input',{bubbles:true}));
