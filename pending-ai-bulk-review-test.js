@@ -17,9 +17,15 @@ try {
 }
 const Review = require('./src/ai-answer-review');
 const principal = { id: 1, role: 'admin' }, branch = { id: 10, role: 'branch' };
-function fixture(t, captureModel = false) {
+function fixture(t, captureModel = false, allowCommit = false) {
   const raw = openMemory(); t.after(() => raw.close());
   raw.exec(`
+    CREATE TABLE bank_trees(id INTEGER PRIMARY KEY,subject TEXT,stage TEXT,kind TEXT,edition TEXT,name TEXT,sort INTEGER);
+    CREATE TABLE bank_tree_nodes(id INTEGER PRIMARY KEY,tree_id INTEGER,parent_id INTEGER,name TEXT,sort INTEGER);
+    INSERT INTO bank_trees VALUES(1,'数学','primary','knowledge','','知识树',0),(2,'数学','primary','textbook','','章节树',0),(3,'英语','primary','knowledge','','英语树',0);
+    INSERT INTO bank_tree_nodes VALUES(11,1,NULL,'加法',0),(12,2,NULL,'第一章',0),(13,3,NULL,'单词',0);
+    CREATE TABLE question_nodes(question_id INTEGER,node_id INTEGER,PRIMARY KEY(question_id,node_id));
+    CREATE TABLE question_tags(question_id INTEGER,tag TEXT,PRIMARY KEY(question_id,tag));
     CREATE TABLE users(id INTEGER PRIMARY KEY, role TEXT, created_by INTEGER, name TEXT);
     INSERT INTO users VALUES(101,'student',10,'A学生'),(201,'student',20,'B学生');
     CREATE TABLE mf_recog_runs(id INTEGER PRIMARY KEY,title TEXT,subject TEXT,stage TEXT,grade TEXT,source_kind TEXT,status TEXT,error TEXT,drafts TEXT,pages TEXT,created_at TEXT);
@@ -46,7 +52,7 @@ function fixture(t, captureModel = false) {
       // Never load mfcollect or any network-capable provider in this fixture.
       if(name==='./mfcollect') {
         if(!captureModel) throw new Error('Mock mode must never call live AI');
-        return {mfAiInvoke:async request=>{modelRequests.push(request);return {text:JSON.stringify({items:[0,1].map(i=>({i,summary:'请由老师核对匹配关系',issues:[],answer:'',analysis:''}))})};}};
+        return {mfAiInvoke:async request=>{modelRequests.push(request);return {text:JSON.stringify({items:[0,1].map(i=>({i,summary:'请由老师核对匹配关系',issues:[],stem:'修订后的合成题干',answer:'',analysis:''}))})};}};
       }
       return require(name.startsWith('.') ? path.resolve(__dirname,'src',name) : name);
     }
@@ -55,7 +61,7 @@ function fixture(t, captureModel = false) {
   const parseObj = text => { try { return JSON.parse(text||'{}')||{}; } catch(_) { return {}; } };
   mod.exports({admin,db,ok:(res,data,msg)=>res.json({code:0,data,msg}),fail:(res,msg,code=1)=>res.json({code,msg}),now:()=> '2026-11-09 10:00:00',int:(x,d=0)=>parseInt(x,10)||d,parseArr,parseObj,jstr:JSON.stringify,
     TYPE_MAP:{'填空':'fill','单选':'single','解答':'answer','排序':'sort'},TYPES:['single','multi','judge','fill','sort','answer'],store:{getUrlSync:key=>'/api/file?key='+key},bankFolder:()=> 'bank',
-    commitRunCards:()=>{throw new Error('Review and edit must not import');},commitCaptureItems:()=>{throw new Error('Review and edit must not import');}});
+    commitRunCards:()=>{if(!allowCommit)throw new Error('Review and edit must not import'); raw.prepare("INSERT INTO questions(id,subject,stage,stem) VALUES(42,'数学','primary','合成测试')").run(); return [42];},commitCaptureItems:()=>{throw new Error('Review and edit must not import');}});
   const mfbank = fs.readFileSync(path.join(__dirname, 'src/mfbank.js'), 'utf8');
   const confirmStart = mfbank.indexOf("admin.post('/intake/runs/:id/aifill/confirm',"), confirmEnd = mfbank.indexOf('\n});', confirmStart) + 4;
   vm.runInNewContext(mfbank.slice(confirmStart, confirmEnd), { admin, db, AiAnswerReview: Review, int: Number, parseArr, jstr: JSON.stringify, now: () => '2026-11-09 10:00:00', ok: (res, data, msg) => res.json({ code: 0, data, msg }), fail: (res, msg) => res.json({ code: 1, msg }) });
@@ -166,4 +172,46 @@ test('production AI request includes bounded matching prompts and subtype withou
  const payload=JSON.parse(f.modelRequests[0].user);assert.equal(payload[0].type,'sort');assert.equal(payload[0].question_subtype,'math_match');assert.deepEqual(payload[0].match_prompts,['左侧甲','左侧乙']);
  assert.equal(payload[1].question_subtype,'listen_match');assert.deepEqual(payload[1].match_prompts.slice(0,2),['听力人物甲','听力人物乙']);assert.equal(payload[1].match_prompts.length,7);assert.equal(payload[1].match_prompts[2].length,1000);assert.equal(payload[1].has_audio,true);assert.equal(payload[0].has_images,true);
  assert.ok(payload.every(item=>!Object.hasOwn(item,'images')&&!Object.hasOwn(item,'audio_key')));assert.ok(!f.modelRequests[0].user.includes('private-fixture.mp3'));assert.ok(!f.modelRequests[0].user.includes('one.png'));
+});
+
+
+test('AI review persists a stem suggestion and atomic adoption records its origin without importing',async t=>{
+ const f=fixture(t,true),item=(await f.list()).find(x=>x.kind==='run'&&x.index===0);const r=await f.review([item]);assert.equal(r.code,0);
+ const current=(await f.list()).find(x=>x.id===item.id),suggestion=current.ai_answer_suggestion;assert.equal(suggestion.stem,'修订后的合成题干');
+ const e={...f.entry(current,{stem:suggestion.stem}),ai_fields:['stem'],ai_token:suggestion.token,ai_confirmed:true};
+ assert.equal((await f.edit([e])).code,0);const saved=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts)[0];assert.equal(saved.stem,suggestion.stem);assert.equal(saved.ai_answer_review.fields.stem.original_value,item.stem);assert.equal(saved.ai_answer_review.fields.stem.source,'review');assert.equal(saved.content_review_required,true);assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+});
+
+
+test('selected classification nodes save atomically as draft, refresh, and reject stale or out-of-scope suggestions',async t=>{
+ const f=fixture(t),items=(await f.list()).filter(x=>x.kind==='run'),r=await f.edit([f.entry(items[0],{draft_node_ids:[11,12]}),f.entry(items[1],{draft_node_ids:[11],difficulty_score_10:5})]);assert.equal(r.code,0,r.msg);
+ const after=await f.list();assert.deepEqual(Array.from(after.find(x=>x.id===items[0].id).draft_node_ids),[11,12]);assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
+ const before=f.snapshot();const bad=await f.edit([f.entry(after.find(x=>x.id===items[0].id),{draft_node_ids:[13]}),f.entry(after.find(x=>x.id===items[1].id),{difficulty_score_10:4})]);assert.notEqual(bad.code,0);assert.equal(f.snapshot(),before);
+ const stale=await f.edit([f.entry(items[0],{draft_node_ids:[11]})]);assert.notEqual(stale.code,0);assert.equal(f.snapshot(),before);
+});
+
+
+test('explicit later commit validates and attaches the classification saved in each draft',async t=>{
+ const f=fixture(t,false,true),item=(await f.list()).find(x=>x.kind==='run'&&x.index===1);assert.equal((await f.edit([f.entry(item,{draft_node_ids:[11,12]})])).code,0);
+ const current=(await f.list()).find(x=>x.id===item.id),result=await f.call('POST /ext/pending/commit',{ids:[current.id]});assert.equal(result.code,0,result.msg);assert.deepEqual(f.raw.prepare('SELECT node_id FROM question_nodes WHERE question_id=42 ORDER BY node_id').all().map(x=>x.node_id),[11,12]);
+});
+
+test('adopting one unchanged AI suggestion leaves remaining suggestions usable after refresh',async t=>{
+ const f=fixture(t),initial=(await f.list()).find(x=>x.kind==='run'&&x.index===1);await f.review([initial]);const first=(await f.list()).find(x=>x.id===initial.id),s=first.ai_answer_suggestion;
+ const save=await f.edit([{...f.entry(first,{answer:s.answer}),ai_fields:['answer'],ai_token:s.token,ai_confirmed:true}]);assert.equal(save.code,0,save.msg);
+ const next=(await f.list()).find(x=>x.id===first.id);assert.equal(next.ai_answer_suggestion.stale,false);assert.ok(next.ai_answer_suggestion.analysis);assert.ok(!next.ai_answer_suggestion.answer);
+ const finish=await f.edit([{...f.entry(next,{analysis:next.ai_answer_suggestion.analysis}),ai_fields:['analysis'],ai_token:s.token,ai_confirmed:true}]);assert.equal(finish.code,0,finish.msg);
+});
+
+test('AI adoption refuses to drop original numbered image markers',async t=>{
+ const f=fixture(t,true),items=(await f.list()).filter(x=>x.kind==='run'),cards=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);cards[0].stem='看图 [图1]，求值';f.raw.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=1').run(JSON.stringify(cards));const old=(await f.list()).find(x=>x.kind==='run'&&x.index===0);await f.review([old]);const item=(await f.list()).find(x=>x.id===old.id),s=item.ai_answer_suggestion,before=f.snapshot();const result=await f.edit([{...f.entry(item,{stem:s.stem}),ai_fields:['stem'],ai_token:s.token,ai_confirmed:true}]);assert.notEqual(result.code,0);assert.match(result.msg,/图.*标记/);assert.equal(f.snapshot(),before);
+});
+
+test('keeping one original field persists that decision without changing its text or other suggestions',async t=>{
+ const f=fixture(t),initial=(await f.list()).find(x=>x.kind==='run'&&x.index===1);await f.review([initial]);const item=(await f.list()).find(x=>x.id===initial.id),s=item.ai_answer_suggestion;
+ const r=await f.edit([{...f.entry(item,{}),ai_keep_fields:['answer'],ai_token:s.token,ai_confirmed:true}]);assert.equal(r.code,0,r.msg);const current=(await f.list()).find(x=>x.id===item.id);assert.equal(current.answer,item.answer);assert.equal(current.ai_answer_suggestion.answer,undefined);assert.ok(current.ai_answer_suggestion.analysis);assert.equal(current.ai_answer_suggestion.stale,false);assert.equal(current.ai_answer_review.kept_fields.answer.suggested_value,s.answer);
+});
+
+test('stored classification refuses final commit if grade changes after selecting nodes',async t=>{
+ const f=fixture(t,false,true),item=(await f.list()).find(x=>x.kind==='run'&&x.index===1);assert.equal((await f.edit([f.entry(item,{draft_node_ids:[11]})])).code,0);let current=(await f.list()).find(x=>x.id===item.id);assert.equal((await f.edit([f.entry(current,{grade:'五年级'})])).code,0);current=(await f.list()).find(x=>x.id===item.id);const r=await f.call('POST /ext/pending/commit',{ids:[current.id]});assert.notEqual(r.code,0);assert.match(r.msg,/分类.*变化/);assert.equal(f.raw.prepare('SELECT count(*) n FROM questions').get().n,0);
 });

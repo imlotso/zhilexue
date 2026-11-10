@@ -108,3 +108,8 @@
 - `records.self_response_id INTEGER DEFAULT NULL`：本次自评关联的 `subjective_responses.id`，在同一交卷事务中写入；普通客观题及历史记录保持 NULL。个人主观题正确率仅接纳对应 response 的学生、题目、自评值均吻合的记录，不能把旧问答题记录当成自评。为兼容现有迁移未追加强制外键约束，查询显式核对关联。
 
 AI 初审沿用原待审核来源 JSON 和 AI 来源元数据，不增表、不自动迁移/覆盖正式题目。
+
+
+## 2026-11-10 AI 审核草稿
+
+待审核数据的现有 JSON（录题 `mf_recog_runs.drafts`、采集 `mf_capture_batches.payload`、扫码 `paper_uploads.draft_json`）可保存 `draft_node_ids` 与 `draft_node_scope`，记录每题已选择的分类节点及核对时的范围；未新增表或列。最终入库时重新核验并写入 `question_nodes`，之前仅为草稿。AI 审核建议和采纳来源记录允许包含 `stem`，继续保存在既有建议与审核元数据中。

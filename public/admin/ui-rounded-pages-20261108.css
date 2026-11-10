@@ -426,3 +426,26 @@ body.t11 .r10-embed-nav{background:#fff;border:1px solid #dce6df;border-radius:1
 body.t11 .r10-embed-nav button{border:1px solid #d3e2d8;background:#f4f8f3;color:#0c5947;border-radius:12px;padding:10px 16px;min-height:42px;}
 body.t11 .r10-embed-nav button.active{background:#0c5947;color:#fff;border-color:#0c5947;}
 body.t11 .r10-embed-nav button:focus-visible{outline:3px solid #ffca58;outline-offset:2px;}
+/* AI 建议：对照直接贴近对应字段，差异同时使用文字语义、删除线和下划线。 */
+body.t11 .pd-suggestion{margin:9px 0 14px;padding:12px 14px;border:1px solid #c9ded1;border-radius:14px;background:#f5faf6;min-width:0}
+body.t11 .pd-suggestion.is-stale{background:#fff9ef;border-color:#ead6ad}
+body.t11 .pd-suggestion-title{font-size:13px;font-weight:700;color:#075b46;margin-bottom:6px}
+body.t11 .pd-diff{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;font-size:14px;color:#183c31}
+body.t11 .pd-diff del,body.t11 .pd-diff-toolbar del{background:#ffe3e4;color:#9d2028;text-decoration:line-through;text-decoration-thickness:2px}
+body.t11 .pd-diff ins,body.t11 .pd-diff-toolbar ins{background:#d8f3df;color:#075a2d;text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:2px}
+body.t11 .pd-suggestion-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+body.t11 .pd-suggestion small{display:block;margin-top:6px;color:#795121}
+body.t11 .pd-diff-toolbar,body.t11 .pd-class-toolbar{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap;padding:12px 14px;border:1px solid #d8e8dc;border-radius:14px;background:#eef7f0;color:#173e32}
+body.t11 .pd-diff-toolbar small{flex-basis:100%;color:#526b5e}
+body.t11 .pd-class-toolbar p{flex:1 1 260px;margin:0;line-height:1.5}
+body.t11 .pd-class-toolbar [data-ai-count]{font-size:12px;color:#486658}
+body.t11 .pd-class-list{display:grid;gap:12px;margin-top:14px}
+body.t11 .pd-class-card{padding:14px;border:1px solid #dfeae2;border-radius:16px;background:#fff}
+body.t11 .pd-class-card h3{font-size:15px;line-height:1.5;overflow-wrap:anywhere;margin:0 0 4px}
+body.t11 .pd-class-scope{font-size:12px;color:#5c7164;margin-bottom:9px}
+body.t11 .pd-class-choice{display:grid;grid-template-columns:auto 58px minmax(0,1fr);align-items:start;gap:8px;padding:8px 0;border-top:1px solid #edf1ed;line-height:1.5;cursor:pointer}
+body.t11 .pd-class-choice input{margin:4px 0 0;accent-color:#075b46}
+body.t11 .pd-class-kind{font-weight:700;color:#345447}
+body.t11 .pd-class-values{overflow-wrap:anywhere;color:#53675b}
+body.t11 .pd-class-values b{color:#075b46}
+@media(max-width:600px){body.t11 .pd-diff-toolbar,body.t11 .pd-class-toolbar{align-items:flex-start}body.t11 .pd-class-choice{grid-template-columns:auto 50px minmax(0,1fr)}}

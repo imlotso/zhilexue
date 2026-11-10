@@ -150,3 +150,42 @@ test('obsolete delayed AI failures are silent while the current pending failure 
  const f=fixture(t),old=beginDelayedReview(f);f.replacePage('<input value="草稿">');old.fail();await old.work;assert.equal(f.messages.length,0);
  f.replacePage(f.pendingHTML,'#/pending');const current=beginDelayedReview(f);current.fail();await current.work;assert.equal(f.messages.length,1);assert.match(f.messages[0].message,/旧请求失败/);assert.equal(f.renderCount(),0);
 });
+
+test('inline suggestion diff marks changed characters and preserves newlines without executing HTML',t=>{
+ const f=fixture(t);const s=f.rows[0].ai_answer_suggestion;s.stem='合成题，0<script>';s.answer='原答案！0';const w=f.open();
+ const stem=w.querySelector('[data-pd-diff="stem"]'),answer=w.querySelector('[data-pd-diff="answer"]');
+ assert.ok(stem&&answer,'题干、答案旁展示差异');assert.ok(stem.querySelector('ins'));assert.ok(answer.querySelector('del,ins'));assert.equal(w.querySelectorAll('script').length,0);assert.match(stem.textContent,/<script>/);
+});
+test('bulk apply fills only untouched valid suggestions and permits further manual edits',t=>{
+ const f=fixture(t);f.rows[0].ai_answer_suggestion.stem='新题干';f.rows[1].ai_answer_suggestion={source:'review',token:'two',stale:true,answer:'不能覆盖'};const w=f.open();
+ const answer=w.querySelector('[data-pd-bulk-index="0"] [data-pd-field="answer"]');answer.value='我手写的';answer.dispatchEvent(new f.ctx.window.Event('input',{bubbles:true}));w.querySelector('[data-pd-apply-all]').click();
+ assert.equal(answer.value,'我手写的');assert.equal(w.querySelector('[data-pd-bulk-index="0"] [data-pd-field="stem"]').value,'新题干');assert.equal(w.querySelector('[data-pd-bulk-index="1"] [data-pd-field="answer"]').value,'原答案 1');assert.match(w.textContent,/跳过/);
+});
+
+test('classification select-all saves selected nodes and fields to draft in one atomic request, never commit',async t=>{
+ const f=fixture(t);f.ctx.document.querySelector('.pd-workspace').insertAdjacentHTML('beforeend','<button id="pd-bclassify"></button>');
+ const call=f.ctx.api;f.ctx.api=async(url,options)=>url.endsWith('/ai-classify')?{mock:false,list:[{id:f.rows[0].id,type:'fill',difficulty_score_10:3,nodes:[{id:11,kind:'knowledge',name:'加法',path:'数学 / 加法',tree_name:'知识树'}]}]}:call(url,options);
+ await f.ctx.pdAiClassify([f.rows[0].id],Object.fromEntries(f.rows.map(x=>[x.id,x])));const w=f.document.querySelector('.mask');w.querySelector('[data-ai-select-all]').click();await w.querySelector('#mOk').onclick();
+ assert.equal(f.calls.length,1);assert.ok(f.calls[0].url.endsWith('/ext/pending/items'));assert.deepEqual(f.calls[0].options.body.items[0].patch.draft_node_ids,[11]);assert.ok(f.calls.every(c=>!c.url.endsWith('/commit')));
+});
+
+test('a deliberate bulk confirmation confirms only rows with adopted suggestions',t=>{
+ const f=fixture(t),w=f.open();w.querySelector('[data-pd-apply-all]').click();w.querySelector('[data-pd-confirm-all]').click();assert.equal(w.querySelector('[data-pd-bulk-index="0"] [data-pd-ai-confirm]').checked,true);assert.equal(w.querySelectorAll('[data-pd-ai-confirm]:checked').length,1);
+});
+test('character diff preserves text, whitespace, formula and image markers on both sides',t=>{
+ const f=fixture(t),a='甲\n$x+1$ [图1]。',b='甲\n$x+2$ [图1]！',el=f.document.createElement('div');el.innerHTML=f.ctx.pdDiffHTML(a,b);let old='',now='';for(const node of el.childNodes){if(node.nodeName!=='INS')old+=node.textContent;if(node.nodeName!=='DEL')now+=node.textContent;}assert.equal(old,a);assert.equal(now,b);assert.equal(el.querySelector('script'),null);
+});
+
+test('late classification response cannot open a dialog over another page or unsaved form',async t=>{
+ const f=fixture(t),delayed=deferredReview();f.document.querySelector('.pd-workspace').insertAdjacentHTML('beforeend','<button id="pd-bclassify"></button>');f.ctx.api=()=>delayed.promise;
+ const work=f.ctx.pdAiClassify([f.rows[0].id],Object.fromEntries(f.rows.map(x=>[x.id,x])));f.replacePage('<input id="other-draft" value="保留">');delayed.resolve({mock:false,list:[]});await work;assert.equal(f.document.querySelectorAll('.mask').length,0);assert.equal(f.document.querySelector('#other-draft').value,'保留');
+});
+
+test('keeping a single suggestion is an explicit persistent decision without changing the original',async t=>{
+ const f=fixture(t),w=f.open(),row=w.querySelector('[data-pd-bulk-index="0"]');row.querySelector('[data-pd-keep="answer"]').click();assert.equal(row.querySelector('[data-pd-field="answer"]').value,'原答案 0');assert.match(row.querySelector('[data-pd-keep="answer"]').textContent,/已选择/);await w.querySelector('#mOk').onclick();assert.deepEqual(f.calls[0].options.body.items[0].ai_keep_fields,['answer']);assert.equal(f.calls[0].options.body.items[0].ai_token,'review-1');
+});
+
+test('changed classification scope requires explicit confirmation before retaining draft nodes',async t=>{
+ const f=fixture(t);Object.assign(f.rows[0],{draft_node_ids:[11],draft_node_stale:true});f.ctx.document.querySelector('.pd-workspace').insertAdjacentHTML('beforeend','<button id="pd-bclassify"></button>');const call=f.ctx.api;f.ctx.api=async(url,options)=>url.endsWith('/ai-classify')?{mock:false,list:[{id:f.rows[0].id,nodes:[],current_nodes:[{id:11,kind:'knowledge',name:'加法',path:'加法'}]}]}:call(url,options);
+ await f.ctx.pdAiClassify([f.rows[0].id],Object.fromEntries(f.rows.map(x=>[x.id,x])));const w=f.document.querySelector('.mask');await w.querySelector('#mOk').onclick();assert.equal(f.calls.length,0);assert.ok(f.messages.some(m=>/范围已变化/.test(m.message)));w.querySelector('[data-ai-scope-confirm]').click();await w.querySelector('#mOk').onclick();assert.deepEqual(f.calls[0].options.body.items[0].patch.draft_node_ids,[11]);
+});

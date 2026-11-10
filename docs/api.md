@@ -305,9 +305,11 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 
 前缀 `/api/admin/bank/mf`。待审核列表增加 `edit_signature`，覆盖内容、范围及审核状态。
 
-- `POST /ext/pending/ai-review`：`{items:[{id,expected}]}`，1–20 个不同待审核 ID；`expected` 使用最新 `edit_signature`。返回 `{reviewed,failed,list,mock}`。报告和可选答案/解析保存在独立建议中，不覆盖原题、不自动确认内容/图片、不入库。处理模型返回前再次检查权限及快照；分项失败会明确列出。只读文字，图片和音频须老师核对。
-- `PUT /ext/pending/items`：`{items:[{id,expected,patch,ai_fields?,ai_token?,ai_confirmed?}]}`，同样限制 1–20 题。按固定顺序锁来源行并在同一事务保存，任一失效/校验失败整批回滚。`patch` 只允许内容和分类白名单，不允许伪造来源、图片或审核记录；共用旧正式题且会影响其他待审扫码记录时拒绝批改。
-- 使用建议的答案/解析时，分别传 `ai_fields:["answer","analysis"]`（实际使用的字段）、当前 `ai_token` 与逐题 `ai_confirmed:true`。允许在建议上人工改写，但保留建议原文、原字段、最终值、确认人及时间；手动粘贴完全相同的建议也不能绕过来源记录。保存后仍在待审核，图片和原文核对门禁继续有效。旧快捷采纳接口不接收 `source:"review"` 报告，须经批量编辑入口核对。
+- `POST /ext/pending/ai-review`：`{items:[{id,expected}]}`，1–20 个不同待审核 ID；`expected` 使用最新 `edit_signature`。返回 `{reviewed,failed,list,mock}`。报告和可选题干/答案/解析保存在独立建议中，不覆盖原题、不自动确认内容/图片、不入库。处理模型返回前再次检查权限及快照；分项失败会明确列出。只读文字，图片和音频须老师核对。
+- `PUT /ext/pending/items`：`{items:[{id,expected,patch,ai_fields?,ai_keep_fields?,ai_token?,ai_confirmed?}]}`，同样限制 1–20 题。按固定顺序锁来源行并在同一事务保存，任一失效/校验失败整批回滚。`patch` 只允许内容和分类白名单，不允许伪造来源、图片或审核记录；共用旧正式题且会影响其他待审扫码记录时拒绝批改。
+- 使用建议的题干/答案/解析时，分别传 `ai_fields:["stem","answer","analysis"]`（实际使用的字段）、当前 `ai_token` 与逐题 `ai_confirmed:true`。允许在建议上人工改写，但保留建议原文、原字段、最终值、确认人及时间；手动粘贴完全相同的建议也不能绕过来源记录。保存后仍在待审核，图片和原文核对门禁继续有效。旧快捷采纳接口不接收 `source:"review"` 报告，须经批量编辑入口核对。原样逐项采用后，剩余建议重新绑定当前快照；伴随人工改写时保守标记过期。单项保留原文可传 `ai_keep_fields:["stem"|"answer"|"analysis"]`、相同的 token 和 `ai_confirmed:true`；保留决定及建议原文留存，不修改该字段。AI 采用不得更改编号题图标记。历史扫码题若已关联正式题库，批量 AI 采用被拒绝，避免提前修改公开题目。
+
+- `POST /ext/pending/ai-classify` 返回分类候选与已有草稿节点；确认通过 `PUT /ext/pending/items` 保存，`patch.draft_node_ids` 是各题选定的节点 ID 数组，可增删，`ai_classification:true` 表示 AI 分类操作。服务端检查学科、学段、版本、节点存在及快照，任何错误整批回滚。节点绑定保存时的学科、学段、年级、版本及册别，范围变化需重新确认；最终 `/ext/pending/commit` 再核验并按题目分别挂载草稿节点，不因保存建议自动入库。
 
 ### 完整知识点扫描
 
