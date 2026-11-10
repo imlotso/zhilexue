@@ -185,7 +185,7 @@ if (require.main === module) {
 
   async function pendingFixture(t, flags = {}) {
     const w = dom(t), calls = [], messages = [];
-    const row = { id: 'run:1:0:12345678', kind: 'run', index: 0, batch_id: 1, source: 'word', source_label: 'Word导入', type: 'answer', type_name: '解答题', subject: '', stage: '', grade: '', point: '', stem: '合成规则解析题', answer: '1', analysis: '', images: [], options: [], tags: [], ...flags };
+    const row = { id: 'run:1:0:12345678', edit_signature: 'synthetic-snapshot', kind: 'run', index: 0, batch_id: 1, source: 'word', source_label: 'Word导入', type: 'answer', type_name: '解答题', subject: '', stage: '', grade: '', point: '', stem: '合成规则解析题', answer: '1', analysis: '', images: [], options: [], tags: [], ...flags };
     Object.assign(w, { ADM: { page: { pd: { source: 'all', sel: {} } }, chapters: [] }, mtxTypeset: () => {}, bindPager: () => {}, pagerHTML: () => '', tpTrees: async () => [], optText: o => typeof o === 'string' ? o : o.text || o.content || '', optDisplay: o => String(o), toast: message => messages.push(message), render: () => {}, api: async (url, options) => {
       if (url.startsWith('/api/admin/bank/mf/ext/pending?')) return { page: 1, size: 20, total: 1, list: [row] };
       calls.push({ url, options: JSON.parse(JSON.stringify(options)) });
@@ -198,13 +198,13 @@ if (require.main === module) {
   test('current pending action opens real classification validation before committing the selected card', async t => {
     const f = await pendingFixture(t), button = f.d.querySelector('#pd-current-commit');
     assert.equal(button.disabled, false); button.click(); await tick();
-    assert.equal(f.d.querySelector('.el-dialog__title').textContent, '入库这道题');
+    assert.equal(f.d.querySelector('.el-dialog__title').textContent, '确认当前题入库');
     assert.equal(f.d.querySelectorAll('#pdB-sub,#pdB-stage,#pdB-grade,#pdB-ktree,#pdB-ctree').length, 5);
     await f.d.querySelector('#mOk').onclick(); assert.equal(f.calls.length, 0); assert.match(f.messages.at(-1), /请先选择学科/);
     f.d.querySelector('#pdB-sub').value = '数学'; await f.d.querySelector('#mOk').onclick();
     assert.equal(f.calls.length, 0); assert.match(f.messages.at(-1), /请先选择学段/);
     f.d.querySelector('#pdB-stage').value = 'junior'; await f.d.querySelector('#mOk').onclick();
-    assert.deepEqual(f.calls, [{ url: '/api/admin/bank/mf/ext/pending/commit', options: { method: 'POST', body: { ids: ['run:1:0:12345678'], subject: '数学', stage: 'junior', grade: '', node_ids: [], tags: [] } } }]);
+    assert.deepEqual(f.calls, [{ url: '/api/admin/bank/mf/ext/pending/commit', options: { method: 'POST', body: { ids: ['run:1:0:12345678'], items: [{ id: 'run:1:0:12345678', expected: 'synthetic-snapshot' }], detailed: true, subject: '数学', stage: 'junior', grade: '', node_ids: [], tags: [] } } }]);
     assert.equal(f.d.querySelector('#pdB-sub'), null);
   });
   for (const [name, flags, hint] of [
