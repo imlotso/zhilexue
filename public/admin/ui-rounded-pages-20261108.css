@@ -394,8 +394,7 @@ body.t11 .r6-rounded-page .r3-main>.card-h{flex:none}
  body.t11 .r6-rounded-page .r6-basket-preview-list{max-height:190px}
 }
 
-/* Short desktop viewports retain all three review actions without page scrolling.
-   Classification fields can scroll; its independent save stays at the top. */
+/* Compact spacing for short desktops; long review content remains scrollable. */
 @media(min-width:821px) and (max-height:850px){
  body.t11 .admin-app.ui-rounded-shell.ui-review-shell .pd-workspace{min-height:0;height:calc(100dvh - 66px);gap:12px;padding-bottom:12px}
  body.t11 .pd-workspace-heading{padding-top:17px}
@@ -482,6 +481,10 @@ body.t11 .ui-review-shell .pd-toolbar-row #pd-bapply-stem:not(:disabled),body.t1
 @media(max-width:820px){body.t11 .pd-review-footer{position:static}}
 @media(max-width:820px){body.t11 .ui-review-shell .pd-workspace{flex:0 0 auto}body.t11 .pd-workspace .pd-list{flex:0 0 auto}}
 @media(max-width:820px){body.t11 .pd-workspace .pd-main,body.t11 .pd-workspace .pd-classification{min-width:0;max-width:100%;box-sizing:border-box}body.t11 .pd-preview-heading>div{min-width:0;max-width:100%;flex-wrap:wrap}}
+/* Let the page grow when expanded tools need space; keep a usable review area. */
+@media(min-width:821px){body.t11 .admin-app.ui-rounded-shell.ui-review-shell .pd-workspace{height:auto;min-height:calc(100dvh - 66px);grid-template-rows:auto auto minmax(28rem,min(60dvh,42rem)) auto;align-content:start}}
+@media(min-width:821px) and (max-width:1160px){body.t11 .pd-review-footer{flex-wrap:wrap}body.t11 .pd-review-navigation{flex:0 0 auto}body.t11 .pd-review-commit{flex:1 1 100%;justify-content:space-between}}
+@media(max-width:820px){body.t11 .admin-app.ui-rounded-shell.ui-review-shell .pd-workspace{height:auto;min-height:calc(100dvh - 60px)}}
 body.t11 .pd-review-commit{flex:1 1 auto;justify-content:flex-end;min-width:0}
 body.t11 .pd-commit-guidance{display:flex;flex:0 1 500px;min-width:0;flex-direction:column;align-items:flex-start;gap:4px}
 body.t11 .pd-commit-guidance>span{font-size:13px;line-height:1.45;color:#425a4c;overflow-wrap:anywhere}
