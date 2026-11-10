@@ -1,11 +1,13 @@
 'use strict';
 const assert=require('node:assert/strict');
 const {test}=require('node:test');
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const root=process.env.ZLX_TEST_ARTIFACT_DIR || path.join(os.tmpdir(),'zlx-review-flow-artifacts');fs.mkdirSync(root,{recursive:true});
 const {chromium}=require('playwright');
 const {buildFixture}=require('./ui-review-concept-test');
 
 test('expanded and collapsed review areas remain readable, scrollable and operable',async()=>{
- const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',args:['--no-sandbox']});
+ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}),args:['--no-sandbox']});
  try{
   for(const [width,height] of [[1538,948],[1503,737],[1366,768],[1024,768],[900,700],[821,600],[390,844],[320,700]]){
    const page=await browser.newPage({viewport:{width,height}}),errors=[],requests=[];page.setDefaultTimeout(6000);
@@ -16,7 +18,7 @@ test('expanded and collapsed review areas remain readable, scrollable and operab
     await page.locator('.pd-advanced>summary').click();
     const metrics=await page.evaluate(()=>Object.fromEntries(['.pd-list','.pd-list-rows','.pd-main','.pd-question-body','.pd-classification','.pd-review-footer'].map(s=>{const e=document.querySelector(s),r=e.getBoundingClientRect();return [s,{height:r.height,top:r.top,bottom:r.bottom,client:e.clientHeight,scroll:e.scrollHeight}]})));
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,`${width}: no horizontal overflow`);
-    if(width===1503)await page.screenshot({path:'/home/bobo/Documents/Codex/2026-11-10/task-2/review-layout-expanded-top.png'});
+    if(width===1503)await page.screenshot({path:path.join(root,'review-layout-expanded-top.png')});
     if(width>820){
      assert(metrics['.pd-list'].height>=400,`${width}: review area collapsed ${JSON.stringify(metrics)}`);
      assert(metrics['.pd-list-rows'].client>=120,`${width}: queue collapsed ${JSON.stringify(metrics)}`);
@@ -27,7 +29,7 @@ test('expanded and collapsed review areas remain readable, scrollable and operab
      await page.waitForFunction(()=>document.querySelector('.pd-question-body').scrollTop>0,null,{timeout:3000});
      await page.locator('[data-review-row]').last().scrollIntoViewIfNeeded();
      assert(await page.locator('.pd-list-rows').evaluate(e=>e.scrollTop)>0,`${width}: queue cannot scroll`);
-     if(width===1503){await page.locator('.pd-question-body').evaluate(e=>{e.scrollTop=0});await page.locator('.pd-list').evaluate(e=>e.scrollIntoView({block:'center'}));await page.screenshot({path:'/home/bobo/Documents/Codex/2026-11-10/task-2/review-layout-expanded-content.png'});}
+     if(width===1503){await page.locator('.pd-question-body').evaluate(e=>{e.scrollTop=0});await page.locator('.pd-list').evaluate(e=>e.scrollIntoView({block:'center'}));await page.screenshot({path:path.join(root,'review-layout-expanded-content.png')});}
     }else{
      assert(metrics['.pd-question-body'].height>180,`${width}: mobile content collapsed`);
      assert(metrics['.pd-review-footer'].top>=metrics['.pd-classification'].bottom-1,`${width}: mobile footer overlaps`);

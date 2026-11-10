@@ -1,10 +1,10 @@
 'use strict';
 // Actual UI with synthetic in-memory records; every external request is blocked.
-const {test}=require('node:test'), assert=require('node:assert/strict');
+const {test}=require('node:test'), assert=require('node:assert/strict'), fs=require('node:fs'), os=require('node:os'), path=require('node:path');
 const {chromium}=require('playwright');const {buildFixture}=require('./ui-review-concept-test');
-const root='/home/bobo/Documents/Codex/2026-11-10/task-2';
+const root=process.env.ZLX_TEST_ARTIFACT_DIR || path.join(os.tmpdir(),'zlx-review-flow-artifacts');fs.mkdirSync(root,{recursive:true});
 for (const [name,width,height] of [['desktop',1503,737],['mobile',390,844]]) test('review to explicit import: '+name,async()=>{
- const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}),args:['--no-sandbox']});
  const page=await browser.newPage({viewport:{width,height}}),external=[];
  try{
   await page.route('**/*',r=>{external.push(r.request().url());return r.abort()});
