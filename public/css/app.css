@@ -4431,3 +4431,6 @@ body[data-theme] .r8-hero-ring>div{background:var(--card)}
 .r4-subjective{color:var(--text)}
 body[data-theme] .r4-subjective{background:var(--card);border-color:var(--line)}
 body[data-theme] .r4-subjective-item summary b{color:var(--brand)}
+
+/* Keep long imported filenames from pushing workbench actions out of view. */
+.mf-wk-bar .mf-wk-title{min-width:0;max-width:min(100%,28rem);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

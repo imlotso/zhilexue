@@ -14,6 +14,17 @@ const pdStageName = (k) => (PD_STAGES.find((s) => s[0] === k) || [])[1] || '';
 const pdOpts = (list, cur, empty) => (empty != null ? `<option value="">${esc(empty)}</option>` : '')
   + list.map((x) => { const v = Array.isArray(x) ? x[0] : x; const t = Array.isArray(x) ? x[1] : x; return `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(t)}</option>`; }).join('');
 const pdBr = (s) => esc(s).replace(/\n/g, '<br>');
+// 填空答案沿用评分协议：单 | 分空，||| 表示同一空的可接受备选。
+// 仅格式化预览，编辑和 AI 差异对照仍保留原始协议文本。
+function pdAnswerHTML(item) {
+  const value = String(item.answer == null ? '' : item.answer);
+  if (item.type !== 'fill') return pdBr(value);
+  const blanks = value.replace(/\|\|\|/g, '\u0001').split('|');
+  return blanks.map((blank, i) => {
+    const answer = blank.split('\u0001').filter(Boolean).map(pdBr).join(' <span class="pd-answer-or">或</span> ');
+    return `${blanks.length > 1 ? `第 ${i + 1} 空：` : ''}${answer || '<span class="pd-warn">未填</span>'}`;
+  }).join('<br>');
+}
 // 对照区始终显示转义后的纯文本；公式和图号作为整体比较，避免拆坏标记。
 function pdDiffTokens(text) {
   return String(text == null ? '' : text).match(/\$\$[\s\S]*?\$\$|\$(?:\\.|[^$\n])+\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\[(?:图片|图像|图表|表格|示意图|图(?=[0-9a-zA-Z\s:：\]])|表(?=[0-9a-zA-Z\s:：\]]))[^\]\n]{0,2000}\]|【(?:图片|图像|图表|表格|示意图|图(?=[0-9a-zA-Z\s:：】])|表(?=[0-9a-zA-Z\s:：】]))[^】\n]{0,2000}】|[\s\S]/gu) || [];
@@ -225,7 +236,7 @@ async function viewPending() {
         ${preview.prompts.length ? `<div><b>匹配项目</b><ol>${preview.prompts.map((v) => `<li>${v}</li>`).join('')}</ol></div>` : ''}
         ${(it.options || []).length ? `<ol class="pd-opts">${it.options.map((o, i) => `<li><b>${esc(optLabel(o, i))}.</b> ${preview.options[i]}</li>`).join('')}</ol>` : ''}
         ${preview.rest ? `<div class="pd-imgs">${preview.rest}</div>` : ''}
-        <div class="pd-ans"><div class="pd-answer-line"><b>参考答案</b><span>${pdInlineReview(it, 'answer', it.answer ? pdBr(it.answer) : '<span class="pd-warn">未填</span>')}</span></div><div class="pd-ana"><b>解析</b><div>${pdInlineReview(it, 'analysis', it.analysis ? preview.analysis : '<span class="pd-warn">未填</span>')}</div></div></div>
+        <div class="pd-ans"><div class="pd-answer-line"><b>参考答案</b><span>${pdInlineReview(it, 'answer', it.answer ? pdAnswerHTML(it) : '<span class="pd-warn">未填</span>')}</span></div><div class="pd-ana"><b>解析</b><div>${pdInlineReview(it, 'analysis', it.analysis ? preview.analysis : '<span class="pd-warn">未填</span>')}</div></div></div>
         ${it.content_review_required ? `<div class="pd-upload-note pd-content-review"><b>${it.content_review_pending ? '请对照原页核对题型、题干、选项、公式、共同材料和小问' : '老师已核对当前题目内容'}</b>${it.content_review_pending ? '<p>AI 识别内容可能包含推断、漏字或串题，请以原页为准。内容无误无需修改时，也请点击下方“确认已对照原页”。</p>' : ''}${it.cross_page_review_required ? '<p>此题涉及跨页内容，请逐页核对并补全关联。</p>' : ''}${(it.recognition_notes || []).map((note) => `<p>AI 提示（可能包含推断，请对照原页核对）：${esc(note)}</p>`).join('')}</div>` : ''}
         ${it.ai_origin_uncertain ? '<div class="pd-upload-note"><b>历史内容来源未记录：</b>请结合原文自行核对；系统不会将已有答案或解析认定为 AI 生成。</div>' : ''}
         ${it.ai_legacy_pending ? `<div class="pd-upload-note"><b>历史补全记录待核对：</b>旧记录没有保存具体哪些字段由 AI 补全，请对照原文核对当前${esc((it.ai_legacy_pending_fields || []).map(x => ({answer:'答案',analysis:'解析',classification:'分类'})[x]).filter(Boolean).join('、'))}。<br><button type="button" class="btn ghost sm" data-act="legacy-review">已核对当前内容</button> <small>仅保存核对状态，不入库。</small></div>` : ''}

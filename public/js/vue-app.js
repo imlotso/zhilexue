@@ -905,7 +905,7 @@ const App = {
   <div v-else-if="page==='login'" class="lg2-wrap">
     <section class="lg2-brand">
       <div class="lg2-top">
-        <img class="lg2-logo" src="/img/logo.jpg" alt="智学课堂">
+        <img class="lg2-logo" src="/img/logo.jpg" alt="智乐学">
         <div class="lg2-head">
           <h1>纸屏结合Ai智学系统</h1>
           <p>线上看课&nbsp;&nbsp;线下刷题</p>
@@ -975,13 +975,13 @@ const App = {
     </section>
     <section class="lg2-main">
       <div class="lg2-card-form">
-        <div class="lg2-flogo"><img src="/img/logo.jpg" alt="智学课堂"><b>学生登录</b></div>
+        <div class="lg2-flogo"><img src="/img/logo.jpg" alt="智乐学"><b>学生登录</b></div>
         <div v-if="loginErr" class="alert">{{ loginErr }}</div>
         <form @submit.prevent="onLogin">
-          <div class="field"><label>账号</label>
-            <input class="input" v-model="username" placeholder="请输入账号" autocomplete="username" required></div>
-          <div class="field"><label>密码</label>
-            <input class="input" v-model="password" type="password" placeholder="请输入密码" autocomplete="current-password" required></div>
+          <div class="field"><label for="student-login-username">账号</label>
+            <input id="student-login-username" class="input" v-model="username" placeholder="请输入账号" autocomplete="username" required></div>
+          <div class="field"><label for="student-login-password">密码</label>
+            <input id="student-login-password" class="input" v-model="password" type="password" placeholder="请输入密码" autocomplete="current-password" required></div>
           <button class="btn lg2-submit" type="submit" :disabled="loginBusy">{{ loginBusy ? '登录中…' : '登录' }}</button>
         </form>
         <p class="lg2-reg">如需注册，请联系工作人员协助开通</p>
