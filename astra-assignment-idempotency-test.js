@@ -21,9 +21,11 @@ function fixture(t){
  INSERT INTO papers VALUES(1,'[9]','draft','2026-12-01T12:34:00.123Z',NULL);
  INSERT INTO users VALUES(4,'A','六年级','student',1,10),(5,'B','六年级','student',1,10),(6,'C','六年级','student',1,20);
  INSERT INTO paper_tries VALUES(1,1,4,'preserved attempt');INSERT INTO records VALUES(1,'preserved record');INSERT INTO mistakes VALUES(1,'preserved mistake');INSERT INTO subjective_responses VALUES(1,'preserved drawing');`);
+ require('./school-scope-test-fixture')(raw);
+ raw.exec("CREATE TABLE paper_uploads(question_id INTEGER,user_id INTEGER,status TEXT); INSERT INTO questions(id,stage,grade) VALUES(9,'primary','六年级')");
  const handlers={},writes=[];let beforeTx=null;
  const db={prepare:sql=>{const s=raw.prepare(sql);return {get:(...a)=>s.get(...a),all:(...a)=>s.all(...a),run:(...a)=>{writes.push(sql);return s.run(...a);}};},transaction:fn=>()=>{if(beforeTx){const f=beforeTx;beforeTx=null;f();}return raw.transaction(fn)();}};
- const box={db,admin:{get:(p,f)=>handlers['GET '+p]=f,post:(p,f)=>handlers['POST '+p]=f},now:()=> '2026-11-07T12:00:00Z',parseIds:s=>JSON.parse(s),ok:(r,d)=>r.data=d,fail:(r,e)=>r.error=e,require:p=>{assert.equal(p,'./qmeta');return {questionsAllowed:()=>true};}};
+ const box={db,admin:{get:(p,f)=>handlers['GET '+p]=f,post:(p,f)=>handlers['POST '+p]=f},now:()=> '2026-11-07T12:00:00Z',parseIds:s=>JSON.parse(s),ok:(r,d)=>r.data=d,fail:(r,e)=>r.error=e,require:p=>{assert.ok(['./qmeta','./compose','./school-scope'].includes(p));return require(path.join(__dirname,'src',p));}};
  vm.runInNewContext(part(bank,'function paperDeadline(','\n}')+'\n'+["admin.get('/papers',","admin.get('/papers/:id/assignees',","admin.post('/papers/:id/assign',"].map(s=>part(bank,s,'\n});')).join('\n'),box);
  const call=(key,body={},role='branch')=>{const res={};handlers[key]({user:{id:10,role},params:{id:'1'},query:{},body},res);return res;};
  const snapshot=()=>Object.fromEntries(['paper_assignments','paper_tries','records','mistakes','subjective_responses'].map(s=>[s,raw.prepare('SELECT * FROM '+s+' ORDER BY id').all()]));

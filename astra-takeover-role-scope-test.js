@@ -33,6 +33,7 @@ function fixture(t){
  INSERT INTO paper_assignments VALUES(1,101,10,''),(1,102,10,''),(1,201,20,''),(1,103,10,'');
  INSERT INTO questions VALUES(1,'synthetic question');
  `);
+ require('./school-scope-test-fixture')(raw);
  const writes=[];const db={prepare(sql){const q=raw.prepare(sql);return {get:(...a)=>q.get(...a),all:(...a)=>q.all(...a),run:(...a)=>{writes.push({sql,args:a});return {changes:1,lastInsertRowid:1};}};},transaction:fn=>()=>fn()};
  const admin={},stu={},middleware=[];
  const box={require:p=>require(path.join(__dirname,'src',p)),db,admin:{get:(p,f)=>admin['GET '+p]=f,post:(p,f)=>admin['POST '+p]=f},stu:{get:(p,f)=>stu[p]=f,use:f=>middleware.push(f)},

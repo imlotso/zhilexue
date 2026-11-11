@@ -1,6 +1,7 @@
 'use strict';
 const crypto = require('crypto');
 const { resolveDifficulty } = require('./difficulty');
+const SchoolScope = require('./school-scope');
 
 // 将外部题卡转成现有 mofang-question-pack；不补造答案、解析或分类。
 // 只转换可识别的纯 JSON 数据，未知格式明确报错，避免静默丢题。
@@ -37,9 +38,17 @@ function normalizePack(pack) {
   const input = pickQuestions(pack);
   if (!input.length) throw new Error('题目包没有题目');
   const items = [];
+  // Remember explicit source classifications before parent/child and item/content
+  // precedence discards them. A conflicting senior source must still be rejected
+  // per item by the importer, without losing unrelated supported questions.
+  const seniorItems = new WeakSet();
   input.forEach((parent, i) => {
     if (!parent || typeof parent !== 'object' || Array.isArray(parent)) throw new Error(`第 ${i + 1} 题不是对象`);
-    if (!Array.isArray(parent.children) || !parent.children.length) { items.push(parent); return; }
+    const parentSenior = !!SchoolScope.contentScopeError({...parent, children: undefined});
+    if (!Array.isArray(parent.children) || !parent.children.length) {
+      if (parentSenior) seniorItems.add(parent);
+      items.push(parent); return;
+    }
     const content = parent.content && typeof parent.content === 'object' ? parent.content : parent;
     const material = text(content.material ?? parent.material ?? content.passage ?? parent.passage);
     if (!material) throw new Error(`第 ${i + 1} 题有小题但缺少材料，不能安全导入`);
@@ -50,9 +59,11 @@ function normalizePack(pack) {
     parent.children.forEach((child, j) => {
       if (!child || typeof child !== 'object' || Array.isArray(child) || (Array.isArray(child.children) && child.children.length)) throw new Error(`第 ${i + 1} 题的小题 ${j + 1} 格式不受支持`);
       const childContent = child.content && typeof child.content === 'object' ? child.content : child;
-      items.push({ ...inherited, ...child, content: { ...childContent, material, audio_key: childContent.audio_key ?? child.audio_key ?? content.audio_key ?? parent.audio_key, audio_play_limit: childContent.audio_play_limit ?? child.audio_play_limit ?? content.audio_play_limit ?? parent.audio_play_limit, images: childContent.images ?? child.images ?? content.images ?? parent.images ?? [] },
+      const item = { ...inherited, ...child, content: { ...childContent, material, audio_key: childContent.audio_key ?? child.audio_key ?? content.audio_key ?? parent.audio_key, audio_play_limit: childContent.audio_play_limit ?? child.audio_play_limit ?? content.audio_play_limit ?? parent.audio_play_limit, images: childContent.images ?? child.images ?? content.images ?? parent.images ?? [] },
         recordKey: `${parentKey}:sub:${text(child.recordKey ?? child.id ?? child.question_id) || j + 1}`,
-        _group_ref: `json:${i + 1}`, _group_position: j + 1 });
+        _group_ref: `json:${i + 1}`, _group_position: j + 1 };
+      if (parentSenior || SchoolScope.contentScopeError(child)) seniorItems.add(item);
+      items.push(item);
     });
   });
   const assets = [];
@@ -81,7 +92,7 @@ function normalizePack(pack) {
       recordKey: text(item.recordKey ?? item.id ?? item.question_id) || String(i + 1),
       content: {stem, audio_key: c.audio_key ?? item.audio_key, audio_play_limit: c.audio_play_limit ?? item.audio_play_limit, material: text(c.material ?? item.material ?? c.passage ?? item.passage), match_prompts: values(c.match_prompts ?? item.match_prompts), options: optionsOf(c.options ?? item.options), answer: text(c.answer ?? item.answer), analysis: text(c.analysis ?? item.analysis), figures},
       metadata: {
-        subject: {label: text(item.subject ?? c.subject)}, stage: {label: text(item.stage ?? c.stage ?? item.grade ?? c.grade)},
+        subject: {label: text(item.subject ?? c.subject)}, stage: {label: seniorItems.has(item) ? 'senior' : text(item.stage ?? c.stage ?? item.grade ?? c.grade)},
         grade: {label: text(item.grade ?? c.grade)},
         questionType: {label: text(item.question_type ?? item.questionType ?? item.type ?? c.type)},
         questionSubtype: {label: text(item.question_subtype ?? item.subtype ?? c.question_subtype ?? c.subtype)},

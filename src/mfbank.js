@@ -12,6 +12,7 @@
  * 存储：题目图片等统一走 storage.saveFile(..., bankFolder()+'/img')，
  *       即 OSS 上的 bank/ 目录（子目录 img / recog / paper），换存储或迁移只改 bank_folder 配置。
  */
+const SchoolScope = require('./school-scope');
 const express = require('express');
 const crypto = require('crypto');
 const multer = require('multer');
@@ -77,8 +78,8 @@ const TYPE_NAMES = {
   single: '单选题', multi: '多选题', judge: '判断题', fill: '填空题',
   sort: '排序题', answer: '解答题',
 };
-const STAGES = ['primary', 'junior', 'senior'];
-const STAGE_NAMES = { primary: '小学', junior: '初中', senior: '高中' };
+const STAGES = SchoolScope.STAGES;
+const STAGE_NAMES = { primary: '小学', junior: '初中' };
 const SUBJECTS = ['数学', '英语', '物理', '化学', '语文'];
 
 /** 题库文件在对象存储上的根目录（settings.bank_folder，默认 bank）。
@@ -122,7 +123,7 @@ function decorate(row, opt = {}) {
 // ==================================================================== 目录树
 admin.get('/trees', (req, res) => {
   const kind = String(req.query.kind || '').trim();
-  const where = kind ? "WHERE kind=?" : '';
+  const where = 'WHERE ' + SchoolScope.supportedSql('t', {grade:false}) + (kind ? ' AND kind=?' : '');
   const args = kind ? [kind] : [];
   const list = db.prepare(`SELECT t.*, (SELECT COUNT(*) FROM bank_tree_nodes n WHERE n.tree_id=t.id) AS node_count
     FROM bank_trees t ${where} ORDER BY t.sort, t.id`).all(...args);
@@ -132,6 +133,7 @@ admin.get('/trees', (req, res) => {
 
 admin.post('/trees', (req, res) => {
   const b = req.body || {};
+  if (SchoolScope.scopeError(b)) return fail(res, SchoolScope.scopeError(b));
   const name = String(b.name || '').trim();
   if (!name) return fail(res, '请填写目录树名称');
   const kind = b.kind === 'knowledge' ? 'knowledge' : 'textbook';
@@ -150,6 +152,7 @@ admin.put('/trees/:id', (req, res) => {
   const b = req.body || {};
   const t = db.prepare('SELECT * FROM bank_trees WHERE id=?').get(id);
   if (!t) return fail(res, '目录树不存在');
+  if (SchoolScope.scopeError(t) || SchoolScope.scopeError({...t, stage:b.stage ?? t.stage})) return fail(res, SchoolScope.scopeError(t) || SchoolScope.scopeError({...t, stage:b.stage ?? t.stage}));
   const edition = String(b.edition ?? t.edition ?? '').trim();
   if (edition.length > 40) return fail(res, '版本名太长（最多 40 字）');
   db.prepare('UPDATE bank_trees SET name=?, subject=?, stage=?, kind=?, sort=?, edition=? WHERE id=?')
@@ -235,7 +238,12 @@ admin.get('/trees/:id/nodes', (req, res) => {
 
 admin.post('/trees/:id/nodes', (req, res) => {
   const treeId = int(req.params.id);
+  const tree = db.prepare('SELECT stage FROM bank_trees WHERE id=?').get(treeId);
+  if (!tree) return fail(res, '目录树不存在');
+  if (SchoolScope.scopeError(tree)) return fail(res, SchoolScope.scopeError(tree));
   const b = req.body || {};
+  const parentError = SchoolScope.nodeIdsError(db, [b.parent_id]);
+  if (parentError) return fail(res, parentError);
   const name = String(b.name || '').trim();
   if (!name) return fail(res, '请填写节点名称');
   const parentId = b.parent_id ? int(b.parent_id) : null;
@@ -249,6 +257,8 @@ admin.put('/nodes/:id', (req, res) => {
   const b = req.body || {};
   const n = db.prepare('SELECT * FROM bank_tree_nodes WHERE id=?').get(id);
   if (!n) return fail(res, '节点不存在');
+  const scopeError = SchoolScope.nodeIdsError(db, [id, b.parent_id]);
+  if (scopeError) return fail(res, scopeError);
   if (b.name !== undefined) db.prepare('UPDATE bank_tree_nodes SET name=? WHERE id=?').run(String(b.name).trim() || n.name, id);
   if (b.parent_id !== undefined) {
     const pid = b.parent_id ? int(b.parent_id) : null;
@@ -318,6 +328,8 @@ admin.post('/questions/:id/nodes', (req, res) => {
   if (!require('./qmeta').questionsAllowed(db, req.user, [int(req.params.id)])) return fail(res, '无权访问题目', 403);
   const qid = int(req.params.id);
   const ids = (req.body || {}).node_ids || [];
+  const scopeError = SchoolScope.questionIdsError(db, [qid]) || SchoolScope.nodeIdsError(db, ids);
+  if (scopeError) return fail(res, scopeError);
   db.prepare('DELETE FROM question_nodes WHERE question_id=?').run(qid);
   const ins = db.prepare('INSERT OR IGNORE INTO question_nodes (question_id, node_id) VALUES (?,?)');
   ids.map(int).filter(Boolean).forEach((nid) => ins.run(qid, nid));
@@ -511,6 +523,8 @@ function audioKeyOf(v) {
 
 /** 新增/编辑：字段与老题库一致（学生端判分链路共用 questions 表），另外支持富文本题干与来源 */
 function normalizeQ(b, current) {
+  const scopeError = SchoolScope.scopeError(current) || SchoolScope.scopeError({ ...current, ...b });
+  if (scopeError) return { err: scopeError };
   const stem = String(b.stem || '').trim();
   const stemHtml = String(b.stem_html || '').trim();
   if (!stem && !stemHtml) return { err: '请填写题干' };
@@ -573,6 +587,8 @@ function normalizeQ(b, current) {
 admin.post('/questions', (req, res) => {
   const { q, err } = normalizeQ(req.body || {});
   if (err) return fail(res, err);
+  const nodeError = SchoolScope.nodeIdsError(db, (req.body || {}).nodes);
+  if (nodeError) return fail(res, nodeError);
   const info = db.prepare(`INSERT INTO questions (subject, stage, grade, type, stem, stem_html, options, answer, analysis,
     difficulty, difficulty_score_10, point, material, source, year, images, audio_key, audio_play_limit, question_subtype, match_prompts, source_type, source_detail, sort, created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`)
@@ -595,6 +611,8 @@ admin.put('/questions/:id', (req, res) => {
   if (!old) return fail(res, '题目不存在');
   const body = { ...req.body };
   if (body.subject === undefined) body.subject = old.subject;
+  if (body.stage === undefined) body.stage = old.stage;
+  if (body.grade === undefined) body.grade = old.grade;
   if (body.audio_key === undefined) body.audio_key = old.audio_key;   // 没传 = 不动音频；传空串 = 去掉音频
   if (body.audio_play_limit === undefined) body.audio_play_limit = old.audio_play_limit;
   if (body.question_subtype === undefined) body.question_subtype = old.question_subtype;
@@ -604,6 +622,8 @@ admin.put('/questions/:id', (req, res) => {
   if (body.source_detail === undefined) body.source_detail = parseObj(old.source_detail);
   const { q, err } = normalizeQ(body, old);
   if (err) return fail(res, err);
+  const nodeError = SchoolScope.nodeIdsError(db, body.nodes);
+  if (nodeError) return fail(res, nodeError);
   db.prepare(`UPDATE questions SET subject=?, stage=?, grade=?, type=?, stem=?, stem_html=?, options=?, answer=?,
     analysis=?, difficulty=?, difficulty_score_10=?, point=?, material=?, source=?, year=?, images=?, audio_key=?, audio_play_limit=?, question_subtype=?, match_prompts=?, source_type=?, source_detail=? WHERE id=?`)
     .run(q.subject, q.stage, q.grade, q.type, q.stem, q.stem_html, q.options, q.answer, q.analysis,
@@ -662,6 +682,8 @@ admin.post('/questions/batch', (req, res) => {
     // R3 批量挂分类：nodes = 章节节点 + 知识点节点；replace=1 时先清掉这些题在「同类树」（章节 / 知识点）上的旧挂载再挂，否则追加
     const nodes = [...new Set((b.nodes || []).map(int).filter(Boolean))];
     if (!nodes.length) return fail(res, '请选择要挂到的节点');
+    const scopeError = SchoolScope.questionIdsError(db, ids) || SchoolScope.nodeIdsError(db, nodes);
+    if (scopeError) return fail(res, scopeError);
     const nrows = db.prepare(`SELECT bn.id, bt.kind FROM bank_tree_nodes bn JOIN bank_trees bt ON bt.id=bn.tree_id WHERE bn.id IN (${nodes.map(() => '?').join(',')})`).all(...nodes);
     if (nrows.length !== nodes.length) return fail(res, '有节点已不存在，请刷新后重选');
     const kinds = [...new Set(nrows.map((r) => r.kind))];
@@ -680,6 +702,10 @@ admin.post('/questions/batch', (req, res) => {
     return ok(res, { ids: ids.length, chapter: nc, knowledge: nk }, `已给 ${ids.length} 题挂上 ${nc ? nc + ' 个章节' : ''}${nc && nk ? ' + ' : ''}${nk ? nk + ' 个知识点' : ''}`);
   }
   if (op === 'field') {
+    if (SchoolScope.scopeError(b)) return fail(res, SchoolScope.scopeError(b));
+    const rows = db.prepare(`SELECT stage, grade FROM questions WHERE id IN (${ph})`).all(...ids);
+    const patch = Object.fromEntries(['stage', 'grade'].filter(k => b[k] !== undefined && b[k] !== '').map(k => [k, b[k]]));
+    if (rows.some(row => SchoolScope.isSeniorScope(row) || SchoolScope.isSeniorScope({...row, ...patch}))) return fail(res, SchoolScope.MESSAGE);
     const sets = []; const args = [];
     for (const k of ['subject', 'stage', 'grade', 'difficulty', 'type']) {
       if (b[k] !== undefined && b[k] !== '') {
@@ -1010,6 +1036,7 @@ cap.post('/push', intakeReceipts.middleware('capture'), intakeReceipts.guard(asy
   let qs = b.questions || [];
   if (!Array.isArray(qs) || !qs.length) return fail(res, '没有题目数据');
   if (qs.length > 1000 || qs.some((q) => q && Array.isArray(q.images) && q.images.length > 20)) return fail(res, '题目或图片过多，请分批采集');
+  if (SchoolScope.contentScopeError(b)) return fail(res, SchoolScope.contentScopeError(b));
   let stored;
   try { stored = await require('./capture-images').storeImages(qs, store, bankFolder()); }
   catch (e) { return fail(res, '图片处理失败：' + e.message); }
@@ -1018,8 +1045,9 @@ cap.post('/push', intakeReceipts.middleware('capture'), intakeReceipts.guard(asy
   const title = String(b.title || `${SITES[site] || site}采集 ${qs.length} 题`).slice(0, 100);
   // 若最新有一个「空试题篮」（新建试题篮建出的待填篮），题目直接填进去，不再另开新批次
   const result = intakeReceipts.commit(req, () => {
-  const emptyB = db.prepare("SELECT id FROM mf_capture_batches WHERE status='pending' AND IFNULL(paper_mode,0)=0 AND (payload IS NULL OR payload='' OR payload='[]') ORDER BY id DESC LIMIT 1").get();
+  const emptyB = db.prepare(`SELECT id, stage, grade FROM mf_capture_batches WHERE ${SchoolScope.supportedSql()} AND status='pending' AND IFNULL(paper_mode,0)=0 AND (payload IS NULL OR payload='' OR payload='[]') ORDER BY id DESC LIMIT 1`).get();
   if (emptyB) {
+    SchoolScope.assertScope(emptyB);
     db.prepare('UPDATE mf_capture_batches SET title=?, site=?, url=?, payload=? WHERE id=?')
       .run(title, site, String(b.url || '').slice(0, 500), jstr(qs), emptyB.id);
     return { id: emptyB.id, title, count: qs.length, image_errors: stored.failed };
@@ -1039,6 +1067,7 @@ admin.post('/capture/batches', intakeReceipts.middleware('capture'), intakeRecei
   const basket = b.basket === 1 || b.basket === true;
   if (!qs.length && !basket) return fail(res, '没有题目数据');
   if (qs.length > 1000 || qs.some((q) => q && Array.isArray(q.images) && q.images.length > 20)) return fail(res, '题目或图片过多，请分批采集');
+  if (SchoolScope.contentScopeError(b)) return fail(res, SchoolScope.contentScopeError(b));
   let stored;
   try { stored = await require('./capture-images').storeImages(qs, store, bankFolder()); }
   catch (e) { return fail(res, '图片处理失败：' + e.message); }
@@ -1088,8 +1117,11 @@ admin.delete('/capture/batches/:id/q/:idx', (req, res) => {
  *  返回 { created, updated, skipped, ids } */
 function commitCaptureItems(batch, picked, b) {
   b = b || {};
+  [batch, picked, b].forEach(SchoolScope.assertContentScope);
   if (picked.some((q) => q && q.type_unconfirmed === true)) throw new Error('题型待老师确认，请在编辑题目中核对并确认题型');
   const nodeIds = [].concat(b.node_id ? [b.node_id] : [], Array.isArray(b.node_ids) ? b.node_ids : []).map((x) => int(x)).filter(Boolean);
+  const nodeError = SchoolScope.nodeIdsError(db, nodeIds);
+  if (nodeError) throw new Error(nodeError);
   const existRows = db.prepare(`SELECT id, source_detail, source_type FROM questions WHERE source_type='capture' AND ${require('./qmeta').questionScopeSql(null, 'questions')}`).all();
   const map = new Map();
   existRows.forEach((r) => {
@@ -1116,7 +1148,8 @@ function commitCaptureItems(batch, picked, b) {
     if (choiceError) throw new Error(choiceError);
     if (hit) {
       let need = false;
-      const old = db.prepare('SELECT answer, analysis, point, ai_review_metadata FROM questions WHERE id=?').get(hit.id);
+      const old = db.prepare('SELECT answer, analysis, point, ai_review_metadata, stage, grade FROM questions WHERE id=?').get(hit.id);
+      SchoolScope.assertScope(old);
       const answer = String(q.answer || '').trim();
       const analysis = String(q.analysis || '').trim();
       const point = (q.meta && q.meta.knowledgePoints || []).join('、') || String(q.point || '').trim();
@@ -1148,9 +1181,9 @@ function commitCaptureItems(batch, picked, b) {
         ...(q.group_ref ? { question_group: { batch_id: batch.id, ref: String(q.group_ref).slice(0, 100), position: Math.max(1, int(q.group_position, 1)) } } : {}),
       });
       const info = ins.run(
-        String(b.subject || batch.subject || '').trim(),
-        String(b.stage || batch.stage || '').trim(),
-        String(b.grade || batch.grade || '').trim(),
+        String(b.subject || q.subject || batch.subject || '').trim(),
+        String(b.stage || q.stage || batch.stage || '').trim(),
+        String(b.grade || q.grade || batch.grade || '').trim(),
         type,
         stem.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
         /<[a-z][\s\S]*>/i.test(stem) ? stem : '',
@@ -1379,6 +1412,7 @@ admin.get('/papers', (req, res) => {
 
 admin.post('/papers', (req, res) => {
   const b = req.body || {};
+  if (SchoolScope.scopeError(b)) return fail(res, SchoolScope.scopeError(b));
   const title = String(b.title || '').trim() || `未命名试卷 ${new Date().toLocaleDateString('zh-CN')}`;
   const year = /^\d{4}$/.test(String(b.year || '').trim()) ? String(b.year).trim() : '';
   const category = String(b.exam_category || '');
@@ -1429,11 +1463,13 @@ admin.put('/papers/:id', (req, res) => {
   const b = req.body || {};
   const p = db.prepare('SELECT * FROM mf_papers WHERE id=?').get(id);
   if (!p) return fail(res, '试卷不存在');
+  if (SchoolScope.scopeError(p) || SchoolScope.scopeError({...p, ...b})) return fail(res, SchoolScope.scopeError(p) || SchoolScope.scopeError({...p, ...b}));
   if (b.exam_category !== undefined && !EXAM_CATEGORIES.includes(String(b.exam_category || ''))) return fail(res, '请选择有效的试卷类型');
   if (b.term !== undefined && !['', '上册', '下册', '全一册'].includes(String(b.term || ''))) return fail(res, '请选择有效的册别');
   const wantsPublish = b.published === true || Number(b.published) === 1;
   const targetPublished = !['basket', 'composing', 'archived', 'trashed'].includes(b.status) && (b.published === undefined ? Number(p.published) === 1 : wantsPublish);
   if (targetPublished && !require('./qmeta').paperQuestionsAllowed(db, null, id)) return fail(res, '扫码题尚未审核，不能发布', 403);
+  if (targetPublished && SchoolScope.paperQuestionsError(db, id)) return fail(res, SchoolScope.MESSAGE);
   if (wantsPublish && ['basket', 'composing', 'archived', 'trashed'].includes(b.status)) return fail(res, '请先将试卷设为可发布状态');
   if (b.published === true || Number(b.published) === 1) {
     const awaiting = db.prepare("SELECT drafts FROM mf_recog_runs WHERE status<>'done' AND source_kind='paper'").all()
@@ -1476,8 +1512,11 @@ admin.post('/papers/:id/questions', (req, res) => {
   if (!require('./qmeta').questionsAllowed(db, null, ids)) return fail(res, '无权访问题目', 403);
   const added = db.transaction(() => {
     // 锁试卷行以串行处理相同试卷的并发加题；旧卷中已有重复行不自动删除。
-    const paper = db.prepare('SELECT id FROM mf_papers WHERE id=? FOR UPDATE').get(pid);
+    const paper = db.prepare('SELECT id, stage, grade FROM mf_papers WHERE id=? FOR UPDATE').get(pid);
     if (!paper) throw new Error('试卷不存在');
+    SchoolScope.assertScope(paper);
+    const scopeError = SchoolScope.questionIdsError(db, ids);
+    if (scopeError) throw new Error(scopeError);
     const have = new Set(db.prepare("SELECT question_id FROM mf_paper_questions WHERE paper_id=? AND kind='question'").all(pid).map((r) => Number(r.question_id)));
     const fresh = ids.filter((qid) => !have.has(qid));
     const pos = db.prepare('SELECT COALESCE(MAX(position),0) AS m FROM mf_paper_questions WHERE paper_id=?').get(pid).m;
@@ -1664,6 +1703,7 @@ admin.get('/intake/runs/:id', async (req, res) => {
 
 admin.post('/intake/runs', (req, res, next) => intakeReceipts.middleware(req.body.source_kind === 'pdf' ? 'pdf' : 'image')(req, res, next), (req, res) => {
   const b = req.body || {};
+  if (SchoolScope.scopeError(b)) return fail(res, SchoolScope.scopeError(b));
   const title = String(b.title || '').trim() || `录题 ${new Date().toLocaleString('zh-CN')}`;
   const subject = String(b.subject || '').trim(), stage = String(b.stage || '').trim();
   const edition = String(b.edition || '').trim(), term = String(b.term || '').trim(), materialType = String(b.material_type || '').trim();
@@ -1685,6 +1725,7 @@ admin.post('/intake/runs/:id/pages', upload.array('pages', 30), async (req, res)
   const id = int(req.params.id);
   const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(id);
   if (!run) return fail(res, '批次不存在');
+  if (SchoolScope.scopeError(run)) return fail(res, SchoolScope.scopeError(run));
   if(intakeJobs.has(id))return fail(res,'此批次正在处理当前页，请等待完成后追加图片',409);
   const files = req.files || [];
   if (!files.length) return fail(res, '请先选择图片');
@@ -1767,6 +1808,7 @@ function parseModelQuestions(text) {
 
 /** 模型 questions → 录题题卡（字段与魔方 OnestepDraft 对齐） */
 function normCards(j, pageNo, materials, subject) {
+  SchoolScope.assertContentScope(j);
   const RecognitionPages = require('./recognition-pages');
   const normalized = (j.questions || []).map(RecognitionPages.normalizeQuestion);
   return normalized.map((q) => ({
@@ -1826,6 +1868,7 @@ admin.post('/intake/runs/:id/recognize', singleIntakeJob('recognize'), async (re
   const id = int(req.params.id);
   const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(id);
   if (!run) return fail(res, '批次不存在');
+  if (SchoolScope.scopeError(run)) return fail(res, SchoolScope.scopeError(run));
   const pages = parseArr(run.pages);
   if (!pages.length) return fail(res, '还没有上传页图');
   const one = int((req.body || {}).page, 0);
@@ -1891,6 +1934,7 @@ admin.post('/intake/runs/:id/ocr', singleIntakeJob('ocr'), async (req, res) => {
   const id = int(req.params.id);
   const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(id);
   if (!run) return fail(res, '批次不存在');
+  if (SchoolScope.scopeError(run)) return fail(res, SchoolScope.scopeError(run));
   const pages = parseArr(run.pages);
   const no = int((req.body || {}).page, 0);
   if (!pages[no - 1]) return fail(res, '页码不存在');
@@ -1913,6 +1957,7 @@ admin.post('/intake/runs/:id/structure', singleIntakeJob('structure'), async (re
   const id = int(req.params.id);
   const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(id);
   if (!run) return fail(res, '批次不存在');
+  if (SchoolScope.scopeError(run)) return fail(res, SchoolScope.scopeError(run));
   const b = req.body || {};
   const no = int(b.page, 0);
   let text = String(b.text || '');
@@ -1944,6 +1989,7 @@ admin.post('/intake/runs/:id/word', upWord.single('file'), singleIntakeJob('word
   const id = int(req.params.id);
   const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(id);
   if (!run) return fail(res, '批次不存在');
+  if (SchoolScope.scopeError(run)) return fail(res, SchoolScope.scopeError(run));
   const f = req.file;
   const fname = fixFileName(f && f.originalname);
   if (!f) return fail(res, '请选择 .docx 文件');
@@ -2034,8 +2080,9 @@ admin.put('/intake/runs/:id/drafts', (req, res) => {
   const drafts = (req.body || {}).drafts;
   if (!Array.isArray(drafts)) return fail(res, '数据格式不对');
   const id = int(req.params.id);
-  const run = db.prepare('SELECT drafts,status FROM mf_recog_runs WHERE id=?').get(id);
+  const run = db.prepare('SELECT drafts,status,stage,grade FROM mf_recog_runs WHERE id=?').get(id);
   if (!run) return fail(res, '批次不存在或已处理');
+  if (SchoolScope.scopeError(run) || SchoolScope.contentScopeError(drafts.filter(c => c && !c.committed && !c._merged_into))) return fail(res, SchoolScope.MESSAGE);
   const previous = parseArr(run.drafts);
   if (run.status === 'done' && !previous.some(c => c && !c.committed && !c._merged_into)) return fail(res, '批次不存在或已处理');
   // 已入库/合并归档题卡位置与内容必须保持，不能通过重新打开历史批次篡改。
@@ -2196,6 +2243,7 @@ admin.post('/intake/runs/:id/aifill/confirm', (req, res) => {
  *  返回新题 id 数组（技能包里已存在的题返回库里原有的 id）。 */
 function commitRunCards(run, cards, b) {
   b = b || {};
+  [run, cards, b].forEach(SchoolScope.assertContentScope);
   const ins = db.prepare(`INSERT INTO questions (chapter_id, subject, stage, grade, type, stem, stem_html, options, answer, analysis,
     difficulty, difficulty_score_10, point, material, source, year, images, audio_key, source_type, source_detail, sort, created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recog', ?,0,?)`);
@@ -2205,6 +2253,8 @@ function commitRunCards(run, cards, b) {
   const insTag = db.prepare('INSERT OR IGNORE INTO question_tags (question_id, tag) VALUES (?,?)');
   const insNode = db.prepare('INSERT OR IGNORE INTO question_nodes (question_id, node_id) VALUES (?,?)');
   const nodeIds = [].concat(b.node_id ? [b.node_id] : [], Array.isArray(b.node_ids) ? b.node_ids : []).map((x) => int(x)).filter(Boolean);
+  const nodeError = SchoolScope.nodeIdsError(db, nodeIds);
+  if (nodeError) throw new Error(nodeError);
   const ids = [];
   cards.forEach((d) => {
     let qid;
@@ -2214,8 +2264,8 @@ function commitRunCards(run, cards, b) {
       if (choiceError) throw new Error(choiceError);
       const diff = resolveDifficulty({ ...(q.difficulty ? { difficulty:q.difficulty } : {}), ...(q.difficulty_score_10 != null ? { difficulty_score_10:q.difficulty_score_10 } : {}) });
       if (diff.error) throw new Error(diff.error);
-      const dupRow = q.detail ? db.prepare('SELECT id FROM questions WHERE source_detail = ? LIMIT 1').get(jstr(q.detail)) : null;
-      if (dupRow) { ids.push(dupRow.id); return; }
+      const dupRow = q.detail ? db.prepare('SELECT id, stage, grade FROM questions WHERE source_detail = ? LIMIT 1').get(jstr(q.detail)) : null;
+      if (dupRow) { SchoolScope.assertScope(dupRow); ids.push(dupRow.id); return; }
       const info = insPack.run(String(b.subject || q.subject || run.subject || '').trim(), String(b.stage || q.stage || run.stage || '').trim(), String(b.grade || q.grade || run.grade || '').trim(),
         q.type, q.stem, q.stem_html || '', jstr(q.options || []), String(q.answer || ''), String(q.analysis || ''),
         diff.difficulty, diff.difficulty_score_10, String(d.point || q.point || ''), String(d.material != null ? d.material : (q.material || '')), '', '', jstr(q.images || []), 'capture', jstr(q.detail || {}), now());
@@ -2338,7 +2388,9 @@ admin.post('/import-pack', upBig.single('file'), intakeReceipts.middleware('skil
         const zr = new ZipReader(req.file.buffer);
         const jsonEntry = zr.list().find((n) => /(?:^|\/)(?:questions|question-card)\.json$/i.test(n));
         if (!jsonEntry) return fail(res, 'ZIP 里没有 questions.json 或 question-card.json');
-        pack = require('./mfpack-adapter').normalizePack(JSON.parse(zr.read(jsonEntry).toString('utf8')));
+        pack = JSON.parse(zr.read(jsonEntry).toString('utf8'));
+        SchoolScope.assertContentScope({stage:pack.stage,grade:pack.grade,meta:pack.meta,metadata:pack.metadata});
+        pack = require('./mfpack-adapter').normalizePack(pack);
         // 图片资产 → 对象存储 bank/img
         if (Array.isArray(pack.assets) && pack.assets.length) {
           for (const a of pack.assets) {
@@ -2363,6 +2415,7 @@ admin.post('/import-pack', upBig.single('file'), intakeReceipts.middleware('skil
     }
     const defaults = require('./intake-scope')(db, req.body);
     if (!pack || typeof pack !== 'object') return fail(res, '没有可导入的内容');
+    SchoolScope.assertContentScope({stage:pack.stage,grade:pack.grade,meta:pack.meta,metadata:pack.metadata});
     pack = require('./mfpack-adapter').normalizePack(pack);
     if (pack.format !== 'mofang-question-pack') return fail(res, '格式不对：这是「魔方录题转写」技能包的产物（format 应为 mofang-question-pack）');
     if (Number(pack.schemaVersion) !== 1) return fail(res, `schemaVersion ${pack.schemaVersion} 不支持（仅支持 1）`);
@@ -2391,6 +2444,7 @@ admin.post('/import-pack', upBig.single('file'), intakeReceipts.middleware('skil
         const c = it.content || {};
         const stem = String(c.stem || '').trim();
         if (!stem) throw new Error('题干为空');
+        SchoolScope.assertContentScope(it);
         const meta = it.metadata || {};
         const rawExt = meta.extra && meta.extra.zhilexue;
         if (meta.extra && Object.prototype.hasOwnProperty.call(meta.extra, 'zhilexue') && (!rawExt || typeof rawExt !== 'object' || Array.isArray(rawExt))) throw new Error('智学课堂扩展字段必须是对象');
@@ -2422,8 +2476,9 @@ admin.post('/import-pack', upBig.single('file'), intakeReceipts.middleware('skil
         });
         // 去重：同一转写包 + 同一 recordKey 已导入过则跳过（source_detail 精确匹配）；
         // 但若本次带来图片（ZIP 资产）而库里题目没图，则给旧题补图后计为「补图」
-        const dup = rk ? db.prepare(`SELECT id, images FROM questions WHERE source_detail = ? AND ${require('./qmeta').questionScopeSql(null, 'questions')} LIMIT 1`).get(jstr(detail)) : null;
+        const dup = rk ? db.prepare(`SELECT id, images, stage, grade FROM questions WHERE source_detail = ? AND ${require('./qmeta').questionScopeSql(null, 'questions')} LIMIT 1`).get(jstr(detail)) : null;
         if (dup) {
+          SchoolScope.assertScope(dup);
           const exImgs = (() => { try { return JSON.parse(dup.images || '[]'); } catch (_) { return []; } })();
           if (urls.length && !exImgs.length && !imageErrors.length) {
             db.prepare('UPDATE questions SET images = ? WHERE id = ?').run(jstr(urls), dup.id);
@@ -2445,8 +2500,8 @@ admin.post('/import-pack', upBig.single('file'), intakeReceipts.middleware('skil
         const sourceStage=String(meta.stage && meta.stage.label || '').trim();
         const stage=sourceStage ? mfMapStage(sourceStage) : defaults.stage;
         if(sourceStage && !stage)throw new Error('题包学段无法识别，请修正原分类后重试：'+sourceStage);
-        const cardScope = require('./intake-scope')(db,{...defaults,subject,stage});
-        const grade = mfMapGrade((meta.grade && meta.grade.label) || (typeof ext.grade === 'string' && ext.grade) || (meta.stage && meta.stage.label));
+        const grade = mfMapGrade((meta.grade && meta.grade.label) || (typeof ext.grade === 'string' && ext.grade) || (meta.stage && meta.stage.label)) || defaults.grade;
+        const cardScope = require('./intake-scope')(db,{...defaults,subject,stage,grade});
         const rawSubtype = String(meta.questionSubtype && meta.questionSubtype.label || '').trim();
         const subtype = QSubtype.find(rawSubtype || meta.questionType && meta.questionType.label);
         if (rawSubtype && !subtype) throw new Error('不支持的细分题型：' + rawSubtype);
@@ -2639,6 +2694,7 @@ admin.post('/ext/ai-attrib', async (req, res) => {
 
   // 学科/学段校正：优先用户提示
   const subject = SUBJECTS.includes(hintSubject) ? hintSubject : (SUBJECTS.includes(ai.subject) ? ai.subject : '');
+  if (SchoolScope.scopeError(ai)) return fail(res, SchoolScope.scopeError(ai));
   const stage = ['primary', 'junior'].includes(ai.stage) ? ai.stage : '';
   const out = {
     stage, subject,

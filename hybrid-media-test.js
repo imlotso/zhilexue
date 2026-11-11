@@ -81,7 +81,7 @@ function fixture(t, options = {}) {
 
 function fileApp(f) {
   let account = { id: 7, role: 'student', status: 1, expire_at: null };
-  const db = { prepare() { return { get() { return account; } }; } };
+  const db = { prepare() { return { get() { return account; }, all() { return []; } }; } };
   const authModule = { exports: {} };
   vm.runInNewContext(source('auth'), {
     module: authModule, exports: authModule.exports, Buffer, Date,
@@ -95,9 +95,10 @@ function fileApp(f) {
   const start = appSource.indexOf('const FILE_KEY_RE =');
   const end = appSource.indexOf('// ================================================================== 管理端', start);
   assert.ok(start >= 0 && end > start, 'the complete production /api/file block must be exercised');
-  vm.runInNewContext(appSource.slice(start, end), {
-    app, store: f.store, fs, path, careAudio, auth: auth.auth, verifyFileTicket: auth.verifyFileTicket,
-    require(name) { if (name === './mfbank') return { bankFolder: () => 'bank' }; throw new Error('Unexpected route dependency'); },
+  const scopeStart = appSource.indexOf('function legacyScopeError('), scopeEnd = appSource.indexOf('\n}\n', scopeStart) + 2;
+  vm.runInNewContext(appSource.slice(scopeStart, scopeEnd) + '\n' + appSource.slice(start, end), {
+    db, app, store: f.store, fs, path, careAudio, auth: auth.auth, verifyFileTicket: auth.verifyFileTicket,
+    require(name) { if (name === './mfbank') return { bankFolder: () => 'bank' }; if (name === './school-scope') return require('./src/school-scope'); throw new Error('Unexpected route dependency'); },
   }, { filename: 'src/app.js:file-route' });
   const helperStart = appSource.indexOf('function withFileTicket(');
   const helperEnd = appSource.indexOf('\n}\n', helperStart) + 2;
@@ -343,8 +344,10 @@ function mediaWriteRoutes(f) {
   const db = { prepare(sql) { return {
     get(id) { const type = /handouts/.test(sql) ? 'handouts' : 'videos'; return { ...rows[type], id: Number(id) || 1 }; },
     run(...args) { changes.push({ sql, args }); return { lastInsertRowid: 1 }; },
+    all() { return []; },
   }; } };
   const ctx = { admin, db, store: f.store, path, fs, Buffer,
+    require: p => require(path.resolve(__dirname, 'src', p)),
     upload: { single() {} }, videoUpload: { single() {}, array() {} },
     delPwdOk: () => true, normSection: () => null, fixFileName: name => name, dropTmp() {},
     now: () => '2026-11-08 12:00:00',
@@ -353,6 +356,8 @@ function mediaWriteRoutes(f) {
   };
   vm.createContext(ctx);
   const app = source('app');
+  const scopeStart = app.indexOf('function legacyScopeError('), scopeEnd = app.indexOf('\n}\n', scopeStart) + 2;
+  vm.runInContext(app.slice(scopeStart, scopeEnd), ctx);
   const dropStart = app.indexOf('function dropTmp('), dropEnd = app.indexOf('\n}\n', dropStart) + 2;
   vm.runInContext(app.slice(dropStart, dropEnd), ctx);
   const sections = [

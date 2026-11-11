@@ -10,6 +10,7 @@
  * 前端有同逻辑的 pickTree（public/admin/treepick.js），两边改动要同步。
  */
 
+const SchoolScope = require('./school-scope');
 const DEFAULT_EDITIONS = {
   数学: { primary: '苏教版', junior: '苏科版' },
   英语: { primary: '译林版', junior: '译林版' },
@@ -35,7 +36,7 @@ function getDefaultEditions(db) {
     const sv = saved[s];
     if (sv && typeof sv === 'object') Object.keys(sv).forEach((st) => { m[st] = clean(sv[st]); });
     // 空字符串 = 明确"没有默认版本"，从表里去掉
-    Object.keys(m).forEach((st) => { if (!m[st]) delete m[st]; });
+    Object.keys(m).forEach((st) => { if (!m[st] || SchoolScope.isSeniorValue(st)) delete m[st]; });
     if (Object.keys(m).length) out[s] = m;
   });
   return out;
@@ -52,7 +53,8 @@ function setDefaultEditions(db, input) {
     clean2[sj] = {};
     for (const [stage, ed] of Object.entries(m)) {
       const sg = clean(stage);
-      if (!['primary', 'junior', 'senior'].includes(sg)) throw new Error(`学段「${sg}」不认识，应为 primary / junior / senior`);
+      SchoolScope.assertScope({stage: sg});
+      if (!['primary', 'junior'].includes(sg)) throw new Error(`学段「${sg}」不认识，应为 primary / junior`);
       const e = clean(ed);
       if (e.length > 40) throw new Error('版本名太长（最多 40 字）');
       clean2[sj][sg] = e;
@@ -80,7 +82,8 @@ const defaultEditionOf = (defaults, subject, stage) => clean(((defaults || {})[s
  * 纯函数版：trees 是已取出的树行（{kind,subject,stage,edition,sort,id}），后端 pickTree 和前端同逻辑都基于它。
  */
 function pickFrom(trees, { kind, subject, stage, edition }, defaults) {
-  const list = (trees || []).filter((t) => t.kind === kind && t.subject === subject && (t.stage || '') === (stage || ''))
+  if (SchoolScope.isSeniorScope({stage})) return null;
+  const list = (trees || []).filter((t) => !SchoolScope.isSeniorScope(t) && t.kind === kind && t.subject === subject && (t.stage || '') === (stage || ''))
     .sort((a, b) => ((a.sort || 0) - (b.sort || 0)) || (a.id - b.id));
   if (!list.length) return null;
   const ed = clean(edition);
@@ -95,6 +98,7 @@ function pickFrom(trees, { kind, subject, stage, edition }, defaults) {
 }
 
 function pickTree(db, { kind, subject, stage, edition } = {}) {
+  if (SchoolScope.isSeniorScope({stage})) return null;
   const rows = db.prepare('SELECT * FROM bank_trees WHERE kind=? AND subject=? AND IFNULL(stage,\'\')=? ORDER BY sort, id')
     .all(kind || 'textbook', clean(subject), clean(stage));
   if (!rows.length) return null;
@@ -106,7 +110,7 @@ function editionsOverview(db) {
   const rows = db.prepare(`SELECT t.id, t.kind, t.subject, t.stage, t.edition, t.name, t.source,
       (SELECT COUNT(*) FROM bank_tree_nodes n WHERE n.tree_id=t.id) AS node_count
     FROM bank_trees t ORDER BY t.subject, t.stage, t.kind, t.sort, t.id`).all();
-  const existing = rows.map((r) => ({ tree_id: r.id, kind: r.kind, subject: r.subject, stage: r.stage || '', edition: r.edition || '', name: r.name, source: r.source || '', node_count: r.node_count }));
+  const existing = rows.filter(r => !SchoolScope.isSeniorScope(r)).map((r) => ({ tree_id: r.id, kind: r.kind, subject: r.subject, stage: r.stage || '', edition: r.edition || '', name: r.name, source: r.source || '', node_count: r.node_count }));
   // 便于前端直接用的分组：{ 学科: { 学段: { textbook: [版本…], knowledge: [版本…] } } }
   const grouped = {};
   existing.forEach((t) => {

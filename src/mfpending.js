@@ -9,6 +9,7 @@
  * 逐题入库后，题卡/采集项上打 committed/_done 标记（保留在批次里不再出现在待审核）；一个批次里的题全部处理完，批次状态变 done。
  * 由 mfbank.js 在末尾挂载：mountPending({ admin, db, ok, fail, now, int, parseArr, parseObj, jstr, TYPE_MAP, TYPES, commitRunCards, commitCaptureItems, store, bankFolder })
  */
+const SchoolScope = require('./school-scope');
 const multer = require('multer');
 const crypto = require('crypto');
 
@@ -743,6 +744,7 @@ module.exports = function mountPending(d) {
     const scopeError = scanAccessError(req, [b.id]);
     if (scopeError) return fail(res, scopeError, 403);
     const patch = b.patch && typeof b.patch === 'object' ? b.patch : {};
+    if (SchoolScope.scopeError(patch)) return fail(res, SchoolScope.scopeError(patch));
     const has = (k) => Object.prototype.hasOwnProperty.call(patch, k);
     const rawOpts = has('options') ? (Array.isArray(patch.options) ? patch.options : []).map((o, k) => ({ label: str(o && o.label) || LETTERS[k] || '', text: str(o && (o.text != null ? o.text : o.content)) })) : null;
     const opts = rawOpts ? rawOpts.filter((o) => o.text.trim()) : null;
@@ -770,6 +772,8 @@ module.exports = function mountPending(d) {
       if (!c || c.committed || c._merged_into) return fail(res, '这道题已经不在待审核里了');
       if (p.fp && p.fp !== fpOf(stemOfCard(c))) return fail(res, STALE);
       const q = c._q;
+      const effective = {stage: has('stage') ? patch.stage : c.stage || (q && q.stage) || run.stage, grade: has('grade') ? patch.grade : c.grade || (q && q.grade) || run.grade};
+      if (SchoolScope.contentScopeError([run, c]) || SchoolScope.scopeError(effective)) return fail(res, SchoolScope.MESSAGE);
       const nextDifficulty = has('difficulty') || has('difficulty_score_10') ? resolveDifficulty(patch, { difficulty: c.difficulty || (q && q.difficulty), difficulty_score_10: c.difficulty_score_10 != null ? c.difficulty_score_10 : q && q.difficulty_score_10 }) : null;
       if (nextDifficulty && nextDifficulty.error) return fail(res, nextDifficulty.error);
       if (has('stem')) { if (q) { q.stem = str(patch.stem); q.stem_html = ''; } else c.stem = str(patch.stem); }
@@ -798,6 +802,8 @@ module.exports = function mountPending(d) {
       const q = items[p.index];
       if (!q || q._done) return fail(res, '这道题已经不在待审核里了');
       if (p.fp && p.fp !== fpOf(stemOfCap(q))) return fail(res, STALE);
+      const effective = {stage: has('stage') ? patch.stage : q.stage || bt.stage, grade: has('grade') ? patch.grade : q.grade || bt.grade};
+      if (SchoolScope.contentScopeError([bt, q]) || SchoolScope.scopeError(effective)) return fail(res, SchoolScope.MESSAGE);
       const nextDifficulty = has('difficulty') || has('difficulty_score_10') ? resolveDifficulty(patch, q) : null;
       if (nextDifficulty && nextDifficulty.error) return fail(res, nextDifficulty.error);
       if (has('stem')) { q.stem = str(patch.stem); q.stemHtml = ''; }
@@ -823,6 +829,7 @@ module.exports = function mountPending(d) {
     const up = db.prepare('SELECT * FROM paper_uploads WHERE id=?').get(p.batch);
     if (!up || !['pending', 'reviewed'].includes(up.status)) return fail(res, '上传记录不存在或已处理');
     if (up.status === 'approved') return fail(res, '该题已审核通过，不能再修改');
+    if (SchoolScope.scopeError(up) || SchoolScope.scopeError({...up, ...patch})) return fail(res, SchoolScope.MESSAGE);
     if (!up.question_id) {
       const draft = parseObj(up.draft_json);
       const nextDifficulty = has('difficulty') || has('difficulty_score_10') ? resolveDifficulty(patch, draft) : null;
@@ -840,6 +847,7 @@ module.exports = function mountPending(d) {
       return ok(res, scanItems(req).find((x) => x.id === p.id) || null, '已保存');
     }
     const existing = db.prepare('SELECT * FROM questions WHERE id=?').get(up.question_id);
+    if (SchoolScope.scopeError(existing) || SchoolScope.scopeError({...existing, ...patch})) return fail(res, SchoolScope.MESSAGE);
     // 历史扫码题已经在正式题库：不能先改题面而继续对外暴露不再匹配的已确认 AI 答案。
     const currentItem = scanItems(req).find((item) => item.id === `up:${up.id}`);
     if (currentItem) {
@@ -998,7 +1006,8 @@ module.exports = function mountPending(d) {
     };
     const attachNodes = (qid, nodes = selectedNodes) => {
       if (!nodes.length) return;
-      const q = db.prepare('SELECT subject, stage FROM questions WHERE id=?').get(qid);
+      const q = db.prepare('SELECT subject, stage, grade FROM questions WHERE id=?').get(qid);
+      SchoolScope.assertScope(q);
       const err = q && nodeError(str(q.subject).trim(), str(q.stage).trim(), nodes);
       if (!q || err) throw new Error(err || '关联题目不存在');
       const ins = db.prepare('INSERT OR IGNORE INTO question_nodes (question_id, node_id) VALUES (?,?)');
@@ -1031,7 +1040,7 @@ module.exports = function mountPending(d) {
         if (ContentReview.pending(c, run)) return failed.push({ id: `run:${runId}:${i}`, msg: '识别内容尚未核对，请对照全部原页确认题型、题干、选项、公式和小问' });
         const subject = str(opt.subject || (c._q ? c._q.subject : c.subject) || run.subject).trim();
         const stage = str(opt.stage || (c._q ? c._q.stage : c.stage) || run.stage).trim();
-        const miss = lacks(subject, stage) || nodeError(subject, stage);
+        const miss = SchoolScope.contentScopeError([run, c, opt]) || lacks(subject, stage) || nodeError(subject, stage);
         if (miss) return failed.push({ id: `run:${runId}:${i}`, msg: miss });
         if (c.question_subtype === 'writing' && (subject !== '英语' || (c._q ? c._q.type : TYPE_MAP[c.questionType]) !== 'answer')) return failed.push({ id: `run:${runId}:${i}`, msg: '书面表达须选择英语学科和问答基础题型' });
         if (c.question_subtype === 'drawing' && !QSubtype.compatible('drawing', subject, c._q ? c._q.type : TYPE_MAP[c.questionType])) return failed.push({ id: `run:${runId}:${i}`, msg: '作图题须选择数学、物理或化学学科及问答基础题型' });
@@ -1044,8 +1053,9 @@ module.exports = function mountPending(d) {
         try {
           const latest = commitItems.get(`run:${runId}:${i}:${fpOf(stemOfCard(c))}`);
           const itemNodes = draftNodesFor(c, subject, stage, opt.grade || (c._q ? c._q.grade : c.grade) || run.grade, latest);
-          const paper = c._paper_id ? db.prepare('SELECT id, year FROM mf_papers WHERE id=?').get(int(c._paper_id)) : null;
+          const paper = c._paper_id ? db.prepare('SELECT id, year, stage, grade FROM mf_papers WHERE id=?').get(int(c._paper_id)) : null;
           if (c._paper_id && !paper) throw new Error('关联试卷已删除，请重新导入');
+          SchoolScope.assertScope(paper);
           const video = c._lesson_video_id ? db.prepare('SELECT id, chapter_id FROM videos WHERE id=?').get(int(c._lesson_video_id)) : null;
           if (c._lesson_video_id && !video) throw new Error('关联视频已删除，请重新选择视频');
           const section = c._lesson_section_id ? db.prepare('SELECT id, chapter_id FROM sections WHERE id=?').get(int(c._lesson_section_id)) : null;
@@ -1085,7 +1095,7 @@ module.exports = function mountPending(d) {
         if (Array.isArray(q._image_errors) && q._image_errors.length) return failed.push({ id: `cap:${batchId}:${i}`, msg: '题图转存失败，请先补图' });
         if (ImageReview.missing(q).length) return failed.push({ id: `cap:${batchId}:${i}`, msg: '题图占位符缺少对应图片，请先补图' });
         const subject = str(opt.subject || q.subject || bt.subject).trim(), stage = str(opt.stage || q.stage || bt.stage).trim();
-        const missC = lacks(subject, stage) || nodeError(subject, stage);
+        const missC = SchoolScope.contentScopeError([bt, q, opt]) || lacks(subject, stage) || nodeError(subject, stage);
         if (missC) return failed.push({ id: `cap:${batchId}:${i}`, msg: missC });
         if (q.question_subtype === 'writing' && (subject !== '英语' || q.type !== 'answer')) return failed.push({ id: `cap:${batchId}:${i}`, msg: '书面表达须选择英语学科和问答基础题型' });
         if (q.question_subtype === 'drawing' && !QSubtype.compatible('drawing', subject, q.type)) return failed.push({ id: `cap:${batchId}:${i}`, msg: '作图题须选择数学、物理或化学学科及问答基础题型' });
@@ -1126,8 +1136,10 @@ module.exports = function mountPending(d) {
       const invalidNode = nodeError(str(subj).trim(), stg);
       if (invalidNode) return failed.push({ id: `up:${upId}`, msg: invalidNode });
       const grd = opt.grade || str(up.grade).trim();
+      if (SchoolScope.scopeError(up) || SchoolScope.scopeError({stage:stg,grade:grd})) return failed.push({id:`up:${upId}`,msg:SchoolScope.MESSAGE});
       const scanDraft = up.question_id ? db.prepare('SELECT * FROM questions WHERE id=?').get(up.question_id) : parseObj(up.draft_json);
       if (!scanDraft) return failed.push({ id: `up:${upId}`, msg: '关联题目不存在，请先核对' });
+      if (SchoolScope.scopeError(scanDraft)) return failed.push({id:`up:${upId}`,msg:SchoolScope.MESSAGE});
       const scanOptions = up.question_id ? parseArr(scanDraft.options) : scanDraft.options;
       const choiceError = choiceOptionsError(scanDraft.type, scanOptions);
       if (choiceError) return failed.push({ id: `up:${upId}`, msg: choiceError });
@@ -1249,6 +1261,7 @@ module.exports = function mountPending(d) {
   const TYPE_FROM_CODE = (t) => TYPE_CN[t] || '解答';
   function createRun({ title, kind, name, subject, stage, grade, cards, scope = {} }) {
     const checked = require('./intake-scope')(db, {...scope,subject,stage,grade});
+    SchoolScope.assertContentScope(cards);
     const positions = {};
     cards.forEach((card) => { if (card.group_ref) card.group_position = positions[card.group_ref] = (positions[card.group_ref] || 0) + 1; });
     const info = db.prepare(`INSERT INTO mf_recog_runs (title, subject, stage, grade, source_kind, source_name, status, pages, drafts, ocr_texts, error, created_at)
@@ -1266,8 +1279,10 @@ module.exports = function mountPending(d) {
   // 图片/PDF 工作台识别完成后保存成试卷草稿，题卡审核时按原顺序回挂。
   admin.post('/papers/from-run', (req, res) => {
     const b = req.body || {};
+    if (SchoolScope.contentScopeError(b)) return fail(res, SchoolScope.contentScopeError(b));
     const run = db.prepare('SELECT * FROM mf_recog_runs WHERE id=?').get(int(b.run_id));
     if (!run) return fail(res, '录题批次不存在');
+    if (SchoolScope.scopeError(run) || SchoolScope.contentScopeError(parseArr(run.drafts))) return fail(res, SchoolScope.MESSAGE);
     const cards = parseArr(run.drafts);
     const active = cards.filter(c => c && !c._merged_into);
     if (cards.some(c => !c) || !active.length || active.some(c => c.committed || c._paper_id || !str(stemOfCard(c)).trim())) return fail(res, '请先完成题卡识别；已入库或已关联试卷的批次不能重复生成');
@@ -1294,10 +1309,11 @@ module.exports = function mountPending(d) {
   // 手动录入也先保存到审核批次；不会直接写入正式题库。
   stagedPost('/ext/pending/manual', 'manual', (req, res) => {
     const b = req.body || {};
+    if (SchoolScope.contentScopeError(b)) return fail(res, SchoolScope.contentScopeError(b));
     const stem = str(b.stem).trim();
     if (!stem) return fail(res, '请填写题干');
     if (!['数学', '英语', '物理', '化学', '语文'].includes(str(b.subject))) return fail(res, '请选择学科');
-    if (!['primary', 'junior', 'senior'].includes(str(b.stage))) return fail(res, '请选择学段');
+    if (!['primary', 'junior'].includes(str(b.stage))) return fail(res, '请选择学段');
     const type = TYPES.includes(str(b.type)) ? str(b.type) : 'answer';
     if (QSubtype.isMatch(b.question_subtype) && !QSubtype.compatible(b.question_subtype, str(b.subject), type)) return fail(res, '匹配题的学科或基础题型不正确');
     if (str(b.question_subtype) === 'writing' && (str(b.subject) !== '英语' || type !== 'answer')) return fail(res, '书面表达须选择英语学科和问答基础题型');
@@ -1319,10 +1335,11 @@ module.exports = function mountPending(d) {
   // 组合题保存为同一批次的独立小题；每张题卡保留材料快照，逐题审核和作答。
   stagedPost('/ext/pending/manual-group', 'manual-group', (req, res) => {
     const b = req.body || {};
+    if (SchoolScope.contentScopeError(b)) return fail(res, SchoolScope.contentScopeError(b));
     const subject = str(b.subject).trim(), stage = str(b.stage).trim(), grade = str(b.grade).trim();
     const material = str(b.material).trim();
     if (!['数学', '英语', '物理', '化学', '语文'].includes(subject)) return fail(res, '请选择学科');
-    if (!['primary', 'junior', 'senior'].includes(stage)) return fail(res, '请选择学段');
+    if (!['primary', 'junior'].includes(stage)) return fail(res, '请选择学段');
     if (!material) return fail(res, '请填写组合题材料');
     if (!Array.isArray(b.questions) || b.questions.length < 2 || b.questions.length > 30) return fail(res, '组合题需要 2 至 30 道小题');
     const cards = [];
@@ -1419,6 +1436,7 @@ module.exports = function mountPending(d) {
   });
 
   stagedPost('/ext/import-excel', 'excel', upFile.single('file'), (req, res) => {
+    if (SchoolScope.scopeError(req.body)) return fail(res, SchoolScope.scopeError(req.body));
     if (!req.file) return fail(res, '请选择 .xlsx 文件');
     const name = fileNameOf(req.file);
     if (!/\.xlsx?$/i.test(name)) return fail(res, '只支持 Excel（.xlsx）文件，请使用「习题导入模板」');
@@ -1486,6 +1504,7 @@ module.exports = function mountPending(d) {
 
   stagedPost('/ext/import-word', 'word', upFile.single('file'), async (req, res) => {
     const b = req.body || {};
+    if (SchoolScope.contentScopeError(b)) return fail(res, SchoolScope.contentScopeError(b));
     const subject = str(b.subject).trim(), stage = str(b.stage).trim(), edition = str(b.edition).trim();
     const term = str(b.term).trim(), materialType = str(b.material_type).trim();
     if (edition && !db.prepare('SELECT id FROM bank_trees WHERE subject=? AND stage=? AND edition=? LIMIT 1').get(subject, stage, edition)) return fail(res, '教材版本与学科或学段不一致，请重新选择');
@@ -1513,6 +1532,7 @@ module.exports = function mountPending(d) {
    *   ④ publish=1 时同时发布到学生端「试卷库」
    */
   admin.post('/papers/import-word', upFile.single('file'), async (req, res) => {
+    if (SchoolScope.scopeError(req.body)) return fail(res, SchoolScope.scopeError(req.body));
     const pw = await parseWordUpload(req.file);
     if (pw.err) return fail(res, pw.err);
     const { r, cards, name } = pw;

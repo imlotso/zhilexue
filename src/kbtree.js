@@ -12,6 +12,7 @@
  *
  * 所有函数都是幂等的"找或建"（同父同名不重复建），只增不删。迁移只复制，不改 kb_* 表。
  */
+const SchoolScope = require('./school-scope');
 const { pickTree } = require('./treepick');
 const STAGE_NAME = { primary: '小学', junior: '初中' };
 const GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
@@ -32,6 +33,7 @@ function findTree(db, subject, stage, kind = 'knowledge', edition = '') {
 }
 
 function ensureKnowledgeTree(db, subject, stage) {
+  SchoolScope.assertScope({stage});
   const t = findTree(db, subject, stage);
   if (t) return t;
   const name = `${subject}·${STAGE_NAME[stage] || stage}知识点树`;
@@ -88,7 +90,8 @@ const hasLegacy = (db, subject, stage) =>
 
 /** 把一个 学科+学段 的 kb_units/kb_points 复制进知识点树。返回 {units, points, created}；dry=true 只统计 */
 function migrateOne(db, subject, stage, { dry = false } = {}) {
-  const units = db.prepare('SELECT * FROM kb_units WHERE subject=? AND stage=? ORDER BY sort, id').all(subject, stage);
+  if (SchoolScope.isSeniorScope({stage})) return {subject, stage, units:0, points:0, created:0};
+  const units = db.prepare('SELECT * FROM kb_units WHERE subject=? AND stage=? ORDER BY sort, id').all(subject, stage).filter(u => !SchoolScope.isSeniorScope(u));
   const out = { subject, stage, units: units.length, points: 0, created: 0 };
   if (!units.length) return out;
   const st = { created: 0 };
@@ -119,6 +122,7 @@ function migrateAll(db, opts = {}) {
 
 /** 保证分支存在（没有就先把旧表内容复制进来，再没有就建空分支）。写入类接口用 */
 function ensureBranch(db, subject, stage) {
+  SchoolScope.assertScope({stage});
   let b = branchOf(db, subject, stage);
   if (b) return b;
   if (hasLegacy(db, subject, stage)) migrateOne(db, subject, stage);
@@ -132,6 +136,7 @@ const childrenOf = (db, parentId) => db.prepare('SELECT id, name, sort FROM bank
 
 /** 旧接口 GET /kbtree 的返回结构：[{id, name, points:[{id,name}]}]，id 为新树节点 id。尚未复制且旧表有数据时先复制 */
 function readUnits(db, subject, stage, grade) {
+  if (SchoolScope.isSeniorScope({stage, grade})) return [];
   if (!branchOf(db, subject, stage) && hasLegacy(db, subject, stage)) migrateOne(db, subject, stage);
   const b = branchOf(db, subject, stage);
   if (!b) return [];
@@ -142,6 +147,7 @@ function readUnits(db, subject, stage, grade) {
 
 /** 新增单元（旧接口 POST /kbtree/unit） */
 function addUnit(db, subject, stage, grade, name, sort) {
+  SchoolScope.assertScope({stage, grade});
   const b = ensureBranch(db, subject, stage);
   const g = String(grade || '').trim() || NO_GRADE;
   const gid = nodeEnsure(db, b.tree.id, b.branch.id, g, gradeSort(g), {}, false);
@@ -152,6 +158,8 @@ function addUnit(db, subject, stage, grade, name, sort) {
 function addPoint(db, unitNodeId, name, sort) {
   const u = db.prepare('SELECT * FROM bank_tree_nodes WHERE id=?').get(Number(unitNodeId));
   if (!u) return null;
+  const tree = db.prepare('SELECT stage FROM bank_trees WHERE id=?').get(u.tree_id);
+  SchoolScope.assertScope(tree);
   return nodeEnsure(db, u.tree_id, u.id, name, sort, {}, false);
 }
 
@@ -172,6 +180,7 @@ function deleteNode(db, id) {
 
 /** AI 生成结果合并进树：只新增、不删除（树上挂着题目关联，覆盖会丢）。返回 {units, points, created} */
 function mergeGenerated(db, subject, stage, grade, units) {
+  SchoolScope.assertScope({stage, grade});
   const b = ensureBranch(db, subject, stage);
   const st = { created: 0 };
   const gname = String(grade || '').trim() || NO_GRADE;
@@ -192,13 +201,14 @@ function mergeGenerated(db, subject, stage, grade, units) {
  * 新树里没有这个 学科+学段 的教材分支、但旧表有数据时，补上旧表的知识点名（还没迁移的老库行为不变）。
  */
 function pointNames(db, { subject, stage = '', grade = '' }) {
+  if (SchoolScope.isSeniorScope({stage, grade})) return [];
   const trees = stage
     ? db.prepare("SELECT id, stage FROM bank_trees WHERE kind='knowledge' AND subject=? AND stage=?").all(subject, stage)
     : db.prepare("SELECT id, stage FROM bank_trees WHERE kind='knowledge' AND subject=?").all(subject);
   const names = [];
   const seen = new Set();
   const push = (n) => { const t = String(n || '').trim(); if (t && !seen.has(t)) { seen.add(t); names.push(t); } };
-  trees.forEach((t) => {
+  trees.filter(t => !SchoolScope.isSeniorScope(t)).forEach((t) => {
     const nodes = db.prepare('SELECT id, parent_id, name FROM bank_tree_nodes WHERE tree_id=? ORDER BY sort, id').all(t.id);
     const byId = {}; const hasKid = new Set();
     nodes.forEach((n) => { byId[n.id] = n; if (n.parent_id) hasKid.add(n.parent_id); });
@@ -212,6 +222,7 @@ function pointNames(db, { subject, stage = '', grade = '' }) {
       if (hasKid.has(n.id)) return;
       const b = inBranch(n);
       if (b) {
+        if (SchoolScope.isSeniorValue(b.grade)) return;
         if (b.depth < 4) return;                 // 空的分支/年级/单元节点不是知识点
         if (grade && b.grade !== grade) return;  // 其它年级的知识点
       }

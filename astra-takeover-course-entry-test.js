@@ -23,7 +23,7 @@ function slice(startNeedle, endNeedle) {
   assert.ok(start >= 0 && end > start, 'actual source boundary: ' + startNeedle);
   return source.slice(start, end + endNeedle.length);
 }
-const helpers = ['visibleChapterWhere', 'canSeeChapter', 'lessonsOf', 'groupsOf', 'nextLessonOf', 'courseAccOf'];
+const helpers = ['legacyScopeError', 'visibleChapterWhere', 'canSeeChapter', 'lessonsOf', 'groupsOf', 'nextLessonOf', 'courseAccOf'];
 // Optional only to run this regression against the original, pre-fix source.
 if (source.includes('function courseQuestionCountOf(')) helpers.push('courseQuestionCountOf');
 const actual = [slice('const stageOfGrade =', '\n};'),
@@ -65,8 +65,11 @@ function fixture(t) {
       (14,15,140,NULL,'single'),(15,16,160,1400,'single'),
       (16,17,170,9999,'single');
   `);
+  db.exec("ALTER TABLE questions ADD COLUMN stage TEXT DEFAULT ''; ALTER TABLE questions ADD COLUMN grade TEXT DEFAULT ''");
+  require('./school-scope-test-fixture')(db);
+  db.exec("ALTER TABLE handouts ADD COLUMN grade TEXT DEFAULT ''");
   const handlers = {};
-  vm.runInNewContext(actual, {db, accuracy, stu: {get(route, handler) { handlers[route] = handler; }},
+  vm.runInNewContext(actual, {require:p=>require(path.resolve(__dirname,'src',p)), db, accuracy, stu: {get(route, handler) { handlers[route] = handler; }},
     ok(res, data) { res.data = data; }, fail(res, error) { res.error = error; }}, {timeout: 1000});
   function invoke(route, query) { const res = {}; handlers[route]({user:{id:1},query},res); return res; }
   return { db, list(query = {}) { return invoke('/courses', {subject:'数学', ...query}).data; }, detail(id) { return invoke('/course-detail',{id}); } };
@@ -118,7 +121,7 @@ for (const chapterId of [null, 0, 8, 14]) {
   for (const type of ['single', 'answer']) {
     test('valid direct group binding survives legacy chapter_id=' + chapterId + ' type=' + type, t => {
       const f = fixture(t);
-      f.db.prepare('INSERT INTO questions VALUES(99,?,180,NULL,?)').run(chapterId, type);
+      f.db.prepare('INSERT INTO questions(id,chapter_id,section_id,video_id,type) VALUES(99,?,180,NULL,?)').run(chapterId, type);
       const row = f.list().find(x => x.id === 18);
       assert.ok(row, 'actual section ownership makes this course reachable');
       assert.equal(row.question_count, 1);
@@ -131,7 +134,7 @@ for (const chapterId of [null, 0, 8, 14]) {
   }
   test('video binding counts under actual course despite legacy chapter_id=' + chapterId, t => {
     const f = fixture(t);
-    f.db.prepare('INSERT INTO questions VALUES(99,?,NULL,100,?)').run(chapterId, 'single');
+    f.db.prepare('INSERT INTO questions(id,chapter_id,section_id,video_id,type) VALUES(99,?,NULL,100,?)').run(chapterId, 'single');
     assert.equal(f.list().find(x => x.id === 1).question_count, 1);
     assert.equal(f.detail(1).data.lessons[0].qcount, 1);
   });

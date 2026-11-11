@@ -70,7 +70,7 @@ test('real question edit waits for pending image uploads before saving the entir
     f.root.innerHTML = ''; let cfg, saved; const wait = deferred();
     const q = { id: 7, type: 'answer', subject: '数学', stage: 'primary', stem: '原题', stem_html: '<p>原富文本</p>', answer: '参考答案', analysis: '原解析', nodes: [10,20], images: ['/old.png'], options: [], tags: ['保留'], source_detail: {} };
     Object.assign(f.w, { MF_API:'/api/admin/bank/mf', MF_TYPE_NAME:{ answer:'解答题' }, MF_SUBJECTS:['数学'], esc: value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'), optText:v=>v, treeLabel:t=>t.kind, tpTrees: async()=>[{id:1,kind:'textbook'},{id:2,kind:'knowledge'}], tpOrder:arr=>arr, qcBindDifficultyInputs(){}, t7AudioWidget:()=>({get:()=>'',getLimit:()=>0}), QSubtype:{isMatch:()=>false,fillSelect(){}}, modal(c){cfg=c;f.root.innerHTML=c.body;c.onMount(f.root);}, api:async (url,opt)=>{if(opt?.method==='PUT'){saved=opt.body;return {};} if(url.endsWith('/nodes'))return {list:[{id:url.includes('/1/')?10:20,name:'节点'}]};return {question:q};} });
-    f.w.eval(read('public/admin/mfui2.js') + '\nwindow.mfQEdit = mfQEdit;'); await f.w.mfQEdit(7); await tick();
+    f.w.eval(read('public/admin/mfbankui.js') + '\n' + read('public/admin/mfui2.js') + '\nwindow.mfQEdit = mfQEdit;'); await f.w.mfQEdit(7); await tick();
     f.uploads.push(() => wait.promise); f.choose([f.file('new.png')]);
     const saving=cfg.onOk(f.root, message=>{throw new Error(message);}); await tick();
     assert.equal(saved,undefined,'save must wait for upload');

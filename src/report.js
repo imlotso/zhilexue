@@ -19,6 +19,7 @@ const crypto = require('crypto');
 const { db } = require('./db');
 const store = require('./storage');
 const ai = require('./ai');
+const SchoolScope = require('./school-scope');
 
 const admin = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 15 * 1024 * 1024 } });
@@ -57,6 +58,8 @@ admin.put('/config', (req, res) => res.json({ code: 1, msg: 'AI 配置已统一�
 // ------------------------------------------------------------------ 试卷照片
 admin.post('/papers', upload.array('images', 6), async (req, res) => {
   try {
+    const scopeError = SchoolScope.scopeError(req.body);
+    if (scopeError) return fail(res, scopeError);
     const files = req.files || [];
     if (!files.length) return fail(res, '请选择试卷照片');
     const keys = [];
@@ -77,6 +80,8 @@ admin.post('/papers', upload.array('images', 6), async (req, res) => {
 // ------------------------------------------------------------------ 分析任务
 admin.post('/', async (req, res) => {
   const b = req.body || {};
+  const scopeError = SchoolScope.scopeError(b);
+  if (scopeError) return fail(res, scopeError);
   // paperKeys 兼容数组与 JSON 字符串两种形式
   let paperKeys = Array.isArray(b.paperKeys) ? b.paperKeys : [];
   if (!paperKeys.length && b.paperKeys) {
@@ -101,7 +106,7 @@ admin.post('/', async (req, res) => {
 /** 执行一次分析并把结果写回（mock / 真实调用都在这里） */
 async function runAnalysis(id) {
   const row = db.prepare('SELECT * FROM ai_reports WHERE id=?').get(id);
-  if (!row) return;
+  if (!row || SchoolScope.isSeniorScope(row)) return;
   let keys = [];
   try { keys = JSON.parse(row.paper_keys || '[]'); } catch (e) { keys = []; }
   try {
@@ -162,6 +167,8 @@ admin.get('/:id', (req, res) => {
 admin.post('/:id/retry', async (req, res) => {
   const row = reportGet(req.user, req.params.id);
   if (!row) return fail(res, '报告不存在');
+  const scopeError = SchoolScope.scopeError(row);
+  if (scopeError) return fail(res, scopeError);
   db.prepare(`UPDATE ai_reports SET status='pending', error='' WHERE id=?`).run(row.id);
   runAnalysis(row.id).catch(() => {});
   ok(res, { id: row.id, status: 'pending' }, '已重新发起分析');
@@ -207,6 +214,9 @@ scan.post('/', requireScanToken, upload.array('images', 6), async (req, res) => 
     const token = String(req.query.token || '');
     const hit = scanTokens.get(token);
     if (!hit || hit.exp < Date.now()) return fail(res, '二维码已过期，请让老师在电脑端刷新二维码后重新扫码');
+    const b = req.body || {};
+    const scopeError = SchoolScope.scopeError(b);
+    if (scopeError) return fail(res, scopeError);
     const files = req.files || [];
     if (!files.length) return fail(res, '请先拍摄或选择试卷照片');
     const keys = [];
@@ -219,7 +229,6 @@ scan.post('/', requireScanToken, upload.array('images', 6), async (req, res) => 
       keys.push(saved.key);
     }
     if (keys.length > 6) return fail(res, '一次最多 6 张照片');
-    const b = req.body || {};
     const student = String(b.student || '').trim();
     const title = String(b.title || '').trim() || (student ? student + ' 学情诊断报告' : '学情诊断报告 ' + now().slice(5, 16));
     const info = db.prepare(`INSERT INTO ai_reports (title, student, subject, grade, paper_keys, status, model, report, error, created_by, created_at)
@@ -237,5 +246,5 @@ module.exports = admin;
 module.exports.scan = scan;
 
 // 进程重启后，上次没跑完的分析不会自己续上，列表里会一直显示「分析中」
-db.prepare(`UPDATE ai_reports SET status='failed', error=? WHERE status='pending'`)
+db.prepare(`UPDATE ai_reports SET status='failed', error=? WHERE status='pending' AND ${SchoolScope.supportedSql('', { stage: false })}`)
   .run('上次分析已中断，请点重新分析');

@@ -86,8 +86,10 @@ async function readImageBytes(src) {
 /** 取出要导出的错题。opts: { subject, bucket: 'unresolved'|'all'|'resolved', days, from, to, ids } */
 function collectMistakes(db, userId, opts = {}) {
   let where = ' WHERE m.user_id=?'; const args = [Number(userId)];
-  if (opts.studentOnlyReviewed || Object.hasOwn(opts, 'questionUser')) {
-    where += ' AND ' + require('./qmeta').questionScopeSql(opts.studentOnlyReviewed ? null : opts.questionUser, 'q');
+  if (opts.studentOnlyReviewed) {
+    where += ' AND ' + require('./compose').studentQuestionScopeSql('q');
+  } else if (Object.hasOwn(opts, 'questionUser')) {
+    where += ' AND ' + require('./qmeta').questionScopeSql(opts.questionUser, 'q');
   }
   if (opts.subject) { where += ' AND q.subject=?'; args.push(String(opts.subject)); }
   const bucket = opts.bucket || 'unresolved';
@@ -409,6 +411,10 @@ async function sendMistakeDocx(db, res, student, query = {}, access = {}) {
   if ((opts.studentOnlyReviewed || Object.hasOwn(opts, 'questionUser')) &&
       !require('./qmeta').questionsAllowed(db, opts.studentOnlyReviewed ? null : opts.questionUser, items.map(item => item.question_id))) {
     res.status(403).json({ code: 403, msg: '题目审核状态或访问权限已变化，请重新导出' });
+    return;
+  }
+  if (opts.studentOnlyReviewed && !require('./compose').studentQuestionsAllowed(db, items.map(item => item.question_id))) {
+    res.status(403).json({ code: 403, msg: '题目适用学段已变化，请重新导出' });
     return;
   }
   const fname = `${(student.name || student.username || '学生')}-${opts.subject || '全部科目'}-错题集.docx`.replace(/[\\/:*?"<>|]/g, '_');

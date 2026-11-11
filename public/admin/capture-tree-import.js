@@ -5,7 +5,7 @@ async function mfTreeImportDialog() {
   modal({ title: '导入采集的知识树', wide: true,
     body: `<p class="hint">先确认目标，再粘贴或选择已采集的 JSON。预览只统计，不写入知识树；正式导入按完整路径合并同名节点。</p>
       <div class="pd-grid">
-        <div class="field"><label for="ctStage">学段</label><select class="input" id="ctStage"><option value="">请选择</option><option value="primary">小学</option><option value="junior">初中</option><option value="senior">高中</option></select></div>
+        <div class="field"><label for="ctStage">学段</label><select class="input" id="ctStage"><option value="">请选择</option><option value="primary">小学</option><option value="junior">初中</option></select></div>
         <div class="field"><label for="ctSubject">学科</label><select class="input" id="ctSubject"><option value="">请选择</option>${['数学','英语','物理','化学','语文','生物','历史','地理','政治','科学'].map((x) => `<option>${esc(x)}</option>`).join('')}</select></div>
         <div class="field"><label for="ctKind">树类型</label><select class="input" id="ctKind"><option value="">请选择</option><option value="textbook">章节树</option><option value="knowledge">知识点树</option></select></div>
         <div class="field"><label for="ctEdition">教材版本</label><select class="input" id="ctEdition"><option value="">请先选择学段、学科和树类型</option></select><input class="input" id="ctCustom" placeholder="填写教材版本" style="display:none;margin-top:7px" maxlength="40"></div>
@@ -51,6 +51,16 @@ async function mfTreeImportDialog() {
         e.target.value = '';
       };
       $('#ctClose').onclick = () => w.remove();
+      const hasSeniorScope = (value) => {
+        if (!value || typeof value !== 'object') return false;
+        if (Array.isArray(value)) return value.some(hasSeniorScope);
+        const senior = (label) => {
+          if (label && typeof label === 'object') return [label.label, label.code, label.value].some(senior);
+          return /senior|高中|高[一二三123]|(?:10|11|12|十|十一|十二)年级/i.test(String(label == null ? '' : label).normalize('NFKC').replace(/[\s\u3000]/g, ''));
+        };
+        // Check classification keys before flatten discards source metadata. Names and text are not classifications.
+        return senior(value.stage) || senior(value.grade) || Object.values(value).some(hasSeniorScope);
+      };
       const flatten = (value) => {
         const root = Array.isArray(value) ? value : value && value.nodes;
         if (!Array.isArray(root) || !root.length) throw new Error('JSON 须包含非空 nodes 数组');
@@ -75,10 +85,14 @@ async function mfTreeImportDialog() {
       $('#ctPreview').onclick = async () => {
         if (busy) return;
         const stage = $('#ctStage').value, subject = $('#ctSubject').value, kind = $('#ctKind').value, chosen = $('#ctEdition').value, edition = editionValue();
-        if (!stage || !subject || !kind || !chosen || (chosen !== '__general__' && !edition)) { status('请选择学段、学科、树类型和教材版本', true); return; }
+        if (!['primary', 'junior'].includes(stage) || !subject || !kind || !chosen || (chosen !== '__general__' && !edition)) { status('请选择小学或初中学段、学科、树类型和教材版本', true); return; }
         if ($('#ctTarget').disabled) { status('请选择目标树', true); return; }
         let parsed, nodes;
-        try { parsed = JSON.parse($('#ctJson').value); nodes = flatten(parsed); }
+        try {
+          parsed = JSON.parse($('#ctJson').value);
+          if (hasSeniorScope(parsed)) { status('仅支持小学和初中，不能将高中来源改作其他学段导入', true); return; }
+          nodes = flatten(parsed);
+        }
         catch (e) { status('JSON 或节点格式错误：' + e.message, true); return; }
         const body = { stage, subject, kind, edition, edition_selected: chosen === '__general__', tree_id: Number($('#ctTarget').value) || undefined,
           site: $('#ctSite').value, root_name: !Array.isArray(parsed) && parsed && parsed.name || '', root_id: !Array.isArray(parsed) && parsed && parsed.root_id || '', nodes };
@@ -88,7 +102,7 @@ async function mfTreeImportDialog() {
         try {
           const pre = await api('/api/admin/bank/mf/ext/collect-tree', { method: 'POST', body: { ...body, dry: true }, silent: true });
           if (!document.contains(w) || requestRevision !== revision) return;
-          snapshot = body; status(`预览：${pre.new_tree ? '将新建' : '合并到'}「${pre.tree_name}」，${stage === 'primary' ? '小学' : stage === 'junior' ? '初中' : '高中'} · ${subject} · ${edition || '不区分版本'}；新增 ${pre.created} 个节点，合并已有节点 ${pre.merged} 个。节点示例：${nodes.slice(0, 8).map((n) => n.name).join('、')}。`);
+          snapshot = body; status(`预览：${pre.new_tree ? '将新建' : '合并到'}「${pre.tree_name}」，${stage === 'primary' ? '小学' : '初中'} · ${subject} · ${edition || '不区分版本'}；新增 ${pre.created} 个节点，合并已有节点 ${pre.merged} 个。节点示例：${nodes.slice(0, 8).map((n) => n.name).join('、')}。`);
           $('#ctImport').disabled = false;
         } catch (e) { if (document.contains(w) && requestRevision === revision) status(e.message || '预览失败', true); }
         finally { busy = false; if (document.contains(w)) $('#ctPreview').disabled = false; }

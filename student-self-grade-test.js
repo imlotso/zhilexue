@@ -36,6 +36,7 @@ function fixture(t){
  INSERT INTO sections VALUES(30,10,'运算');
  CREATE TABLE handouts(id INTEGER PRIMARY KEY,section_id INTEGER,chapter_id INTEGER,video_id INTEGER);`);
  let beforeTransaction=null,inTransaction=false;const transactionReads=[];
+ require('./school-scope-test-fixture')(raw);
  const db={prepare(sql){const statement=raw.prepare(sql.replace(/ FOR UPDATE\b/g,''));return {
   get(...args){if(inTransaction)transactionReads.push({sql,args});return statement.get(...args);},
   all:(...args)=>statement.all(...args),run:(...args)=>statement.run(...args)};},
@@ -106,8 +107,8 @@ test('no self choice preserves legacy ungraded and blank-objective contracts',t=
  assert.ok(f.raw.prepare('SELECT self_correct FROM subjective_responses').all().every(x=>x.self_correct===null));
 });
 test('scan report uses the actual selected leaf rather than unrelated free-text question tags',t=>{
- const f=fixture(t);f.raw.exec(`CREATE TABLE bank_trees(id INTEGER,subject TEXT,stage TEXT,kind TEXT);CREATE TABLE bank_tree_nodes(id INTEGER,tree_id INTEGER,name TEXT,parent_id INTEGER);CREATE TABLE question_nodes(question_id INTEGER,node_id INTEGER);
- INSERT INTO bank_trees VALUES(1,'数学','primary','knowledge'),(2,'英语','primary','knowledge');INSERT INTO bank_tree_nodes VALUES(101,1,'小数加法',NULL),(201,2,'English',NULL);INSERT INTO question_nodes VALUES(1,101),(1,201);`);
+ const f=fixture(t);f.raw.exec(`ALTER TABLE bank_trees ADD COLUMN subject TEXT; ALTER TABLE bank_trees ADD COLUMN kind TEXT; ALTER TABLE bank_tree_nodes ADD COLUMN name TEXT; ALTER TABLE bank_tree_nodes ADD COLUMN parent_id INTEGER;
+ INSERT INTO bank_trees(id,subject,stage,kind) VALUES(1,'数学','primary','knowledge'),(2,'英语','primary','knowledge');INSERT INTO bank_tree_nodes VALUES(101,1,'小数加法',NULL),(201,2,'English',NULL);INSERT INTO question_nodes VALUES(1,101),(1,201);`);
  const r=f.call('/submit',{kind:'self',answers:[{...f.self(false),point_node_id:101}]}).body;
  assert.equal(r.code,0);assert.equal(r.data.by_point[0].point,'小数加法');assert.equal(r.data.list[0].point,'小数加法');
  for(const point_node_id of [9999,201])assert.notEqual(f.call('/submit',{kind:'self',answers:[{...f.self(true),point_node_id}]}).body.code,0);

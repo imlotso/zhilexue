@@ -285,11 +285,12 @@ function collectionCore(db) {
   const end = source.indexOf('// admin /collect-tree', start);
   assert.ok(start >= 0 && end > start, 'Collection core must be available for isolated execution');
   return vm.runInNewContext(source.slice(start, end) + '\nimportTreeCore;', {
+    SchoolScope: require('./src/school-scope'),
     db, require(name) { if (name === './treeio') return io; throw new Error('Unexpected collection dependency: ' + name); },
   }, { filename: 'src/mfcollect.js' });
 }
 const capture = (nodes, extra = {}) => ({ site: 'synthetic', root_id: 'first', root_name: '合成采集树',
-  kind: 'knowledge', stage: 'senior', subject: '生物', edition_selected: true, nodes, ...extra });
+  kind: 'knowledge', stage: 'junior', subject: '生物', edition_selected: true, nodes, ...extra });
 const sourceRows = (db) => JSON.stringify(db.sqlite.prepare('SELECT * FROM mf_tree_source_map ORDER BY node_id').all());
 
 test('B7 collection merges changed source IDs by path without changing existing metadata or question links', (t) => {
@@ -378,4 +379,14 @@ test('collection alias merge rolls back new nodes and source mappings when a lat
   ]));
   assert.equal(result.code, 1); assert.match(result.msg, /synthetic mapping failure/);
   assert.equal(snapshot(db), before); assert.equal(sourceRows(db), maps);
+});
+
+// High-school is no longer an intake scope; preserve legacy rows without import.
+test('collection rejects high-school aliases without modifying existing trees', (t) => {
+  const db = memoryDb(t), collect = collectionCore(db);
+  for (const stage of ['senior','高中','高一','高二','高三']) {
+    const before = snapshot(db), result = collect(capture([{site_node_id:'first',name:'合成节点'}],{stage}));
+    assert.equal(result.code, 1); assert.match(result.msg, /高中/);
+    assert.equal(snapshot(db),before); assert.equal(db.writes.length,0);
+  }
 });

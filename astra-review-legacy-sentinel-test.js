@@ -7,8 +7,10 @@ const start=source.indexOf("stu.get('/review-queue'");const end=source.indexOf('
 function fixture(t,records){
  const db=new Database(':memory:');t.after(()=>db.close());db.exec("CREATE TABLE questions(id INTEGER PRIMARY KEY,status TEXT);CREATE TABLE mistakes(id INTEGER PRIMARY KEY,user_id INTEGER,question_id INTEGER,resolved INTEGER,review_stage INTEGER,next_review TEXT,updated_at TEXT);");
  for(const [i,r] of records.entries()){db.prepare('INSERT INTO questions VALUES(?,?)').run(i+1,r.status||'active');db.prepare('INSERT INTO mistakes VALUES(?,?,?,?,?,?,?)').run(i+1,r.user||1,i+1,r.resolved||0,r.stage||0,r.date===undefined?'NaN-NaN-NaN':r.date,'2026-11-01 10:00:00');}
+ db.exec("CREATE TABLE users(id INTEGER PRIMARY KEY,role TEXT,created_by INTEGER); CREATE TABLE paper_uploads(question_id INTEGER,user_id INTEGER,status TEXT); INSERT INTO paper_uploads SELECT id,1,'pending' FROM questions WHERE status<>'active'");
+ require('./school-scope-test-fixture')(db);
  const before=JSON.stringify(db.prepare('SELECT * FROM mistakes ORDER BY id').all());db.pragma('query_only = ON');
- const box={db,todayStr:()=> '2026-11-07',require:()=>({questionScopeSql:()=>"q.status='active'"}),serveQ:q=>({id:q.id}),ok:(res,data)=>{res.data=data;},stu:{get:(route,fn)=>{box.handler=fn;}}};vm.runInNewContext(source.slice(start,end),box);
+ const box={db,todayStr:()=> '2026-11-07',require:name=>{if(name==='./compose')return require('./src/compose');if(name==='./qmeta')return require('./src/qmeta');throw Error('unexpected dependency '+name);},serveQ:q=>({id:q.id}),ok:(res,data)=>{res.data=data;},stu:{get:(route,fn)=>{box.handler=fn;}}};vm.runInNewContext(source.slice(start,end),box);
  return {queue(uid=1){const res={};box.handler({user:{id:uid}},res);return res.data.list;},count(uid=1){return vm.runInNewContext('db.prepare(`'+countSql+'`).get(uid,todayStr()).n',{...box,uid});},unchanged(){assert.equal(JSON.stringify(db.prepare('SELECT * FROM mistakes ORDER BY id').all()),before);}};
 }
 test('legacy exact sentinel unresolved records return to queue without writes',t=>{const f=fixture(t,[{},{}]);assert.deepEqual(Array.from(f.queue(),q=>q.id),[1,2]);assert.equal(f.count(),2);f.unchanged();});

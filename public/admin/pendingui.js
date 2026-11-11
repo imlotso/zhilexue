@@ -7,7 +7,7 @@ const PD_API = '/api/admin/bank/mf';
 const PD_SRC = [['all', '全部'], ['photo', '拍照识别'], ['word', 'Word导入'], ['excel', 'Excel导入'], ['skill', '技能包'], ['capture', '网络采集'], ['scan', '手机扫码（错题）'], ['teacher_scan', '老师手机扫码'], ['manual', '手动录入'], ['paper', '真题试卷'], ['lesson', '课文习题']];
 const PD_REVIEW = [['all', '全部题目'], ['needs_review', '待核对'], ['no_answer', '缺答案'], ['no_analysis', '缺解析'], ['no_image', '待补图'], ['no_class', '缺分类']];
 const PD_TYPES = [['single', '单选题'], ['multi', '多选题'], ['judge', '判断题'], ['fill', '填空题'], ['sort', '排序题'], ['answer', '解答题']];
-const PD_STAGES = [['', '未识别'], ['primary', '小学'], ['junior', '初中'], ['senior', '高中']];
+const PD_STAGES = [['', '未识别'], ['primary', '小学'], ['junior', '初中']];
 const PD_SUBJECTS = ['数学', '英语', '物理', '化学', '语文'];
 const PD_GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const pdStageName = (k) => (PD_STAGES.find((s) => s[0] === k) || [])[1] || '';
@@ -124,6 +124,10 @@ function pdClassificationChanged(it, patch) {
 // their exact persisted value selected instead of turning an untouched form dirty.
 function pdClassOpts(list, current) {
   const value = current == null ? '' : String(current);
+  // 历史分类保留原值，避免未修改的表单把它静默改成小学或未识别；不能再新选。
+  if (/^(?:senior|高中|高[一二三123]|高[123]年级)/i.test(value.trim())) {
+    return pdOpts(list, '', '未识别') + `<option value="${esc(value)}" selected disabled>${esc(value === 'senior' ? '高中' : value)}（历史记录，已停用）</option>`;
+  }
   const choices = value && !list.some((entry) => String(Array.isArray(entry) ? entry[0] : entry) === value) ? [...list, [value, value]] : list;
   return pdOpts(choices, value, '未识别');
 }

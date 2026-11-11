@@ -42,6 +42,8 @@ function fixture(t) {
     CREATE TABLE sections(id INTEGER,chapter_id INTEGER);
     CREATE TABLE bank_trees(id INTEGER,kind TEXT,edition TEXT);
     CREATE TABLE bank_tree_nodes(id INTEGER,tree_id INTEGER,name TEXT,parent_id INTEGER,sort INTEGER);
+    ALTER TABLE questions ADD COLUMN stage TEXT;
+    ALTER TABLE questions ADD COLUMN grade TEXT;
     ALTER TABLE questions ADD COLUMN chapter_id INTEGER;
     ALTER TABLE questions ADD COLUMN video_id INTEGER;
     ALTER TABLE questions ADD COLUMN section_id INTEGER;
@@ -54,6 +56,8 @@ function fixture(t) {
     ALTER TABLE users ADD COLUMN status INTEGER DEFAULT 1;
     CREATE TABLE paper_assignments(paper_id INTEGER,user_id INTEGER,assigned_by INTEGER,created_at TEXT);
   `);
+  db.exec('ALTER TABLE mf_papers ADD COLUMN stage TEXT; ALTER TABLE mf_papers ADD COLUMN grade TEXT;');
+  require('./school-scope-test-fixture')(db);
   const prepare = db.prepare.bind(db);
   db.prepare = sql => prepare(sql.replace(/ FOR UPDATE\b/g, ''));
   db.transaction = fn => (...a) => {
@@ -77,6 +81,7 @@ function handler(file, method, url, db, extras = {}) {
   assert.ok(a >= 0 && b > a);
   let fn;
   const context = {
+    SchoolScope: require('./src/school-scope'),
     require: n => require(require('node:path').resolve(__dirname, 'src', n)),
     admin: {
       [method]: (url, f) => fn = f
@@ -332,7 +337,7 @@ for (const user of [branch, principal]) {
   });
   test(user.role + ' cannot publish an existing mf paper containing pending scan', t => {
     const db = fixture(t);
-    db.exec("INSERT INTO mf_papers VALUES(7,0,'done'); INSERT INTO mf_paper_questions(question_id,paper_id,kind) VALUES(1,7,'question')");
+    db.exec("INSERT INTO mf_papers(id,published,status) VALUES(7,0,'done'); INSERT INTO mf_paper_questions(question_id,paper_id,kind) VALUES(1,7,'question')");
     assert.equal(handler('mfbank.js', 'put', '/papers/:id', db)(7, user, {
       published: 1
     }).code, 403);
@@ -358,7 +363,7 @@ for (const user of [branch, principal]) {
   });
   test(user.role + ' may add approved/shared questions to mf paper', t => {
     const db = fixture(t);
-    db.exec("INSERT INTO mf_papers VALUES(7,0,'done')");
+    db.exec("INSERT INTO mf_papers(id,published,status) VALUES(7,0,'done')");
     assert.equal(handler('mfbank.js', 'post', '/papers/:id/questions', db)(7, user, {
       question_ids: [4, 5]
     }).code, 0);
@@ -366,7 +371,7 @@ for (const user of [branch, principal]) {
   });
   test(user.role + ' may publish mf paper after scan is approved', t => {
     const db = fixture(t);
-    db.exec("INSERT INTO mf_papers VALUES(7,0,'done'); INSERT INTO mf_paper_questions(question_id,paper_id,kind) VALUES(4,7,'question')");
+    db.exec("INSERT INTO mf_papers(id,published,status) VALUES(7,0,'done'); INSERT INTO mf_paper_questions(question_id,paper_id,kind) VALUES(4,7,'question')");
     assert.equal(handler('mfbank.js', 'put', '/papers/:id', db)(7, user, {
       published: 1
     }).code, 0);
@@ -392,6 +397,6 @@ for (const kind of ['videos', 'sections']) test('bank ' + kind + ' reader does n
 
 test('section reader does not count foreign pending video questions', t => {
   const db = fixture(t);
-  db.exec("INSERT INTO sections VALUES(7,9); INSERT INTO videos VALUES(7,'test',9,7); UPDATE questions SET video_id=7 WHERE id=2");
+  db.exec("INSERT INTO sections VALUES(7,9); INSERT INTO videos(id,title,chapter_id,section_id) VALUES(7,'test',9,7); UPDATE questions SET video_id=7 WHERE id=2");
   assert.equal(handler('bank.js', 'get', '/sections/:id/questions', db)(7).data.video_question_count, 0);
 });

@@ -91,16 +91,25 @@ window.R4Flow = (() => {
     try { const result = await api(url, {method:'POST',body,silent,headers:{'X-Intake-Key':token}}); save(kind === 'manual-group' ? 'manual' : kind,{phase:'saved',runId:result.run_id || result.id || result.batch_id,request_key:token,receipt_kind:kind}); return result; }
     catch(e) { save(kind === 'manual-group' ? 'manual' : kind,{phase:'uncertain',request_key:token,receipt_kind:kind}); throw e; }
   }
+  // 移除可选项后仍保留本机草稿的原值，避免恢复时静默变为不限学段。
+  function restoreField(el, value) {
+    if (!el || value == null) return;
+    if (el.tagName === 'SELECT' && value && !Array.from(el.options).some(option => option.value === String(value))) {
+      const old = new Option((value === 'senior' ? '高中' : value) + '（历史草稿，已停用）', value);
+      old.disabled = true; el.add(old);
+    }
+    el.value = value;
+  }
   function prepare(root, kind, ids, refresh) {
     const saved = read(kind + '-prepare');
-    if (saved && saved.fields) { for (const id of ids) { const el = root.querySelector('#' + id); if (el && saved.fields[id] != null) el.value = saved.fields[id]; } if (refresh) refresh(); for (const id of ids) { const el = root.querySelector('#' + id); if (el && saved.fields[id] != null) el.value = saved.fields[id]; } }
+    if (saved && saved.fields) { for (const id of ids) restoreField(root.querySelector('#' + id), saved.fields[id]); if (refresh) refresh(); for (const id of ids) restoreField(root.querySelector('#' + id), saved.fields[id]); }
     const store = () => { const fields = {}; ids.forEach(id => { const el = root.querySelector('#' + id); if (el) fields[id] = el.value; }); if (!save(kind + '-prepare', {fields})) bind(root, kind); };
     root.addEventListener('input', store); root.addEventListener('change', store);
   }
   async function filesKey(files) { const fd = new FormData(); files.forEach(f => fd.append('file',f,f.name)); return hash(await fingerprint(fd)); }
   function scope(root, kind, host, existing = {}) {
     const box = document.createElement('div'); box.className = 'r4m-grid r4-scope-fields';
-    const choices = { subject: ['', '数学', '英语', '物理', '化学', '语文'], stage: [['','未指定'],['primary','小学'],['junior','初中'],['senior','高中']], edition: [''], term: ['', '上册', '下册', '全一册'], material_type: [['','未指定'],['textbook','教材'],['exercise','练习'],['paper','试卷'],['other','其他']] };
+    const choices = { subject: ['', '数学', '英语', '物理', '化学', '语文'], stage: [['','未指定'],['primary','小学'],['junior','初中']], edition: [''], term: ['', '上册', '下册', '全一册'], material_type: [['','未指定'],['textbook','教材'],['exercise','练习'],['paper','试卷'],['other','其他']] };
     const labels = {subject:'学科',stage:'学段',edition:'教材版本',term:'册别',material_type:'资料类型'};
     const fields = {};
     for (const [key, list] of Object.entries(choices)) {
@@ -113,7 +122,10 @@ window.R4Flow = (() => {
     }
     const before=host.querySelector('.rt-guide');if(before)before.before(box);else host.appendChild(box);
     const saved = read(kind + '-scope');
-    if (saved) Object.entries(fields).forEach(([key,el])=>{ if (key !== 'edition' && saved[key] != null) el.value=saved[key]; });
+    if (saved) Object.entries(fields).forEach(([key,el])=>{
+      if (key === 'edition' || saved[key] == null) return;
+      restoreField(el, saved[key]);
+    });
     let trees = [];
     const values = () => Object.fromEntries(Object.entries(fields).map(([key,el])=>[key,el.value]));
     const editions = (wanted) => { const el=fields.edition, current=wanted == null ? el.value : wanted; el.innerHTML='';el.add(new Option('未指定','')); [...new Set(trees.filter(t=>t.subject===fields.subject.value&&t.stage===fields.stage.value).map(t=>t.edition).filter(Boolean))].forEach(v=>el.add(new Option(v,v)));el.value=current;if(el.selectedIndex<0)el.value=''; };
@@ -121,5 +133,5 @@ window.R4Flow = (() => {
     api('/api/admin/bank/mf/trees',{silent:true}).then(data=>{trees=data.list||[];editions(saved&&saved.edition);}).catch(e=>{const note=document.createElement('p');note.className='r4-error';note.setAttribute('role','alert');note.textContent='教材版本加载失败：'+(e.message||'请重新加载本页');box.appendChild(note);});
     return values;
   }
-  return { read, save, clear, bind, watch, help, send, post, requestKey, prepare, filesKey, scope };
+  return { read, save, clear, bind, watch, help, send, post, requestKey, prepare, filesKey, scope, restoreField };
 })();

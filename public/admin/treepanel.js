@@ -18,7 +18,7 @@
  * 依赖：treepick.js 的 tpTrees / pickTree / tpEditions / tpDefaultEdition；api.js 的 api / esc。
  */
 'use strict';
-const TPN_STAGES = [['primary', '小学'], ['junior', '初中'], ['senior', '高中']];
+const TPN_STAGES = [['primary', '小学'], ['junior', '初中']];
 const TPN_SUBJ_ORDER = ['数学', '英语', '语文', '物理', '化学', '生物', '历史', '地理', '政治'];
 const TPN_SVG = {
   caret: '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',

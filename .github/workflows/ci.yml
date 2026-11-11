@@ -32,6 +32,8 @@ jobs:
           FORMULA_EVIDENCE_DIR: formula-component-evidence
         if: ${{ !cancelled() }}
       - run: node bank-test.js
+      - name: Verify supported school stages
+        run: node --test senior-intake-scope-test.js no-senior-bank-intake-test.js no-senior-bank-bindings-test.js no-senior-legacy-writes-test.js no-senior-legacy-reads-test.js no-senior-mf-associations-test.js no-senior-report-test.js no-senior-student-resources-test.js astra-mistake-export-scope-test.js school-scope-ui-test.js grades-school-scope-test.js
       - name: Check Word bugfix regressions
         run: npm run test:bugfix
       - name: Check legacy UI acceptance contracts
@@ -40,6 +42,7 @@ jobs:
         run: npm run test:bugfix:browser
         if: ${{ !cancelled() }}
       - run: node ci-isolation-test.js
+      - run: node --test ci-mysql-credentials-test.js
       - run: npm run test:takeover # 目录/正确率/权限/下发事务、响应式组件契约及 Word 排序；不依赖服务或浏览器
       - name: Check word component geometry
         run: node astra-takeover-word-responsive-test.js --browser
@@ -92,12 +95,6 @@ jobs:
   api:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    env:
-      MYSQL_HOST: 127.0.0.1
-      MYSQL_PORT: '3306'
-      MYSQL_USER: root
-      MYSQL_PASSWORD: zlx-ci-only-password
-      MYSQL_DATABASE: zhilexue_ci_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -109,15 +106,14 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           node -p "'CHROMIUM_PATH=' + require('playwright').chromium.executablePath()" >> "$GITHUB_ENV"
-      - name: Start MySQL and create database
+      - name: Generate masked disposable MySQL credentials
         run: |
-          sudo systemctl start mysql.service
-          PW="$MYSQL_PASSWORD"
-          # 新版 runner 镜像（ubuntu-26.04 起）的 MySQL 不再加载 mysql_native_password：先试旧写法，不行就用默认认证插件
-          SQL_NATIVE="ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$PW'; CREATE DATABASE IF NOT EXISTS zhilexue_ci_test CHARACTER SET utf8mb4;"
-          SQL_DEFAULT="ALTER USER 'root'@'localhost' IDENTIFIED BY '$PW'; CREATE DATABASE IF NOT EXISTS zhilexue_ci_test CHARACTER SET utf8mb4;"
-          sudo mysql -e "$SQL_NATIVE" || mysql -uroot -proot -e "$SQL_NATIVE" || sudo mysql -e "$SQL_DEFAULT" || mysql -uroot -proot -e "$SQL_DEFAULT"
-          mysql -uroot -p"$PW" -h127.0.0.1 -e "SELECT 1" >/dev/null
+          set -euo pipefail
+          node test/ci-mysql.js credentials
+      - name: Start isolated MySQL container
+        run: |
+          set -euo pipefail
+          node test/ci-mysql.js start
       - name: Seed disposable CI database with synthetic accounts
         run: node test/ci-safe-seed.js
       - run: node storage-test.js
@@ -128,8 +124,10 @@ jobs:
           AI_MOCK: '1'   # AI 走演示模式：CI 不调真实 AI 接口（需要 ai.js 支持 AI_MOCK）
           TTS_MOCK: '1'  # 语音合成走演示模式（CI 的 Linux 没有 Windows 语音）：听力题 TTS 测试用
         run: |
+          set -euo pipefail
           nohup npm start > server.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://localhost:3000/ >/dev/null && break; sleep 1; done
+          curl --fail --silent --show-error http://localhost:3000/ >/dev/null
       - run: node smoke.js
       - run: node word-test.js
         if: ${{ !cancelled() }}   # smoke 失败时也要跑出结果，不能被跳过
@@ -224,16 +222,12 @@ jobs:
       - run: node browser-audit-test.js
         if: ${{ !cancelled() }}
         env:
-          MYSQL_HOST: 127.0.0.1
-          MYSQL_DATABASE: zhilexue_ci_test
           STORAGE_DRIVER: local
           AI_MOCK: '1'
           TTS_MOCK: '1'
       - run: node astra-retest-test.js
         if: ${{ !cancelled() }}
         env:
-          MYSQL_HOST: 127.0.0.1
-          MYSQL_DATABASE: zhilexue_ci_test
           ASTRA_OUTPUT: astra-retest-evidence
       - name: Upload admin UI evidence
         if: always()
@@ -253,3 +247,8 @@ jobs:
         with:
           name: server-log
           path: server.log
+      - name: Remove only this job's MySQL container
+        if: always()
+        run: |
+          set -euo pipefail
+          node test/ci-mysql.js stop

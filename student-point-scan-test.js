@@ -12,15 +12,16 @@ function fixture(t) {
     CREATE TABLE bank_tree_nodes(id INTEGER PRIMARY KEY,tree_id INTEGER,parent_id INTEGER,name TEXT,sort INTEGER DEFAULT 0);
     CREATE TABLE bank_tree_node_mappings(chapter_node_id INTEGER,knowledge_node_id INTEGER);
     CREATE TABLE question_nodes(question_id INTEGER,node_id INTEGER);
-    CREATE TABLE questions(id INTEGER PRIMARY KEY,subject TEXT,stage TEXT,type TEXT,answer TEXT,point TEXT);
+    CREATE TABLE questions(id INTEGER PRIMARY KEY,subject TEXT,stage TEXT,type TEXT,answer TEXT,point TEXT,grade TEXT);
     CREATE TABLE users(id INTEGER PRIMARY KEY,role TEXT,created_by INTEGER);
     CREATE TABLE paper_uploads(question_id INTEGER,status TEXT,user_id INTEGER);
     INSERT INTO bank_trees VALUES(1,'textbook','数学','primary'),(2,'knowledge','数学','primary'),(3,'knowledge','英语','primary'),(4,'knowledge','数学','junior');
     INSERT INTO bank_tree_nodes VALUES(1,1,NULL,'第一章',0),(2,1,1,'第一节',0),(3,1,1,'第二节',0),(4,1,NULL,'第二章',0),
       (100,2,NULL,'运算',0),(101,2,100,'加法',0),(102,2,100,'减法',1),(103,2,NULL,'乘法',1),
       (201,3,NULL,'English',0),(301,4,NULL,'初中',0);`);
+  require('./school-scope-test-fixture')(db);
   const q = (id, nodes, extra = {}) => {
-    db.prepare('INSERT INTO questions VALUES(?,?,?,?,?,?)').run(id, extra.subject || '数学', extra.stage || 'primary', extra.type || 'single', 'A', '');
+    db.prepare('INSERT INTO questions(id,subject,stage,type,answer,point) VALUES(?,?,?,?,?,?)').run(id, extra.subject || '数学', extra.stage || 'primary', extra.type || 'single', 'A', '');
     nodes.forEach(n => db.prepare('INSERT INTO question_nodes VALUES(?,?)').run(id, n));
     if (extra.pending) db.prepare("INSERT INTO paper_uploads VALUES(?,'pending',99)").run(id);
   };

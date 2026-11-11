@@ -23,7 +23,7 @@ function slice(startNeedle, endNeedle) {
   assert.ok(start >= 0 && end > start, 'actual source boundary: ' + startNeedle);
   return source.slice(start, end + endNeedle.length);
 }
-const helpers = ['visibleChapterWhere', 'canSeeChapter', 'lessonsOf', 'groupsOf', 'nextLessonOf', 'courseAccOf'];
+const helpers = ['legacyScopeError', 'visibleChapterWhere', 'canSeeChapter', 'lessonsOf', 'groupsOf', 'nextLessonOf', 'courseAccOf'];
 // Optional only to run this regression against the original, pre-fix source.
 if (source.includes('function courseQuestionCountOf(')) helpers.push('courseQuestionCountOf');
 const actual = [slice('const stageOfGrade =', '\n};'),
@@ -44,7 +44,9 @@ function fixture(t) {
     CREATE TABLE records(id INTEGER PRIMARY KEY,user_id INTEGER,question_id INTEGER,is_correct INTEGER,self_response_id INTEGER);
     CREATE TABLE subjective_responses(id INTEGER PRIMARY KEY,user_id INTEGER,question_id INTEGER,self_correct INTEGER);
     CREATE TABLE video_nodes(video_id INTEGER,node_id INTEGER);
-    CREATE TABLE bank_tree_nodes(id INTEGER,name TEXT,sort INTEGER);
+    CREATE TABLE bank_tree_nodes(id INTEGER,name TEXT,sort INTEGER,tree_id INTEGER);
+    CREATE TABLE bank_trees(id INTEGER,stage TEXT);
+    CREATE TABLE question_nodes(question_id INTEGER,node_id INTEGER);
     INSERT INTO users VALUES(1,'四年级','上册','primary');
   `);
   const add = db.prepare('INSERT INTO chapters VALUES(?,?,?,?,?,?,?,?,?,?)');
@@ -66,8 +68,11 @@ function fixture(t) {
       (14,15,140,NULL,'single'),(15,16,160,1400,'single'),
       (16,17,170,9999,'single');
   `);
+  db.exec("ALTER TABLE questions ADD COLUMN stage TEXT DEFAULT ''; ALTER TABLE questions ADD COLUMN grade TEXT DEFAULT ''; ALTER TABLE videos ADD COLUMN grade TEXT DEFAULT ''");
+  require('./school-scope-test-fixture')(db);
+  db.exec("ALTER TABLE handouts ADD COLUMN grade TEXT DEFAULT ''");
   const handlers = {};
-  vm.runInNewContext(actual, {db, accuracy, stu: {get(route, handler) { handlers[route] = handler; }},
+  vm.runInNewContext(actual, {require:p=>require(path.resolve(__dirname,'src',p)), db, accuracy, stu: {get(route, handler) { handlers[route] = handler; }},
     ok(res, data) { res.data = data; }, fail(res, error) { res.error = error; }}, {timeout: 1000});
   function invoke(route, query) { const res = {}; handlers[route]({user:{id:1},query},res); return res; }
   return { db, list(query = {}) { return invoke('/courses', {subject:'数学', ...query}).data; }, detail(id) { return invoke('/course-detail',{id}); } };
@@ -98,7 +103,7 @@ function harness(t) {
     },
     add(id, section, video, type='single') {
       // Deliberately stale chapter_id: ownership comes from video/section, not q.chapter_id.
-      f.db.prepare('INSERT INTO questions VALUES(?,8,?,?,?)').run(id,section,video,type);
+      f.db.prepare('INSERT INTO questions(id,chapter_id,section_id,video_id,type) VALUES(?,8,?,?,?)').run(id,section,video,type);
     }
   };
 }

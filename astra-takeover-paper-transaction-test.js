@@ -48,6 +48,7 @@ CREATE TABLE subjective_responses(id INTEGER PRIMARY KEY,user_id INTEGER,questio
 DELETE FROM paper_assignments;
 UPDATE papers SET status='draft' WHERE id=1;
 `);
+ require('./school-scope-test-fixture')(raw);
  const db={prepare(sql){return raw.prepare(sql);},transaction:fn=>()=>{raw.exec('BEGIN');try{const v=fn();raw.exec('COMMIT');return v;}catch(e){raw.exec('ROLLBACK');throw e;}}};
  const admin={},stu={},middleware=[];
  const box={db,admin:{get:(p,f)=>admin['GET '+p]=f,post:(p,f)=>admin['POST '+p]=f},stu:{get:(p,f)=>stu[p]=f,post:(p,f)=>stu['POST '+p]=f,use:f=>middleware.push(f)},

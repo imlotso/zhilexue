@@ -9,6 +9,58 @@
  *   pickPerNode   每个"最小的有题节点"抽 1 题（学生端雷达扫描：每个小知识点 1 题）
  */
 const TYPES = ['single', 'multi', 'judge', 'fill', 'sort', 'answer'];
+const schoolScope = require('./school-scope');
+
+/** Classifications on linked content also apply to legacy questions with blank metadata.
+ * Any high-school relationship excludes the whole question; never relabel it or
+ * remove just one paper item, which would change stored scores and history.
+ */
+function supportedQuestionSql(alias = 'q') {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) throw new Error('Invalid question alias');
+  return `(${schoolScope.supportedSql(alias)}
+    AND NOT EXISTS (SELECT 1 FROM chapters sc WHERE sc.id=${alias}.chapter_id AND NOT ${schoolScope.supportedSql('sc')})
+    AND NOT EXISTS (SELECT 1 FROM videos sv LEFT JOIN chapters sc ON sc.id=sv.chapter_id
+      LEFT JOIN sections ss ON ss.id=sv.section_id LEFT JOIN chapters ssc ON ssc.id=ss.chapter_id
+      WHERE sv.id=${alias}.video_id AND (NOT ${schoolScope.supportedSql('sv', {stage:false})}
+        OR NOT ${schoolScope.supportedSql('sc')} OR NOT ${schoolScope.supportedSql('ssc')}))
+    AND NOT EXISTS (SELECT 1 FROM sections ss JOIN chapters sc ON sc.id=ss.chapter_id
+      WHERE ss.id=${alias}.section_id AND NOT ${schoolScope.supportedSql('sc')})
+    AND NOT EXISTS (SELECT 1 FROM question_nodes sqn JOIN bank_tree_nodes sn ON sn.id=sqn.node_id
+      JOIN bank_trees st ON st.id=sn.tree_id WHERE sqn.question_id=${alias}.id AND NOT ${schoolScope.supportedSql('st', {grade:false})})
+    AND NOT EXISTS (SELECT 1 FROM video_nodes svn JOIN bank_tree_nodes sn ON sn.id=svn.node_id
+      JOIN bank_trees st ON st.id=sn.tree_id WHERE svn.video_id=${alias}.video_id AND NOT ${schoolScope.supportedSql('st', {grade:false})}))`;
+}
+/** Evaluate an original or proposed resource association without writing it. */
+function questionScopeAllowed(db, scope = {}) {
+  const id = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : 0;
+  return !!db.prepare(`SELECT 1 FROM (SELECT ? AS id, ? AS stage, ? AS grade,
+    ? AS chapter_id, ? AS video_id, ? AS section_id) q WHERE ${supportedQuestionSql('q')}`)
+    .get(id(scope.id), String(scope.stage || ''), String(scope.grade || ''), id(scope.chapter_id), id(scope.video_id), id(scope.section_id));
+}
+function studentQuestionScopeSql(alias = 'q') {
+  return require('./qmeta').questionScopeSql(null, alias) + ' AND ' + supportedQuestionSql(alias);
+}
+
+/** Keep old records intact, but never serve a whole paper containing high-school questions. */
+function studentQuestionsAllowed(db, ids) {
+  if (!Array.isArray(ids)) return false;
+  const values = [...new Set(ids.map(Number))];
+  if (values.some(id => !Number.isSafeInteger(id) || id <= 0)) return false;
+  if (!values.length) return true;
+  return !db.prepare(`SELECT q.id FROM questions q WHERE q.id IN (${values.map(() => '?').join(',')})
+    AND NOT ${supportedQuestionSql('q')} LIMIT 1`).get(...values);
+}
+function studentPaperAllowed(db, paper, kind = 'paper') {
+  if (!paper || schoolScope.isSeniorScope(paper)) return false;
+  let ids;
+  if (kind === 'mfpaper') {
+    ids = db.prepare("SELECT question_id FROM mf_paper_questions WHERE paper_id=? AND kind='question'").all(paper.id).map(row => row.question_id);
+  } else {
+    try { ids = JSON.parse(paper.q_ids || '[]'); } catch (_) { return false; }
+    if (!Array.isArray(ids)) return false;
+  }
+  return studentQuestionsAllowed(db, ids);
+}
 
 /** 选中节点 + 全部后代的 id 集合（节点可来自不同的树） */
 function expandNodeIds(db, ids) {
@@ -32,7 +84,7 @@ function expandNodeIds(db, ids) {
 
 /** 候选题的 WHERE 片段。opt: { subject, stage, grade, difficulty, point, nodeIds } */
 function scopeSql(db, opt) {
-  let where = ' WHERE ' + require('./qmeta').questionScopeSql(null, 'q'); const args = [];
+  let where = ' WHERE ' + studentQuestionScopeSql('q'); const args = [];
   if (opt.subject) { where += ' AND q.subject=?'; args.push(opt.subject); }
   if (opt.stage) { where += " AND IFNULL(q.stage,'')=?"; args.push(opt.stage); }
   if (opt.grade) { where += " AND IFNULL(q.grade,'')=?"; args.push(opt.grade); }
@@ -174,8 +226,8 @@ function pickPerNode(db, allNodes, ids) {
     frontier.forEach((pid) => (childrenOf[pid] || []).forEach((ch) => { if (!sel.has(ch.id)) { sel.add(ch.id); next.push(ch.id); } }));
     frontier = next;
   }
-  const qCnt = db.prepare('SELECT COUNT(*) c FROM question_nodes qn JOIN questions q ON q.id=qn.question_id WHERE qn.node_id=?');
-  const qOne = db.prepare('SELECT q.* FROM question_nodes qn JOIN questions q ON q.id=qn.question_id WHERE qn.node_id=? ORDER BY RANDOM() LIMIT 1');
+  const qCnt = db.prepare(`SELECT COUNT(*) c FROM question_nodes qn JOIN questions q ON q.id=qn.question_id WHERE qn.node_id=? AND ${studentQuestionScopeSql('q')}`);
+  const qOne = db.prepare(`SELECT q.* FROM question_nodes qn JOIN questions q ON q.id=qn.question_id WHERE qn.node_id=? AND ${studentQuestionScopeSql('q')} ORDER BY RANDOM() LIMIT 1`);
   const withQ = new Map();
   [...sel].forEach((nid) => { const c = qCnt.get(nid).c; if (c) withQ.set(nid, c); });
   const hasQDesc = (nid) => (childrenOf[nid] || []).some((ch) => withQ.has(ch.id) || hasQDesc(ch.id));
@@ -193,6 +245,7 @@ function pickPerNode(db, allNodes, ids) {
 
 /** 学生扫描：以真实叶节点为目标，即使缺题也保留；章节映射优先，兼容双挂题与未映射章节叶。 */
 function planStudentScan(db, { ids, kind, subject, stage }) {
+  if (schoolScope.isSeniorScope({ stage })) return { items: [], missing: [], target_total: 0, fallback_count: 0 };
   const nodes = db.prepare(`SELECT n.id,n.parent_id,n.name,n.tree_id,t.kind FROM bank_tree_nodes n
     JOIN bank_trees t ON t.id=n.tree_id WHERE t.subject=? AND (t.stage=? OR IFNULL(t.stage,'')='') ORDER BY n.sort,n.id`).all(subject, stage);
   const byId = new Map(nodes.map(n => [Number(n.id), n])), children = new Map();
@@ -261,4 +314,4 @@ function planStudentScan(db, { ids, kind, subject, stage }) {
   return { items, missing, target_total:ordered.length, fallback_count:ordered.filter(n => n.fallback).length };
 }
 
-module.exports = { TYPES, expandNodeIds, scopeSql, poolCounts, pickByCounts, pickByNodes, pickPerNode, planStudentScan };
+module.exports = { TYPES, expandNodeIds, scopeSql, poolCounts, pickByCounts, pickByNodes, pickPerNode, planStudentScan, studentQuestionsAllowed, studentPaperAllowed, studentQuestionScopeSql, supportedQuestionSql, questionScopeAllowed };

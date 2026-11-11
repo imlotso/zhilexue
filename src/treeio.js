@@ -7,11 +7,12 @@
  * 导出：同样的格式，导出再导入新增 0。
  * 被 mfbank.js 的 /trees/import、/trees/:id/export 和 scripts/import-trees.js 共用。
  */
+const SchoolScope = require('./school-scope');
 const FORMAT = 'zhilexue-tree';
 const VERSION = 1;
 const KINDS = ['textbook', 'knowledge'];
-const STAGES = ['primary', 'junior', 'senior'];
-const STAGE_NAME = { primary: '小学', junior: '初中', senior: '高中' };
+const STAGES = ['primary', 'junior'];
+const STAGE_NAME = { primary: '小学', junior: '初中' };
 const MAX_NODES = 60000;
 const MAX_DEPTH = 12;
 const NAME_MAX = 120;
@@ -44,7 +45,8 @@ function normalizeDoc(raw, idx = 0) {
   const subject = clean(raw.subject);
   if (!subject) return { error: `${at}subject 必填（如 数学）` };
   const stage = clean(raw.stage);
-  if (!STAGES.includes(stage)) return { error: `${at}stage 应为 primary / junior / senior` };
+  if (SchoolScope.scopeError(raw)) return { error: at + SchoolScope.scopeError(raw) };
+  if (!STAGES.includes(stage)) return { error: `${at}stage 应为 primary / junior` };
   const edition = clean(raw.edition);
   if (edition.length > 40) return { error: `${at}edition 太长（最多 40 字）` };
   if (kind === 'textbook' && !edition) return { error: `${at}教材章节树（textbook）必须写 edition（如 苏教版）` };
@@ -144,6 +146,7 @@ function treeState(db, doc, treeId, context) {
 
 /** 内部合并器；写入前由调用方完成整批只读冲突检查。 */
 function mergeDoc(db, doc, { dry, treeId = 0, context, preserveSourceCode = false }) {
+  SchoolScope.assertScope(doc);
   const state = treeState(db, doc, treeId, context);
   const createdTree = !state.present;
   if (createdTree) {

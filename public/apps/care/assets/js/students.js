@@ -94,7 +94,7 @@
       '</select></label>' +
       row('学号', 'fSno', s.sno) +
       '<label class="field"><span class="field-lab">班级</span>' +
-      '<input class="input" id="fKlass" list="fKlassList" value="' + esc(s.klass) + '" placeholder="如 高一(1)班">' +
+      '<input class="input" id="fKlass" list="fKlassList" value="' + esc(s.klass) + '" placeholder="如 七年级(1)班">' +
       '<datalist id="fKlassList">' + classes.map(function (c) { return '<option value="' + esc(c) + '">'; }).join('') + '</datalist>' +
       '</label>' +
       row('父亲姓名', 'fFaName', s.fatherName) +

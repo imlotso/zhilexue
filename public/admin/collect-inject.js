@@ -275,10 +275,11 @@
   function pushTree(stage, subject, kind, edition) {
     var t = parseZujuanTree();
     if (!t || !t.nodes.length) return Promise.resolve({ code: 1, msg: '这一页不是组卷网知识点树页面（找不到 .tk-tree）' });
+    if (t.stage === '高中') return Promise.resolve({ code: 1, msg: '仅支持小学和初中，不能导入高中知识树' });
     // R0-B7：学段 + 学科以老师在悬浮球里选的为准（页面推断的只当默认值）；缺一个都不回传，后端也会拒绝
     t.stage = stage; t.subject = subject; t.kind = kind;
     t.edition_selected = edition === '__general__'; t.edition = t.edition_selected ? '' : edition;
-    if (!t.stage || !t.subject || !t.kind || !edition) return Promise.resolve({ code: 1, msg: '请选择学段、学科、树类型和教材版本' });
+    if (!['primary', 'junior'].includes(t.stage) || !t.subject || !t.kind || !edition) return Promise.resolve({ code: 1, msg: '请选择小学或初中学段、学科、树类型和教材版本' });
     function send() { return fetch('/api/mfcap/tree-push?token=' + encodeURIComponent(CAP), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t)
     }).then(function (r) { return r.json(); }); }
@@ -286,7 +287,7 @@
     return send().then(function (preview) {
       if (!preview || preview.code !== 0) return preview;
       var versionLabel = t.edition || '不区分版本';
-      var stageName = { primary: '小学', junior: '初中', senior: '高中' }[stage] || stage;
+      var stageName = { primary: '小学', junior: '初中' }[stage] || stage;
       var detail = '目标：' + stageName + ' · ' + subject + ' · ' + versionLabel + ' · ' + (kind === 'textbook' ? '章节树' : '知识点树') + '\n' +
         (preview.new_tree ? '将新建树' : '合并到：' + preview.tree_name) + '\n新增 ' + preview.created + ' 个节点，合并已有节点 ' + preview.merged + ' 个。\n\n确认导入吗？';
       if (!window.confirm(detail)) return { code: 0, msg: '已取消导入' };
@@ -333,7 +334,7 @@
       '<button data-act="pick">＋ 采集本页题目</button>' +
       '<button data-act="send" class="mf-ghost">⇩ 回传到采集篮（<span id="mfCount">0</span> 题）</button>' +
       '<div class="mf-treesel" id="mfTreeSel" style="display:' + (site() === 'zujuan' ? 'flex' : 'none') + '">' +
-        '<select id="mfTStage" title="知识树要归到哪个学段"><option value="">学段…</option><option value="primary">小学</option><option value="junior">初中</option><option value="senior">高中</option></select>' +
+        '<select id="mfTStage" title="知识树要归到哪个学段"><option value="">学段…</option><option value="primary">小学</option><option value="junior">初中</option></select>' +
         '<select id="mfTSub" title="知识树要归到哪个学科"><option value="">学科…</option>' + ['数学', '英语', '物理', '化学', '语文', '生物', '历史', '地理', '政治', '科学'].map(function (x) { return '<option>' + x + '</option>'; }).join('') + '</select></div>' +
       '<div class="mf-treesel" style="display:' + (site() === 'zujuan' ? 'flex' : 'none') + '">' +
         '<select id="mfTKind" title="树类型"><option value="">树类型…</option><option value="textbook">章节树</option><option value="knowledge">知识点树</option></select>' +
@@ -347,7 +348,7 @@
     try {
       var pre = parseZujuanTree();
       if (pre) {
-        var sm = { '小学': 'primary', '初中': 'junior', '高中': 'senior' };
+        var sm = { '小学': 'primary', '初中': 'junior' };
         if (sm[pre.stage]) bar.querySelector('#mfTStage').value = sm[pre.stage];
         if (pre.subject) bar.querySelector('#mfTSub').value = pre.subject;
       }

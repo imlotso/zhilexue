@@ -11,7 +11,8 @@ const TP_STAGE_NAMES = { primary: '小学', junior: '初中', senior: '高中' }
 async function tpTrees(kind, {strict = false} = {}) {
   const r = await api('/api/admin/bank/mf/trees' + (kind ? '?kind=' + encodeURIComponent(kind) : ''), { silent: true }).catch(e => {if(strict)throw e;return {list:[]};});
   if (r && r.defaults) TP.defaults = r.defaults;
-  return (r && r.list) || [];
+  // 历史树留在库中，不再提供给录题、组卷或分类选择器。
+  return ((r && r.list) || []).filter(t => ![t.stage, t.grade].some(value => /^(?:senior|高中|高[一二三123]|高[123]年级)/i.test(String(value || '').trim())));
 }
 
 /** 默认版本：subject + stage → '苏教版' / ''（没有默认） */

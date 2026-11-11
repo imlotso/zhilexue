@@ -43,7 +43,7 @@
         <input type="text" id="pName" placeholder="与报名时一致的姓名" /></div>
       <div class="pu-row">
         <div class="field"><label>学段</label>
-          <select id="pStage"><option>小学</option><option>初中</option><option>高中</option></select></div>
+          <select id="pStage"><option>小学</option><option>初中</option></select></div>
         <div class="field"><label>年级</label>
           <input type="text" id="pGrade" placeholder="如：七年级" /></div>
       </div>
@@ -180,6 +180,7 @@
     if (!name) return err.textContent = '请填写学生姓名';
     if (!exam) return err.textContent = '请填写考试名称';
     if (!subject) return err.textContent = '请填写科目';
+    if (!['小学', '初中'].includes(v('pStage')) || /高中|高[一二三123]|senior|(?:10|11|12|十|十一|十二)年级/i.test(v('pGrade'))) return err.textContent = '仅支持小学和初中，请核对学段和年级';
     if (!v('pFull') || isNaN(full)) return err.textContent = '请填写满分';
     if (v('pScore') === '' || isNaN(score)) return err.textContent = '请填写得分';
     if (score < 0 || score > full) return err.textContent = '得分应在 0 ~ 满分之间';

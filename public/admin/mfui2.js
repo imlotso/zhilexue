@@ -12,7 +12,7 @@ const MF_SITES = [
   { k: 'jyeoo', t: '菁优网', url: 'https://www.jyeoo.com/', host: 'jyeoo.com' },
   { k: '21cnjy', t: '二一组卷网', url: 'https://www.21cnjy.com/', host: '21cnjy.com' },
 ];
-const MF_STAGE_NAMES = { primary: '小学', junior: '初中', senior: '高中' };
+const MF_STAGE_NAMES = { primary: '小学', junior: '初中' };
 const MF_DIFF_NAMES = { 1: '很容易', 2: '较易', 3: '中等', 4: '较难', 5: '很难' };
 
 /* ================================================================ 题库管理（R3：洋葱式左栏 + 标签式筛选 + 题卡）
@@ -434,7 +434,7 @@ async function mfReviewDialog(it, done) {
       ${imgs.length ? `<div class="mf-rvimgs" style="margin-bottom:10px">${imgs.map((u) => `<img src="${esc(u)}" data-rvimg="${esc(u)}" title="点击看大图">`).join('')}</div>` : ''}
       <div class="mf-form">
         <div class="field"><label>学科</label><select id="rvSub">${MF_SUBJECTS.map((sp) => `<option ${curSub === sp ? 'selected' : ''}>${sp}</option>`).join('')}</select></div>
-        <div class="field"><label>学段</label><select id="rvStage"><option value="">未分组</option>${Object.entries(MF_STAGE_NAMES).map(([k, t]) => `<option value="${k}" ${curStage === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+        <div class="field"><label>学段</label><select id="rvStage">${mfStageOptions(curStage, '未分组')}</select></div>
         <div class="field"><label>年级</label><input id="rvGrade" class="inp" value="${esc(it.grade || it.pu_grade || '')}"></div>
         <div class="field"><label>知识点标签</label><input id="rvPoint" class="inp" value="${esc(it.point || it.pu_point || '')}"></div>
       </div>
@@ -499,7 +499,7 @@ async function mfQEdit(id, done, opts) {
         <div class="field"><label>题型</label><select id="qeType">${Object.entries(MF_TYPE_NAME).map(([k, t]) => `<option value="${k}" ${q.type === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
         <div class="field"><label>细分题型（选填）</label><select id="qeSubtype"><option value="">不细分</option></select></div>
         <div class="field"><label>学科</label><select id="qeSub">${MF_SUBJECTS.map((s) => `<option ${q.subject === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
-        <div class="field"><label>学段</label><select id="qeStage">${Object.entries(MF_STAGE_NAMES).map(([k, t]) => `<option value="${k}" ${q.stage === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+        <div class="field"><label>学段</label><select id="qeStage">${mfStageOptions(q.stage, '未识别')}</select></div>
         <div class="field"><label for="qeDiff">难度（五星）</label><input id="qeDiff" class="inp" type="number" min="1" max="5" value="${q.difficulty || 3}"></div>
         <div class="field"><label for="qeDiff10">难度（1–10，可空）</label><input id="qeDiff10" class="inp" type="number" min="1" max="10" step="1" placeholder="未细分" value="${q.difficulty_score_10 == null ? '' : Number(q.difficulty_score_10)}"></div>
       </div>

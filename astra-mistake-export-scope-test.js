@@ -26,15 +26,17 @@ function fixture(t){
  db.prepare("INSERT INTO questions VALUES(?,'single','','[]',?,'[]','A','解析','','数学','知识点','[]',1)").run(id,'题'+id);
  db.prepare("INSERT INTO mistakes VALUES(?,101,?,1,'B',0,'2026-01-01',0,'')").run(id,id);
  }
+ require('./school-scope-test-fixture')(db);
  const handlers={},calls=[];
  let buildHook=()=>{};
  const box={db,console,parseQ:x=>x,nowStr:()=> '2026-01-01',
- admin:{get:(p,f)=>handlers[p]=f},ok:(r,data)=>r.data=data,fail:(r,msg,status)=>{r.error=msg;r.statusCode=status;},
+ stu:{get:(p,f)=>handlers['student'+p]=f},admin:{get:(p,f)=>handlers[p]=f},ok:(r,data)=>r.data=data,fail:(r,msg,status)=>{r.error=msg;r.statusCode=status;},
  buildMistakeDocx:async o=>{calls.push(o.items.map(x=>x.question_id));await buildHook();return Buffer.from('fake docx');},
- require:p=>{if(p==='./qmeta')return require('./src/qmeta');if(p==='./mistake-docx')return {sendMistakeDocx:box.sendMistakeDocx};throw Error(p);}
+ require:p=>{if(p==='./qmeta')return require('./src/qmeta');if(p==='./compose')return require('./src/compose');if(p==='./mistake-docx')return {sendMistakeDocx:box.sendMistakeDocx};throw Error(p);}
  };
  vm.runInNewContext(source('mistake-docx','function collectMistakes(')+'\n'+source('mistake-docx','async function sendMistakeDocx('),box);
  for(const route of ['/mistakes','/mistakes/export-docx'])vm.runInNewContext(source('bank',"admin.get('"+route+"',",'\n});'),box);
+ vm.runInNewContext(source('app',"stu.get('/mistakes/export-docx',",'\n});'),box);
  const response=()=>({status(n){this.statusCode=n;return this;},json(v){this.jsonBody=v;return this;},setHeader(k,v){(this.headers||={})[k]=v;},end(v){this.bytes=v;}});
  const invoke=async(route,user,query={})=>{const res=response();await handlers[route]({user,query:{user_id:101,...query}},res);return res;};
  return {db,box,calls,invoke,response,setBuildHook:fn=>buildHook=fn};
@@ -89,4 +91,51 @@ test('teacher export rechecks student campus after rendering even with only appr
  assert.equal(r.bytes, undefined);
  assert.equal(r.statusCode, 403);
  assert.equal(r.headers, undefined);
+});
+
+function highSchoolExportFixture(t) {
+ const f=fixture(t);
+ f.db.exec(`UPDATE paper_uploads SET status='approved';
+ UPDATE questions SET stage='junior',grade='八年级' WHERE id IN (4,5);
+ UPDATE questions SET grade='高一' WHERE id=1;
+ INSERT INTO bank_trees(id,stage) VALUES(1,'senior'); INSERT INTO bank_tree_nodes(id,tree_id) VALUES(1,1); INSERT INTO question_nodes VALUES(2,1);
+ INSERT INTO chapters(id,stage,grade) VALUES(1,'senior',''); INSERT INTO videos(id,chapter_id) VALUES(1,1); UPDATE questions SET video_id=1 WHERE id=3;`);
+ return f;
+}
+test('actual student Word excludes high-school and linked legacy questions; teacher historical export remains intact',async t=>{
+ const f=highSchoolExportFixture(t);
+ const snapshot=()=>JSON.stringify(['questions','mistakes','records','question_nodes'].map(table=>f.db.prepare('SELECT * FROM '+table).all()));
+ const before=snapshot();
+ f.box.buildMistakeDocx=require('./src/mistake-docx').buildMistakeDocx;
+ const student=await f.invoke('student/mistakes/export-docx',{id:101,role:'student'},{studentOnlyReviewed:false,questionUser:admin});
+ assert.ok(student.bytes);assert.equal(student.headers['X-Mistake-Count'],'2');
+ const {ZipReader}=require('./src/mfzip');
+ const xml=new ZipReader(student.bytes).readOptional('word/document.xml').toString('utf8');
+ for(const id of [1,2,3]) assert.ok(!xml.includes('题'+id));
+ for(const id of [4,5]) assert.ok(xml.includes('题'+id));
+ const teacher=await f.invoke('/mistakes/export-docx',admin);
+ assert.equal(teacher.headers['X-Mistake-Count'],'5');
+ const teacherXml=new ZipReader(teacher.bytes).readOptional('word/document.xml').toString('utf8');
+ for(const id of [1,2,3,4,5]) assert.ok(teacherXml.includes('题'+id));
+ assert.equal(snapshot(),before);
+});
+test('student cannot request only high-school export IDs or push supported questions past the 300-row limit',async t=>{
+ const f=highSchoolExportFixture(t);
+ const denied=await f.invoke('student/mistakes/export-docx',{id:101,role:'student'},{ids:'1,2,3'});
+ assert.equal(denied.bytes,undefined);assert.equal(denied.jsonBody.code,1);assert.equal(f.calls.length,0);
+ for(let id=10;id<320;id++) {
+   f.db.prepare("INSERT INTO questions(id,type,stem,options,answer,images,stage,grade) VALUES(?,'single','高中题','[]','A','[]','senior','高一')").run(id);
+   f.db.prepare("INSERT INTO mistakes(id,user_id,question_id,wrong_count,resolved,updated_at) VALUES(?,101,?,1,0,'2026-11-11')").run(id,id);
+ }
+ const res=await f.invoke('student/mistakes/export-docx',{id:101,role:'student'});
+ assert.ok(res.bytes);assert.deepEqual(Array.from(f.calls[0]),[4,5]);
+});
+for(const [name,change] of [
+ ['metadata',"UPDATE questions SET grade='高一' WHERE id=4"],
+ ['new high-school tree linkage','INSERT INTO question_nodes VALUES(4,1)'],
+]) test('student Word rechecks '+name+' after rendering and sends no attachment',async t=>{
+ const f=highSchoolExportFixture(t);
+ f.setBuildHook(()=>f.db.exec(change));
+ const res=await f.invoke('student/mistakes/export-docx',{id:101,role:'student'});
+ assert.equal(res.bytes,undefined);assert.equal(res.statusCode,403);assert.equal(res.headers,undefined);
 });

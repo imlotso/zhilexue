@@ -562,23 +562,32 @@ const fileForm = (fields, fileName, content) => {
       { site_node_id: 'r0a-3', name: 'R0点' + uniq, parent_site_node_id: 'r0a-2', sort: 0 },
     ];
     const noStage = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0', root_name: 'R0树', nodes: nodesA } });
-    const noSub = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0', root_name: 'R0树', stage: 'senior', nodes: nodesA } });
+    const noSub = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0', root_name: 'R0树', stage: 'junior', nodes: nodesA } });
     log(noStage.code !== 0 && /学段/.test(noStage.msg) && noSub.code !== 0 && /学科/.test(noSub.msg), 'B7 缺学段 / 缺学科的知识树导入被拒，并给出中文提示', `${noStage.msg} | ${noSub.msg}`);
     const capTreeNo = await rawReq('/api/mfcap/tree-push', { method: 'POST', headers: { Authorization: 'Bearer ' + CT }, body: { site: 'zujuan', root_id: 'r0', nodes: nodesA } });
     log(capTreeNo.j && capTreeNo.j.code !== 0 && /学段|学科/.test(capTreeNo.j.msg), 'B7 注入脚本走的 /api/mfcap/tree-push 同样要求学段学科');
-    const missingKind = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', stage: 'senior', subject: '生物', nodes: nodesA } });
-    const missingEdition = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', stage: 'senior', subject: '生物', kind: 'knowledge', nodes: nodesA } });
+    const missingKind = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', stage: 'junior', subject: '物理', nodes: nodesA } });
+    const missingEdition = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', stage: 'junior', subject: '物理', kind: 'knowledge', nodes: nodesA } });
     log(missingKind.code !== 0 && /章节树|知识点树/.test(missingKind.msg) && missingEdition.code !== 0 && /版本/.test(missingEdition.msg), 'B7 未选择树类型或版本时拒绝导入');
-    const existingTree = trees0.find((t) => t.kind === 'knowledge' && t.stage === 'senior' && t.subject === '生物' && !t.edition);
-    const imp1 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0', root_name: 'R0树' + uniq, stage: '高中', subject: '生物', kind: 'knowledge', edition_selected: true, nodes: nodesA } });
-    log(imp1.code === 0 && imp1.data.created === 3 && (!existingTree || imp1.data.tree_id === existingTree.id), 'B7 带学段学科（高中/生物）导入：新增 3 个节点' + (existingTree ? '，并入已有的树' : '，新建树'), imp1.msg);
+    // 高中是明确拒绝用例；不能再用作导入/合并的成功样本。
+    const seniorBody = { site: 'zujuan', root_id: 'r0-senior', stage: 'senior', subject: '物理', kind: 'knowledge', edition_selected: true, nodes: nodesA };
+    const seniorTree = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: seniorBody });
+    log(seniorTree.code !== 0 && /高中/.test(seniorTree.msg) && !(seniorTree.data && seniorTree.data.tree_id), 'B7 后台拒绝高中知识树，不返回可继续导入的树 ID', seniorTree.msg);
+    const seniorPush = await rawReq('/api/mfcap/tree-push', { method: 'POST', headers: { Authorization: 'Bearer ' + CT }, body: { ...seniorBody, stage: '高中' } });
+    log(seniorPush.j && seniorPush.j.code !== 0 && /高中/.test(seniorPush.j.msg) && !(seniorPush.j.data && seniorPush.j.data.tree_id), 'B7 采集票据入口同样明确拒绝高中知识树', seniorPush.j && seniorPush.j.msg);
+    const existingTree = trees0.find((t) => t.kind === 'knowledge' && t.stage === 'junior' && t.subject === '物理' && !t.edition);
+    const imp1 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { site: 'zujuan', root_id: 'r0', root_name: 'R0树' + uniq, stage: '初中', subject: '物理', kind: 'knowledge', edition_selected: true, nodes: nodesA } });
+    log(imp1.code === 0 && imp1.data && imp1.data.created === 3 && (!existingTree || imp1.data.tree_id === existingTree.id), 'B7 带学段学科（初中/物理）导入：新增 3 个节点' + (existingTree ? '，并入已有的树' : '，新建树'), imp1.msg);
+    if (imp1.code !== 0 || !imp1.data || !Number.isSafeInteger(Number(imp1.data.tree_id)) || Number(imp1.data.tree_id) <= 0) {
+      throw new Error('B7 初中知识树正例失败，不能继续使用 tree_id：' + JSON.stringify(imp1));
+    }
     const nodesB = [
       { site_node_id: 'r0b-1', name: 'R0根章' + uniq, parent_site_node_id: null, sort: 0 },
       { site_node_id: 'r0b-2', name: 'R0节' + uniq, parent_site_node_id: 'r0b-1', sort: 0 },
       { site_node_id: 'r0b-3', name: 'R0点' + uniq, parent_site_node_id: 'r0b-2', sort: 0 },
       { site_node_id: 'r0b-4', name: 'R0新点' + uniq, parent_site_node_id: 'r0b-2', sort: 1 },
     ];
-    const repeatBody = { site: 'zujuan', root_id: 'r0-other', root_name: '另一个根' + uniq, stage: 'senior', subject: '生物', kind: 'knowledge', edition_selected: true, nodes: nodesB };
+    const repeatBody = { site: 'zujuan', root_id: 'r0-other', root_name: '另一个根' + uniq, stage: 'junior', subject: '物理', kind: 'knowledge', edition_selected: true, nodes: nodesB };
     const preview2 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: { ...repeatBody, dry: true } });
     const previewNodesResponse = await req(MF + `/trees/${imp1.data.tree_id}/nodes`, { token: AT });
     const afterPreview = (previewNodesResponse.data || {}).list || [];
@@ -587,7 +596,7 @@ const fileForm = (fields, fileName, content) => {
     const imp2 = await req(MF + '/ext/collect-tree', { method: 'POST', token: AT, body: repeatBody });
     log(imp2.code === 0 && imp2.data.tree_id === imp1.data.tree_id && imp2.data.created === 1, 'B7 同学段学科再导入（站点节点 id 不同、名字相同）：并入同一棵树，同父同名不重复建，只新增 1 个', imp2.msg);
     const trees1 = ((await req(MF + '/trees', { token: AT })).data || {}).list || [];
-    log(trees1.filter((t) => t.kind === 'knowledge' && t.stage === 'senior' && t.subject === '生物' && !t.edition).length === 1 && trees1.filter((t) => !t.stage || !t.subject).length === orphan0,
+    log(trees1.filter((t) => t.kind === 'knowledge' && t.stage === 'junior' && t.subject === '物理' && !t.edition).length === 1 && trees1.filter((t) => !t.stage || !t.subject).length === orphan0,
       'B7 没有产生「学段学科为空」的孤儿树；同学段学科和版本的知识树只有一棵');
     const impNodes = ((await req(MF + `/trees/${imp1.data.tree_id}/nodes`, { token: AT })).data || {}).list || [];
     const rootN = impNodes.find((n) => n.name === 'R0根章' + uniq), midN = impNodes.find((n) => n.name === 'R0节' + uniq), leafN = impNodes.find((n) => n.name === 'R0点' + uniq);
@@ -598,7 +607,7 @@ const fileForm = (fields, fileName, content) => {
       'B7 重复采集新增 0，已有节点 ID、顺序和层级保持不变', imp3.msg);
 
     // —— B10：节点题数 = 自身 + 所有子孙节点上的题目去重数 ——
-    const mkQ = async (stem, nodes, extra = {}) => (await req(MF + '/questions', { method: 'POST', token: AT, body: Object.assign({ type: 'single', stem: stem + uniq, options: ['甲', '乙'], answer: 'A', subject: '生物', stage: 'senior', nodes }, extra) })).data.id;
+    const mkQ = async (stem, nodes, extra = {}) => (await req(MF + '/questions', { method: 'POST', token: AT, body: Object.assign({ type: 'single', stem: stem + uniq, options: ['甲', '乙'], answer: 'A', subject: '物理', stage: 'junior', nodes }, extra) })).data.id;
     const qLeaf = await mkQ('R0叶子题', [leafN.id]);
     const qMid = await mkQ('R0中间题', [midN.id]);
     const qBoth = await mkQ('R0父子都挂', [rootN.id, midN.id, leafN.id]);   // 同一道题挂在三层上，只算 1 次

@@ -11,6 +11,7 @@
  *   app.use('/api/mfproxy',   require('./mfcollect').proxy);   // 代理自鉴权（票据 k）
  *   app.use('/api/mfcap',     require('./mfcollect').cap);     // 采集票据回传（树导入）
  */
+const SchoolScope = require('./school-scope');
 const express = require('express');
 const https = require('https');
 const http = require('http');
@@ -456,11 +457,13 @@ admin.post('/collect-tree', (req, res) => {
 // ==================================================================== 默认学段学科（偏好）
 admin.get('/prefs', (req, res) => {
   const get = (k) => { try { const r = db.prepare("SELECT v FROM settings WHERE k=?").get(k); return r ? r.v : ''; } catch (e) { return ''; } };
-  return ok(res, { default_stage: get('mf_default_stage'), default_subject: get('mf_default_subject') });
+  const savedStage = get('mf_default_stage');
+  return ok(res, { default_stage: SchoolScope.isSeniorValue(savedStage) ? '' : savedStage, default_subject: get('mf_default_subject') });
 });
 
 admin.put('/prefs', (req, res) => {
   const b = req.body || {};
+  if (SchoolScope.scopeError({stage: b.default_stage})) return fail(res, SchoolScope.MESSAGE);
   const set = (k, v) => db.prepare("INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(k, String(v || ''));
   set('mf_default_stage', b.default_stage || '');
   set('mf_default_subject', b.default_subject || '');
@@ -838,11 +841,12 @@ cap.post('/tree-push', (req, res) => {
   return res.json(r);
 });
 
-/** 学段归一：接受 小学/初中/高中 或 primary/junior/senior，返回库里用的英文码；认不出返回 '' */
+/** 学段归一：只接受小学/初中；识别到高中明确拒绝，其他未知值返回空串。 */
 function normStage(raw) {
+  SchoolScope.assertScope({stage: raw});
   const v = String(raw || '').trim();
-  if (['primary', 'junior', 'senior'].includes(v)) return v;
-  return ({ 小学: 'primary', 初中: 'junior', 高中: 'senior' })[v] || '';
+  if (['primary', 'junior'].includes(v)) return v;
+  return ({ 小学: 'primary', 初中: 'junior' })[v] || '';
 }
 /** 学科归一：库里的树用中文学科名；传进来是归一码（math）就换成中文名 */
 function normSubjectLabel(raw) {
@@ -856,6 +860,7 @@ function normSubjectLabel(raw) {
 function importTreeCore(input) {
   const { site, root_id, root_name, stage, subject, nodes, kind, edition, edition_selected, tree_id, dry } = input || {};
   try {
+    SchoolScope.assertScope(input);
     const arr = Array.isArray(nodes) ? nodes : [];
     if (!arr.length) throw new Error('没有节点数据');
     if (arr.length > 60000) throw new Error('节点过多，请分批导入');

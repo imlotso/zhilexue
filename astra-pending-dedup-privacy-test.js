@@ -45,6 +45,7 @@ function fixture(t, status, kind) {
   let importHandler;
   const load = name => require(path.resolve(__dirname, 'src', name));
   const context = {
+    SchoolScope: require('./src/school-scope'),
     db, Buffer, require(name) {
       if (name === './capture-images') return { storeImages: async cards => ({ questions: cards.map(c => ({ ...c, _image_errors: [] })) }) };
       return load(name);
@@ -68,6 +69,7 @@ function fixture(t, status, kind) {
   const original = () => ({ ...db.prepare('SELECT * FROM questions WHERE id=1').get() });
   return {
     db, original,
+    async importRaw(body) { const res = {}; await importHandler({user:{id:10,role:'branch'},body},res); return res.body; },
     capture() {
       return context.commitCaptureItems({ id: 7, site: 'jyeoo', subject: '数学', stage: 'primary' }, [{
         site: 'jyeoo', questionId: 'source-1', type: 'answer', stem: 'new incoming content',
@@ -149,3 +151,39 @@ test('import-pack private criterion remains upload association even when source_
   assert.deepEqual(f.original(), before);
   assert.equal(result.staged, 1); assert.equal(result.updated, 0);
 });
+
+for (const metadata of [{stage:{label:'senior'}},{stage:{label:'高中'}},{stage:{label:'高一'}},{stage:{label:'junior'},grade:{label:'高二'}},{stage:{label:'初中'},extra:{zhilexue:{grade:'高三'}}}]) {
+  test('package rejects explicit high-school metadata before duplicate enrichment: '+JSON.stringify(metadata), async t=>{
+    const f=fixture(t,null,'skill'),before=f.original();
+    const result=await f.importRaw({stage:'junior',subject:'数学',pack:{format:'mofang-question-pack',schemaVersion:1,packageId:'synthetic-pack',questions:[{recordKey:'record-1',content:{stem:'合成高中题'},metadata}]}});
+    assert.equal(result.code,0,result.msg); assert.equal(result.data.failed,1); assert.match(result.data.errors[0].msg || result.data.errors[0].error || String(result.data.errors[0]),/高中/);
+    assert.equal(result.data.run_id,0); assert.deepEqual(f.original(),before);
+  });
+}
+test('mixed raw JSON package keeps junior cards and reports senior cards without relabelling',async t=>{
+  const f=fixture(t,null,'skill');
+  const result=await f.importRaw({subject:'数学',stage:'junior',pack:{questions:[{id:'junior-1',stem:'合成初中题',stage:'junior',grade:'七年级',type:'answer'},{id:'senior-1',stem:'合成高中题',stage:'senior',grade:'高一',type:'answer'}]}});
+  assert.equal(result.code,0,result.msg);assert.equal(result.data.failed,1);assert.equal(result.data.staged,1);
+  const cards=JSON.parse(f.db.prepare('SELECT drafts FROM mf_recog_runs WHERE id=?').get(result.data.run_id).drafts);
+  assert.equal(cards.length,1);assert.equal(cards[0].stage,'junior');assert.equal(cards[0].grade,'七年级');assert.equal(cards[0].stem,'合成初中题');
+});
+test('raw package scope is checked before normalization can discard it',async t=>{
+  const f=fixture(t,null,'skill'),before=f.original();
+  const result=await f.importRaw({subject:'数学',stage:'junior',pack:{stage:'senior',questions:[{id:'blocked',stem:'合成高中题',type:'answer'}]}});
+  assert.notEqual(result.code,0);assert.match(result.msg,/高中/);assert.deepEqual(f.original(),before);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM mf_recog_runs').get().n,0);
+});
+for (const row of [
+  {stage:'junior',content:{stage:'senior',stem:'内容分类冲突',type:'answer'}},
+  {stage:'junior',grade:'七年级',content:{grade:'高一',stem:'内容年级冲突',type:'answer'}},
+  {stage:'senior',material:'高中材料',children:[{stage:'junior',stem:'子题不得盖掉父级高中',type:'answer'}]},
+  {stage:'junior',content:{stage:'senior',material:'高中材料'},children:[{stage:'junior',stem:'子题不得盖掉材料高中',type:'answer'}]},
+]) {
+  test('raw item and parent classification cannot be lost by adaptation: '+JSON.stringify(row),async t=>{
+    const f=fixture(t,null,'skill');
+    const result=await f.importRaw({subject:'数学',stage:'junior',pack:{questions:[{id:'valid',stage:'junior',stem:'合法初中题',type:'answer'},row]}});
+    assert.equal(result.code,0,result.msg);assert.equal(result.data.failed,1);assert.equal(result.data.staged,1);
+    const cards=JSON.parse(f.db.prepare('SELECT drafts FROM mf_recog_runs WHERE id=?').get(result.data.run_id).drafts);
+    assert.equal(cards.length,1);assert.equal(cards[0].stem,'合法初中题');
+  });
+}

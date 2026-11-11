@@ -197,18 +197,33 @@ const Store = (() => {
   };
   const student = (key) => { syncStudents(); return state.students.find(s => s.id === key) || null; };
 
+  // Only classification fields determine scope; shared subjects and free-text comments remain valid.
+  // Do not normalize saved history: loading, displaying and exporting old records stays lossless.
+  function scopeError(record = {}) {
+    const normalize = value => String(value == null ? '' : value).normalize('NFKC');
+    const senior = value => /senior|高中|高[一二三123]|(?:10|11|12|十|十一|十二)年级/i.test(normalize(value).replace(/[\s\u3000]/g, ''));
+    // A class label may contain 提高一班 / 提高1班. Only a separate school-stage label counts here.
+    const seniorClass = /(?:^|[\s·•/|,，;；:：()（）【】\[\]_-])(?:senior(?:$|[^a-z])|高\s*中|高\s*[一二三123]|(?:10|11|12|十|十一|十二)\s*年级)/i.test(normalize(record.className));
+    return ['stage', 'grade'].some(field => senior(record[field])) || seniorClass
+      ? '仅支持小学和初中，请核对学段、年级和班级' : '';
+  }
   function addRecords(list) {
+    const error = list.map(scopeError).find(Boolean);
+    if (error) { U.toast(error, 'err'); return false; }
     list.forEach(r => {
       r.id = r.id || U.uid('rc');
       r.campusId = r.campusId || currentCampusId;
       r.date = r.date || U.today();
       state.records.push(r);
     });
-    syncStudents(); save();
+    syncStudents(); save(); return true;
   }
   function updateRecord(id, patch) {
     const r = state.records.find(x => x.id === id);
-    if (r) { Object.assign(r, patch); save(); }
+    if (!r) return false;
+    const error = scopeError(r) ? '历史高中成绩仅保留查看，不能修改或覆盖' : scopeError({ ...r, ...patch });
+    if (error) { U.toast(error, 'err'); return false; }
+    Object.assign(r, patch); save(); return true;
   }
   function deleteRecord(id) {
     state.records = state.records.filter(r => r.id !== id);
@@ -256,16 +271,21 @@ const Store = (() => {
   const pendingUploads = (campusId) => parentUploads(campusId).filter(u => u.status === 'pending');
 
   function addParentUpload(list) {
+    const error = list.map(scopeError).find(Boolean);
+    if (error) { U.toast(error, 'err'); return false; }
     list.forEach(u => {
       state.parentUploads.push(Object.assign({
         id: U.uid('pu'), createdAt: Date.now(), status: 'pending'
       }, u));
     });
-    save();
+    save(); return true;
   }
   function setUploadStatus(id, status) {
     const u = state.parentUploads.find(x => x.id === id);
-    if (u) { u.status = status; save(); }
+    if (!u) return false;
+    const error = status === 'approved' ? scopeError(u) : '';
+    if (error) { U.toast(error, 'err'); return false; }
+    u.status = status; save(); return true;
   }
   function removeUpload(id) {
     state.parentUploads = state.parentUploads.filter(u => u.id !== id); save();
@@ -448,7 +468,7 @@ const Store = (() => {
     state, load, save, reset, seed, syncRoster,
     campuses, campus, campusName, currentId, setCurrent, addCampus, renameCampus, removeCampus,
     exams, exam, addExam, updateExam, deleteExam, deleteRecordsByExam,
-    records, allRecords, addRecords, updateRecord, deleteRecord, clearCampus,
+    records, allRecords, scopeError, addRecords, updateRecord, deleteRecord, clearCampus,
     students, student, stuKey, facets,
     papers, paper, savePaper, deletePaper, papersWithData,
     parentUploads, pendingUploads, addParentUpload, setUploadStatus, removeUpload

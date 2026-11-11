@@ -80,6 +80,8 @@ zhilexue/
 
 根目录测试：`smoke.js`（后端端到端，需服务已启动）、`bank-test.js`、`word-test.js`、`wrong-test.js`、`storage-test.js`、`ui-test.js`（需 jsdom）、`report-test.js`、`wrong-ui-test.js`。CI 见 `.github/workflows/ci.yml`。
 
+API CI 使用独立的官方 `mysql:8.4` 容器，不修改 runner 已有 MySQL 服务或 root 账号。`test/ci-mysql.js` 每次生成随机测试库、受限应用账号及口令，先以 GitHub Actions `add-mask` 遮蔽，再通过 `GITHUB_ENV` 传递；容器只绑定本地随机端口，不挂载宿主数据。初始化完成后清空后续步骤的 root 口令，结束时只清理本次唯一标签对应的容器及匿名卷。CI 缺少明确的本地测试库配置时，`db-connection.js` 拒绝加载本机连接配置。凭据失败保护由 `ci-mysql-credentials-test.js` 回归覆盖。
+
 ## 学生端做题弹窗与课程页（R8）
 
 - 做题弹窗 `BankQuiz.open()`（`public/js/bank.js`）是课文习题、小分组练习、试卷、错题重做 / 复习、自组卷共用的一个 DOM 组件：桌面端定高（`min(86vh,760px)`），右侧栏 = 计时 + 题号四色方格（未做 / 已做 / 答对 / 答错，可点击跳题），左侧 = 题卡（内部滚动）+ 底部按钮；所有模式都是「提交本题 → 立即核对（`/check`，不落库）→ 全部核对完交卷（`/submit`）→ 报告」。手机端（≤760px）全屏，题号改成顶栏下的横向滚动条。

@@ -132,7 +132,7 @@ const ViewImport = (() => {
             <div class="analysis-box" style="margin-bottom:10px">
               <div>✓ 表头识别成功（第 ${res.headerRow} 行），共读取 <b>${rows.length}</b> 条，异常 <b style="color:${errs.length ? 'var(--down)' : 'inherit'}">${errs.length}</b> 条。</div>
               <div class="small muted" style="margin-top:6px">已识别列：${Object.keys(res.colMap).map(c => `${label[c] || c}←第${res.colMap[c] + 1}列`).join('　')}</div>
-              ${errs.length ? `<div class="small" style="color:var(--warn);margin-top:6px">异常行（导入时自动跳过）：第 ${errs.slice(0, 8).map(e => e._row).join('、')} 行${errs.length > 8 ? ' …' : ''}</div>` : ''}
+              ${errs.length ? `<div class="small" style="color:var(--warn);margin-top:6px">异常行（导入时自动跳过）：第 ${errs.slice(0, 8).map(e => e._row).join('、')} 行${errs.length > 8 ? ' …' : ''}。${errs.slice(0, 8).map(e => `第 ${e._row} 行：${U.esc(e._err.join('；'))}`).join('；')}</div>` : ''}
             </div>
             <div style="max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:9px">
               <table class="grid"><thead><tr><th>行</th><th>姓名</th><th>学段/年级</th><th>科目</th><th>类型</th><th class="num">满分</th><th class="num">得分</th><th>班名</th><th>年名</th><th>评语</th></tr></thead>
@@ -151,7 +151,7 @@ const ViewImport = (() => {
             </div>
             ${rows.length > 50 ? `<div class="small muted" style="margin-top:6px">仅预览前 50 条，导入包含全部 ${rows.length} 条</div>` : ''}
           `;
-          okBtn.disabled = rows.length === 0;
+          okBtn.disabled = !rows.some(r => !r._err || !r._err.length);
         }
 
         box.querySelector('#upOk').onclick = () => {
@@ -171,24 +171,15 @@ const ViewImport = (() => {
   }
 
   function doImport(parsed, meta, after, paperOpt) {
-    const exam = Store.addExam({ campusId: meta.campusId, name: meta.name, date: meta.date, type: meta.type });
-    const valid = parsed.rows.filter(r => !r._err || !r._err.length);
-    const skipped = parsed.rows.length - valid.length;
-    if (!valid.length) { U.toast('没有可导入的有效数据', 'err'); return; }
-
-    const existed = Store.allRecords().filter(r => r.examId === exam.id);
-    const drop = new Set();
-    let replaced = 0;
-    valid.forEach(v => {
-      const hit = existed.find(r => r.studentName === v.studentName && (r.subject || '总分') === (v.subject || '总分'));
-      if (hit) { drop.add(hit.id); replaced++; }
-    });
-    drop.forEach(id => Store.deleteRecord(id));
-
-    const list = valid.map(v => {
+    // Resolve inherited classifications and replacement targets before any storage write.
+    const existingExam = Store.exams(meta.campusId).find(e => e.name === meta.name && e.date === meta.date);
+    const existed = existingExam ? Store.allRecords().filter(r => r.examId === existingExam.id) : [];
+    const problems = [], candidates = [];
+    parsed.rows.forEach(v => {
       const old = Store.allRecords().find(r => r.campusId === meta.campusId && r.studentName === v.studentName && !v.stage);
-      return {
-        examId: exam.id, campusId: meta.campusId, date: v.date || meta.date,
+      const hit = existed.find(r => r.studentName === v.studentName && (r.subject || '总分') === (v.subject || '总分'));
+      const record = {
+        campusId: meta.campusId, date: v.date || meta.date,
         studentName: v.studentName,
         stage: v.stage || (old ? old.stage : ''),
         grade: v.grade || (old ? old.grade : ''),
@@ -199,8 +190,22 @@ const ViewImport = (() => {
         classRank: v.classRank, gradeRank: v.gradeRank,
         comment: v.comment || ''
       };
+      const errors = (v._err || []).slice();
+      const scopeError = Store.scopeError(record);
+      if (scopeError && !errors.includes(scopeError)) errors.push(scopeError);
+      if (hit && Store.scopeError(hit)) errors.push('历史高中成绩仅保留查看，不能修改或覆盖');
+      if (errors.length) problems.push(`第 ${v._row} 行：${errors.join('；')}`);
+      else candidates.push({ record, hit });
     });
-    Store.addRecords(list);
+    const detail = problems.slice(0, 3).join('；');
+    if (!candidates.length) { U.toast('没有可导入的有效数据' + (detail ? '。' + detail : ''), 'err'); return; }
+
+    const exam = Store.addExam({ campusId: meta.campusId, name: meta.name, date: meta.date, type: meta.type });
+    const list = candidates.map(({ record }) => ({ ...record, examId: exam.id }));
+    if (Store.addRecords(list) === false) return;
+    const drop = new Set(candidates.filter(c => c.hit).map(c => c.hit.id));
+    const replaced = drop.size, skipped = problems.length;
+    drop.forEach(id => Store.deleteRecord(id));
 
     // 试卷快照（选填）→ 自动生成知识点诊断与 AI 提升建议
     let autoTip = '';
@@ -217,7 +222,7 @@ const ViewImport = (() => {
     }
 
     U.closeModal();
-    U.toast(`导入成功：新增 ${list.length - replaced} 条，覆盖 ${replaced} 条${skipped ? `，跳过异常 ${skipped} 条` : ''}${autoTip}`, 'ok');
+    U.toast(`导入成功：新增 ${list.length - replaced} 条，覆盖 ${replaced} 条${skipped ? `，跳过异常 ${skipped} 条（${detail}）` : ''}${autoTip}`, 'ok');
     (after || App.refresh)();
   }
 
@@ -318,6 +323,8 @@ const ViewImport = (() => {
           const score = U.num(box.querySelector('#mScore').value);
           if (!name) return U.toast('请填写姓名', 'err');
           if (!stage) return U.toast('请填写学段', 'err');
+          const scopeError = Store.scopeError({ stage, grade: g('mGrade'), className: g('mClass') });
+          if (scopeError) return U.toast(scopeError, 'err');
           if (!subject) return U.toast('请填写科目', 'err');
           if (full == null) return U.toast('请填写满分', 'err');
           if (score == null) return U.toast('请填写得分', 'err');
@@ -332,14 +339,14 @@ const ViewImport = (() => {
           }
           const e = Store.exam(id);
           date = e.date; type = e.type;
-          Store.addRecords([{
+          if (Store.addRecords([{
             examId: id, campusId, date, studentName: name,
             stage, grade: g('mGrade'), className: g('mClass'),
             subject, type, fullScore: full, score,
             classRank: U.num(box.querySelector('#mCR').value),
             gradeRank: U.num(box.querySelector('#mGR').value),
             comment: g('mComment')
-          }]);
+          }]) === false) return;
 
           // 附了试卷照片 → 自动生成该科目知识点诊断
           let mtip = '';
@@ -621,7 +628,7 @@ const ViewImport = (() => {
       onMount(box) {
         box.querySelectorAll('[data-ok]').forEach(b => b.onclick = () => {
           const u = Store.parentUploads(cid).find(x => x.id === b.dataset.ok);
-          if (u) approveUpload(u);
+          if (u && !approveUpload(u)) return;
           U.closeModal(); showPendingUploads(); App.refresh();
         });
         box.querySelectorAll('[data-no]').forEach(b => b.onclick = () => {
@@ -637,20 +644,25 @@ const ViewImport = (() => {
   }
 
   function approveUpload(u) {
+    const error = Store.scopeError(u);
+    if (error) { U.toast(error, 'err'); return false; }
+    const existingExam = u.examId ? Store.exam(u.examId) : Store.exams(u.campusId).find(e =>
+      e.name === (u.examName || '家长上传考试') && e.date === (u.date || U.today()));
+    const dup = existingExam && Store.allRecords().find(r => r.examId === existingExam.id && r.studentName === u.studentName && r.subject === u.subject);
+    if (dup && Store.scopeError(dup)) { U.toast('历史高中成绩仅保留查看，不能修改或覆盖', 'err'); return false; }
     let examId = u.examId;
     if (!examId) {
       const e = Store.addExam({ campusId: u.campusId, name: u.examName || '家长上传考试', date: u.date || U.today(), type: u.type || '其他' });
       examId = e.id;
     }
-    const dup = Store.allRecords().find(r => r.examId === examId && r.studentName === u.studentName && r.subject === u.subject);
-    if (dup) Store.deleteRecord(dup.id);
-    Store.addRecords([{
+    if (Store.addRecords([{
       examId, campusId: u.campusId, date: u.date || U.today(),
       studentName: u.studentName, stage: u.stage || '', grade: u.grade || '', className: u.className || '',
       subject: u.subject || '总分', type: u.type || '其他',
       fullScore: u.fullScore, score: u.score,
       classRank: u.classRank ?? null, gradeRank: u.gradeRank ?? null, comment: ''
-    }]);
+    }]) === false) return false;
+    if (dup) Store.deleteRecord(dup.id);
     // 家长附了试卷照片 → 自动生成该科知识点诊断
     let tip = '';
     if (u.images && u.images.length && u.subject) {
@@ -666,6 +678,7 @@ const ViewImport = (() => {
     }
     Store.setUploadStatus(u.id, 'approved');
     U.toast('已通过并写入成绩' + tip, 'ok');
+    return true;
   }
 
   /* ================= 编辑本次记录 ================= */
@@ -673,6 +686,7 @@ const ViewImport = (() => {
     const exam = Store.exam(examId) || {};
     const recs = Store.allRecords().filter(r => r.examId === examId && r.studentName === studentName);
     if (!recs.length) { U.toast('未找到该记录', 'err'); return; }
+    if (recs.some(r => Store.scopeError(r))) { U.toast('历史高中成绩仅保留查看，不能修改或覆盖', 'err'); return; }
     const removed = new Set();
 
     U.modal({

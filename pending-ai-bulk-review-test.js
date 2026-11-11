@@ -348,3 +348,34 @@ test('run supplement rejects malformed expected snapshots without reaching the m
 test('AI adoption cannot silently remove unnumbered image or table placeholders',async t=>{
  const f=fixture(t,true),cards=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);cards[0].stem='看[图]及【表格1】，求值';f.raw.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=1').run(JSON.stringify(cards));const old=(await f.list()).find(x=>x.kind==='run'&&x.index===0);await f.review([old]);const item=(await f.list()).find(x=>x.id===old.id),s=item.ai_answer_suggestion,before=f.snapshot();const result=await f.edit([{...f.entry(item,{stem:s.stem}),ai_fields:['stem'],ai_token:s.token,ai_confirmed:true}]);assert.notEqual(result.code,0);assert.match(result.msg,/图.*标记/);assert.equal(f.snapshot(),before);
 });
+
+for (const source of ['run','cap','scan']) {
+  test('high-school draft edits are refused without writes for ' + source, async t => {
+    const f = fixture(t), item = (await f.list()).find(x => x.kind === source);
+    assert.ok(item, source);
+    for (const patch of [{stage:'senior'},{stage:'高中'},{grade:'高一'},{grade:'十二年级'}]) {
+      const before = f.snapshot(), result = await f.call('PUT /ext/pending/item',{id:item.id,patch});
+      assert.notEqual(result.code,0); assert.match(result.msg,/高中/); assert.equal(f.snapshot(),before);
+    }
+  });
+}
+test('a later high-school edit rolls back all earlier edits in the same batch', async t => {
+  const f = fixture(t), rows = (await f.list()).filter(x=>x.kind==='run'), before = f.snapshot();
+  const result = await f.edit([f.entry(rows[1],{stem:'不应留下的修改'}), f.entry(rows[2],{grade:'高二'})]);
+  assert.notEqual(result.code,0); assert.match(result.msg,/高中/); assert.equal(f.snapshot(),before);
+});
+test('mixed pending commits accept supported cards and keep high-school cards uncommitted', async t => {
+  const f = fixture(t,false,true), cards = JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);
+  cards[2].grade='高三'; f.raw.prepare('UPDATE mf_recog_runs SET drafts=? WHERE id=1').run(JSON.stringify(cards));
+  const rows=(await f.list()).filter(x=>x.kind==='run'&&x.index>0);
+  const result=await f.call('POST /ext/pending/commit',{ids:rows.map(x=>x.id)});
+  assert.equal(result.code,0,result.msg); assert.equal(result.data.committed,1); assert.equal(result.data.failed.length,1); assert.match(result.data.failed[0].msg,/高中/);
+  const saved=JSON.parse(f.raw.prepare('SELECT drafts FROM mf_recog_runs WHERE id=1').get().drafts);
+  assert.equal(saved[1].committed,42); assert.equal(saved[2].committed,undefined); assert.equal(saved[2].grade,'高三');
+});
+test('commit override cannot turn a senior batch into an allowed junior item', async t => {
+  const f=fixture(t,false,true); f.raw.exec("UPDATE mf_recog_runs SET stage='senior',grade='高一' WHERE id=1");
+  const item=(await f.list()).find(x=>x.kind==='run'&&x.index===1), result=await f.call('POST /ext/pending/commit',{ids:[item.id],stage:'junior',grade:'七年级'});
+  assert.notEqual(result.code,0); assert.match(result.msg,/高中/); assert.equal(f.raw.prepare('SELECT COUNT(*) n FROM questions').get().n,0);
+  assert.equal(f.raw.prepare('SELECT stage FROM mf_recog_runs WHERE id=1').get().stage,'senior');
+});

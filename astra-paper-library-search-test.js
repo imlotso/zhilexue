@@ -62,8 +62,10 @@ function hostFixture() {
 function fixture(t, subject = '数学') {
   const db = openMemory(); t.after(() => db.close());
   db.exec(`CREATE TABLE mf_papers(id INTEGER PRIMARY KEY,title TEXT,subject TEXT,stage TEXT,grade TEXT,year TEXT,exam_category TEXT,edition TEXT,term TEXT,created_at TEXT,published INTEGER,status TEXT);
-    CREATE TABLE mf_paper_questions(paper_id INTEGER,kind TEXT,score REAL);
+    CREATE TABLE mf_paper_questions(paper_id INTEGER,kind TEXT,score REAL,question_id INTEGER);
+    CREATE TABLE questions(id INTEGER PRIMARY KEY,stage TEXT,grade TEXT);
     CREATE TABLE mf_paper_tries(id INTEGER,user_id INTEGER,paper_id INTEGER,total INTEGER,correct INTEGER,score REAL,detail TEXT,created_at TEXT);`);
+  require('./school-scope-test-fixture')(db);
   const insert = db.prepare("INSERT INTO mf_papers VALUES(?,?,?,'primary','六年级',?,'final','','','',1,'published')");
   insert.run(1, 'Older math paper', '数学', '2024');
   for (let id = 2; id <= 201; id++) insert.run(id, 'English paper ' + id, '英语', '2026');
@@ -72,7 +74,7 @@ function fixture(t, subject = '数学') {
   const end = backend.indexOf("\n});", start) + '\n});'.length;
   assert.ok(start >= 0 && end > start, 'production list route must exist');
   vm.runInNewContext(backend.slice(start, end), {
-    db, stu: { get(route, fn) { assert.equal(route, '/mfpapers'); handler = fn; } },
+    db, require: name => require(path.resolve(__dirname, 'src', name)), stu: { get(route, fn) { assert.equal(route, '/mfpapers'); handler = fn; } },
     ok(res, data) { res.data = data; }, presentAttempt: () => null,
   });
   const calls = [], errors = [], queued = [], queuedMistakes = [], queuedUploads = [], queuedPoints = [], queuedFilters = [], queuedSubjective = [];

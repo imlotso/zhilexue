@@ -47,11 +47,13 @@ function fixture(t) {
  db.prepare("INSERT INTO mistakes VALUES(?,1,?,1,'B',0,'2026-01-01',0,'','')").run(id,id);
  }
  db.exec("INSERT INTO paper_uploads VALUES(1,1,1,'pending'),(2,1,2,'reviewed'),(3,1,3,'approved');");
+ db.exec("ALTER TABLE questions ADD COLUMN grade TEXT DEFAULT ''; ALTER TABLE videos ADD COLUMN grade TEXT DEFAULT ''");
+ require('./school-scope-test-fixture')(db);
  let tickets=[],writes=[];
  const wrapped={prepare(sql){const s=db.prepare(sql); return {get:(...a)=>s.get(...a),all:(...a)=>s.all(...a),run:(...a)=>{writes.push(sql);return s.run(...a);}}},transaction:fn=>fn};
  const routes={};
  const box={db:wrapped,stu:{get:(p,f)=>routes['GET '+p]=f,post:(p,f)=>routes['POST '+p]=f},
- require:p=>{if(p==='./qmeta')return require('./src/qmeta'); if(p==='./question-images')return {solutionImages:()=>[]};throw Error('unexpected dependency '+p);},
+ require:p=>{if(p==='./qmeta')return require('./src/qmeta'); if(p==='./compose')return require('./src/compose'); if(p==='./school-scope')return require('./src/school-scope'); if(p==='./question-images')return {solutionImages:()=>[]};throw Error('unexpected dependency '+p);},
  ok:(r,data)=>r.data=data,fail:(r,msg,status)=>{r.error=msg;r.statusCode=status;},
  now:()=> '2026-01-01',todayStr:()=> '2026-01-01',stageOfGrade:()=> 'primary',
  parseIds:JSON.parse,parseQ:q=>({...q,options:[]}),presentAttempt:x=>x,
@@ -70,6 +72,7 @@ function fixture(t) {
  await routes[method.toUpperCase()+' '+route]({user:{id:1,role:'student'},body,query,params},res);return res;
  };
  }
+ vm.runInNewContext(extract('app','function legacyScopeError(','\n}'),box);
  vm.runInNewContext(extract('bank','function sectionPracticeQs(','\n}'),box);
  return {db,box,load,tickets,writes};
 }
@@ -158,7 +161,7 @@ test('similar questions cannot start from pending and never suggest pending cand
 });
 test('node mastery excludes pending historical answers and stems',async t=>{
  const f=fixture(t);
- f.db.exec("INSERT INTO bank_tree_nodes(id,tree_id,parent_id,name) VALUES(1,1,NULL,'加法'); INSERT INTO question_nodes VALUES(1,1),(2,1),(3,1),(4,1); INSERT INTO records VALUES(1,1,1,'B',0,'2026-01-01'),(2,1,3,'A',1,'2026-01-01');");
+ f.db.exec("INSERT INTO bank_trees VALUES(1,'knowledge','数学','primary'); INSERT INTO bank_tree_nodes(id,tree_id,parent_id,name) VALUES(1,1,NULL,'加法'); INSERT INTO question_nodes VALUES(1,1),(2,1),(3,1),(4,1); INSERT INTO records VALUES(1,1,1,'B',0,'2026-01-01'),(2,1,3,'A',1,'2026-01-01');");
  f.box.accuracy.lastAnswers=require('./src/accuracy').lastAnswers;
  const r=await f.load('bank','get','/node-mastery')({}, {node_id:1});
  assert.equal(r.data.total,2);assert.deepEqual(Array.from(r.data.list,x=>x.id),[3]);

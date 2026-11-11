@@ -45,7 +45,7 @@ if (process.argv[2] === '--fixture-worker') {
       connections++;
       return { db, DB_INFO: { user: 'synthetic', host: 'none', port: 0, database: 'memory' } };
     } };
-    const permitted = new Set(['fs', 'path', '../src/treeio', '../src/kbtree', './treepick', path.join(__dirname, script)]);
+    const permitted = new Set(['fs', 'path', '../src/treeio', '../src/kbtree', './treepick', './school-scope', path.join(__dirname, script)]);
     assert.ok(permitted.has(name), 'Unexpected dependency blocked: ' + name);
     return originalLoad.call(this, name, parent, isMain);
   };

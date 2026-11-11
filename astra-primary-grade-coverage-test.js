@@ -16,7 +16,7 @@ function arrow(file, name) {
   const s = read(file), a = s.indexOf('const ' + name + ' = '), b = s.indexOf('\n};', a);
   assert.ok(a >= 0 && b > a, name); return s.slice(a, b + 3);
 }
-function value(code, expr) { return vm.runInNewContext(code + '\n' + expr); }
+function value(code, expr) { return vm.runInNewContext(code + '\n' + expr, { require: p => require(path.resolve(__dirname, 'src', p)) }); }
 const lists = [
   ['public/admin/admin.js', 'GRADES'], ['public/admin/bankui.js', 'BK_GRADES'],
   ['public/admin/mfbankui.js', 'MF_GRADES'], ['public/admin/pendingui.js', 'PD_GRADES'],

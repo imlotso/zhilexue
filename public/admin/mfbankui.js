@@ -5,7 +5,16 @@
 const MF_API = '/api/admin/bank/mf';
 const MF_TYPES = [['single', '单选题'], ['multi', '多选题'], ['judge', '判断题'], ['fill', '填空题'], ['sort', '排序题'], ['answer', '解答题']];
 const MF_TYPE_NAME = Object.fromEntries(MF_TYPES);
-const MF_STAGES = [['', '全部学段'], ['primary', '小学'], ['junior', '初中'], ['senior', '高中']];
+const MF_STAGES = [['', '全部学段'], ['primary', '小学'], ['junior', '初中']];
+function mfStageOptions(current, emptyLabel) {
+  const value = String(current || '');
+  const allowed = MF_STAGES.slice(1);
+  const empty = emptyLabel == null ? '' : `<option value="" ${value ? '' : 'selected'}>${esc(emptyLabel)}</option>`;
+  const choices = allowed.map(([key, label]) => `<option value="${key}" ${value === key ? 'selected' : ''}>${label}</option>`).join('');
+  const legacy = value && !allowed.some(([key]) => key === value)
+    ? `<option value="${esc(value)}" selected disabled>${esc(value === 'senior' ? '高中' : value)}（历史记录，已停用）</option>` : '';
+  return empty + choices + legacy;
+}
 const MF_GRADES = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '中考冲刺'];
 const MF_SUBJECTS = ['数学', '英语', '物理', '化学', '语文'];
 const MF_EXAM_CATEGORIES = [['', '未分类'], ['unit', '单元'], ['midterm', '期中'], ['final', '期末'], ['entrance', '真题']];
@@ -644,7 +653,7 @@ async function mfIntakeWork(runId) {
         <button class="btn ghost sm" id="wkBack">← 返回列表</button>
         <b class="mf-wk-title">${esc(run.title)}</b>
         <select class="inp" id="wkSub">${MF_SUBJECTS.map((s) => `<option ${run.subject === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
-        <select class="inp" id="wkStage">${MF_STAGES.slice(1).map(([k, t]) => `<option value="${k}" ${run.stage === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
+        <select class="inp" id="wkStage">${mfStageOptions(run.stage, '未识别')}</select>
         <span class="sp"></span>
         <button class="btn ghost sm" id="wkUpload">${ic('upload')} 上传页图 / PDF</button>
         <button class="btn ghost sm" id="wkWord">W 导入 Word</button>

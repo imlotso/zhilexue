@@ -76,10 +76,14 @@ function wordImporter(failed = false) {
 }
 function lessonImporter(failed = false) {
   const writes = [];
+  const scopeDb = new (require('better-sqlite3'))(':memory:');
+  require('./school-scope-test-fixture')(scopeDb);
+  scopeDb.prepare('INSERT INTO videos(id) VALUES(?)').run(11);
   const box = loadFunction('bank.js', 'async function importLessonDocx(req, res, kind) {', "\nadmin.post('/videos/:id/import-docx'", {
-    require: name => { assert.equal(name, './docxtext'); return require('./src/docxtext'); },
+    require: name => { assert.ok(['./docxtext', './compose', './school-scope'].includes(name)); return require('./src/' + name.slice(2)); },
     db: { prepare(sql) {
       if (sql === 'SELECT * FROM videos WHERE id=?') return { get(id) { assert.equal(id, 11); return { id: 11, title: '合成视频', chapter_id: null }; } };
+      if (/^SELECT\b/.test(sql)) return scopeDb.prepare(sql);
       assert.match(sql, /^INSERT INTO mf_recog_runs /);
       return { run(...args) { writes.push(args); return { lastInsertRowid: 7 }; } };
     } },
@@ -92,8 +96,10 @@ function lessonImporter(failed = false) {
   });
   return async buffer => {
     const res = {};
-    await box.importLessonDocx({ params: { id: 11 }, body: { subject: '数学' }, file: { originalname: '合成课文.docx', buffer } }, res, 'video');
-    return { ...res, cards: writes.length ? JSON.parse(writes[0][8]) : [], writes };
+    try {
+      await box.importLessonDocx({ params: { id: 11 }, body: { subject: '数学' }, file: { originalname: '合成课文.docx', buffer } }, res, 'video');
+      return { ...res, cards: writes.length ? JSON.parse(writes[0][8]) : [], writes };
+    } finally { scopeDb.close(); }
   };
 }
 

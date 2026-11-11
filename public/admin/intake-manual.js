@@ -24,7 +24,7 @@ async function viewIntakeManual() {
     <div class="r4m-content">
       <section data-step="1"><h3>准备资料</h3><p class="r4m-help">选择学科和录题方式，可为题目添加共用材料与听力音频。</p>
         <div class="r4m-grid"><div class="field"><label>学科<select class="input" id="r4m-subject">${opts([['数学','数学'],['英语','英语'],['物理','物理'],['化学','化学'],['语文','语文']])}</select></label></div>
-          <div class="field"><label>学段<select class="input" id="r4m-stage">${opts([['primary','小学'],['junior','初中'],['senior','高中']])}</select></label></div>
+          <div class="field"><label>学段<select class="input" id="r4m-stage">${opts([['primary','小学'],['junior','初中']])}</select></label></div>
           <div class="field"><label>年级（选填）<select class="input" id="r4m-grade"><option value="">未指定</option>${grades.map((g) => `<option value="${esc(g)}">${esc(g)}</option>`).join('')}</select></label></div></div>
         <fieldset class="r4m-mode"><legend>录题方式</legend><label><input type="radio" name="r4m-kind" value="single" checked><span><b>单道题</b><small>录入一道题目</small></span></label><label><input type="radio" name="r4m-kind" value="group"><span><b>组合题</b><small>一份材料和多道小题</small></span></label></fieldset>
         <div class="field"><label>材料 / 原文<span id="r4m-material-required">（选填）</span><textarea class="input" id="r4m-material" rows="4" placeholder="可填写阅读材料或听力材料说明"></textarea></label><small>组合题的每道小题都会保存一份材料。</small></div><div id="r4m-audio"></div>
@@ -84,6 +84,7 @@ async function viewIntakeManual() {
         match_prompts: ['listen_match', 'math_match'].includes(selected) ? lines(get('match')) : [], answer: get('answer'), analysis: get('analysis'), images: questionImages.get(q) || [] };
     });
     const validate = () => {
+      if (!['primary', 'junior'].includes(val('#r4m-stage'))) return '仅支持小学和初中，请重新选择学段';
       const qs = dataQuestions();
       if (mode() === 'group' && qs.length < 2) return '组合题至少需要两道小题';
       for (let i = 0; i < qs.length; i++) {
@@ -128,6 +129,7 @@ async function viewIntakeManual() {
     $('#r4m-next').onclick = async () => {
       if (busy) return;
       if (step === 1) {
+        if (!['primary', 'junior'].includes(val('#r4m-stage'))) return toast('仅支持小学和初中，请重新选择学段', 'err');
         if (mode() === 'group' && !val('#r4m-material')) return toast('组合题请填写共用材料', 'err');
         step = 2; show(); return;
       }
@@ -155,7 +157,7 @@ async function viewIntakeManual() {
     if (draft && Array.isArray(draft.fields)) {
       try {
         while (box.children.length < Math.min(30, Number(draft.count) || 1)) addQuestion();
-        const set = (selector, value) => { const el = root.querySelector(selector); if (el) el.value = value; };
+        const set = (selector, value) => R4Flow.restoreField(root.querySelector(selector), value);
         (draft.fields || []).filter(([id]) => id.startsWith('#')).forEach(([id, value]) => set(id, value));
         const radio = root.querySelector(`[name="r4m-kind"][value="${draft.group ? 'group' : 'single'}"]`); if (radio) radio.checked = true;
         [...box.children].forEach((q, i) => {
