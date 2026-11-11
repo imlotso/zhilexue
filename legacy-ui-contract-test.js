@@ -198,7 +198,7 @@ if (require.main === module) {
   test('current pending action opens real classification validation before committing the selected card', async t => {
     const f = await pendingFixture(t), button = f.d.querySelector('#pd-current-commit');
     assert.equal(button.disabled, false); button.click(); await tick();
-    assert.equal(f.d.querySelector('.el-dialog__title').textContent, '确认当前题入库');
+    assert.equal(f.d.querySelector('.el-dialog__title').textContent, '确认所选题入库');
     assert.equal(f.d.querySelectorAll('#pdB-sub,#pdB-stage,#pdB-grade,#pdB-ktree,#pdB-ctree').length, 5);
     await f.d.querySelector('#mOk').onclick(); assert.equal(f.calls.length, 0); assert.match(f.messages.at(-1), /请先选择学科/);
     f.d.querySelector('#pdB-sub').value = '数学'; await f.d.querySelector('#mOk').onclick();

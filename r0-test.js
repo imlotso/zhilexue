@@ -181,7 +181,7 @@ function cleanup() {
     await ap.waitForSelector('#pdB-sub', { timeout: 4000 });
     const dlgTxt = await ap.$eval('.el-dialog', (e) => e.innerText);
     const hasTree = await ap.$$eval('#pdB-stage, #pdB-grade, #pdB-ktree, #pdB-ctree', (a) => a.length);
-    log(hasTree === 4 && /确认当前题入库/.test(dlgTxt), 'B8 点单题「入库」弹出分类框：学科 / 学段 / 年级 / 知识点树节点 / 章节树节点');
+    log(hasTree === 4 && /确认所选题入库/.test(dlgTxt), 'B8 点单题「入库」弹出分类框：学科 / 学段 / 年级 / 知识点树节点 / 章节树节点');
     await ap.click('#mOk'); await ap.waitForTimeout(500);
     log(await ap.$('#pdB-sub') !== null && /请先选择学科/.test(await ap.evaluate(() => document.body.innerText)), 'B8 学科没选：提示并留在弹窗里，不能入库');
     await ap.selectOption('#pdB-sub', '数学'); await ap.click('#mOk'); await ap.waitForTimeout(500);

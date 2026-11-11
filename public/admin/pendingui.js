@@ -167,10 +167,18 @@ async function viewPending() {
   const list = data.list || [];
   const counts = data.counts || {};
   const reviewCounts = data.status_counts || {};
-  const byId = {};
-  list.forEach((it) => { byId[it.id] = it; });
-  if (!byId[st.active]) st.active = list[0] ? list[0].id : '';
-  Object.keys(st.sel).forEach((id) => { if (!byId[id]) delete st.sel[id]; });   // 不在当前页的选择自动取消（换页/过滤/处理后）
+  // Keep snapshots only for selected questions so search/pagination can retain the basket.
+  // Mutations still send edit signatures and are revalidated by the server.
+  st.selectionItems = st.selectionItems || {};
+  // A changed stem has a new fingerprint ID. Do not keep its old hidden snapshot.
+  const logicalId = (id) => String(id).match(/^(?:run|cap):\d+:\d+(?=:|$)/)?.[0] || String(id);
+  const currentIds = new Map(list.map((it) => [logicalId(it.id), it.id]));
+  Object.keys(st.sel).forEach((id) => { if (currentIds.has(logicalId(id)) && currentIds.get(logicalId(id)) !== id) delete st.sel[id]; });
+  Object.keys(st.selectionItems).forEach((id) => { if (!st.sel[id]) delete st.selectionItems[id]; });
+  const byId = Object.assign({}, st.selectionItems);
+  list.forEach((it) => { byId[it.id] = it; if (st.sel[it.id]) st.selectionItems[it.id] = it; });
+  if (!list.some((it) => it.id === st.active)) st.active = list[0] ? list[0].id : '';
+  Object.keys(st.sel).forEach((id) => { if (!byId[id]) delete st.sel[id]; });
   const selIds = () => Object.keys(st.sel).filter((id) => st.sel[id]);
 
   const itemHTML = (it) => {
@@ -242,7 +250,7 @@ async function viewPending() {
   const html = `
   <section class="pd-workspace">
     <header class="pd-workspace-heading"><div><h2>待审核题目</h2><p>先核对，再入库，让每道题都有清晰来源</p></div>
-      <ol class="pd-workflow" aria-label="录题进度"><li class="done"><span>${ic('check')}</span>上传资料</li><li class="current" aria-current="step"><span>2</span>AI核对</li><li><span>3</span>确认入库</li></ol>
+      <ol class="pd-workflow" aria-label="录题进度"><li class="done"><span>${ic('check')}</span>上传资料</li><li class="current" aria-current="step"><span>2</span>逐题核对</li><li><span>3</span>确认入库</li></ol>
     </header>
     <div class="pd-filter-area">
       <div class="pd-filter-row">
@@ -250,7 +258,7 @@ async function viewPending() {
         <label class="pd-source-label"><span class="sr-only">题目来源</span><select id="pd-source" class="input">${PD_SRC.map(([k,t])=>`<option value="${k}" ${st.source === k ? 'selected' : ''}>${esc(t)} · ${Number(counts[k]) || 0}</option>`).join('')}</select></label>
         <div class="pd-tabs pd-review-tabs" aria-label="按题目完整度筛选">${PD_REVIEW.map(([k,t])=>`<button type="button" class="pd-tab ${(!st.review ? 'all' : st.review) === k ? 'on' : ''}" data-review="${k}" aria-pressed="${(!st.review ? 'all' : st.review) === k}">${esc(k === 'all' ? '全部' : t)}<em>${Number(reviewCounts[k]) || 0}</em></button>`).join('')}</div>
       </div>
-      <details class="pd-advanced"><summary><span class="pd-tools-icon">${ic('setting')}</span><span class="pd-tools-copy"><strong>搜索、导入与批量操作</strong><small>查找题目、导入文件或处理所选题目</small></span><span id="pd-tool-selection"></span><span class="pd-tools-action"><span class="pd-tools-open">展开工具</span><span class="pd-tools-close">收起工具</span><span class="pd-tools-chevron" aria-hidden="true"></span></span></summary>
+      <details class="pd-advanced" ${st.toolsOpen ? 'open' : ''}><summary><span class="pd-tools-icon">${ic('setting')}</span><span class="pd-tools-copy"><strong>搜索、导入与批量操作</strong><small>查找题目、导入文件或处理所选题目</small></span><span id="pd-tool-selection"></span><span class="pd-tools-action"><span class="pd-tools-open">展开工具</span><span class="pd-tools-close">收起工具</span><span class="pd-tools-chevron" aria-hidden="true"></span></span></summary>
       <p class="pd-tip">各种方式录入的题目均先进入待审核；核对、修改后再入库。</p>
       <div class="pd-bar">
         <button type="button" class="btn sm" id="pd-excel">${ic('upload')} 导入 Excel</button>
@@ -260,8 +268,9 @@ async function viewPending() {
       <div class="pd-batchbar pd-selection-row">
         <label><input type="checkbox" id="pd-all"> 全选本页</label>
         <span class="pd-selcnt" id="pd-selcnt" aria-live="polite">已选 0 题</span>
+        <button type="button" class="btn ghost sm" id="pd-clear-selection">清空选择</button>
         <span class="pd-selection-limit">AI 操作一次最多 20 题</span>
-        <span class="sr-only" aria-hidden="true" id="pd-ai-selection">本页已选 0 题</span>
+        <span class="sr-only" aria-hidden="true" id="pd-ai-selection">已选 0 题</span>
       </div>
       <div class="pd-toolbar-row" data-pd-tool-group="batch" role="group" aria-label="批量操作">
         <strong class="pd-toolbar-heading">${ic('list')} 批量操作</strong>
@@ -297,13 +306,19 @@ async function viewPending() {
       const $ = (id) => document.getElementById(id);
       const paintSel = () => {
         const n = selIds().length;
-        $('pd-selcnt').textContent = `已选 ${n} 题`;
-        $('pd-ai-selection').textContent = `本页已选 ${n} 题（最多 20 题）`;
+        const visible = list.filter((it) => st.sel[it.id]).length;
+        Object.keys(byId).forEach((id) => { if (st.sel[id]) st.selectionItems[id] = byId[id]; else delete st.selectionItems[id]; });
+        $('pd-selcnt').textContent = `已选 ${n} 题${n > visible ? `（当前页 ${visible} 题）` : ''}`;
+        $('pd-ai-selection').textContent = `已选 ${n} 题（最多 20 题）`;
         if ($('pd-tool-selection')) $('pd-tool-selection').textContent = n ? `已选 ${n} 题` : '';
-        $('pd-all').checked = list.length > 0 && n === list.length;
+        $('pd-all').checked = list.length > 0 && visible === list.length;
+        $('pd-all').indeterminate = visible > 0 && visible < list.length;
         ['pd-breview', 'pd-bedit', 'pd-bapply-stem', 'pd-bapply-answer', 'pd-bai', 'pd-bfill-review'].forEach((id) => { const button = $(id); button.disabled = n === 0 || n > 20; button.title = button.disabled ? '请选择 1 到 20 道题' : id === 'pd-bai' ? '只为缺失字段生成建议，不审核或覆盖已有答案' : ''; });
         pdPaintAiReviewButtons($('pd-breview').closest('.pd-workspace'));
       };
+      const tools = document.querySelector('.pd-advanced');
+      tools.ontoggle = () => { st.toolsOpen = tools.open; };
+      $('pd-clear-selection').onclick = () => { st.sel = {}; st.selectionItems = {}; document.querySelectorAll('[data-sel]').forEach((c) => { c.checked = false; }); paintSel(); };
       paintSel();
       mtxTypeset($('pd-list'));
       bindPager('pdPage');
@@ -392,7 +407,7 @@ async function viewPending() {
       if ($('pd-clear-batch')) $('pd-clear-batch').onclick = () => { st.batch_id = 0; st.sel = {}; ADM.page.pdPage = 1; render(); };
       document.querySelectorAll('[data-review]').forEach((b) => b.onclick = () => { st.review = b.dataset.review; st.sel = {}; st.active = ''; ADM.page.pdPage = 1; render(); });
       let kwTimer = 0;
-      $('pd-kw').oninput = (e) => { clearTimeout(kwTimer); if (!canLeaveClassification()) { e.target.value = st.kw || ''; return; } kwTimer = setTimeout(() => { if (!canLeaveClassification()) { e.target.value = st.kw || ''; return; } st.kw = e.target.value.trim(); st.sel = {}; st.active = ''; ADM.page.pdPage = 1; render(); }, 500); };
+      $('pd-kw').oninput = (e) => { clearTimeout(kwTimer); if (!canLeaveClassification()) { e.target.value = st.kw || ''; return; } kwTimer = setTimeout(() => { if (!canLeaveClassification()) { e.target.value = st.kw || ''; return; } st.kw = e.target.value.trim(); st.toolsOpen = tools.open; st.active = ''; ADM.page.pdPage = 1; render(); }, 500); };
       $('pd-all').onchange = (e) => { list.forEach((it) => { st.sel[it.id] = e.target.checked; }); document.querySelectorAll('[data-sel]').forEach((c) => { c.checked = e.target.checked; }); paintSel(); };
       $('pd-list').oninput = (e) => { if (e.target.matches('[data-class-field]')) updateCommitState(); };
       $('pd-list').onchange = async (e) => {
@@ -530,7 +545,7 @@ async function viewPending() {
       $('pd-bmerge').onclick = async () => {
         const ids = selIds();
         const pair = st.mergePins.length ? st.mergePins.slice() : ids.map((id) => byId[id]);
-        if (pair.length !== 2) return toast('请暂存两段片段，或勾选本页两题', 'err');
+        if (pair.length !== 2) return toast('请暂存两段片段，或勾选两题', 'err');
         if (pair.some((it) => !it || it.kind !== 'run') || pair[0].batch_id !== pair[1].batch_id) return toast('只能合并同一录题批次的两段题目', 'err');
         pair.sort((a, b) => a.index - b.index);
         const earlier = (pair[0].stem || '').replace(/\s+/g, ' ').slice(0, 60), later = (pair[1].stem || '').replace(/\s+/g, ' ').slice(0, 60);
@@ -577,15 +592,26 @@ async function viewPendingBatches(st) {
   };
 }
 
+function pdForgetSelection(ids, failed = []) {
+  const st = ADM.page.pd;
+  if (!st) return;
+  ids.forEach((id) => {
+    if (failed.some((item) => item.id === id || String(id).startsWith(item.id + ':'))) return;
+    delete st.sel[id];
+    if (st.selectionItems) delete st.selectionItems[id];
+  });
+}
+
 async function pdCommit(ids, body) {
   try {
     const r = await api(`${PD_API}/ext/pending/commit`, { method: 'POST', body: Object.assign({ ids }, body || {}) });
+    pdForgetSelection(ids, r.failed);
     toast(`已入库 ${r.committed} 题${r.failed.length ? `；${r.failed.length} 题失败：${r.failed[0].msg}` : ''}`, r.failed.length ? 'err' : 'ok');
   } catch (e) { /* api() 已弹出原因 */ }
   render();
 }
 async function pdDelete(ids) {
-  try { const r = await api(`${PD_API}/ext/pending/delete`, { method: 'POST', body: { ids } }); toast(`已删除 ${r.deleted} 题`, 'ok'); } catch (e) { /* 已提示 */ }
+  try { const r = await api(`${PD_API}/ext/pending/delete`, { method: 'POST', body: { ids } }); pdForgetSelection(Object.keys(ADM.page.pd.sel)); toast(`已删除 ${r.deleted} 题`, 'ok'); } catch (e) { /* 已提示 */ }
   render();
 }
 
@@ -593,7 +619,7 @@ async function pdDelete(ids) {
  *  学科、学段是必填的：题目自己已经有就沿用（单题时直接预选），没有就必须在这里选，否则不让入库（R0-B8）。 */
 async function pdBatchCommit(ids, byId) {
   const items = ids.map((id) => byId[id]).filter(Boolean);
-  if (!items.length || items.length !== ids.length || items.length > 20 || items.some((item) => !item.edit_signature)) return toast('请选择本页 1 到 20 题；题目已变化时请刷新后重新选择', 'err');
+  if (!items.length || items.length !== ids.length || items.length > 20 || items.some((item) => !item.edit_signature)) return toast('请选择 1 到 20 题；题目已变化时请刷新后重新选择', 'err');
   const one = items.length === 1;
   const legacyItems = items.filter((item) => item.kind === 'run' && item.ai_legacy_pending);
   const blockers = items.map((item, index) => ({ index, messages: pdReviewBlockers(item).map((blocker) => blocker.message) })).filter((entry) => entry.messages.length);
@@ -603,8 +629,8 @@ async function pdBatchCommit(ids, byId) {
   const star = (k) => (lack(k) ? ' <b style="color:#dc2626">*</b>' : '');
   const trees = await tpTrees();
   const dialog = modal({
-    title: one ? '确认当前题入库' : `确认批量入库（本页所选 ${items.length} 题）`, okText: '确认入库', wide: false,
-    body: `<p class="pd-tip" style="margin-top:0">本次范围：${one ? '当前 1 题' : `本页勾选的 ${items.length} 题`}；来源：${esc([...new Set(items.map((i) => i.source_label))].join('、'))}。${one ? '确认学科、学段、年级和归属的章节 / 知识点后入库；学科和学段必须有。' : '下面不填就沿用各题分类；缺学科或学段的题需先补齐。'}</p>
+    title: one ? '确认所选题入库' : `确认批量入库（所选 ${items.length} 题）`, okText: '确认入库', wide: false,
+    body: `<p class="pd-tip" style="margin-top:0">本次范围：${one ? '所选 1 题' : `所选的 ${items.length} 题（包含其他搜索结果或分页中选中的题目）`}；来源：${esc([...new Set(items.map((i) => i.source_label))].join('、'))}。${one ? '确认学科、学段、年级和归属的章节 / 知识点后入库；学科和学段必须有。' : '下面不填就沿用各题分类；缺学科或学段的题需先补齐。'}</p>
       ${blockers.length ? `<div class="pd-upload-note"><b>${blockers.length} 题还有待处理项，未满足条件的题不会入库</b><details><summary>查看各题原因</summary><ul>${blockers.map((entry) => `<li>所选第 ${entry.index + 1} 题：${esc(entry.messages.join(' '))}</li>`).join('')}</ul></details>${legacyItems.length ? `<p>${legacyItems.length} 题有历史补全记录，旧记录未标明具体字段来源。请先逐题查看原文和当前内容；确认仅保存核对状态，接下来仍需单独点击入库。</p><button type="button" class="btn ghost sm" id="pdB-legacy">批量确认已核对的历史内容（${legacyItems.length} 题）</button>` : ''}</div>` : '<p class="hint">已满足页面核对条件，最终仍会校验题目、图片和分类。</p>'}
       <div class="pd-grid">
         <div class="field"><label>学科${one ? '' : '（统一改）'}${star('subject')}</label><select id="pdB-sub" class="input">${pdOpts(PD_SUBJECTS, same('subject'), lackLabel('subject'))}</select></div>
@@ -679,6 +705,7 @@ async function pdBatchCommit(ids, byId) {
       const nodes = [v('#pdB-knode'), v('#pdB-cnode')].filter(Boolean).map(Number);
       const tags = v('#pdB-tags').split(/[\s,，、]+/).filter(Boolean);
       const r = await api(`${PD_API}/ext/pending/commit`, { method: 'POST', body: { ids, items: items.map((item) => ({ id: item.id, expected: item.edit_signature })), detailed: true, subject: v('#pdB-sub'), stage: v('#pdB-stage'), grade: v('#pdB-grade'), node_ids: nodes, tags } });
+      pdForgetSelection(ids, r.failed);
       toast(`已入库 ${r.committed} 题${r.failed.length ? `；${r.failed.length} 题未入库` : ''}`, r.failed.length ? 'err' : 'ok');
       render();
       if (r.failed.length) setTimeout(() => modal({ title: '入库结果', body: `<p>本次选择 ${items.length} 题：已入库 ${r.committed} 题，未入库 ${r.failed.length} 题。未入库的题仍在待审核。</p><ul>${r.failed.map((failure) => { const index = items.findIndex((item) => item.id === failure.id || item.id.startsWith(failure.id + ':')); return `<li>${index < 0 ? '题目' : `所选第 ${index + 1} 题`}：${esc(failure.msg)}</li>`; }).join('')}</ul>` }), 0);
@@ -1162,6 +1189,7 @@ function pdEdit(it) {
       if (changed.type_confirmed) changed.type = patch.type;
       if (!Object.keys(changed).length) { toast('题目无需修改，仍在待审核', 'ok'); return; }
       await api(`${PD_API}/ext/pending/items`, { method: 'PUT', body: { items: [{ id: it.id, patch: changed, expected: it.edit_signature }] } });
+      pdForgetSelection([it.id]);
       toast('已保存修改，题目仍在待审核', 'ok');
       render();
     },

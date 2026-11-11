@@ -1,0 +1,71 @@
+'use strict';
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const { chromium } = require('playwright');
+(async () => {
+ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || chromium.executablePath(), args: ['--no-sandbox'] });
+ try {
+  const page = await browser.newPage();
+  await page.setContent('<body></body>');
+  await page.evaluate(() => {
+   window.ADM = { page: {} };
+   window.esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+   window.ic = () => ''; window.optText = o => o.text || o; window.optLabel = (o,i) => String.fromCharCode(65+i);
+   window.pagerHTML = () => ''; window.bindPager = () => {}; window.mtxTypeset = () => {}; window.toast = () => {};
+   window.rows = [1,2,3].map(id => ({id: 'run:7:'+id+':fp',kind:'run',batch_id:7,index:id,source:'word',source_label:'Word',type:'answer',type_name:'解答',stem:id===3?'铁丝':'其他'+id,subject:'数学',stage:'primary',point:'测试',answer:'2',analysis:'',options:[],images:[],tags:[],edit_signature:'sig'+id}));
+   window.api = async url => {
+    const q = new URL(url, 'https://example.test').searchParams;
+    const list = rows.filter(it => !q.get('kw') || it.stem.includes(q.get('kw')));
+    return {page:1,size:20,total:list.length,counts:{},status_counts:{},list};
+   };
+   window.render = async () => { const v = await viewPending(); document.body.innerHTML = v.html; v.after(); };
+  });
+  await page.addScriptTag({path:path.join(__dirname,'public/admin/pendingui.js')});
+  await page.evaluate(() => render());
+  await page.locator('.pd-advanced summary').click();
+  await page.locator('.r4-review-row [data-sel]').nth(0).check();
+  await page.locator('.r4-review-row [data-sel]').nth(1).check();
+  await page.locator('#pd-kw').fill('铁丝');
+  await page.waitForFunction(() => ADM.page.pd.kw === '铁丝');
+  assert.equal(await page.locator('#pd-selcnt').textContent(), '已选 2 题（当前页 0 题）', 'search retains hidden selections');
+  assert.equal(await page.locator('.pd-advanced').evaluate(e => e.open), true, 'search retains open tools');
+  assert.equal(await page.locator('.pd-workflow .current').textContent(), '2逐题核对');
+  assert.equal(await page.locator('#pd-all').isChecked(), false);
+  await page.locator('#pd-all').check();
+  assert.match(await page.locator('#pd-selcnt').textContent(), /已选 3 题/);
+  await page.evaluate(() => { window.pdBulkEdit = (ids, byId) => { window.batchSelection = ids.map(id => byId[id].stem); }; });
+  await page.locator('#pd-bedit').click();
+  assert.deepEqual(await page.evaluate(() => batchSelection), ['其他1','其他2','铁丝']);
+  await page.locator('#pd-all').uncheck();
+  assert.match(await page.locator('#pd-selcnt').textContent(), /已选 2 题/);
+  await page.locator('#pd-kw').fill('找不到');
+  await page.waitForFunction(() => ADM.page.pd.kw === '找不到');
+  assert.match(await page.locator('#pd-selcnt').textContent(), /已选 2 题/);
+  await page.locator('#pd-kw').fill('');
+  await page.waitForFunction(() => ADM.page.pd.kw === '');
+  assert.equal(await page.locator('.r4-review-row [data-sel]:checked').count(), 2);
+  await page.evaluate(() => { pdForgetSelection(['run:7:1:fp', 'run:7:2:fp'], [{id:'run:7:2:fp'}]); return render(); });
+  assert.equal(await page.locator('.r4-review-row [data-sel]:checked').count(), 1, 'partial commit keeps failed selection only');
+  assert.deepEqual(await page.evaluate(() => Object.keys(ADM.page.pd.selectionItems)), ['run:7:2:fp']);
+  await page.evaluate(() => { rows[1] = {...rows[1], id:'run:7:2:changed', stem:'题干已修改'}; return render(); });
+  assert.match(await page.locator('#pd-selcnt').textContent(), /已选 0 题/, 'changed fingerprint must not leave a ghost selection');
+  await page.locator('.r4-review-row [data-sel]').nth(0).check();
+  await page.locator('#pd-clear-selection').click();
+  assert.equal(await page.locator('.r4-review-row [data-sel]:checked').count(), 0);
+  assert.match(await page.locator('#pd-selcnt').textContent(), /已选 0 题/);
+  await page.locator('.r4-review-row [data-sel]').nth(0).check();
+  await page.locator('.r4-review-row [data-sel]').nth(1).check();
+  await page.evaluate(async () => {
+   const get = window.api;
+   window.api = async (url, opts) => opts && opts.method === 'POST' ? {deleted:1} : get(url);
+   await pdDelete(['run:7:1:fp']);
+  });
+  await page.waitForFunction(() => document.querySelector('#pd-selcnt').textContent === '已选 0 题');
+  assert.equal(await page.evaluate(() => Object.keys(ADM.page.pd.selectionItems).length), 0, 'delete clears index-sensitive selection cache');
+  await page.locator('.pd-advanced summary').click();
+  await page.waitForFunction(() => ADM.page.pd.toolsOpen === false);
+  await page.evaluate(() => render());
+  assert.equal(await page.locator('.pd-advanced').evaluate(e => e.open), false, 'manual collapse is retained');
+  console.log('PASS: search/empty results retain selections and tools; batch includes hidden selections; clear selection; workflow copy');
+ } finally { await browser.close(); }
+})().catch(e => { console.error(e); process.exitCode=1; });

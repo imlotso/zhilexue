@@ -63,6 +63,7 @@ jobs:
       - run: node recognition-pages-test.js
       - run: node pending-merge-test.js
       - run: node pending-merge-pagination-ui-test.js
+      - run: node pending-selection-search-ui-test.js
       - run: node image-review-test.js
       - run: node question-images-test.js
       - run: node image-review-ui-test.js

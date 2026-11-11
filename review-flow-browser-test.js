@@ -31,12 +31,12 @@ for (const [name,width,height] of [['desktop',1503,737],['mobile',390,844]]) tes
   assert.equal(await page.locator('[data-act^="recheck-"]').count(),1);await page.locator('[data-act="recheck-review"]').click();await page.locator('#elcOk').click();await page.waitForFunction(()=>fixture.rows[0].ai_review_pending_fields.length===0);
   calls=await page.evaluate(()=>window.fixtureCalls);assert.deepEqual(calls[0].body.fields,['answer','analysis']);assert.equal(calls.filter(x=>x.url.endsWith('/commit')).length,0);
   await page.evaluate(async()=>{Object.assign(fixture.rows[0],{ai_legacy_pending:true,ai_legacy_signature:'legacy-synthetic-1',ai_legacy_pending_fields:['answer','analysis','classification']});await fixture.refresh();window.fixtureCalls=[];});
-  await page.locator('details.pd-advanced summary').click();await page.locator('.r4-review-list [data-sel="fixture-1"]').check();await page.locator('.r4-review-list [data-sel="fixture-2"]').check();await page.locator('#pd-bcommit').click();
-  assert.match(await page.locator('.mask').last().innerText(),/本页所选 2 题/);
+  if (!(await page.locator('details.pd-advanced').evaluate(el=>el.open))) await page.locator('details.pd-advanced summary').click();await page.locator('.r4-review-list [data-sel="fixture-1"]').check();await page.locator('.r4-review-list [data-sel="fixture-2"]').check();await page.locator('#pd-bcommit').click();
+  assert.match(await page.locator('.mask').last().innerText(),/所选 2 题/);
   await page.screenshot({path:root+'/commit-flow-batch-'+name+'.png'});
   await page.locator('#pdB-legacy').click();assert.match(await page.locator('#elcOk').innerText(),/保留待审核/);await page.locator('#elcOk').click();await page.waitForFunction(()=>!fixture.rows[0].ai_legacy_pending);
   calls=await page.evaluate(()=>window.fixtureCalls);assert.equal(calls.filter(x=>x.url.endsWith('/legacy-confirm')).length,1);assert.equal(calls.filter(x=>x.url.endsWith('/commit')).length,0);
-  await page.locator('details.pd-advanced summary').click();await page.locator('#pd-bcommit').click();await page.locator('#mOk').click();await page.waitForFunction(()=>window.fixtureCalls.some(x=>x.url.endsWith('/commit')));
+  if (!(await page.locator('details.pd-advanced').evaluate(el=>el.open))) await page.locator('details.pd-advanced summary').click();await page.locator('#pd-bcommit').click();await page.locator('#mOk').click();await page.waitForFunction(()=>window.fixtureCalls.some(x=>x.url.endsWith('/commit')));
   calls=await page.evaluate(()=>window.fixtureCalls);const commit=calls.find(x=>x.url.endsWith('/commit'));assert.equal(commit.body.items.length,2);assert.equal(commit.body.detailed,true);
   await page.evaluate(async()=>{window.fixtureCommitFailure=true;await fixture.refresh();});
   await page.locator('[data-act="commit-current"]').scrollIntoViewIfNeeded();await page.locator('[data-act="commit-current"]').click();await page.locator('#mOk').click();

@@ -356,7 +356,7 @@ if(require.main===module && !process.argv.includes('--browser') && !process.argv
     assert(html.includes('pd-advanced'),'advanced batch tools remain available');
     assert(html.includes('展开工具') && html.includes('收起工具'), 'disclosure must communicate both states');
     assert(html.includes('data-act="content-review"'),'existing content confirmation retained');
-    assert.match(html,/<li class="done"><span>.*?<\/span>上传资料<\/li><li class="current" aria-current="step"><span>2<\/span>AI核对<\/li><li><span>3<\/span>确认入库<\/li>/);
+    assert.match(html,/<li class="done"><span>.*?<\/span>上传资料<\/li><li class="current" aria-current="step"><span>2<\/span>逐题核对<\/li><li><span>3<\/span>确认入库<\/li>/);
   });
 }
 
