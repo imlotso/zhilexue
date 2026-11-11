@@ -15,11 +15,16 @@ function pdCropFigure(it) {
       <p class="hint" id="pdFigStatus" aria-live="polite">正在加载原页…</p><canvas id="pdFigCanvas" style="display:block;max-width:100%;height:auto;touch-action:none;cursor:crosshair;border:1px solid #cbd5e1;background:#fff" aria-label="在原页上拖动选择题图区域"></canvas>`,
     onMount: (w) => {
       const canvas = w.querySelector('#pdFigCanvas'), ctx = canvas.getContext('2d'), status = w.querySelector('#pdFigStatus'), candidateSelect = w.querySelector('#pdFigCandidate');
+      const clearSelectionError = () => {
+        if (!selected || selected.w < 5 || selected.h < 5) return;
+        const error = w.querySelector('#mErr'), title = error && error.querySelector('.el-alert__title');
+        if (title && title.textContent === '请先在原页框选图片') { title.textContent = ''; error.classList.add('hide'); }
+      };
       const resetCandidates = () => { candidates=[]; candidateSelect.replaceChildren(new Option('手动框选','')); candidateSelect.disabled=true; };
       candidateSelect.onchange = () => {
         const c = candidateSelect.value === '' ? null : candidates[Number(candidateSelect.value)];
         if (!image || !c) { selected=null; paint(); return; }
-        start=null; selected={x:c.x*canvas.width,y:c.y*canvas.height,w:c.w*canvas.width,h:c.h*canvas.height}; paint();
+        start=null; selected={x:c.x*canvas.width,y:c.y*canvas.height,w:c.w*canvas.width,h:c.h*canvas.height}; paint(); clearSelectionError();
         status.textContent='已预选原生图块，尚未保存。请核实本题归属和图外文字，必要时拖动重新框选，再确认图号保存。';
       };
       const paint = () => { if (!image) return; ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(image,0,0); if (selected) { ctx.strokeStyle='#dc2626'; ctx.lineWidth=Math.max(3,canvas.width/350); ctx.strokeRect(selected.x,selected.y,selected.w,selected.h); } };
@@ -44,7 +49,7 @@ function pdCropFigure(it) {
       const point = (e) => { const r=canvas.getBoundingClientRect(); return {x:Math.max(0,Math.min(canvas.width,(e.clientX-r.left)*canvas.width/r.width)), y:Math.max(0,Math.min(canvas.height,(e.clientY-r.top)*canvas.height/r.height))}; };
       canvas.onpointerdown = (e) => { if (!image) return; e.preventDefault(); candidateSelect.value=''; start=point(e); selected={x:start.x,y:start.y,w:0,h:0}; canvas.setPointerCapture(e.pointerId); };
       canvas.onpointermove = (e) => { if (!start) return; e.preventDefault(); const p=point(e); selected={x:Math.min(start.x,p.x),y:Math.min(start.y,p.y),w:Math.abs(p.x-start.x),h:Math.abs(p.y-start.y)}; paint(); };
-      canvas.onpointerup = (e) => { if (!start) return; start=null; if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId); status.textContent = selected && selected.w >= 5 && selected.h >= 5 ? '已框选，确认图号后保存。' : '框选范围太小，请重新选择。'; };
+      canvas.onpointerup = (e) => { if (!start) return; start=null; if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId); status.textContent = selected && selected.w >= 5 && selected.h >= 5 ? '已框选，确认图号后保存。' : '框选范围太小，请重新选择。'; clearSelectionError(); };
       canvas.onpointercancel = () => { start=null; };
       w.querySelector('#pdFigPage').onchange=load; load();
     },
