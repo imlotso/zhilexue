@@ -429,7 +429,7 @@ async function viewMfIntake() {
     <div class="card-b">
       <div class="mf-tip">拍照 / 截图 / PDF / Word 都行：PDF 自动逐页转成图片，AI 识别成结构化题卡——
         <b>全自动</b>逐页一步出卡，<b>◐半自动</b>先转写全文再整理成卡。识别结果先保存为草稿，再到待审核核对内容和分类；AI 生成内容须由老师核对。</div>
-      <p class="mf-tip">导入整张试卷：新建批次 → 上传 PDF / 图片 → 识别并核对题卡 → <b>保存为试卷草稿</b>。题目审核通过后才加入试卷，随后可在<a href="#/mfp">试卷管理</a>查看与导出。</p>
+      <p class="mf-tip">导入整张试卷：新建批次 → 上传 PDF / 图片 → 识别并核对题卡 → <b>保存为试卷草稿</b>。识别结果逐页自动保存到待审核，不会直接进入正式题库。题目审核通过后才加入试卷，随后可在<a href="#/mfp">试卷管理</a>查看与导出。</p>
       ${runs.length ? `<table class="tb"><thead><tr><th>批次</th><th style="width:90px">来源</th><th style="width:70px">页数</th><th style="width:70px">题卡</th><th style="width:90px">状态</th><th style="width:180px">操作</th></tr></thead>
         <tbody>${runs.map((r) => `<tr><td>${esc(r.title)}</td><td>${kindName[r.source_kind] || r.source_kind}</td><td>${r.page_count}</td><td>${r.draft_count}</td>
           <td><span class="tag ${r.status === 'error' ? 'err' : ''}">${r.processing ? '正在处理' : statusMap[r.status] || r.status}</span></td>
@@ -493,6 +493,7 @@ function mfCardHtml(c, i, cats) {
     <div class="mf-wk-chead"><label><input type="checkbox" class="wkck" value="${i}" ${c.checked === false ? '' : 'checked'}> 第 ${i + 1} 张</label>
       <span class="mf-wk-cmeta">${[c.page ? `第${c.page}页` : '', c.qno ? `题号 ${esc(String(c.qno))}` : '', c.via === 'semi' ? '◐ 半自动' : (c.via === 'word' ? 'Word' : ''), legacyPending ? '历史补全待核对' : unknownOrigin ? '历史来源未记录' : ''].filter(Boolean).join(' · ')}</span>
       <span class="sp"></span><button class="btn ghost xs" data-aifill="${i}" title="生成需老师确认的答案或解析建议">AI 建议</button><button class="btn ghost xs" data-delcard="${i}">删</button></div>
+    <div class="mf-tip">请对照左侧原页核对题干、选项、公式与题图，识别成功不代表内容正确。${(c.recognition_notes || []).map(n => `<div>识别提示：${esc(n)}</div>`).join('')}${(!figs.length && /\[图\d+\]/.test(c.stem || '')) ? '<div>题干含题图标记但尚无独立题图，请对照原页补图后再审核入库；系统不会自动补造图片。</div>' : ''}</div>
     <div class="mf-wk-cgrid">
       <div class="field"><label>题型</label><select class="inp" data-f="questionType" data-i="${i}">${types.map((t) => `<option ${c.questionType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div class="field wide"><label>分类（题库）：课本章节 · 知识点 · 难度</label><div class="mf-wk-cls">
@@ -681,7 +682,7 @@ async function mfIntakeWork(runId) {
         <button class="btn sm" id="wkAiFill" ${unavailable(!activeCards.length)} title="生成需要老师确认的答案或解析建议">AI 生成答案/解析建议</button>
         <button class="btn danger sm ghost" id="wkDel">删除批次</button>
       </div>
-      <p class="mf-tip" aria-label="试卷导入步骤">上传资料 → 识别并核对题卡 → <b>保存为试卷草稿</b> → 待审核。仅录入题库请选择“保存并前往待审核”；缺少答案可留空，不必生成 AI 答案。<a href="#/mfp">查看试卷管理</a></p>
+      <p class="mf-tip" aria-label="试卷导入步骤">上传资料 → 识别并核对题卡 → <b>保存为试卷草稿</b> 。识别结果逐页自动保存到待审核，不会直接进入正式题库。仅录入题库请选择“保存并前往待审核”；缺少答案可留空，不必生成 AI 答案。<a href="#/mfp">查看试卷管理</a></p>
       <div class="mf-wk-hint">把图片 / PDF / Word 拖到左栏，或 <b>Ctrl+V</b> 粘贴截图 · 全自动逐页识别出卡 · ◐半自动先转写全文，点每页「整理成题卡」或「全部整理成题卡」</div>
       <p class="r4-excel-note" role="status">${esc(jobMessage)}</p>
       <div id="wkTransfer" class="r4-transfer-list" aria-live="polite">${uploadJob ? uploadJob.entries.map(e=>`<div><strong>${esc(e.file.name)}</strong><span>${e.state==='success'?'已保存':e.state==='pending'?'等待上传':esc(e.error || '等待重试')}</span></div>`).join('') : ''}</div>
@@ -794,13 +795,13 @@ async function mfIntakeWork(runId) {
       const active = cards.filter(c => !c._merged_into);
       if (!active.length || active.some(c => !String(c.stem || '').trim())) return toast('请先识别并检查每道题的题干', 'err');
       await api(`${MF_API}/intake/runs/${runId}/drafts`, { method: 'PUT', body: { drafts: cards } });
-      modal({ title: '生成试卷草稿', okText: '保存并审核', body: `<div class="field"><label>试卷名称</label><input class="inp" id="wkPaperTitle" value="${esc(run.title)}"></div><div class="field"><label>年份（选填）</label><input class="inp" id="wkPaperYear" inputmode="numeric" maxlength="4"></div><div class="field"><label>试卷类型</label><select id="wkPaperCategory">${mfExamOptions()}</select></div><div class="field"><label>教材版本</label><select id="wkPaperEdition"><option value="">未指定</option></select></div><div class="field"><label>册别</label><select id="wkPaperTerm">${mfTermOptions()}</select></div><p class="hint">${active.length} 道题会进入待审核，审核通过后自动加入试卷；章节和知识点需在审核时核对。</p>`,
+      modal({ title: '生成试卷草稿', okText: '保存并审核', body: `<div class="field"><label>试卷名称</label><input class="inp" id="wkPaperTitle" value="${esc(run.title)}"></div><div class="field"><label>年份（选填）</label><input class="inp" id="wkPaperYear" inputmode="numeric" maxlength="4"></div><div class="field"><label>试卷类型</label><select id="wkPaperCategory">${mfExamOptions()}</select></div><div class="field"><label>教材版本</label><select id="wkPaperEdition"><option value="">未指定</option></select></div><div class="field"><label>册别</label><select id="wkPaperTerm">${mfTermOptions()}</select></div><p class="hint">${active.length} 道题将关联此试卷草稿；已识别题卡已自动保存到待审核，审核通过后才加入正式题库与试卷；章节和知识点需在审核时核对。</p>`,
         onMount: async (w) => { const trees=await tpTrees('textbook'); const editions=tpEditions(trees,{kind:'textbook',subject:view.querySelector('#wkSub').value,stage:view.querySelector('#wkStage').value}).filter(Boolean); w.querySelector('#wkPaperEdition').innerHTML='<option value="">未指定</option>'+editions.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join(''); },
         onOk: async (w, showErr) => {
           const title = w.querySelector('#wkPaperTitle').value.trim();
           if (!title) return showErr('请输入试卷名称');
           await api(`${MF_API}/papers/from-run`, { method:'POST', body:{ run_id:runId, title, year:w.querySelector('#wkPaperYear').value.trim(), exam_category:w.querySelector('#wkPaperCategory').value, edition:w.querySelector('#wkPaperEdition').value, term:w.querySelector('#wkPaperTerm').value, subject:view.querySelector('#wkSub').value, stage:view.querySelector('#wkStage').value } });
-          toast('试卷草稿已创建，题目已进入待审核', 'ok'); location.hash = '#/pending';
+          toast('试卷草稿已创建，请在待审核核对题目', 'ok'); location.hash = '#/pending';
         } });
     };
     view.querySelector('#wkAiFill').onclick = () => aiFill(null);

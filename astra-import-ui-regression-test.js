@@ -72,3 +72,10 @@ test('AI fill late completion does not replace a page opened after leaving workb
  await w.mfIntakeWork(1);const pending=w.document.getElementById('wkAiFill').onclick();while(!finish)await new Promise(r=>setImmediate(r));
  w.document.getElementById('view').innerHTML='<p id="new-page">new page</p>';finish();await pending;assert.ok(w.document.getElementById('new-page'));d.window.close();
 });
+test('pipe tables render cells safely and preserve raw text outside supported tables',()=>{
+ const d=harness(),w=d.window;
+ const html=w.pdRichText('|物质|质量|\n|---|---|\n|<img src=x onerror=alert(1)>|20|');
+ d.window.document.getElementById('view').innerHTML=html;
+ assert.equal(w.document.querySelectorAll('td').length,2);assert.equal(w.document.querySelectorAll('img').length,0);
+ assert.match(w.document.querySelector('td').textContent,/<img/);assert.equal(w.pdRichText('a|b'),'a|b');d.window.close();
+});

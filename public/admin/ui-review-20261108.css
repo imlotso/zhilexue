@@ -202,3 +202,10 @@ body.t11 .ui-review-shell #pd-prev:disabled,body.t11 .ui-review-shell #pd-next:d
 
 body.t11 .ui-review-shell .pd-class-discard { width:100%; margin-top:9px; }
 body.t11 .ui-review-shell .pd-class-discard[hidden] { display:none!important; }
+/* Keep long formulae/tables readable without squeezing Chinese text or the page. */
+.pd-workspace .r4-review-preview,.pd-workspace .pd-stem,.pd-workspace .pd-ana,.pd-answer-line>span{min-width:0;max-width:100%}
+.pd-workspace mjx-container{max-width:100%;overflow-x:auto;overflow-y:hidden;padding-bottom:4px}
+.pd-answer-line{flex-wrap:wrap}
+.pd-table-scroll{max-width:100%;overflow-x:auto}
+.pd-table-scroll table{border-collapse:collapse;min-width:100%;font-size:16px;line-height:1.5}
+.pd-table-scroll th,.pd-table-scroll td{border:1px solid #cbd5e1;padding:8px;min-width:5em;text-align:left;overflow-wrap:normal}

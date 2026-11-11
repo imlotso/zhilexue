@@ -1,0 +1,15 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {chromium}=require('playwright');
+(async()=>{const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||chromium.executablePath(),args:['--no-sandbox']});
+try{const page=await browser.newPage({viewport:{width:390,height:800}});
+await page.route('https://review.test/**',route=>{const p=path.join(__dirname,'public',new URL(route.request().url()).pathname);if(fs.existsSync(p)&&fs.statSync(p).isFile())return route.fulfill({body:fs.readFileSync(p),contentType:p.endsWith('.js')?'application/javascript':'text/css'});return route.fulfill({body:'<html></html>',contentType:'text/html'});});
+await page.goto('https://review.test/admin/test.html');
+const config=fs.readFileSync('public/admin/index.html','utf8').match(/window.MathJax = .*?;<\/script>/s)[0].replace(/<\/script>$/,'');
+await page.addScriptTag({content:config});await page.addScriptTag({url:'https://review.test/vendor/mathjax-tex-svg.js'});await page.evaluate(()=>MathJax.startup.promise);
+await page.addStyleTag({path:'public/admin/ui-review-20261108.css'});
+await page.setContent('<main class="pd-workspace"><div class="r4-review-preview"><div class="pd-stem">化学方程式：\\(\\ce{2Fe2O3 + 3C -> 4Fe + 3CO2}\\)，请核对。</div></div></main>');
+await page.evaluate(()=>MathJax.typesetPromise());
+assert.equal(await page.locator('[data-mjx-error],mjx-merror').count(),0);assert.equal(await page.locator('mjx-container svg').count(),1);
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));console.log('PASS local mhchem chemistry rendering and narrow viewport overflow');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

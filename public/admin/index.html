@@ -25,7 +25,7 @@
 <link rel="icon" href="../img/logo.jpg" type="image/jpeg">
 <script>window.STORAGE_PREFIX = 'xuexi_admin';
 /* MathJax 3 配置：题库题干 LaTeX 分隔符；按需排版（mtxTypeset），不自动扫全页 */
-window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]'], ['$$', '$$']] }, svg: { fontCache: 'global' }, options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'input'] }, startup: { typeset: false } };</script>
+window.MathJax = { loader: { load: ['[tex]/mhchem'], paths: { tex: '../vendor/mathjax-extensions' } }, tex: { packages: {'[+]': ['mhchem']}, inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]'], ['$$', '$$']] }, svg: { fontCache: 'global' }, options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'input'] }, startup: { typeset: false } };</script>
 <script defer src="../vendor/mathjax-tex-svg.js"></script>
 </head>
 <body class="t11">

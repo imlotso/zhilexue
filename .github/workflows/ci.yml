@@ -79,6 +79,7 @@ jobs:
       - run: node intake-recovery-ui-test.js
       - run: node --test astra-import-ui-regression-test.js
       - run: node astra-import-ui-browser-test.js
+      - run: node astra-review-chem-browser-test.js
       - run: node writing-translation-test.js
       - run: node match-export-test.js
       - run: node docx-solution-images-test.js

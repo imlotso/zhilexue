@@ -81,9 +81,23 @@ const pdImage = (src, alt) => {
   if (!/^(?:https?:\/\/|\/(?!\/)|data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(url)) return '';
   return `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer"><img src="${esc(url)}" alt="${esc(alt)}" loading="lazy"></a>`;
 };
+// Render only a well-formed pipe table; never interpret raw HTML or Markdown links.
+function pdRichText(value) {
+  const lines = String(value || '').split('\n'), out = [];
+  const cells = line => line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map(x => x.trim().replace(/\\\|/g, '|'));
+  for (let i = 0; i < lines.length; i++) {
+    const head = cells(lines[i]), sep = i + 1 < lines.length ? cells(lines[i + 1]) : [];
+    if (head.length > 1 && sep.length === head.length && sep.every(x => /^:?-{3,}:?$/.test(x))) {
+      const rows = []; i++;
+      while (i + 1 < lines.length && lines[i + 1].includes('|') && cells(lines[i + 1]).length === head.length) rows.push(cells(lines[++i]));
+      out.push('<div class="pd-table-scroll"><table><thead><tr>' + head.map(x => '<th>' + esc(x) + '</th>').join('') + '</tr></thead><tbody>' + rows.map(row => '<tr>' + row.map(x => '<td>' + esc(x) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
+    } else out.push(pdBr(lines[i]));
+  }
+  return out.join('<br>');
+}
 function pdStemImages(it) {
   const images = Array.isArray(it.images) ? it.images : [], used = new Set();
-  const render = (value) => pdBr(value || '').replace(/\[图(\d+)\]/g, (m, n) => {
+  const render = (value) => pdRichText(value || '').replace(/\[图(\d+)\]/g, (m, n) => {
     const index = Number(n) - 1, img = pdImage(images[index], `图${n}`);
     if (!img) return m;
     used.add(index); return `<span class="pd-inline-img">${img}</span>`;
