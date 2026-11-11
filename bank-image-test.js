@@ -4,6 +4,11 @@ const assert = require('assert');
 const { EventEmitter } = require('events');
 const { Readable } = require('stream');
 const https = require('https');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const net = require('net');
+const Module = require('module');
 const storagePath = require.resolve('./src/storage');
 const imagesPath = require.resolve('./src/bank-images');
 
@@ -18,6 +23,7 @@ function load(env) {
 async function main() {
   const key = 'bank/img/202611/abc123.png';
   let { store, normalize } = load({ STORAGE_DRIVER: 'oss', CDN_DOMAIN: '', OSS_REGION: 'oss-cn-hangzhou', OSS_BUCKET: 'test-bucket', OSS_ACCESS_KEY_ID: 'fake-id', OSS_ACCESS_KEY_SECRET: 'fake-secret' });
+  assert.strictEqual(store.isOss(), true, '假 OSS 客户端必须初始化，不能静默回退本地后假通过');
   const expiredUrl = store.getUrlSync(key).replace(/Expires=\d+/, 'Expires=1');
   const stable = store.bankImageProxyUrl(key);
   assert.strictEqual(store.bankImageKey(expiredUrl), key, '旧签名能恢复同桶 key');
@@ -37,6 +43,7 @@ async function main() {
   assert.strictEqual(payload.images[0], expiredUrl, '响应转换不改写原始数据');
 
   ({ store } = load({ STORAGE_DRIVER: 'qiniu', QINIU_ACCESS_KEY: 'fake-ak', QINIU_SECRET_KEY: 'fake-sk', QINIU_BUCKET: 'fake-bucket', QINIU_DOMAIN: 'cdn-qiniu.example.com', QINIU_FOLDERS: '*', LOCAL_FOLDERS: '' }));
+  assert.strictEqual(store.isQiniu(), true, '假七牛客户端必须初始化');
   const original = https.request, requests = [];
   let mode = 'ok';
   https.request = (url, opts, callback) => {
@@ -65,4 +72,39 @@ async function main() {
   } finally { https.request = original; }
   console.log('题图稳定地址、历史签名兼容和七牛受控读取通过');
 }
-main().catch((e) => { console.error(e); process.exitCode = 1; });
+async function isolatedMain() {
+  // storage 只需要 UPLOAD_DIR；纯图片单测不应因此连接数据库或读取真实云配置。
+  // 不关闭 CI 或放松 db-connection 的保护，所有替身仅存在于本测试进程。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zlx-bank-image-test-'));
+  const dbPath = require.resolve('./src/db');
+  const builtinPath = require.resolve('./src/builtin-config');
+  const savedCache = new Map([dbPath, builtinPath, storagePath, imagesPath].map(p => [p, require.cache[p]]));
+  const savedEnv = { ...process.env };
+  const originalConnect = net.Socket.prototype.connect;
+  let networkAttempts = 0;
+  try {
+    for (const [filename, exports] of [[dbPath, { UPLOAD_DIR: dir }], [builtinPath, { oss: {} }]]) {
+      const fixture = new Module(filename);
+      fixture.filename = filename; fixture.loaded = true; fixture.exports = exports;
+      require.cache[filename] = fixture;
+    }
+    // 清除继承的可选真实配置；测试只使用上面显式指定的假参数。
+    for (const key of ['OSS_ENDPOINT', 'QINIU_ZONE', 'QINIU_UPLOAD_HOST', 'BANK_FOLDER', 'BANK_BUCKET']) delete process.env[key];
+    net.Socket.prototype.connect = function () {
+      networkAttempts++;
+      throw new Error('图片单测禁止真实网络连接');
+    };
+    await main();
+    assert.strictEqual(networkAttempts, 0, '所有存储读取必须由内存响应提供');
+  } finally {
+    net.Socket.prototype.connect = originalConnect;
+    for (const key of Object.keys(process.env)) if (!(key in savedEnv)) delete process.env[key];
+    Object.assign(process.env, savedEnv);
+    for (const [filename, cached] of savedCache) {
+      if (cached) require.cache[filename] = cached; else delete require.cache[filename];
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+isolatedMain().catch((e) => { console.error(e); process.exitCode = 1; });
+
