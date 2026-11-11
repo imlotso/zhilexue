@@ -54,3 +54,21 @@ test('page change while replacement confirmation is open cannot save another sel
  let confirm;f.w.elConfirm=()=>new Promise(r=>confirm=r);const select=f.root.querySelector('#pdFigCandidate');select.value='0';select.onchange();let error;const save=f.config.onOk(f.root,e=>error=e);
  const page=f.root.querySelector('#pdFigPage');page.value='2';page.onchange();await settle();select.value='0';select.onchange();confirm(true);await save;assert(error);assert.equal(f.posts.length,0);f.close();
 });
+
+test('valid candidate or manual crop clears only stale missing-selection error',async()=>{
+ const f=fixture(url=>url.includes('/original?')?response([{x:.1,y:.2,w:.3,h:.4}]):null);await settle();
+ const error=f.w.document.createElement('div');error.id='mErr';error.className='hide';error.innerHTML='<span class="el-alert__title"></span>';f.root.append(error);
+ const title=error.querySelector('span'),show=msg=>{title.textContent=msg;error.classList.remove('hide');return false;};
+ await f.config.onOk(f.root,show);assert.equal(title.textContent,'请先在原页框选图片');
+ const select=f.root.querySelector('#pdFigCandidate');select.value='0';select.onchange();
+ assert(error.classList.contains('hide'));assert.equal(title.textContent,'');assert.equal(f.posts.length,0);
+ for(const msg of ['服务器保存失败','图号应为 1 到 30']){
+  show(msg);select.onchange();assert.equal(title.textContent,msg);assert(!error.classList.contains('hide'));
+ }
+ show('请先在原页框选图片');select.value='';select.onchange();assert(!error.classList.contains('hide'));
+ const c=f.root.querySelector('canvas');c.getBoundingClientRect=()=>({left:0,top:0,width:1000,height:2000});
+ const ev=(x,y)=>({clientX:x,clientY:y,pointerId:1,preventDefault(){}});
+ c.onpointerdown(ev(10,20));c.onpointermove(ev(12,22));c.onpointerup(ev(12,22));assert(!error.classList.contains('hide'));
+ c.onpointerdown(ev(10,20));c.onpointermove(ev(110,220));c.onpointerup(ev(110,220));
+ assert(error.classList.contains('hide'));assert.equal(title.textContent,'');assert.equal(f.posts.length,0);f.close();
+});
