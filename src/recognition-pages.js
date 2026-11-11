@@ -258,4 +258,13 @@ function finish(cards, incoming, page) {
   }
   return { drafts: out, added: out.length - cards.length, merged };
 }
-module.exports = { normalizeQuestion, modelDiagnostics, materialsFrom, resolveCurrentMaterials, availableMaterials, combineMaterials, materialContext, wordFigures, enrichCard, extendMaterials, finish, snapshot };
+
+// Do not give the model previous stems/materials/options to echo. The last
+// identifier is only a hint for a visible continuation, never source content.
+function pageInput(page, drafts, pages = []) {
+  const last = arr(drafts).filter(c => Number(c.page) === page - 1).slice(-1)
+    .map(c => ({ qno: short(c.qno, 100), questionType: short(c.questionType, 20) }));
+  const refs = availableMaterials(pages, page - 1).map(m => ({ref:m.ref, sourcePages:m.source_pages})).slice(-12);
+  return `这是第 ${page} 页（当前页），只有这一张图片。只输出图片内实际可见的新题、续题片段和材料。不要补齐不可见的题干或选项；不确定内容请标注。上一页最后题号提示（不是原文，不能据此生成题目）：${JSON.stringify(last)}。已有材料标识（仅供明确续材料沿用，不代表本页有此材料）：${JSON.stringify(refs)}。sourcePages 仅写本页 ${page}；续题可填 continuationOf，但只抄本页片段。无题目和材料时返回 questions:[]、materials:[]。`;
+}
+module.exports = { pageInput, normalizeQuestion, modelDiagnostics, materialsFrom, resolveCurrentMaterials, availableMaterials, combineMaterials, materialContext, wordFigures, enrichCard, extendMaterials, finish, snapshot };

@@ -1776,7 +1776,7 @@ admin.post('/intake/runs/:id/pages', upload.array('pages', 30), async (req, res)
 });
 
 // —— 识别提示词（移植魔方助手 onestep_extract / transcribe_only / twostage_structure 三个提示词资产）——
-const RECOG_SYS = `你是教辅题库的试题结构化引擎。输入是当前页和可能存在的上一页试卷图。请忠实转写并结构化当前页的内容，上一页仅供判断跨页材料、续题和题型。
+const RECOG_SYS = `你是教辅题库的试题结构化引擎。输入只有当前页试卷图。只转写这张图实际可见的内容；上下文题号仅用于标记续题，不是可抄录的原文。不得根据前题、常识或完整试卷的惯例补全当前页没有的文字、数值、选项或图片。
 
 【输出格式】只输出一个 JSON 对象，禁止输出任何解释文字或 Markdown 代码围栏。结构如下：
 {"materials":[{"ref":"本卷唯一的材料组标识","materialMarkdown":"原文","sourcePages":[1],"continuesPrevious":false}],"questions":[{"qno":"17 或 2-17 或 null","questionType":"单选|多选|填空|解答|判断|排序 之一","questionSubtype":"drawing|math_match|空","matchPrompts":["连线左侧项目"],"stemMarkdown":"题干","options":[{"label":"A","content":"选项内容"}],"materialRef":"关联的材料标识或空","materialMarkdown":"仅当有共同材料且材料原文可见时填写","groupRef":"同组稳定标识或空","groupPosition":1,"continuationOf":"仅当本题是上一页同一题的续文时填写上一页题号，否则为空","sourcePages":[1],"uncertainties":["需要老师对照原文核对的内容"],"answerMarkdown":"图中给出的答案","analysisMarkdown":"图中给出的解析"}]}
@@ -1788,7 +1788,7 @@ const RECOG_SYS = `你是教辅题库的试题结构化引擎。输入是当前�
 4. options：有选项的题必须给 [{"label":"A","content":"…"},…]（label 不带冒号点号），content 内公式同样走 LaTeX；无选项为 null。选择/判断题的选项文字一律进 options 数组，题干里不得保留 "A．… B．…" 这类选项行（不要用换行把它们和题干连在一起）。
 5. answerMarkdown / analysisMarkdown：只抄录图中实际印出的答案/解析文字；图中没有就是 null，绝不自行作答或补写。
 6. suggestedTags：3~8 个知识点标签（自由词、中文、简短，如 "抛体运动" "电磁感应"），按题面实际涉及的知识点给。
-7. questions 只输出当前页新题或续题，按卷面顺序。只有明确同一题跨页时才填 continuationOf，保留当前页原文和选项，不得误将上题选项当下题答案。只有确认为前面同一材料的续文时，材料的 continuesPrevious 才为 true，ref 使用上下文已有标识；同名但不同文章不得合并。不确定是否为续题就留空、标记 uncertainties。sourcePages 写实际可见材料的页码。当前页仅是共同文章时仅输出 materials，不要虚构题卡；没有题目和材料时可返回空数组。`;
+7. questions 只输出当前页实际可见的新题或续题片段，按卷面顺序。跨页题的题干或选项不完整时，只保留当前页可见部分（哪怕只有C、D或一句续行），在 uncertainties 注明缺失；严禁为凑齐A-D或完整题干而补造。只有续行也应如实保留为续题片段，不能复述整道旧题。只有明确同一题跨页时才填 continuationOf，保留当前页原文和选项，不得误将上题选项当下题答案。只有确认为前面同一材料的续文时，材料的 continuesPrevious 才为 true，ref 使用上下文已有标识；同名但不同文章不得合并。不确定是否为续题就留空、标记 uncertainties。sourcePages 写实际可见材料的页码。当前页仅是共同文章时仅输出 materials，不要虚构题卡；没有题目和材料时可返回空数组。`;
 
 /** 半自动腿1：OCR 转写（只转写不结构化，魔方 transcribe_only 口径） */
 const TRANSCRIBE_PROMPT = '请把图片中的全部内容逐字转写为 Markdown：文字照抄、公式用 LaTeX、保留原有换行与分段。\n\n要求：只做转写，不做任何结构化、不判断题目边界、不总结、不解释、不要 JSON、不要标题层级之外的任何加工。';
@@ -1863,10 +1863,11 @@ function reviewRecognizedCards(cards, run) {
 }
 
 /** 单页视觉调用：优先五角色档案（R2 OCR），未配置回落内置视觉模型 */
-async function visionCall(pg, system, user, previous) {
+async function visionCall(pg, system, user) {
   const buf = await store.readBuffer(pg.key);
-  const prevBuf = previous ? await store.readBuffer(previous.key) : null;
-  const imageBuffers = prevBuf ? [prevBuf, buf] : [buf];
+  // Previous-page images caused whole-page echoes and fabricated continuation options.
+  // A page transcription must only receive that page as visual evidence.
+  const imageBuffers = [buf];
   try {
     const { text } = await require('./mfcollect').mfAiInvoke({
       role: 'vision', system, user, images: imageBuffers.map(b => b.toString('base64')), maxTokens: 12000, temperature: 0,
@@ -1875,7 +1876,7 @@ async function visionCall(pg, system, user, previous) {
   } catch (e) {
     const r = await aiLib.visionChat({
       system, userText: user,
-      images: imageBuffers.map((image, i) => ({ buf: image, mime: /\.png$/i.test((prevBuf && i === 0 ? previous : pg).key) ? 'image/png' : 'image/jpeg' })),
+      images: imageBuffers.map((image) => ({ buf: image, mime: /\.png$/i.test(pg.key) ? 'image/png' : 'image/jpeg' })),
       timeoutMs: 180000,
     });
     return String(r.text || '');
@@ -1902,11 +1903,7 @@ admin.post('/intake/runs/:id/recognize', singleIntakeJob('recognize'), async (re
   try {
     for (const no of jobs) {
       if (!pages[no - 1]) throw new Error(`第 ${no} 页不存在`);
-      const previous = no > 1 ? pages[no - 2] : null;
-      const priorMaterials = RecognitionPages.materialContext(pages, no - 1);
-      const prevCards = drafts.filter(c => Number(c.page) === no - 1).map(c => ({ qno: c.qno, questionType: c.questionType, stem: String(c.stem || '').slice(0, 2000), groupRef: c.group_ref || '' })).slice(-30);
-      const context = JSON.stringify({ materials: priorMaterials, previousQuestions: prevCards }).slice(0, 30000);
-      const text = await visionCall(pages[no - 1], RECOG_SYS, `${previous ? `第一张是第 ${no - 1} 页（仅供跨页参考），第二张是第 ${no} 页（当前页）。` : `这是第 ${no} 页（当前页）。`} 只输出当前页新题、续题和材料，保留卷面原文；上下文：${context}`, previous);
+      const text = await visionCall(pages[no - 1], RECOG_SYS, RecognitionPages.pageInput(no, drafts, pages));
       const j = parseModelQuestions(text);
       if (!j) throw new Error(`第 ${no} 页返回的 JSON 无效，未保存识别结果，请重试`);
       if (process.env.RECOGNITION_DIAGNOSTICS === '1') pages[no - 1].recognition_diagnostics = { questions: RecognitionPages.modelDiagnostics(j.questions) };
