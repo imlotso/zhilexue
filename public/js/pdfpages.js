@@ -63,6 +63,17 @@
     return loader;
   }
 
+  let candidateLoader = null;
+  function loadNativeCandidates() {
+    if (window.PdfNativeCandidates) return Promise.resolve(window.PdfNativeCandidates);
+    if (!candidateLoader) candidateLoader = new Promise((resolve,reject) => {
+      const script=document.createElement('script');script.src='/js/pdf-native-candidates.js';
+      script.onload=()=>window.PdfNativeCandidates?resolve(window.PdfNativeCandidates):reject(new Error('候选模块不可用'));
+      script.onerror=()=>reject(new Error('候选模块不可用'));document.head.appendChild(script);
+    }).catch(e=>{candidateLoader=null;throw e;});
+    return candidateLoader;
+  }
+
   /** 进度浮层：PDF 逐页渲染时给个可见反馈，避免老师以为卡死了 */
   function progress(title, tip) {
     const wrap = document.createElement('div');
@@ -100,6 +111,7 @@
     const maxWidth = Math.max(600, Number(opts.maxWidth) || 1400);
     const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
     const lib = await loadPdfJs();
+    const candidates = opts.nativeCandidates ? await loadNativeCandidates().catch(()=>null) : null;
 
     const buf = await file.arrayBuffer();
     let doc;
@@ -131,8 +143,10 @@
           ctx.fillRect(0, 0, cv.width, cv.height);
           await page.render({ canvasContext: ctx, viewport: vp }).promise;
         }
+        let figure_candidates=[];
+        if(candidates){try{figure_candidates=candidates.extract(await page.getOperatorList(),vp,lib.OPS);}catch(_){/* Candidate extraction is optional; manual crop remains available. */}}
         page.cleanup();
-        pages.push({ canvas: cv, page: i, total });
+        pages.push({ canvas: cv, page: i, total, figure_candidates });
       }
     } finally {
       try { doc.destroy(); } catch (e) { /* 忽略 */ }

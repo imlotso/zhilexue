@@ -1754,13 +1754,17 @@ admin.post('/intake/runs/:id/pages', upload.array('pages', 30), async (req, res)
   const uploadHash = crypto.createHash('sha256'); files.forEach(f => { uploadHash.update(String(f.buffer.length) + ':'); uploadHash.update(f.buffer); }); uploadHash.update(JSON.stringify(req.body || {})); const hash = uploadHash.digest('hex');
   const previous = parseArr(run.pages).find(p => p.upload_request_key === uploadKey && uploadKey);
   if (previous) return previous.upload_input_hash === hash ? ok(res, { pages: parseArr(run.pages), recovered: true }, '这些页图已上传，未重复追加') : fail(res, '页图内容已变化，请重新选择');
+  let figureCandidates=[];
+  if(files.length===1 && typeof req.body.figure_candidates==='string' && req.body.figure_candidates.length<=50000){
+    try{figureCandidates=require('../public/js/pdf-native-candidates').sanitize(JSON.parse(req.body.figure_candidates));}catch(_){/* optional metadata; never prevent original-page upload */}
+  }
   const additions = [];
   try {
     for (const f of files) {
       const pname = fixFileName(f.originalname) || 'page.png';
       const saved = await store.saveFile(f.buffer, pname, `${bankFolder()}/recog`);
       const purl = store.bankImageKey(saved.key, bankFolder()) ? store.bankImageProxyUrl(saved.key) : await store.getUrl(saved.key);
-      additions.push({ key: saved.key, url: purl, name: pname, ...(uploadKey ? { upload_request_key: uploadKey, upload_input_hash: hash } : {}) });
+      additions.push({ key: saved.key, url: purl, name: pname, figure_candidates: figureCandidates, ...(uploadKey ? { upload_request_key: uploadKey, upload_input_hash: hash } : {}) });
     }
     const pages = db.transaction(() => {
       const latest = db.prepare('SELECT pages FROM mf_recog_runs WHERE id=?').get(id);

@@ -214,7 +214,7 @@ async function viewIntakePhoto(mode = 'image') {
         xhr.onload = () => { const result = xhr.response || {}; entry.state = xhr.status >= 200 && xhr.status < 300 && result.code === 0 ? 'success' : 'error'; entry.error = result.msg || '请检查图片后重试'; fileRows(); resolve(); };
         xhr.onerror = () => { entry.state = 'uncertain'; fileRows(); resolve(); };
         xhr.addEventListener('loadend', () => resolve());
-        const fd = new FormData(); fd.append('pages', entry.file, entry.file.name || 'screenshot.png'); if(entry.source_document_key){fd.append('source_document_key',entry.source_document_key);fd.append('source_page',String(entry.source_page));} R4Flow.send(xhr, root, mode, entry.file.name, runId, fd);
+        const fd = new FormData(); fd.append('pages', entry.file, entry.file.name || 'screenshot.png'); if(entry.source_document_key){fd.append('source_document_key',entry.source_document_key);fd.append('source_page',String(entry.source_page));fd.append('figure_candidates',JSON.stringify(entry.figure_candidates || []));} R4Flow.send(xhr, root, mode, entry.file.name, runId, fd);
       });
       $('rpNext').onclick = async () => {
         if (step === 1) { step = 2; paint(); return; }
@@ -224,7 +224,7 @@ async function viewIntakePhoto(mode = 'image') {
         try {
           if (isPdf && !pdfPrepared) {
             if (!window.PdfPages) throw new Error('PDF 组件加载失败，请刷新页面后重试');
-            const converted = await window.PdfPages.toCanvases(entries[0].file, { maxPages: 30, maxWidth: 1600, onProgress: (done, total) => { if (!root.isConnected) return; $('rpFiles').innerHTML = `<p class="r4-excel-note">正在转换 PDF：${done} / ${total} 页…</p>`; } });
+            const converted = await window.PdfPages.toCanvases(entries[0].file, { maxPages: 30, maxWidth: 1600, nativeCandidates: true, onProgress: (done, total) => { if (!root.isConnected) return; $('rpFiles').innerHTML = `<p class="r4-excel-note">正在转换 PDF：${done} / ${total} 页…</p>`; } });
             if (converted.truncated) throw new Error(`PDF 共 ${converted.total} 页，超过 30 页；请先拆分文件再上传。`);
             if (!converted.pages.length) throw new Error('PDF 没有可读取的页面');
             const pageFiles = [];
@@ -232,7 +232,7 @@ async function viewIntakePhoto(mode = 'image') {
             for (const page of converted.pages) {
               const blob = await new Promise((resolve) => page.canvas.toBlob(resolve, 'image/png'));
               if (!blob) throw new Error(`第 ${page.page} 页转换失败，请重试`);
-              pageFiles.push({ file: new File([blob], `page-${String(page.page).padStart(3, '0')}.png`, { type: 'image/png' }), state: 'pending', progress: 0, source_document_key: sourceDocumentKey, source_page: page.page });
+              pageFiles.push({ file: new File([blob], `page-${String(page.page).padStart(3, '0')}.png`, { type: 'image/png' }), state: 'pending', progress: 0, source_document_key: sourceDocumentKey, source_page: page.page, figure_candidates: page.figure_candidates || [] });
               page.canvas.width = page.canvas.height = 0;
             }
             if (!root.isConnected) return; entries = pageFiles; pdfPrepared = true; fileRows();

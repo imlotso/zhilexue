@@ -615,7 +615,7 @@ module.exports = function mountPending(d) {
     const pageNo = req.query.page == null ? int(card.page) : int(req.query.page), pages = parseArr(run.pages), page = pageNo > 0 ? pages[pageNo - 1] : null;
     if (!page || !(page.key || page.url)) return fail(res, '这道题没有可对照的原页');
     const url = page.key ? store.getUrlSync(page.key) : str(page.url);
-    return ok(res, { page: pageNo, total: pages.length, url });
+    return ok(res, { page: pageNo, total: pages.length, url, figure_candidates: require('../public/js/pdf-native-candidates').sanitize(page.figure_candidates) });
   });
 
   // 同源读取批次原页，避免云存储跨域导致画布无法裁剪；不接受外部 URL。

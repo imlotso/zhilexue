@@ -1,0 +1,18 @@
+'use strict';
+const assert=require('assert'), C=require('./public/js/pdf-native-candidates');
+const O={save:10,restore:11,transform:12,paintFormXObjectBegin:74,paintFormXObjectEnd:75,beginGroup:76,endGroup:77,paintImageXObject:85,paintInlineImageXObject:86};
+const v={transform:[1,0,0,-1,0,800],width:600,height:800,scale:1};
+const list=(fnArray,argsArray)=>({fnArray,argsArray});
+let r=C.extract(list([10,12,85,11], [[],[100,0,0,80,60,600],['im',100,80],[]]),v,O);
+assert.equal(r.length,1);assert.equal(r[0].x,.1);assert.equal(r[0].y,.15);assert.equal(r[0].w,1/6);assert.equal(r[0].h,.1);
+const rotated=C.extract(list([12,85],[[100,0,0,80,60,600],['im']]),{transform:[0,1,1,0,0,0],width:800,height:600,scale:1},O);assert.equal(rotated[0].x,.75);assert.equal(rotated[0].y,.1);assert.equal(rotated[0].w,.1);
+assert.deepEqual(C.extract(list([12,85],[[2,0,0,2,30,30],['tiny']]),v,O),[]);
+assert.deepEqual(C.extract(list([12,85],[[600,0,0,800,0,0],['scan']]),v,O),[]);
+assert.deepEqual(C.extract(list([76,12,85,77],[{},[100,0,0,100,0,0],['group'],[]]),v,O),[]);
+assert.equal(C.extract(list([74,85,75],[[[100,0,0,80,60,600],null],['form'],[]]),v,O).length,1);
+assert.deepEqual(C.sanitize([{x:-1,y:0,w:.2,h:.2},{x:.1,y:.1,w:.2,h:.2,url:'https://evil',qno:99}]),[{x:.1,y:.1,w:.2,h:.2}]);
+assert.deepEqual(C.sanitize([{x:0,y:0,w:Infinity,h:1},{x:.9,y:0,w:.2,h:.1}]),[]);
+assert.deepEqual(C.sanitize([{x:1.0000005,y:0,w:.0000001,h:.1}]),[]);
+assert.deepEqual(C.extract(list([74,85,75],[[[NaN,0,0,80,60,600],null],['form'],[]]),v,O),[]);
+assert(C.sanitize(Array.from({length:500},()=>({x:.1,y:.1,w:.1,h:.1}))).length<=200);
+console.log('Native PDF candidates: source transforms, small/full-page filter, unsupported groups, untrusted metadata checks passed');

@@ -61,5 +61,13 @@ async function upload(id,index,token) { const f=new FormData(); f.append('id',id
  r=await replace(`cap:${cap}:0`);assert.equal(r.code,0,r.msg);
  savedCap=JSON.parse(db.prepare('SELECT payload FROM mf_capture_batches WHERE id=?').get(cap).payload)[0];assert.deepStrictEqual(savedCap._image_errors,[]);keys.push(new URL(savedCap.images[0],'http://localhost').searchParams.get('key'));
  r=await req(MF+'/ext/pending/commit',{method:'POST',token,body:{ids:[`cap:${cap}:0`]}});assert.equal(r.code,0,r.msg);extraQuestions.push(...r.data.question_ids);
+ // Candidate metadata is page-local only, never saved as question images or confirmation.
+ const native=db.prepare("INSERT INTO mf_recog_runs (title,subject,stage,source_kind,status,pages,drafts,error,created_at) VALUES ('原生候选合成','数学','junior','pdf','recognized','[]',?,'','2026-11-05')").run(JSON.stringify([c])).lastInsertRowid;extraRuns.push(native);
+ const nativeForm=new FormData();nativeForm.append('pages',new Blob([pixel],{type:'image/png'}),'page.png');
+ nativeForm.append('figure_candidates',JSON.stringify([{x:.1,y:.2,w:.3,h:.2,url:'https://invalid.test',qno:'999'},{x:-1,y:0,w:.1,h:.1}]));
+ r=await req(MF+`/intake/runs/${native}/pages`,{method:'POST',token,form:nativeForm});assert.equal(r.code,0,r.msg);keys.push(r.data.pages[0].key);
+ r=await req(MF+`/ext/pending/original?id=run:${native}:0&page=1`,{token});assert.equal(r.code,0,r.msg);assert.deepStrictEqual(r.data.figure_candidates,[{x:.1,y:.2,w:.3,h:.2}]);
+ const unchanged=JSON.parse(db.prepare('SELECT drafts FROM mf_recog_runs WHERE id=?').get(native).drafts)[0];assert.deepStrictEqual(unchanged.figures,[]);assert(!unchanged.figure_review_signature);
+ r=await req(MF+'/ext/pending/commit',{method:'POST',token,body:{ids:[`run:${native}:0`]}});assert.notEqual(r.data&&r.data.committed,1,'候选框不得绕过缺图入库门禁');
  console.log('原页同批次访问、缺图阻断、补图、显式确认、修改失效与图号入库通过');
 })().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{ if(questionId)db.prepare('DELETE FROM questions WHERE id=?').run(questionId); for(const id of extraQuestions)db.prepare('DELETE FROM questions WHERE id=?').run(id); if(runId)db.prepare('DELETE FROM mf_recog_runs WHERE id=?').run(runId);for(const id of extraRuns)db.prepare('DELETE FROM mf_recog_runs WHERE id=?').run(id);for(const id of extraCaps)db.prepare('DELETE FROM mf_capture_batches WHERE id=?').run(id); for(const key of keys)if(key)await store.deleteFile(key); });

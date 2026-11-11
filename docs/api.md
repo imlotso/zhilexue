@@ -355,3 +355,6 @@ AI 配置统一后的读取顺序（T2，`src/ai-client.js`）：该角色（`vi
 
 ### 2026-11-11 页首续片
 全自动视觉响应增加必需的 leadingFragments 数组，逐字保留页首无主编号续片。纯选项可无题干；服务保存为独立待核对卡片，continuation_candidate 只提示可能关联的前页末题，不能触发自动合并。字段缺失、类型错误或空内容片段使本页失败可重试，已存稿不受影响。旧批次不回填、不自动重识别。
+
+### 2026-11-12 原生PDF候选框
+POST /intake/runs/:id/pages 的单页上传可选 figure_candidates JSON数组（每项normalized x/y/w/h），服务端只保留页内有效矩形，不接受题号/URL关联；GET /ext/pending/original 返回当前页 figure_candidates。候选只用于人工预选裁图，不改变题卡或审核门禁。旧页无元数据返回空数组。

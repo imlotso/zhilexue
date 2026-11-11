@@ -63,6 +63,9 @@ jobs:
       - run: node recognition-pages-test.js
       - run: node recognition-current-page-test.js
       - run: node recognition-leading-test.js
+      - run: node pdf-native-candidates-test.js
+      - run: node --test pending-native-figure-ui-test.js
+      - run: node pending-native-figure-browser-test.js
       - run: node pending-merge-test.js
       - run: node pending-merge-pagination-ui-test.js
       - run: node pending-selection-search-ui-test.js
