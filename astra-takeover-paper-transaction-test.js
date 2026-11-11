@@ -26,7 +26,7 @@ function fixture(t){
  CREATE TABLE paper_assignments(paper_id INTEGER,user_id INTEGER,assigned_by INTEGER,created_at TEXT);
  CREATE TABLE questions(id INTEGER PRIMARY KEY,stem TEXT);
  CREATE TABLE paper_uploads(question_id INTEGER,user_id INTEGER,status TEXT);
- CREATE TABLE paper_tries(id INTEGER PRIMARY KEY,user_id INTEGER,paper_id INTEGER,total INTEGER,correct INTEGER,score INTEGER,detail TEXT,created_at TEXT);
+ CREATE TABLE paper_tries(id INTEGER PRIMARY KEY,user_id INTEGER,paper_id INTEGER,total INTEGER,correct INTEGER,score INTEGER,detail TEXT,created_at TEXT,total_score_snapshot REAL);
  INSERT INTO users VALUES(1,'admin',1,NULL,'principal','','','','',NULL),(10,'branch',1,1,'campus A','','','','',NULL),(20,'branch',1,1,'campus B','','','','',NULL);
  INSERT INTO users VALUES(101,'student',1,10,'A one','a1','四年级','上册','primary',NULL),(102,'student',1,10,'A two','a2','四年级','上册','primary',NULL),(103,'student',0,10,'A stopped','a3','四年级','上册','primary',NULL),(201,'student',1,20,'B one','b1','四年级','上册','primary',NULL),(104,'student',1,10,'A unassigned','a4','四年级','上册','primary',NULL);
  INSERT INTO papers VALUES(1,'assigned','数学','五年级','下册','primary','published','[1]','2026-01-01','',30,100),(2,'broadcast','数学','四年级','上册','primary','published','[1]','2026-01-01','',30,100),(3,'draft','数学','四年级','上册','primary','draft','[1]','2026-01-01','',30,100),(4,'other grade','数学','五年级','上册','primary','published','[1]','2026-01-01','',30,100);

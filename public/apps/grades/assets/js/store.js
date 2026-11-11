@@ -2,63 +2,102 @@
    数据层：校区 / 考试批次 / 成绩记录（localStorage 持久化）
    ========================================================== */
 const Store = (() => {
-  const KEY = 'campus_grade_db_v1';
-  const KEY_CUR = 'campus_grade_current_v1';
-
-  /* localStorage 安全封装：兼容 file:// 打开、隐私模式等不可用场景 */
+  const KEY = 'campus_grade_db_v2:';
+  // v1 没有账号归属：保留原值，但绝不自动迁移给当前登录人。
   const LS = {
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
-    set(k, v) { try { localStorage.setItem(k, String(v)); } catch (e) { } },
-    del(k) { try { localStorage.removeItem(k); } catch (e) { } }
+    set(k, v) { localStorage.setItem(k, String(v)); }
   };
-
-  const state = {
-    campuses: [],      // {id,name}
-    exams: [],         // {id,campusId,name,date,type,createdAt}
-    records: [],       // {id,examId,campusId,studentName,stage,grade,className,subject,type,fullScore,score,classRank,gradeRank,comment,date}
-    students: [],      // {id,campusId,name,stage,grade,className}
-    papers: [],        // 试卷快照与知识点打点 {id,examId,campusId,subject,images:[{name,dataUrl}],questions:[{no,knowledge,full,avgScore,scores:{姓名:得分}}],createdAt}
-    parentUploads: []  // 家长扫码上报待审核 {id,campusId,examId,studentName,subject,fullScore,score,comment,createdAt,status}
-  };
+  const fields = ['campuses', 'exams', 'records', 'students', 'papers', 'parentUploads'];
+  const state = Object.fromEntries(fields.map(k => [k, []]));
   let currentCampusId = null;
+  let accountKey = '', verifiedToken = '', syncId = 0;
+  let transactionDepth = 0, dirty = false;
+  const token = () => LS.get('xuexi_admin_token') || LS.get('xuexi_token') || '';
 
-  /* ---------------- 持久化 ---------------- */
+  function clearData() {
+    fields.forEach(k => { state[k] = []; });
+    currentCampusId = null;
+  }
+  function invalidate() {
+    ++syncId;
+    accountKey = ''; verifiedToken = '';
+    clearData();
+    roster.branches = []; roster.students = [];
+  }
+  function isReady() {
+    if (!accountKey || !verifiedToken) return false;
+    if (token() !== verifiedToken) {
+      invalidate();
+      return false;
+    }
+    return true;
+  }
+  const read = fn => (...args) => { isReady(); return fn(...args); };
+
+  /* ---------------- 账号隔离与原子持久化 ---------------- */
   function load() {
-    try {
-      const raw = LS.get(KEY);
-      if (raw) {
-        const d = JSON.parse(raw);
-        state.campuses = d.campuses || [];
-        state.exams = d.exams || [];
-        state.records = d.records || [];
-        state.students = d.students || [];
-        state.papers = d.papers || [];
-        state.parentUploads = d.parentUploads || [];
-      }
-    } catch (e) { console.warn('数据读取失败', e); }
-    currentCampusId = LS.get(KEY_CUR);
-    if (!state.campuses.find(c => c.id === currentCampusId)) {
+    clearData();
+    if (!isReady()) return state;
+    const raw = localStorage.getItem(accountKey);
+    if (raw) {
+      const d = JSON.parse(raw);
+      fields.forEach(k => { state[k] = Array.isArray(d[k]) ? d[k] : []; });
+      currentCampusId = d.currentCampusId || null;
+    }
+    if (!state.campuses.some(c => c.id === currentCampusId)) {
       currentCampusId = state.campuses.length ? state.campuses[0].id : null;
     }
     return state;
   }
-  function save() {
-    try { LS.set(KEY, JSON.stringify(state)); }
-    catch (e) { U.toast('本地存储写入失败，数据量可能过大', 'err'); }
-    if (currentCampusId) LS.set(KEY_CUR, currentCampusId);
+  function writeState() {
+    try { LS.set(accountKey, JSON.stringify({ ...state, currentCampusId })); }
+    catch (cause) {
+      const error = new Error('本机存储保存失败，请释放浏览器存储空间后重试。输入已保留。');
+      error.code = 'GRADES_STORAGE'; error.cause = cause; throw error;
+    }
   }
-  const reset = () => {
-    state.campuses = []; state.exams = []; state.records = []; state.students = [];
-    state.papers = []; state.parentUploads = [];
-    currentCampusId = null; save();
-  };
+  function save() {
+    if (transactionDepth) { dirty = true; return; }
+    transaction(() => { dirty = true; });
+  }
+  function transaction(action) {
+    if (!isReady()) {
+      const error = new Error('登录状态已改变，请重新验证身份后保存。');
+      error.code = 'GRADES_SESSION'; U.toast(error.message, 'err'); throw error;
+    }
+    if (transactionDepth) return action();
+    const before = JSON.stringify({ ...state, currentCampusId });
+    transactionDepth = 1; dirty = false;
+    try {
+      const result = action();
+      if (dirty) writeState();
+      return result;
+    } catch (error) {
+      const old = JSON.parse(before);
+      fields.forEach(k => { state[k] = old[k]; });
+      currentCampusId = old.currentCampusId;
+      if (error.code === 'GRADES_STORAGE') U.toast(error.message, 'err');
+      throw error;
+    } finally { transactionDepth = 0; dirty = false; }
+  }
+  // 交互层只在成功落盘后关闭弹窗/显示成功；失败保留编辑输入。
+  function attempt(action) {
+    try { transaction(action); return true; }
+    catch (error) {
+      if (error.code !== 'GRADES_STORAGE' && error.code !== 'GRADES_SESSION') throw error;
+      return false;
+    }
+  }
+  const mutate = fn => (...args) => transaction(() => fn(...args));
+  const reset = () => { clearData(); save(); };
 
   /* ---------------- 校区 ---------------- */
   const campuses = () => state.campuses;
   const campus = (id) => state.campuses.find(c => c.id === (id || currentCampusId)) || null;
   const campusName = (id) => (campus(id) ? campus(id).name : '未选择校区');
   const currentId = () => currentCampusId;
-  const setCurrent = (id) => { currentCampusId = id; LS.set(KEY_CUR, id); };
+  const setCurrent = (id) => { currentCampusId = id; save(); };
 
   function addCampus(name) {
     name = String(name || '').trim();
@@ -142,24 +181,37 @@ const Store = (() => {
     if (!camps.length) camps.push({ id: 'br0', name: '总校' });
     state.campuses = camps;
     if (!state.campuses.find(c => c.id === currentCampusId)) currentCampusId = state.campuses[0].id;
-    LS.set(KEY_CUR, currentCampusId);
-    syncStudents(); save();
+    syncStudents();
   }
 
   async function syncRoster() {
+    invalidate();
+    const requestId = syncId, tk = token();
+    if (!tk) return false;
+    const current = () => requestId === syncId && token() === tk;
     try {
-      // 管理端 token 存在 xuexi_admin_token，学生端为 xuexi_token，两者都试
-      const tk = LS.get('xuexi_admin_token') || LS.get('xuexi_token') || '';
-      const r = await fetch('/api/admin/grades-roster', { headers: tk ? { Authorization: 'Bearer ' + tk } : {} });
+      const headers = { Authorization: 'Bearer ' + tk };
+      const me = await fetch('/api/me', { headers });
+      const identity = await me.json();
+      if (!current()) return false;
+      const user = identity && identity.data;
+      if (me.ok === false || identity.code !== 0 || !user || !user.id || !['admin', 'branch'].includes(user.role)) return false;
+      const r = await fetch('/api/admin/grades-roster', { headers });
       const j = await r.json();
-      if (j && j.code === 0 && j.data) {
-        roster.branches = j.data.branches || [];
-        roster.students = j.data.students || [];
-        applyRoster();
-        return true;
-      }
-    } catch (e) { console.warn('花名册同步失败', e); }
-    return false;
+      if (!current()) return false;
+      if (r.ok === false || !j || j.code !== 0 || !j.data) return false;
+      accountKey = KEY + user.role + ':' + user.id;
+      verifiedToken = tk;
+      load();
+      roster.branches = j.data.branches || [];
+      roster.students = j.data.students || [];
+      applyRoster();
+      return true;
+    } catch (e) {
+      if (current()) invalidate();
+      console.warn('成绩身份验证或数据读取失败', e);
+      return false;
+    }
   }
 
   /** 同步学生档案表（服务器账号 + 成绩记录派生，有成绩以成绩为准） */
@@ -210,7 +262,8 @@ const Store = (() => {
   function addRecords(list) {
     const error = list.map(scopeError).find(Boolean);
     if (error) { U.toast(error, 'err'); return false; }
-    list.forEach(r => {
+    list.forEach(input => {
+      const r = { ...input };
       r.id = r.id || U.uid('rc');
       r.campusId = r.campusId || currentCampusId;
       r.date = r.date || U.today();
@@ -461,16 +514,18 @@ const Store = (() => {
 
     syncStudents(); save();
     setCurrent(cpA.id);
-    U.toast('示例数据已载入', 'ok');
+    // 成功反馈由调用方在事务提交后显示。
   }
 
   return {
-    state, load, save, reset, seed, syncRoster,
-    campuses, campus, campusName, currentId, setCurrent, addCampus, renameCampus, removeCampus,
-    exams, exam, addExam, updateExam, deleteExam, deleteRecordsByExam,
-    records, allRecords, scopeError, addRecords, updateRecord, deleteRecord, clearCampus,
-    students, student, stuKey, facets,
-    papers, paper, savePaper, deletePaper, papersWithData,
-    parentUploads, pendingUploads, addParentUpload, setUploadStatus, removeUpload
+    get state() { isReady(); return state; }, load, save, transaction, attempt, isReady, invalidate, syncRoster,
+    reset: mutate(reset), seed: mutate(seed),
+    campuses: read(campuses), campus: read(campus), campusName: read(campusName), currentId: read(currentId),
+    setCurrent: mutate(setCurrent), addCampus: mutate(addCampus), renameCampus: mutate(renameCampus), removeCampus: mutate(removeCampus),
+    exams: read(exams), exam: read(exam), addExam: mutate(addExam), updateExam: mutate(updateExam), deleteExam: mutate(deleteExam), deleteRecordsByExam: mutate(deleteRecordsByExam),
+    records: read(records), allRecords: read(allRecords), scopeError, addRecords: mutate(addRecords), updateRecord: mutate(updateRecord), deleteRecord: mutate(deleteRecord), clearCampus: mutate(clearCampus),
+    students: read(students), student: read(student), stuKey, facets: read(facets),
+    papers: read(papers), paper: read(paper), savePaper: mutate(savePaper), deletePaper: mutate(deletePaper), papersWithData: read(papersWithData),
+    parentUploads: read(parentUploads), pendingUploads: read(pendingUploads), addParentUpload: mutate(addParentUpload), setUploadStatus: mutate(setUploadStatus), removeUpload: mutate(removeUpload)
   };
 })();

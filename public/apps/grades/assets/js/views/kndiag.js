@@ -68,7 +68,7 @@ const ViewKnowledge = (() => {
     return `<div class="empty-state" style="padding:38px 20px">
       <div class="es-ico">📷</div>
       <div class="es-main">「${U.esc(exam ? exam.name : '')}」暂无试卷快照</div>
-      <div class="es-sub">上传本次试卷图片，并为每道题标注知识点，即可生成知识点掌握度报告与个人雷达图</div>
+      <div class="es-sub">请人工录入并确认知识点与逐题得分；照片仅供留档，不能据此推断掌握度</div>
       <div style="margin-top:14px"><button class="btn btn-primary" id="knUpload2">上传试卷快照</button></div>
     </div>`;
   }
@@ -85,9 +85,10 @@ const ViewKnowledge = (() => {
         <div>
           <div class="mini-title">知识点掌握度（考试级）
             <span class="small muted" style="font-weight:400">共 ${kn} 个知识点 · 整体得分率 ${U.pct(report.overall, 1)}</span>
-            ${paper.auto ? '<span class="ai-badge" style="font-weight:400">由试卷快照自动生成</span>' : ''}
+            ${!kn ? '<span class="ai-badge" style="font-weight:400">逐题数据待录入 / 待确认</span>' : ''}
           </div>
           <div style="max-height:340px;overflow:auto" class="scroll-sm">
+            ${!kn ? '<div class="small muted">暂无可诊断的逐题证据。请录入并确认知识点、满分和得分。</div>' : ''}
             ${report.items.map(i => `
               <div class="kn-item">
                 <div class="kn-name" title="${U.esc(i.knowledge)}">${U.esc(i.knowledge)}</div>
@@ -111,12 +112,13 @@ const ViewKnowledge = (() => {
             <table class="grid">
               <thead><tr><th style="width:46px">题号</th><th>知识点</th><th class="num">满分</th><th class="num">班均</th><th class="num">得分率</th></tr></thead>
               <tbody>${(paper.questions || []).map(q => {
-                const r = q.full ? (Number(q.avgScore) || 0) / q.full : null;
+                const usable = q.confirmed !== false && (!(q.auto || paper.auto) || q.confirmed === true) && Knowledge.validScore(q.avgScore, q.full);
+                const r = usable ? Number(q.avgScore) / Number(q.full) : null;
                 return `<tr>
                   <td class="mono">${q.no}</td>
                   <td class="small">${U.esc(q.knowledge)}</td>
                   <td class="num mono">${q.full}</td>
-                  <td class="num mono">${q.avgScore ?? '—'}</td>
+                  <td class="num mono">${usable ? q.avgScore : '待录入 / 待确认'}</td>
                   <td class="num mono ${r != null && r < 0.6 ? 'down' : ''}">${U.pct(r, 0)}</td>
                 </tr>`;
               }).join('')}</tbody>
@@ -126,18 +128,18 @@ const ViewKnowledge = (() => {
       </div>
 
       <div class="adj-note" style="margin-top:14px">
-        个人知识点雷达与专项建议请到「学生档案」查看：档案页按该生真实得分率换算掌握度，并自动生成 AI 提升建议。
+        个人知识点雷达与规则建议请到「学生档案」查看：只依据该生已录入并确认的逐题得分，不按总分或班均估算。
       </div>
     `;
   }
 
   /** 录入某学生逐题得分 */
   function openScoreEntry(paper, name, after) {
-    const qs = (paper.questions || []);
+    const qs = JSON.parse(JSON.stringify(paper.questions || []));
     U.modal({
       title: `录入逐题得分 · ${name}`,
       body: `
-        <div class="small muted" style="margin-bottom:8px">共 ${qs.length} 题，留空则按全班平均分估算</div>
+        <div class="small muted" style="margin-bottom:8px">共 ${qs.length} 题，留空表示待录入，不参与个人诊断</div>
         <div style="max-height:380px;overflow:auto;border:1px solid var(--line);border-radius:9px" class="scroll-sm">
           <table class="grid">
             <thead><tr><th style="width:50px">题号</th><th>知识点</th><th class="num" style="width:70px">满分</th><th class="num" style="width:90px">该生得分</th></tr></thead>
@@ -153,17 +155,19 @@ const ViewKnowledge = (() => {
       foot: `<button class="btn" data-close="1">取消</button><button class="btn btn-primary" id="seOk">保存</button>`,
       onMount(box) {
         box.querySelector('#seOk').onclick = () => {
-          box.querySelectorAll('[data-si]').forEach(inp => {
+          const inputs = Array.from(box.querySelectorAll('[data-si]'));
+          if (inputs.some(inp => { const v = U.num(inp.value); return v != null && (!Number.isFinite(v) || v < 0 || v > Number(qs[Number(inp.dataset.si)].full)); })) return U.toast('逐题得分应在 0 到该题满分之间', 'err');
+          inputs.forEach(inp => {
             const i = Number(inp.dataset.si);
             const v = U.num(inp.value);
             qs[i].scores = qs[i].scores || {};
             if (v == null) delete qs[i].scores[name];
             else qs[i].scores[name] = v;
           });
-          Store.savePaper({
+          if (!Store.attempt(() => Store.savePaper({
             examId: paper.examId, campusId: paper.campusId, subject: paper.subject,
             images: paper.images || [], questions: qs
-          });
+          }))) return;
           U.closeModal(); U.toast('已保存逐题得分', 'ok');
           if (after) after();
         };

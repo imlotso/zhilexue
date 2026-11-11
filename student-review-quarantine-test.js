@@ -28,7 +28,7 @@ function fixture(t) {
  CREATE TABLE records(id INTEGER PRIMARY KEY,user_id INTEGER,question_id INTEGER,my_answer TEXT,is_correct INTEGER,created_at TEXT);
  CREATE TABLE papers(id INTEGER PRIMARY KEY,status TEXT,q_ids TEXT,grade TEXT,term TEXT,stage TEXT,due_at TEXT);
  CREATE TABLE paper_assignments(paper_id INTEGER,user_id INTEGER);
- CREATE TABLE paper_tries(id INTEGER PRIMARY KEY,user_id INTEGER,paper_id INTEGER,total INTEGER,correct INTEGER,score REAL,detail TEXT,created_at TEXT);
+ CREATE TABLE paper_tries(id INTEGER PRIMARY KEY,user_id INTEGER,paper_id INTEGER,total INTEGER,correct INTEGER,score REAL,detail TEXT,created_at TEXT,total_score_snapshot REAL);
  INSERT INTO papers VALUES(1,'published','[1,3]','','','','');
  CREATE TABLE mf_papers(id INTEGER PRIMARY KEY,published INTEGER,status TEXT);
  INSERT INTO mf_papers VALUES(1,1,'published');

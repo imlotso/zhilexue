@@ -31,6 +31,8 @@ jobs:
         env:
           FORMULA_EVIDENCE_DIR: formula-component-evidence
         if: ${{ !cancelled() }}
+      - name: Check audit remediation regressions
+        run: npm run test:audit:regressions
       - run: node bank-test.js
       - name: Verify supported school stages
         run: node --test senior-intake-scope-test.js no-senior-bank-intake-test.js no-senior-bank-bindings-test.js no-senior-legacy-writes-test.js no-senior-legacy-reads-test.js no-senior-mf-associations-test.js no-senior-report-test.js no-senior-student-resources-test.js astra-mistake-export-scope-test.js school-scope-ui-test.js grades-school-scope-test.js
@@ -128,6 +130,11 @@ jobs:
           nohup npm start > server.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://localhost:3000/ >/dev/null && break; sleep 1; done
           curl --fail --silent --show-error http://localhost:3000/ >/dev/null
+      - name: Check synthetic data-integrity API regressions
+        run: node scripts/audit/20261110-fixes/live-data-regressions.cjs
+        env:
+          BASE: http://127.0.0.1:3000
+          ZLX_AUDIT_ALLOW_SYNTHETIC_HTTP: '1'
       - run: node smoke.js
       - run: node word-test.js
         if: ${{ !cancelled() }}   # smoke 失败时也要跑出结果，不能被跳过

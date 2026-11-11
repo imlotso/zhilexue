@@ -81,7 +81,9 @@ function fixture(t, options = {}) {
 
 function fileApp(f) {
   let account = { id: 7, role: 'student', status: 1, expire_at: null };
-  const db = { prepare() { return { get() { return account; }, all() { return []; } }; } };
+  // Synthetic media in this storage fixture is explicitly registered as standalone.
+  // Course visibility and unregistered-key denial have separate SQL route regressions.
+  const db = { prepare(sql) { return { get() { return account; }, all(key) { return /FROM videos/.test(sql) && /\.(mp4|mov|webm)$/i.test(key || '') ? [{ chapter_id: null, file_path: key, url: '' }] : []; } }; } };
   const authModule = { exports: {} };
   vm.runInNewContext(source('auth'), {
     module: authModule, exports: authModule.exports, Buffer, Date,
@@ -97,8 +99,8 @@ function fileApp(f) {
   assert.ok(start >= 0 && end > start, 'the complete production /api/file block must be exercised');
   const scopeStart = appSource.indexOf('function legacyScopeError('), scopeEnd = appSource.indexOf('\n}\n', scopeStart) + 2;
   vm.runInNewContext(appSource.slice(scopeStart, scopeEnd) + '\n' + appSource.slice(start, end), {
-    db, app, store: f.store, fs, path, careAudio, auth: auth.auth, verifyFileTicket: auth.verifyFileTicket,
-    require(name) { if (name === './mfbank') return { bankFolder: () => 'bank' }; if (name === './school-scope') return require('./src/school-scope'); throw new Error('Unexpected route dependency'); },
+    db, app, canSeeChapter: () => false, store: f.store, fs, path, careAudio, auth: auth.auth, verifyFileTicket: auth.verifyFileTicket,
+    require(name) { if (name === './mfbank') return { bankFolder: () => 'bank' }; if (name === './video-file-access') return require('./src/video-file-access'); if (name === './school-scope') return require('./src/school-scope'); throw new Error('Unexpected route dependency'); },
   }, { filename: 'src/app.js:file-route' });
   const helperStart = appSource.indexOf('function withFileTicket(');
   const helperEnd = appSource.indexOf('\n}\n', helperStart) + 2;
@@ -342,11 +344,12 @@ function mediaWriteRoutes(f) {
   const admin = {};
   for (const method of ['get', 'post', 'put', 'delete']) admin[method] = (name, ...handlers) => { routes[method + ' ' + name] = handlers.at(-1); };
   const db = { prepare(sql) { return {
-    get(id) { const type = /handouts/.test(sql) ? 'handouts' : 'videos'; return { ...rows[type], id: Number(id) || 1 }; },
-    run(...args) { changes.push({ sql, args }); return { lastInsertRowid: 1 }; },
+    get(id) { if (/FROM report_uploads/.test(sql)) return { file_key: id, created_by: 1 }; const type = /handouts/.test(sql) ? 'handouts' : 'videos'; return { ...rows[type], id: Number(id) || 1 }; },
     all() { return []; },
+    run(...args) { changes.push({ sql, args }); return { lastInsertRowid: 1 }; },
   }; } };
-  const ctx = { admin, db, store: f.store, path, fs, Buffer,
+  db.transaction = fn => fn;
+  const ctx = { admin, db, reportFiles: require('./src/report-file-access'), store: f.store, path, fs, Buffer,
     require: p => require(path.resolve(__dirname, 'src', p)),
     upload: { single() {} }, videoUpload: { single() {}, array() {} },
     delPwdOk: () => true, normSection: () => null, fixFileName: name => name, dropTmp() {},
@@ -371,7 +374,7 @@ function mediaWriteRoutes(f) {
   const report = source('report');
   const start = report.indexOf("admin.delete('/:id'");
   const end = report.indexOf('// ------------------------------------------------------------------ 手机扫码', start);
-  ctx.reportGet = () => ({ id: 1, paper_keys: JSON.stringify(['report/202611/photo.png']) });
+  ctx.reportGet = () => ({ id: 1, created_by: 1, paper_keys: JSON.stringify(['report/202611/1111111111111111.png']) });
   vm.runInContext(report.slice(start, end), ctx);
   async function call(method, route, body = {}, extra = {}) {
     const res = { json(value) { this.value = value; return value; } };

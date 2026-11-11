@@ -4,7 +4,7 @@
 // Run: node mlive-keyboard-browser-test.js
 // Optional: PLAYWRIGHT_PACKAGE_JSON=/path/to/package.json CHROMIUM_PATH=/path/to/chrome
 //           FORMULA_EVIDENCE_DIR=/path/to/output
-// Removing MLive's empty-input focus restoration must make all four cases fail.
+// Removing MLive's empty-input focus restoration must make all six cases fail.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -95,6 +95,27 @@ async function runCase(browser, origin, mode, width) {
     await page.locator('#answer').evaluate(el => el.setSelectionRange(1, 1));
     await page.locator('#open').click();
     await page.waitForFunction(() => window.mathVirtualKeyboard?.visible);
+    // 500px is an explicit audit acceptance size. Verify the real controls,
+    // including collapse/reopen, rather than treating a DOM stub as visual QA.
+    if (width === 500) {
+      const toggle = page.locator('.t8-mf [part="virtual-keyboard-toggle"]');
+      await toggle.click();
+      await page.waitForFunction(() => !window.mathVirtualKeyboard.visible);
+      await page.screenshot({path: path.join(output, `${name}-keyboard-collapsed.png`), fullPage: true});
+      await toggle.click();
+      await page.waitForFunction(() => window.mathVirtualKeyboard.visible);
+      result.geometry = await page.evaluate(() => {
+        const d = document.querySelector('.t8-dlg').getBoundingClientRect();
+        const k = window.mathVirtualKeyboard.boundingRect;
+        const button = document.querySelector('.t8-ok').getBoundingClientRect();
+        const hit = document.elementFromPoint(button.x + button.width / 2, button.y + button.height / 2);
+        return {dialogLeft:d.left, dialogRight:d.right, keyboardLeft:k.left,
+          keyboardRight:k.right, viewport:innerWidth, insertReachable:!!hit?.closest('.t8-ok')};
+      });
+      assert.ok(result.geometry.dialogLeft >= -1 && result.geometry.dialogRight <= width + 1, 'Formula dialog fits 500px viewport');
+      assert.ok(result.geometry.keyboardLeft >= -1 && result.geometry.keyboardRight <= width + 1, 'Expanded keyboard fits 500px viewport');
+      assert.equal(result.geometry.insertReachable, true, 'Expanded keyboard does not cover Insert');
+    }
     await page.locator('.t8-ok').click();
     assert.equal(await page.locator('.t8-tip').textContent(), '还没有输入公式');
     assert.equal(await page.evaluate(() => results.length), 0);
@@ -139,7 +160,7 @@ async function runCase(browser, origin, mode, width) {
       args: ['--no-sandbox', '--disable-background-networking', '--disable-component-update', '--disable-domain-reliability', '--disable-sync', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'],
     });
     for (const mode of ['admin', 'student']) {
-      for (const width of [390, 1440]) await runCase(browser, origin, mode, width);
+      for (const width of [390, 500, 1440]) await runCase(browser, origin, mode, width);
     }
     const passed = cases.every(item => item.status === 'passed') && unexpected.length === 0;
     fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({passed, browser: browser.version(), cases, requested, unexpected}, null, 2));

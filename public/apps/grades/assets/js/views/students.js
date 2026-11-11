@@ -67,7 +67,7 @@ const ViewStudents = (() => {
     `;
 
     const cs = el.querySelector('#sCampus');
-    if (cs) cs.onchange = () => { Store.setCurrent(cs.value); f = { q: '', status: '', stage: '' }; App.refresh(); };
+    if (cs) cs.onchange = () => { if (!Store.attempt(() => Store.setCurrent(cs.value))) { cs.value = Store.currentId(); return; } f = { q: '', status: '', stage: '' }; App.refresh(); };
     const q = el.querySelector('#sq');
     if (q) q.oninput = U.debounce(() => { f.q = q.value.trim(); App.refresh(); const n = document.getElementById('sq'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 320);
     const st = el.querySelector('#sStatus'); if (st) st.onchange = () => { f.status = st.value; App.refresh(); };
@@ -127,14 +127,7 @@ const ViewProfile = (() => {
     const covN = tl.filter(t => t.hasComment).length;
     const paper = latestPaper(tl, name);
     const paperExam = paper ? Store.exam(paper.examId) : null;
-    // 取该生在该次考试该科的真实得分率，用于把"班均"换算到个人
-    let stuRate = null;
-    if (paper) {
-      const entry = tl.find(t => t.examId === paper.examId);
-      const sub = entry && (entry.subjects || []).find(x => x.subject === paper.subject);
-      if (sub && sub.full) stuRate = sub.score / sub.full;
-    }
-    const knRep = paper ? Knowledge.analyzeStudent(paper, name, stuRate) : null;
+    const knRep = paper ? Knowledge.analyzeStudent(paper, name) : null;
 
     const headHtml = forExport ? '' : `
       <div class="page-head no-print" style="margin-bottom:12px">
@@ -194,25 +187,25 @@ const ViewProfile = (() => {
 
           <div>
             <div class="mini-title">知识点掌握度${paper ? `　<span class="small muted" style="font-weight:400">${U.esc(paper.subject)} · ${U.esc(paperExam ? paperExam.name : '')}（${U.fmtMonth(paperExam ? paperExam.date : '')}）</span>` : ''}
-              ${paper && paper.auto ? '<span class="ai-badge" style="font-weight:400">由试卷快照自动生成</span>' : ''}
+              ${paper && (!knRep || !knRep.items.length) ? '<span class="ai-badge" style="font-weight:400">逐题数据待录入 / 待确认</span>' : ''}
               ${paper ? '<button class="btn btn-sm no-print" id="pKnEdit" style="margin-left:auto">录入逐题得分</button>' : ''}</div>
             ${paper && paper.images && paper.images.length ? `<div class="paper-thumbs" style="margin-bottom:10px">
               ${paper.images.slice(0, 4).map(im => `<div class="paper-thumb" style="width:66px;height:86px"><img src="${im.dataUrl}" alt="" /></div>`).join('')}
               ${paper.images.length > 4 ? `<div class="small muted" style="align-self:center">共 ${paper.images.length} 张</div>` : ''}
             </div>` : ''}
-            ${knRep ? `
+            ${knRep && knRep.items.length ? `
               <div class="kn-grid">
                 <div class="chart-box" style="height:280px"><canvas id="pKnRadar"></canvas></div>
                 <div>
                   ${knRep.weak.length ? `<div class="chip-list" style="margin-bottom:10px">
                     ${knRep.weak.map(w => `<span class="chip" style="border-color:#f3c9ca;background:var(--down-soft);color:var(--down)">${U.esc(w.knowledge)} ${U.pct(w.rate, 0)}</span>`).join('')}
                   </div>` : '<div class="small muted" style="margin-bottom:10px">本次无低于 60% 的知识点</div>'}
-                  <div class="advice-box"><b style="font-size:12px">AI 提升建议</b>
+                  <div class="advice-box"><b style="font-size:12px">逐题数据建议（规则生成）</b>
                     <ol>${knRep.advice.map(a => `<li>${U.esc(a)}</li>`).join('')}</ol>
                   </div>
-                  ${knRep.estimated ? '<div class="small muted" style="margin-top:6px">掌握度为估算值：按该生本次得分率结合知识点权重换算，录入逐题得分后更精确</div>' : ''}
+                  ${knRep.missing ? '<div class="small muted" style="margin-top:6px">仅统计已确认且有该生得分的题目，未录入/未确认部分不参与计算。</div>' : ''}
                 </div>
-              </div>` : `<div class="small muted">该生暂无试卷打点数据。到「成绩列表 → 知识点诊断」上传试卷并标注题目知识点后，此处会生成雷达图与提升建议。</div>`}
+              </div>` : `<div class="small muted">该生逐题数据待录入 / 待确认。请先录入知识点、满分与该生逐题得分；照片、总分或班均不能生成个人雷达图。</div>`}
           </div>
 
           <div>

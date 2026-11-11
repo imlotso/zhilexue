@@ -179,7 +179,7 @@ const U = (() => {
       title: '操作确认',
       body: `<div style="font-size:13.5px;line-height:1.8">${msg}</div>`,
       foot: `<button class="btn" data-close="1">取消</button><button class="btn ${/删除|清空/.test(okText) ? 'btn-danger' : 'btn-primary'}" id="__ok">${esc(okText)}</button>`,
-      onMount(box) { box.querySelector('#__ok').onclick = () => { closeModal(); onOk && onOk(); }; }
+      onMount(box) { box.querySelector('#__ok').onclick = () => { if (!onOk || onOk() !== false) closeModal(); }; }
     });
   };
 

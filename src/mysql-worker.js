@@ -143,11 +143,16 @@ function assertReadQuery(sql) {
 async function query(sql, params) {
   assertReadQuery(sql);
   if (!inTx) await ensureConn();
-  else if (connecting) await connecting;
+  else if (!conn || dead) {
+    const e = new Error('事务连接已失效，不能在新连接上继续或确认提交');
+    e.code = 'TRANSACTION_CONNECTION_LOST';
+    throw e;
+  }
   try {
     const [rows] = await conn.query(sql, normParams(params));
     return shape(rows);
   } catch (e) {
+    if (isLost(e)) dead = true;
     const readOnly = /^\s*(SELECT|SHOW)\b/i.test(String(sql));
     const neverSent = /closed state/i.test(String(e && e.message));
     if (isLost(e) && !inTx && cfg && (readOnly || neverSent)) {
@@ -182,8 +187,9 @@ parentPort.on('message', async (msg) => {
       assertReadQuery(msg.sql);
       const upper = String(msg.sql || '').trim().toUpperCase();
       if (upper.startsWith('START TRANSACTION') || upper === 'BEGIN') { await ensureConn(); inTx = true; }
-      if (upper === 'COMMIT' || upper === 'ROLLBACK') inTx = false;
-      data = await query(msg.sql, msg.params);
+      const finishesTransaction = upper === 'COMMIT' || upper === 'ROLLBACK';
+      try { data = await query(msg.sql, msg.params); }
+      finally { if (finishesTransaction) inTx = false; }
     } else if (msg.type === 'batch') {
       assertReadQuery(msg.sql);
       let changes = 0;
@@ -199,7 +205,8 @@ parentPort.on('message', async (msg) => {
     }
   } catch (e) {
     error = { message: e.message || String(e), code: e.code || '', errno: e.errno || 0 };
-    if (String(msg.sql || '').trim().toUpperCase().startsWith('START TRANSACTION')) inTx = false;
+    const upper = String(msg.sql || '').trim().toUpperCase();
+    if (upper.startsWith('START TRANSACTION') || upper === 'BEGIN') inTx = false;
   }
   if (!replyPort) {
     console.error('[mysql] 初始化失败且无法回传：', error && error.message);

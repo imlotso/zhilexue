@@ -31,6 +31,16 @@ const App = (() => {
   function render() {
     parseHash();
     const el = document.getElementById('mainView');
+    if (!Store.isReady()) {
+      const modal = document.getElementById('modalRoot');
+      if (modal && !modal.hidden) U.closeModal();
+      ['sideStat', 'brandTag'].forEach(id => { const node = document.getElementById(id); if (node) node.textContent = ''; });
+      const campus = document.getElementById('topCampus');
+      if (campus) { campus.innerHTML = ''; campus.style.display = 'none'; }
+      el.innerHTML = '<div class="card"><div class="empty-state"><div class="es-main">成绩身份尚未验证</div><div class="es-sub">请先登录管理端，再刷新验证。验证失败时不会显示本机成绩。</div><a class="btn" href="/admin/">返回管理端登录</a><button class="btn" id="gradesRetry">重新验证</button></div></div>';
+      el.querySelector('#gradesRetry').onclick = () => location.reload();
+      return;
+    }
     document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.nav === route));
     buildSideStat();
 
@@ -81,18 +91,19 @@ const App = (() => {
         box.querySelector('#ncAdd').onclick = () => {
           const v = box.querySelector('#ncName').value.trim();
           if (!v) return U.toast('请输入校区名称', 'err');
-          const c = Store.addCampus(v);
-          if (c) { Store.setCurrent(c.id); U.toast('已添加校区', 'ok'); U.closeModal(); render(); }
+          let c;
+          if (!Store.attempt(() => { c = Store.addCampus(v); if (c) Store.setCurrent(c.id); })) return;
+          if (c) { U.toast('已添加校区', 'ok'); U.closeModal(); render(); }
         };
         box.querySelectorAll('[data-save]').forEach(b => b.onclick = () => {
           const inp = box.querySelector(`.cpName[data-cid="${b.dataset.save}"]`);
-          Store.renameCampus(b.dataset.save, inp.value);
+          if (!Store.attempt(() => Store.renameCampus(b.dataset.save, inp.value))) return;
           U.toast('已保存', 'ok'); U.closeModal(); render();
         });
         box.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
           const c = Store.campus(b.dataset.del);
           U.confirmBox(`删除校区「<b>${U.esc(c ? c.name : '')}</b>」将同时删除其全部考试与成绩记录，确定继续？`, () => {
-            Store.removeCampus(b.dataset.del); U.toast('已删除', 'ok'); U.closeModal(); render();
+            if (!Store.attempt(() => Store.removeCampus(b.dataset.del))) return false; U.toast('已删除', 'ok'); U.closeModal(); render();
           }, '删除校区');
         });
       }
@@ -124,10 +135,8 @@ const App = (() => {
 
   /* ---------- 启动 ---------- */
   async function init() {
-    Store.load();
     // 校区来自管理后台「分校管理」、学生来自「学生管理」，启动时同步一次
     await Store.syncRoster();
-    if (!Store.currentId() && Store.campuses().length) Store.setCurrent(Store.campuses()[0].id);
 
     const cm = document.getElementById('btnCampusManage');
     if (cm) cm.style.display = 'none';   // 校区在「分校管理」中维护，不再本地增删
@@ -135,7 +144,7 @@ const App = (() => {
     // 顶栏校区切换：切全局当前校区并整页刷新（各视图筛选状态自然重置）
     const tc = document.getElementById('topCampus');
     if (tc) tc.onchange = () => {
-      if (tc.value && tc.value !== Store.currentId()) { Store.setCurrent(tc.value); location.reload(); }
+      if (tc.value && tc.value !== Store.currentId()) { if (Store.attempt(() => Store.setCurrent(tc.value))) location.reload(); else tc.value = Store.currentId(); }
     };
 
     document.getElementById('btnPrintPage').onclick = () => {
@@ -147,11 +156,16 @@ const App = (() => {
     };
 
     window.addEventListener('hashchange', render);
+    window.addEventListener('storage', e => {
+      if (!e.key || ['xuexi_admin_token', 'xuexi_token'].includes(e.key)) { Store.invalidate(); render(); }
+    });
+    window.addEventListener('focus', () => { if (!Store.isReady()) render(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && !Store.isReady()) render(); });
     if (!location.hash) location.hash = '#/dashboard';
     render();
   }
 
-  function seedSample() { Store.seed(true); refresh(); }
+  function seedSample() { if (Store.attempt(() => Store.seed(true))) refresh(); }
 
   document.addEventListener('DOMContentLoaded', init);
 

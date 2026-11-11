@@ -13,7 +13,8 @@ const Auth = {
 
 async function api(path, { method = 'GET', body, raw, silent, headers: extraHeaders } = {}) {
   const headers = { ...(extraHeaders || {}) };
-  if (Auth.token) headers.Authorization = 'Bearer ' + Auth.token;
+  const requestToken = Auth.token;
+  if (requestToken) headers.Authorization = 'Bearer ' + requestToken;
   let payload = body;
   if (body && !raw) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
   let res;
@@ -22,7 +23,11 @@ async function api(path, { method = 'GET', body, raw, silent, headers: extraHead
   try { json = await res.json(); } catch (e) { json = { code: 500, msg: '服务器返回异常' }; }
   if (!res.ok && json.code === 0) json = {code:res.status,msg:`服务器返回 HTTP ${res.status}，请稍后重试`};
   if (res.status === 401) json.code = 401;
-  if (json.code === 401) { Auth.clear(); if (location.hash !== '#/login') location.hash = '#/login'; throw new Error(json.msg); }
+  if (json.code === 401) {
+    // 旧会话的迟到响应仍失败，但不能清掉后来登录/刷新的会话。
+    if (Auth.token === requestToken) { Auth.clear(); if (location.hash !== '#/login') location.hash = '#/login'; }
+    throw new Error(json.msg);
+  }
   if (json.code !== 0) { if (!silent) toast(json.msg || '操作失败', 'err'); throw new Error(json.msg || '操作失败'); }
   return json.data;
 }

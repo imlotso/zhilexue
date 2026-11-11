@@ -293,6 +293,8 @@ admin.put('/questions/:id', (req, res) => {
 admin.delete('/questions/:id', (req, res) => {
   if (!require('./qmeta').questionsAllowed(db, req.user, [Number(req.params.id)])) return fail(res, '无权访问题目', 403);
   const id = Number(req.params.id);
+  try { require('./question-delete-guard').assertQuestionsDeletable(db, [Number(req.params.id)]); }
+  catch (e) { if (e.code === 'QUESTION_IN_USE') return res.status(409).json({ code: 409, msg: e.message }); throw e; }
   db.prepare('DELETE FROM questions WHERE id=?').run(id);
   db.prepare('DELETE FROM mistakes WHERE question_id=?').run(id);
   ok(res, null, '已删除');
@@ -303,6 +305,8 @@ admin.post('/questions/batch-delete', (req, res) => {
   const ids = (Array.isArray(req.body && req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean);
   if (!ids.length) return fail(res, '请选择要删除的题目');
   if (!require('./qmeta').questionsAllowed(db, req.user, ids)) return fail(res, '无权访问题目', 403);
+  try { require('./question-delete-guard').assertQuestionsDeletable(db, ids); }
+  catch (e) { if (e.code === 'QUESTION_IN_USE') return res.status(409).json({ code: 409, msg: e.message }); throw e; }
   const ph = ids.map(() => '?').join(',');
   db.prepare(`DELETE FROM questions WHERE id IN (${ph})`).run(...ids);
   db.prepare(`DELETE FROM mistakes WHERE question_id IN (${ph})`).run(...ids);
@@ -1142,6 +1146,7 @@ function autoImportUpload(row) {
 /** 老师拒绝上传：删除自动入库的题目 + 该学生错题本里的这道题（含做题记录） */
 function removeUploadQuestion(questionId) {
   if (!questionId) return;
+  require('./question-delete-guard').assertQuestionsDeletable(db, [questionId]);
   db.prepare('DELETE FROM mistakes WHERE question_id=?').run(questionId);
   try { db.prepare('DELETE FROM records WHERE question_id=?').run(questionId); } catch (e) { /* 无记录忽略 */ }
   db.prepare('DELETE FROM questions WHERE id=?').run(questionId);
@@ -1256,7 +1261,8 @@ admin.post('/uploads/:id/review', (req, res) => {
   const b = req.body || {};
   const status = ['approved', 'rejected', 'reviewed'].includes(b.status) ? b.status : 'reviewed';
   if (status === 'rejected') {
-    removeUploadQuestion(row.question_id);
+    try { removeUploadQuestion(row.question_id); }
+    catch (e) { if (e.code === 'QUESTION_IN_USE') return res.status(409).json({ code: 409, msg: e.message }); throw e; }
     db.prepare("UPDATE paper_uploads SET status='rejected', review_note=?, reviewed_by=?, reviewed_at=?, question_id=0 WHERE id=?")
       .run(String(b.review_note || '').trim().slice(0, 500) || '题目质量不符合要求', req.user.id, now(), id);
     return ok(res, null, '已拒绝，并从该学生的错题本中删除这道题');
@@ -1298,7 +1304,8 @@ admin.delete('/uploads/:id', (req, res) => {
   if (!canManageStudentRecord(req, row.user_id)) return fail(res, '无权处理其他分校的学生记录', 403);
   if (Number(row.question_id) > 0 && !require('./qmeta').questionsAllowed(db, req.user, [Number(row.question_id)])) return fail(res, '无权访问题目', 403);
   if (row.status === 'approved') return fail(res, '已入库的记录不能删除，请到题库管理里操作');
-  removeUploadQuestion(row.question_id);   // 待审核的题已自动入库，删记录时一并删除题目和学生错题本里的这道题
+  try { removeUploadQuestion(row.question_id); }
+  catch (e) { if (e.code === 'QUESTION_IN_USE') return res.status(409).json({ code: 409, msg: e.message }); throw e; }
   db.prepare('DELETE FROM paper_uploads WHERE id=?').run(id);
   ok(res, null, '已删除');
 });
@@ -1713,8 +1720,8 @@ stu.post('/submit', (req, res) => {
       ungradedDetail.forEach((d) => { d.max_score = maxOf(d.question_id); });
       const score = roundScore(detail.reduce((sum, d) => sum + d.earned_score, 0));
       paperScore = ungradedDetail.length ? null : score; paperTotal = Number(paper.total_score) || null;
-      const attemptId = db.prepare('INSERT INTO paper_tries (user_id,paper_id,total,correct,score,detail,created_at) VALUES (?,?,?,?,?,?,?)')
-        .run(uid, paperId, total, correct, paperScore, JSON.stringify(detail.concat(ungradedDetail)), now()).lastInsertRowid;
+      const attemptId = db.prepare('INSERT INTO paper_tries (user_id,paper_id,total,correct,score,total_score_snapshot,detail,created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .run(uid, paperId, total, correct, paperScore, paperTotal, JSON.stringify(detail.concat(ungradedDetail)), now()).lastInsertRowid;
       bindAttempt(attemptId);
     } else if (kind === 'mfpaper') {
       const scoreMap = {};
@@ -1734,8 +1741,8 @@ stu.post('/submit', (req, res) => {
       ungradedDetail.forEach((d) => { d.max_score = scoreMap[d.question_id] || 0; });
       const score = roundScore(detail.reduce((s, d) => s + d.earned_score, 0));
       paperScore = ungradedDetail.length ? null : score; paperTotal = roundScore(Object.values(scoreMap).reduce((s, v) => s + v, 0)) || null;
-      const attemptId = db.prepare('INSERT INTO mf_paper_tries (user_id,paper_id,total,correct,score,detail,created_at) VALUES (?,?,?,?,?,?,?)')
-        .run(uid, paperId, detail.length, correct, paperScore, JSON.stringify(detail.concat(ungradedDetail)), now()).lastInsertRowid;
+      const attemptId = db.prepare('INSERT INTO mf_paper_tries (user_id,paper_id,total,correct,score,total_score_snapshot,detail,created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .run(uid, paperId, detail.length, correct, paperScore, paperTotal, JSON.stringify(detail.concat(ungradedDetail)), now()).lastInsertRowid;
       bindAttempt(attemptId);
     } else {
       db.prepare('INSERT INTO practices (user_id,chapter_id,total,correct,duration,created_at) VALUES (?,?,?,?,?,?)')

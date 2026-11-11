@@ -36,6 +36,8 @@ function fixture(t) {
  INSERT INTO handouts(id,chapter_id,video_id,section_id,title,grade,file_name,ext,size,kind,level,file_path) VALUES(7,1,1,1,'混入高中讲义','高三','秘密.pdf','pdf',1,'handout','basic','handouts/7.pdf');
  INSERT INTO questions VALUES(7,1,1,1,'single','高三','junior','混入高中题','["A","B"]','A','秘密解析',1);
  INSERT INTO mistakes VALUES(7,1,7,1,'B',0,0,'','2026-11-01');`);
+ // File-route authorization reads the persisted account role, like production.
+ db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'student'");
  require('./school-scope-test-fixture')(db);
  let storage=0;const handlers={};
  const context={db,path,console,require:p=>require(path.resolve(__dirname,'src',p)),

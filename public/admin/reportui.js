@@ -410,13 +410,14 @@ async function r1OpenDrawer(uid) {
 
   // ③ 试卷成绩 / 最近作答
   const paperRows = (det.papers || []).map((p) => {
-    const full = Number(p.total_score) || 100;                      // 试卷满分；score 已按满分折算
+    const full = p.total_score == null ? null : Number(p.total_score);
+    const knownFull = full !== null && Number.isFinite(full) && full >= 0;
     if (p.ungraded_count) {
       const objective = p.objective_score_total ? `客观题 ${p.objective_score} / ${p.objective_score_total}` : '暂无客观题';
       return `<tr><td><b>${esc(p.title || '试卷已删除')}</b></td><td>${esc(objective)} · ${p.ungraded_count} 题未评分</td><td>${p.correct} / ${p.total} 题</td><td>—</td><td class="r1-time">${esc((p.created_at || '').slice(0, 16))}</td></tr>`;
     }
-    const rate = Math.round(Number(p.score) / full * 100);
-    return `<tr><td><b>${esc(p.title || '试卷已删除')}</b></td><td><b class="r1-c-${r1RateCls(rate)}">${p.score}</b> / ${full}</td><td>${p.correct} / ${p.total} 题</td><td>${rate}%</td><td class="r1-time">${esc((p.created_at || '').slice(0, 16))}</td></tr>`;
+    const rate = knownFull && full > 0 && p.score != null ? Math.round(Number(p.score) / full * 100) : null;
+    return `<tr><td><b>${esc(p.title || '试卷已删除')}</b></td><td><b class="${rate === null ? '' : 'r1-c-' + r1RateCls(rate)}">${p.score == null ? '未评分' : esc(p.score)}</b> / ${knownFull ? full : '满分未记录'}</td><td>${p.correct} / ${p.total} 题</td><td>${rate === null ? '—' : rate + '%'}</td><td class="r1-time">${esc((p.created_at || '').slice(0, 16))}</td></tr>`;
   }).join('');
   const recRows = (det.rows || []).map((r) => `<tr>
     <td>${esc(QT_NAME[r.type] || r.type || '—')}</td><td>${esc(r.subject || '—')}</td>

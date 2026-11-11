@@ -644,6 +644,8 @@ admin.put('/questions/:id', (req, res) => {
 admin.delete('/questions/:id', (req, res) => {
   if (!require('./qmeta').questionsAllowed(db, req.user, [int(req.params.id)])) return fail(res, '无权访问题目', 403);
   const id = int(req.params.id);
+  try { require('./question-delete-guard').assertQuestionsDeletable(db, [id]); }
+  catch (e) { if (e.code === 'QUESTION_IN_USE') return res.status(409).json({ code: 409, msg: e.message }); throw e; }
   db.prepare('DELETE FROM question_tags WHERE question_id=?').run(id);
   db.prepare('DELETE FROM question_nodes WHERE question_id=?').run(id);
   db.prepare('DELETE FROM mf_paper_questions WHERE question_id=?').run(id);
@@ -660,6 +662,8 @@ admin.post('/questions/batch', (req, res) => {
   const ph = ids.map(() => '?').join(',');
   const op = String(b.op || '');
   if (op === 'delete') {
+    try { require('./question-delete-guard').assertQuestionsDeletable(db, ids); }
+    catch (e) { if (e.code === 'QUESTION_IN_USE') return res.status(409).json({ code: 409, msg: e.message }); throw e; }
     db.prepare(`DELETE FROM question_tags WHERE question_id IN (${ph})`).run(...ids);
     db.prepare(`DELETE FROM question_nodes WHERE question_id IN (${ph})`).run(...ids);
     db.prepare(`DELETE FROM mf_paper_questions WHERE question_id IN (${ph})`).run(...ids);
@@ -1141,16 +1145,26 @@ function commitCaptureItems(batch, picked, b) {
     if (!q.questionId || /^temp-/.test(String(q.questionId))) { skipped++; return; }
     const hit = map.get(key);
     const stem = String(q.stemHtml || q.stem || '').trim();
+    const content = require('./question-content').questionStemFields(q.stem, q.stemHtml);
     if (!stem) { skipped++; return; }
-    const options = (q.options || []).map((o, i) => ({ label: String(o && typeof o === 'object' ? o.label || String.fromCharCode(65 + i) : String.fromCharCode(65 + i)), text: String(o && typeof o === 'object' ? (o.text || o.content || '') : (o || '')).trim() })).filter((o) => o.text);
+    let options = (q.options || []).map((o, i) => ({ label: String(o && typeof o === 'object' ? o.label || String.fromCharCode(65 + i) : String.fromCharCode(65 + i)), text: String(o && typeof o === 'object' ? (o.text || o.content || '') : (o || '')).trim() }));
     let type = TYPES.includes(q.type) ? q.type : (options.length >= 2 ? (/^[A-J]{2,}$/.test(String(q.answer || '').toUpperCase()) ? 'multi' : 'single') : 'answer');
+    const choice = require('./choice-normalize').normalizeChoiceOptions(type, options, q.answer);
+    if (choice.error) throw new Error(choice.error);
+    options = (choice.options || []).filter((o) => o.text);
     const choiceError = choiceOptionsError(type, options);
     if (choiceError) throw new Error(choiceError);
     if (hit) {
       let need = false;
-      const old = db.prepare('SELECT answer, analysis, point, ai_review_metadata, stage, grade FROM questions WHERE id=?').get(hit.id);
+      const old = db.prepare('SELECT type, stem, options, answer, analysis, point, ai_review_metadata, stage, grade FROM questions WHERE id=?').get(hit.id);
       SchoolScope.assertScope(old);
-      const answer = String(q.answer || '').trim();
+      let answer = String(choice.answer || '').trim();
+      if (!old.answer && answer && ['single', 'multi'].includes(type)) {
+        if (String(old.stem || '').replace(/\s+/g, ' ').trim() !== content.stem.replace(/\s+/g, ' ').trim()) throw new Error('已有题目题干不同，无法安全补充答案，请人工核对');
+        const mapped = require('./choice-normalize').answerForExistingChoices(type, options, answer, old);
+        if (mapped.error) throw new Error(mapped.error);
+        answer = mapped.answer;
+      }
       const analysis = String(q.analysis || '').trim();
       const point = (q.meta && q.meta.knowledgePoints || []).join('、') || String(q.point || '').trim();
       if ((!old.answer && answer) || (!old.analysis && analysis) || (!old.point && point)) need = true;
@@ -1185,9 +1199,9 @@ function commitCaptureItems(batch, picked, b) {
         String(b.stage || q.stage || batch.stage || '').trim(),
         String(b.grade || q.grade || batch.grade || '').trim(),
         type,
-        stem.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
-        /<[a-z][\s\S]*>/i.test(stem) ? stem : '',
-        jstr(options), String(q.answer || '').trim(), String(q.analysis || '').trim(),
+        content.stem,
+        content.stem_html,
+        jstr(options), String(choice.answer || '').trim(), String(q.analysis || '').trim(),
         diff.difficulty, diff.difficulty_score_10, (q.meta && q.meta.knowledgePoints || []).join('、'),
         String(q.material || '').trim(), [SITES[q.site || batch.site] || (q.site || batch.site), String(q.source_text || '').trim()].filter(Boolean).join(' · ').slice(0, 255), /^(19|20)\d{2}$/.test(String(q.year || '')) ? String(q.year) : '', jstr(Array.isArray(q.images) ? q.images.filter((url) => typeof url === 'string') : []), audioKeyOf(q.audio_key), detail, now());
       const newId = info.lastInsertRowid;
@@ -1574,6 +1588,11 @@ admin.put('/papers/:id/rows/:rowId', (req, res) => {
 });
 
 admin.delete('/papers/:id/rows/:rowId', (req, res) => {
+  const row = db.prepare('SELECT kind FROM mf_paper_questions WHERE id=? AND paper_id=?').get(int(req.params.rowId), int(req.params.id));
+  if (row && row.kind === 'question') {
+    try { require('./question-delete-guard').assertMfPaperRowsDeletable(db, int(req.params.id)); }
+    catch (e) { if (e.code === 'QUESTION_IN_USE') return res.status(409).json({ code: 409, msg: e.message }); throw e; }
+  }
   db.prepare('DELETE FROM mf_paper_questions WHERE id=? AND paper_id=?').run(int(req.params.rowId), int(req.params.id));
   return ok(res, null, '已移除');
 });
@@ -2260,6 +2279,8 @@ function commitRunCards(run, cards, b) {
     let qid;
     if (d._q) {   // 技能包转写：字段已在导入时算好
       const q = d._q;
+      const choice = require('./choice-normalize').normalizeChoiceOptions(q.type, q.options, q.answer);
+      if (choice.error) throw new Error(choice.error);
       const choiceError = choiceOptionsError(q.type, q.options);
       if (choiceError) throw new Error(choiceError);
       const diff = resolveDifficulty({ ...(q.difficulty ? { difficulty:q.difficulty } : {}), ...(q.difficulty_score_10 != null ? { difficulty_score_10:q.difficulty_score_10 } : {}) });
@@ -2267,14 +2288,18 @@ function commitRunCards(run, cards, b) {
       const dupRow = q.detail ? db.prepare('SELECT id, stage, grade FROM questions WHERE source_detail = ? LIMIT 1').get(jstr(q.detail)) : null;
       if (dupRow) { SchoolScope.assertScope(dupRow); ids.push(dupRow.id); return; }
       const info = insPack.run(String(b.subject || q.subject || run.subject || '').trim(), String(b.stage || q.stage || run.stage || '').trim(), String(b.grade || q.grade || run.grade || '').trim(),
-        q.type, q.stem, q.stem_html || '', jstr(q.options || []), String(q.answer || ''), String(q.analysis || ''),
+        q.type, q.stem, q.stem_html || '', jstr(choice.options || []), String(choice.answer || ''), String(q.analysis || ''),
         diff.difficulty, diff.difficulty_score_10, String(d.point || q.point || ''), String(d.material != null ? d.material : (q.material || '')), '', '', jstr(q.images || []), 'capture', jstr(q.detail || {}), now());
       qid = info.lastInsertRowid;
       if (d.audio_key) db.prepare('UPDATE questions SET audio_key=? WHERE id=?').run(audioKeyOf(d.audio_key), qid);
     } else {
       const type = TYPE_MAP[String(d.questionType || '')] || (d.options && d.options.length >= 2 ? 'single' : 'answer');
       const stem = String(d.stem || '').trim();
-      const options = (d.options || []).map((o) => ({ label: String(o.label || ''), text: String(o.content != null ? o.content : o.text || '').trim() })).filter((o) => o.text);
+      const content = require('./question-content').questionStemFields(stem, d.stem_html);
+      let options = (d.options || []).map((o) => ({ label: String(o.label || ''), text: String(o.content != null ? o.content : o.text || '').trim() }));
+      const choice = require('./choice-normalize').normalizeChoiceOptions(type, options, d.answer);
+      if (choice.error) throw new Error(choice.error);
+      options = (choice.options || []).filter((o) => o.text);
       const choiceError = choiceOptionsError(type, options);
       if (choiceError) throw new Error(choiceError);
       const diff = resolveDifficulty({ ...((d.difficulty || b.difficulty) ? { difficulty:d.difficulty || b.difficulty } : {}), ...(d.difficulty_score_10 != null ? { difficulty_score_10:d.difficulty_score_10 } : {}) });
@@ -2282,9 +2307,9 @@ function commitRunCards(run, cards, b) {
       const info = ins.run(
         int(d.chapter_id, 0) || null,
         String(b.subject || d.subject || run.subject || '').trim(), String(b.stage || d.stage || run.stage || '').trim(), String(b.grade || d.grade || run.grade || '').trim(),
-        type, stem.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
-        /<[a-z][\s\S]*>/i.test(stem) ? stem : '',
-        jstr(options), String(d.answer || '').trim(), String(d.analysis || '').trim(),
+        type, content.stem,
+        content.stem_html,
+        jstr(options), String(choice.answer || '').trim(), String(d.analysis || '').trim(),
         diff.difficulty, diff.difficulty_score_10, String(d.point || '').trim(), String(d.material || '').trim(), String(run.source_name || '录题工作台'), /^\d{4}$/.test(String(d.year || '')) ? String(d.year) : '',
         jstr((d.figures || []).map((x) => (x && x.url) || x).filter(Boolean)), audioKeyOf(d.audio_key),
         jstr({ runId: run.id, kind: run.source_kind, page: d.page, qno: d.qno, collectedAt: now() }), now());

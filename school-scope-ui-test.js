@@ -195,9 +195,13 @@ test('parent grade reporting removes high school and rejects a high-school grade
   assert.equal(f.w.localStorage.getItem(key), raw, 'existing records remain untouched');
   f.d.getElementById('pGrade').value = '八年级';
   f.d.getElementById('pSubmit').click();
-  const saved = JSON.parse(f.w.localStorage.getItem(key));
-  assert.equal(saved.parentUploads.length, 2); assert.deepEqual(saved.parentUploads[0], previous.parentUploads[0]);
-  assert.equal(saved.parentUploads[1].stage, '初中'); assert.equal(saved.parentUploads[1].subject, '物理');
+  assert.equal(f.w.localStorage.getItem(key), raw, 'unowned v1 history remains untouched after supported submission');
+  const demoKey = Object.keys(f.w.localStorage).find(k => k === 'campus_grade_parent_demo_v1');
+  assert.ok(demoKey, 'parent reporting writes only its separate local demonstration store');
+  const saved = JSON.parse(f.w.localStorage.getItem(demoKey));
+  assert.equal(saved.parentUploads.length, 1);
+  assert.equal(saved.parentUploads[0].stage, '初中'); assert.equal(saved.parentUploads[0].subject, '物理');
+  assert.match(f.d.querySelector('#puCard').textContent, /未发送给老师/);
 });
 
 test('care class placeholder uses a junior example and does not alter stored class values', t => {

@@ -27,6 +27,10 @@ const branch = { id: 10, role: 'branch' }, principal = { id: 1, role: 'admin' };
 function fixture(t) {
   const raw = openMemory(); t.after(() => raw.close());
   raw.exec(`
+    CREATE TABLE papers(id INTEGER PRIMARY KEY, q_ids TEXT);
+    CREATE TABLE mf_papers(id INTEGER PRIMARY KEY, published INTEGER);
+    CREATE TABLE mf_paper_questions(paper_id INTEGER, question_id INTEGER, kind TEXT);
+    CREATE TABLE mf_paper_tries(paper_id INTEGER);
     CREATE TABLE users(id INTEGER PRIMARY KEY, role TEXT, status INTEGER, created_by INTEGER, name TEXT, username TEXT, grade TEXT, stage TEXT);
     INSERT INTO users VALUES (1,'admin',1,NULL,'校长','principal','',''),(10,'branch',1,1,'A分校','a','',''),(20,'branch',1,1,'B分校','b','',''),
       (101,'student',1,10,'A学生','student-a','四年级','primary'),(201,'student',1,20,'B学生','student-b','四年级','primary'),(301,'student',1,1,'总校学生','main-student','四年级','primary');
@@ -54,7 +58,7 @@ function fixture(t) {
   raw.exec("INSERT INTO bank_feedback VALUES(1,101,13,'题目有误','A反馈','A','pending','','2026-11-07'),(2,201,14,'题目有误','B反馈','B','pending','','2026-11-07')");
   // Only SQLite's missing row-lock syntax is adapted; production SQL and writes
   // execute directly, and transaction rollback uses the in-memory engine.
-  const db = { prepare: sql => raw.prepare(sql.replace(/ FOR UPDATE\b/g, '')), transaction: fn => (...args) => {
+  const db = { exec: sql => raw.exec(sql), prepare: sql => raw.prepare(sql.replace(/ FOR UPDATE\b/g, '')), transaction: fn => (...args) => {
     raw.exec('BEGIN'); try { const r = fn(...args); raw.exec('COMMIT'); return r; } catch (e) { raw.exec('ROLLBACK'); throw e; }
   } };
   const handlers = new Map();
@@ -71,8 +75,8 @@ function fixture(t) {
       throw new Error('Unapproved dependency: ' + name);
     } };
   vm.runInNewContext(source('mfpending.js'), context, { filename: 'src/mfpending.js' });
-  const ok = (res, data, msg) => { res.body = { code: 0, data, msg }; };
-  const fail = (res, msg, code = 1) => { res.body = { code, msg }; };
+  const ok = (res, data, msg) => res.json({ code: 0, data, msg });
+  const fail = (res, msg, code = 1) => res.json({ code, msg });
   const parseArr = s => { try { const a = JSON.parse(s || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
   const parseObj = s => { try { return JSON.parse(s || '{}') || {}; } catch (_) { return {}; } };
   const pendingApi = module.exports({ admin, db, ok, fail, now: () => '2026-11-07 12:00:00', int: (v, def = 0) => parseInt(v, 10) || def, parseArr, parseObj, jstr: JSON.stringify,

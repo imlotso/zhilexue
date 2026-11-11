@@ -20,20 +20,12 @@ const SUBJECTS = ['数学', '英语', '物理', '化学'];
 
 /** 学生列表 + 校区过滤（与 word.js /progress 完全同一套规则） */
 function studentsOf(req) {
-  const isPrincipal = req.user.role === 'admin';
-  const branchSel = String(req.query.branch || 'all');
-  let rows = db.prepare(`
+  const scope = require('./student-report-access').studentScope(req.user, 's', req.query.branch || 'all');
+  const rows = db.prepare(`
     SELECT s.id, s.username, s.name, s.grade, s.stage, s.term, s.status, s.expire_at, s.last_login,
       c.id AS creator_id, c.name AS creator_name, c.role AS creator_role
     FROM users s LEFT JOIN users c ON s.created_by = c.id
-    WHERE s.role = 'student' ORDER BY s.id DESC`).all();
-  if (!isPrincipal) {
-    rows = rows.filter((r) => r.creator_id === req.user.id);
-  } else if (branchSel === 'none') {
-    rows = rows.filter((r) => !r.creator_id || r.creator_role === 'admin');
-  } else if (branchSel !== 'all') {
-    rows = rows.filter((r) => r.creator_id === Number(branchSel));
-  }
+    WHERE ${scope.sql} ORDER BY s.id DESC`).all(...scope.args);
   return rows.map((s) => ({
     ...s,
     branch: s.creator_role === 'branch' ? (s.creator_name || '分校') : '总校',
@@ -83,9 +75,9 @@ admin.get('/videos', (req, res) => {
 
 admin.get('/videos/:id/detail', (req, res) => {
   const id = Number(req.params.id);
-  const s = db.prepare("SELECT id, username, name, grade, stage, term, expire_at, status, last_login, created_by FROM users WHERE id=? AND role='student'").get(id);
+  const s = db.prepare("SELECT id, username, name, grade, stage, term, expire_at, status, last_login, created_by, role FROM users WHERE id=? AND role='student'").get(id);
   if (!s) return fail(res, '学生不存在');
-  if (req.user.role !== 'admin' && Number(s.created_by) !== Number(req.user.id)) return fail(res, '无权查看该学生', 403);
+  if (!require('./student-report-access').canReadStudent(req.user, s)) return fail(res, '无权查看该学生', 403);
   delete s.created_by;
   const rows = db.prepare(`
     SELECT p.video_id, p.video_done, p.handout_done, p.subject, p.category, p.updated_at,
@@ -128,7 +120,8 @@ admin.get('/exercises', (req, res) => {
   }
   // 试卷
   const pap = new Map();
-  for (const t of db.prepare('SELECT user_id, score, total, created_at FROM paper_tries').all()) {
+  for (const t of db.prepare(`SELECT user_id, score, total, created_at FROM paper_tries
+    UNION ALL SELECT user_id, score, total, created_at FROM mf_paper_tries`).all()) {
     let a = pap.get(t.user_id);
     if (!a) pap.set(t.user_id, a = { tries: 0, scored: 0, sum: 0, best: 0, last_at: '', avg: 0 });
     a.tries++;
@@ -156,15 +149,25 @@ admin.get('/exercises', (req, res) => {
 
 admin.get('/exercises/:id/detail', (req, res) => {
   const id = Number(req.params.id);
-  const s = db.prepare("SELECT id, username, name, grade, stage, term, expire_at, status, last_login, created_by FROM users WHERE id=? AND role='student'").get(id);
+  const s = db.prepare("SELECT id, username, name, grade, stage, term, expire_at, status, last_login, created_by, role FROM users WHERE id=? AND role='student'").get(id);
   if (!s) return fail(res, '学生不存在');
-  if (req.user.role !== 'admin' && Number(s.created_by) !== Number(req.user.id)) return fail(res, '无权查看该学生', 403);
+  if (!require('./student-report-access').canReadStudent(req.user, s)) return fail(res, '无权查看该学生', 403);
   delete s.created_by;
   // 试卷记录
   const papers = db.prepare(`
-    SELECT t.id, t.score, t.total, t.correct, t.detail, t.created_at, p.title, p.total_score
+    SELECT t.id AS id, t.paper_id AS paper_id, 'paper' AS kind, t.score, t.total, t.correct, t.detail, t.created_at, p.title, t.total_score_snapshot AS total_score
     FROM paper_tries t LEFT JOIN papers p ON p.id = t.paper_id
-    WHERE t.user_id = ? ORDER BY t.id DESC LIMIT 100`).all(id).map(presentAttempt);
+    WHERE t.user_id = ?
+    UNION ALL
+    SELECT t.id AS id, t.paper_id AS paper_id, 'mfpaper' AS kind, t.score, t.total, t.correct, t.detail, t.created_at, p.title, t.total_score_snapshot AS total_score
+    FROM mf_paper_tries t LEFT JOIN mf_papers p ON p.id=t.paper_id
+    WHERE t.user_id = ? ORDER BY created_at DESC, id DESC, kind LIMIT 100`).all(id, id).map((row) => {
+    // Old detail only records answered objective questions, not necessarily the whole paper.
+    // Even all-valid max_score entries cannot safely reconstruct an absent full score.
+    const full = row.total_score == null ? NaN : Number(row.total_score);
+    const known = Number.isFinite(full) && full >= 0;
+    return presentAttempt({ ...row, total_score: known ? full : null, total_score_source: known ? 'attempt' : 'unknown' });
+  });
   // 主观题正式评分与学生自评分开；仅在通过分校学生归属校验后返回。
   const subjective = db.prepare(`SELECT r.id, r.question_id, r.kind, r.paper_id, r.try_id, r.my_answer, r.score, r.max_score, r.review_comment, r.reviewed_at, r.created_at, r.self_correct,
     CASE WHEN r.drawing_data IS NOT NULL AND r.drawing_data<>'' THEN 1 ELSE 0 END AS has_drawing, q.stem, q.subject, q.question_subtype
