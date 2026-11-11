@@ -1779,7 +1779,9 @@ admin.post('/intake/runs/:id/pages', upload.array('pages', 30), async (req, res)
 const RECOG_SYS = `你是教辅题库的试题结构化引擎。输入只有当前页试卷图。只转写这张图实际可见的内容；上下文题号仅用于标记续题，不是可抄录的原文。不得根据前题、常识或完整试卷的惯例补全当前页没有的文字、数值、选项或图片。
 
 【输出格式】只输出一个 JSON 对象，禁止输出任何解释文字或 Markdown 代码围栏。结构如下：
-{"materials":[{"ref":"本卷唯一的材料组标识","materialMarkdown":"原文","sourcePages":[1],"continuesPrevious":false}],"questions":[{"qno":"17 或 2-17 或 null","questionType":"单选|多选|填空|解答|判断|排序 之一","questionSubtype":"drawing|math_match|空","matchPrompts":["连线左侧项目"],"stemMarkdown":"题干","options":[{"label":"A","content":"选项内容"}],"materialRef":"关联的材料标识或空","materialMarkdown":"仅当有共同材料且材料原文可见时填写","groupRef":"同组稳定标识或空","groupPosition":1,"continuationOf":"仅当本题是上一页同一题的续文时填写上一页题号，否则为空","sourcePages":[1],"uncertainties":["需要老师对照原文核对的内容"],"answerMarkdown":"图中给出的答案","analysisMarkdown":"图中给出的解析"}]}
+{"leadingFragments":[{"stemMarkdown":"页首第一道新题号之前的无题号续句/小问，可为空","options":[{"label":"A","content":"仅可见选项"}],"questionType":"解答","sourcePages":[1],"uncertainties":["原页没有主干或题号，需要人工合并"]}],"materials":[{"ref":"本卷唯一的材料组标识","materialMarkdown":"原文","sourcePages":[1],"continuesPrevious":false}],"questions":[{"qno":"17 或 2-17 或 null","questionType":"单选|多选|填空|解答|判断|排序 之一","questionSubtype":"drawing|math_match|空","matchPrompts":["连线左侧项目"],"stemMarkdown":"题干","options":[{"label":"A","content":"选项内容"}],"materialRef":"关联的材料标识或空","materialMarkdown":"仅当有共同材料且材料原文可见时填写","groupRef":"同组稳定标识或空","groupPosition":1,"continuationOf":"仅当本题是上一页同一题的续文时填写上一页题号，否则为空","sourcePages":[1],"uncertainties":["需要老师对照原文核对的内容"],"answerMarkdown":"图中给出的答案","analysisMarkdown":"图中给出的解析"}]}
+
+【页首检查优先】先检查本页顶部到第一个新主编号题之间的区域。卷名、页眉页脚、页码、装订线及仅有大题分节标题不是试题续片，不输出为题卡。无题号不等于无内容：选项行、（2）（3）等小问、半句续语、计算过程尾行都必须放入 leadingFragments。只有选项时 stemMarkdown 为空，不要编造主干；只抄可见选项。leadingFragments 字段必须输出；无续片则 leadingFragments:[]。随后 questions 只放其余题目，避免重复。候选上一题号不能当作图片原文，不得自动补成完整题。
 
 【字段规则】
 1. qno：卷内题号原文的数字形态，如 "17"、"2-17"（章-题号）；图内确无题号则 null。
@@ -1917,7 +1919,8 @@ admin.post('/intake/runs/:id/recognize', singleIntakeJob('recognize'), async (re
       });
       const materials = RecognitionPages.combineMaterials(prior, newMaterials);
       const resolved = newMaterials.map(m => materials.find(x => x.ref === m.ref));
-      const cards = reviewRecognizedCards(normCards(j, no, materials, run.subject), run);
+      const pageModel = {...j, questions:RecognitionPages.pageQuestions(j, no, drafts)};
+      const cards = reviewRecognizedCards(normCards(pageModel, no, materials, run.subject), run);
       if (!cards.length && !newMaterials.length) throw new Error(`第 ${no} 页没有识别出题目或共同材料，请检查原页并重试`);
       RecognitionPages.extendMaterials(drafts, prior, resolved, no);
       const result = RecognitionPages.finish(drafts, cards, no);

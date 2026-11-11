@@ -1,0 +1,16 @@
+'use strict';
+const assert=require('assert');
+const R=require('./src/recognition-pages');
+const input={leadingFragments:[{stemMarkdown:'',options:[{label:'A',content:'23'},{label:'B',content:'46'},{label:'C',content:'92'},{label:'D',content:'96'}]},{stemMarkdown:'（2）合成续问'}],questions:[{qno:'14',stemMarkdown:'合成新题'}]};
+const q=R.pageQuestions(input,3,[{page:2,qno:'13'}]);
+assert.equal(q.length,3);assert.equal(q[0].options.length,4);assert.equal(q[0].qno,null);assert.equal(q[0].continuationOf,'');assert.equal(q[0]._leadingFragment,true);assert.equal(q[0]._continuationCandidate,'13');assert.equal(q[2].qno,'14');
+const card=R.enrichCard({page:3,qno:'',stem:'',options:q[0].options},q[0],3,[],'化学');
+const out=R.finish([{page:2,qno:'13',stem:'此前题干',options:[]}],[card],3);
+assert.equal(out.merged,0);assert.equal(out.drafts.length,2);assert.equal(out.drafts[1].options.length,4);assert(out.drafts[1].cross_page_review_required);assert(out.drafts[1].recognition_notes.some(n=>n.includes('13')));
+assert.throws(()=>R.pageQuestions({leadingFragments:[{}],questions:[]},2,[]),/续片/);
+assert.throws(()=>R.pageQuestions({leadingFragments:[{stemMarkdown:' ',options:[{label:'A',content:''}]}],questions:[]},2,[]),/续片/);
+assert.throws(()=>R.pageQuestions({leadingFragments:{stemMarkdown:'malformed'},questions:[]},2,[]),/续片/);
+assert.throws(()=>R.pageQuestions({questions:[{qno:'1'}]},1,[]),/续片/);
+assert.equal(R.pageQuestions({leadingFragments:[],questions:[{qno:'1'}]},1,[]).length,1);
+assert(!R.pageInput(3,[{page:2,qno:'13',stem:'DO_NOT_ECHO'}],[]).includes('DO_NOT_ECHO'));
+console.log('Leading fragments preserved independently, options-only safe, candidate never auto-merged');

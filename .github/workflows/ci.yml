@@ -62,6 +62,7 @@ jobs:
       - run: node multi-partial-test.js
       - run: node recognition-pages-test.js
       - run: node recognition-current-page-test.js
+      - run: node recognition-leading-test.js
       - run: node pending-merge-test.js
       - run: node pending-merge-pagination-ui-test.js
       - run: node pending-selection-search-ui-test.js

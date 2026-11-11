@@ -161,6 +161,13 @@ function enrichCard(card, original, page, materials, subject) {
     card.match_prompts = arr(q.matchPrompts || q.match_prompts).map(x => short(x, 10000));
   }
   card._recognition_continuation = short(q.continuationOf || q.continuation_of, 100);
+  if (q._leadingFragment) {
+    card.qno = '';
+    card._recognition_continuation = '';
+    card.cross_page_review_required = true;
+    card.continuation_candidate = short(q._continuationCandidate, 100);
+    card.recognition_notes.push('页首无题号续片，已独立保留；' + (card.continuation_candidate ? '可能接第' + card.continuation_candidate + '题，' : '') + '仅为候选关联，请对照原页手动合并，未自动拼接。');
+  }
   return card;
 }
 function snapshot(card) {
@@ -261,10 +268,22 @@ function finish(cards, incoming, page) {
 
 // Do not give the model previous stems/materials/options to echo. The last
 // identifier is only a hint for a visible continuation, never source content.
+function pageQuestions(model, page, drafts) {
+  if (!Array.isArray(model.leadingFragments)) throw new Error('页首续片格式无效，请重试');
+  const last = arr(drafts).filter(c => Number(c.page) === page - 1).slice(-1)[0];
+  const candidate = short(last && last.qno, 100);
+  const leading = arr(model.leadingFragments).map(q => {
+    if (!q || typeof q !== 'object' || Array.isArray(q)) throw new Error('页首续片格式无效，请重试');
+    const normalized = normalizeQuestion(q);
+    if (!str(normalized.stemMarkdown) && !str(normalized.materialMarkdown) && !arr(normalized.options).some(o => str(o.content))) throw new Error('页首续片没有可见内容，请核对原页并重试');
+    return {...normalized, qno:null, continuationOf:'', continuation_of:'', _leadingFragment:true, _continuationCandidate:candidate};
+  });
+  return [...leading, ...arr(model.questions)];
+}
 function pageInput(page, drafts, pages = []) {
   const last = arr(drafts).filter(c => Number(c.page) === page - 1).slice(-1)
     .map(c => ({ qno: short(c.qno, 100), questionType: short(c.questionType, 20) }));
   const refs = availableMaterials(pages, page - 1).map(m => ({ref:m.ref, sourcePages:m.source_pages})).slice(-12);
-  return `这是第 ${page} 页（当前页），只有这一张图片。只输出图片内实际可见的新题、续题片段和材料。不要补齐不可见的题干或选项；不确定内容请标注。上一页最后题号提示（不是原文，不能据此生成题目）：${JSON.stringify(last)}。已有材料标识（仅供明确续材料沿用，不代表本页有此材料）：${JSON.stringify(refs)}。sourcePages 仅写本页 ${page}；续题可填 continuationOf，但只抄本页片段。无题目和材料时返回 questions:[]、materials:[]。`;
+  return `这是第 ${page} 页（当前页），只有这一张图片。先从页顶逐行检查至第一道新题号之前：其中无题号的选项、小问、续句必须逐字输出到 leadingFragments（即使没有题干或只有一行），不得略去或塞入下一道题；卷名、页眉页脚、页码、装订线、仅有大题分节标题不是续片，不要生成题卡。没有则返回空数组。然后输出新题到 questions；不要在两个数组重复输出同一片段。只输出图片内实际可见内容。不要补齐不可见的题干或选项；不确定内容请标注。上一页最后题号提示（不是原文，不能据此生成题目）：${JSON.stringify(last)}。已有材料标识（仅供明确续材料沿用，不代表本页有此材料）：${JSON.stringify(refs)}。sourcePages 仅写本页 ${page}；续题可填 continuationOf，但只抄本页片段。无题目和材料时返回 questions:[]、materials:[]。`;
 }
-module.exports = { pageInput, normalizeQuestion, modelDiagnostics, materialsFrom, resolveCurrentMaterials, availableMaterials, combineMaterials, materialContext, wordFigures, enrichCard, extendMaterials, finish, snapshot };
+module.exports = { pageQuestions, pageInput, normalizeQuestion, modelDiagnostics, materialsFrom, resolveCurrentMaterials, availableMaterials, combineMaterials, materialContext, wordFigures, enrichCard, extendMaterials, finish, snapshot };
