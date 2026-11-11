@@ -587,13 +587,13 @@ async function mfIntakeFiles(runId, files, after, options = {}) {
       if (/\.docx$/i.test(f.name || '')) entries.push({ file: f, word: true, state: 'pending' });
       else if (/\.pdf$/i.test(f.name || '')) {
         if (!window.PdfPages) throw new Error('PDF 组件未加载，请刷新后重试');
-        const result = await PdfPages.toCanvases(f, {maxPages:30,maxWidth:1600,onProgress:(done,total)=>{if(options.onConvert)options.onConvert(`${f.name}：${done}/${total} 页`);}});
+        const result = await PdfPages.toCanvases(f, {maxPages:30,maxWidth:1600,nativeCandidates:true,onProgress:(done,total)=>{if(options.onConvert)options.onConvert(`${f.name}：${done}/${total} 页`);}});
         if (result.truncated) throw new Error(`${f.name} 超过 30 页，请拆分后上传`);
         const sourceDocumentKey = await R4Flow.filesKey([f]);
         for (const page of result.pages) {
           const blob = await new Promise(resolve => page.canvas.toBlob(resolve,'image/png'));
           if (!blob) throw new Error(`${f.name} 第 ${page.page} 页转换失败`);
-          entries.push({file:new File([blob],`${f.name}-page-${page.page}.png`,{type:'image/png'}),state:'pending',source_document_key:sourceDocumentKey,source_page:page.page});page.canvas.width=page.canvas.height=0;
+          entries.push({file:new File([blob],`${f.name}-page-${page.page}.png`,{type:'image/png'}),state:'pending',source_document_key:sourceDocumentKey,source_page:page.page,figure_candidates:page.figure_candidates || []});page.canvas.width=page.canvas.height=0;
         }
       } else if (/^image\//.test(f.type) || /\.(png|jpe?g|webp|bmp|gif|heic|heif)$/i.test(f.name || '')) entries.push({file:f,state:'pending'});
       else throw new Error(`不支持的文件：${f.name || '未命名文件'}，请选择图片、PDF 或 .docx`);
@@ -612,7 +612,7 @@ async function mfIntakeFiles(runId, files, after, options = {}) {
         xhr.onload=()=>{const r=xhr.response || {};if(xhr.status>=200&&xhr.status<300&&r.code===0)resolve(r.data);else reject(new Error(r.msg || `上传失败（HTTP ${xhr.status}）`));};
         xhr.addEventListener('loadend',()=>{if(options.root && !options.root.isConnected)resolve(null);});
         xhr.onerror=()=>{const e=new Error('连接中断，保存结果未确认；已完成的页图不会重复上传');e.uncertain=true;reject(e);};
-        const fd=new FormData();fd.append(entry.word?'file':'pages',entry.file,entry.file.name);if(entry.source_document_key){fd.append('source_document_key',entry.source_document_key);fd.append('source_page',String(entry.source_page));}
+        const fd=new FormData();fd.append(entry.word?'file':'pages',entry.file,entry.file.name);if(entry.source_document_key){fd.append('source_document_key',entry.source_document_key);fd.append('source_page',String(entry.source_page));fd.append('figure_candidates',JSON.stringify(entry.figure_candidates || []));}
         R4Flow.send(xhr, options.root || document.getElementById('view'), entry.word?'word':'image',entry.file.name,runId,fd);
       });
       entry.state='success';entry.error='';notify();if(options.root && !options.root.isConnected)throw new Error('页面已关闭，已上传页面保留，未完成文件可重新选择');

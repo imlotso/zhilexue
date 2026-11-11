@@ -16,3 +16,5 @@
 - 隔离API验证候选元数据上传与读取、额外字段剥离、不会设置figures/确认签名或绕过缺图入库；原有上传回执/幂等与跨页OCR回归通过。
 
 最终验证结果：47项unit全部退出0；image-review-flow-test.js、import-receipt-flow-test.js、recognition-pages-flow-test.js三项隔离API通过。独立审查通过，边界负宽问题先红后绿修复；未部署生产。
+
+集成补齐：工作台追加PDF同样开启候选、保存逐页metadata并上传。路径测试先红后绿，覆盖两页独立候选、断线重试不重转/不串页、普通图片回退；8项导入UI与桌面手机浏览器回归通过。
