@@ -1912,14 +1912,14 @@ admin.post('/intake/runs/:id/recognize', singleIntakeJob('recognize'), async (re
       const prior = RecognitionPages.availableMaterials(pages, no - 1);
       const proposed = RecognitionPages.materialsFrom(j, no);
       const { current: newMaterials, renames } = RecognitionPages.resolveCurrentMaterials(prior, proposed, no);
-      j.questions = j.questions.map(q => {
+      const pageQuestions = RecognitionPages.pageQuestions(j, no, drafts).map(q => {
         const ref = String(q && (q.materialRef || q.material_ref) || '');
         if (!renames.has(ref)) return q;
         return { ...q, materialRef: renames.get(ref), uncertainties: [...(Array.isArray(q.uncertainties) ? q.uncertainties : []), '材料标识与前页相同但未明确续接，已隔离分组，请对照原页核对。'] };
       });
       const materials = RecognitionPages.combineMaterials(prior, newMaterials);
       const resolved = newMaterials.map(m => materials.find(x => x.ref === m.ref));
-      const pageModel = {...j, questions:RecognitionPages.pageQuestions(j, no, drafts)};
+      const pageModel = {...j, questions:pageQuestions};
       const cards = reviewRecognizedCards(normCards(pageModel, no, materials, run.subject), run);
       if (!cards.length && !newMaterials.length) throw new Error(`第 ${no} 页没有识别出题目或共同材料，请检查原页并重试`);
       RecognitionPages.extendMaterials(drafts, prior, resolved, no);

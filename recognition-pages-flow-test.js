@@ -13,7 +13,7 @@ mf.mfAiInvoke = async ({ user, images }) => {
   calls.push({ user, images: images.length });
   assert.equal(images.length, 1, '每页只能发送当前图');
   assert(!user.includes('第一个小问'), '不得将此前题干注入当前页识别');
-  if (user.includes('这是第 7 页（当前页）')) return {text:JSON.stringify({leadingFragments:[{stemMarkdown:'',options:[{label:'C',content:'合成选项丙'},{label:'D',content:'合成选项丁'}]},{stemMarkdown:'（2）合成页首小问'}],questions:[{qno:'99',stemMarkdown:'合成新题'}],materials:[]})};
+  if (user.includes('这是第 7 页（当前页）')) return {text:JSON.stringify({leadingFragments:[{stemMarkdown:'',materialRef:'story',options:[{label:'C',content:'合成选项丙'},{label:'D',content:'合成选项丁'}]},{stemMarkdown:'（2）合成页首小问'}],questions:[{qno:'99',stemMarkdown:'合成新题'}],materials:[{ref:'story',materialMarkdown:'本页不同材料',sourcePages:[7]}]})};
   if (user.includes('这是第 9 页（当前页）')) return {text:JSON.stringify({leadingFragments:[{}],questions:[],materials:[]})};
   if (user.includes('这是第 8 页（当前页）')) return {text:JSON.stringify({leadingFragments:{stemMarkdown:'错误类型'},questions:[],materials:[]})};
   if (user.includes('这是第 6 页（当前页）')) return {text:JSON.stringify({leadingFragments:[],pageStatus:'no_questions',questions:[],materials:[]})};
@@ -70,7 +70,7 @@ const prefix = '/api/admin/bank/mf';
   assert(!emptyPages[5].recognition_complete);
   j=await req(prefix+`/intake/runs/${id}/recognize`,{page:7});assert.equal(j.code,0,j.msg);assert.equal(j.data.added,3);
   const fragments=JSON.parse(db.prepare('SELECT drafts FROM mf_recog_runs WHERE id=?').get(id).drafts).filter(c=>c.page===7);
-  assert.equal(fragments.length,3);assert.equal(fragments[0].stem,'');assert.equal(fragments[0].options.length,2);assert(fragments[0].cross_page_review_required);assert(fragments[0].recognition_notes.some(x=>x.includes('页首无题号')));assert.equal(fragments[1].stem,'（2）合成页首小问');assert.equal(fragments[2].qno,'99');
+  assert.equal(fragments.length,3);assert.equal(fragments[0].material,'本页不同材料');assert.notEqual(fragments[0]._material_ref,'story');assert(!fragments[0].material.includes('第一段'));assert.equal(fragments[0].stem,'');assert.equal(fragments[0].options.length,2);assert(fragments[0].cross_page_review_required);assert(fragments[0].recognition_notes.some(x=>x.includes('页首无题号')));assert.equal(fragments[1].stem,'（2）合成页首小问');assert.equal(fragments[2].qno,'99');
   j=await req(prefix+`/intake/runs/${id}/recognize`,{page:8});assert.notEqual(j.code,0);assert(j.msg.includes('页首续片'));
   const beforeEmpty=db.prepare('SELECT drafts FROM mf_recog_runs WHERE id=?').get(id).drafts;
   j=await req(prefix+`/intake/runs/${id}/recognize`,{page:9});assert.notEqual(j.code,0);

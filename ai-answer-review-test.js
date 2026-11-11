@@ -99,7 +99,7 @@ async function testCapturedAndScanned(){
 async function testRecognizedAnswers(){
   const storage=require('./src/storage'), oldRead=storage.readBuffer, oldInvoke=mf.mfAiInvoke;
   storage.readBuffer=async()=>Buffer.from('synthetic image');
-  mf.mfAiInvoke=async()=>({text:JSON.stringify({questions:[{qno:'1',questionType:'填空',stemMarkdown:'识别题 2+3=____',answerMarkdown:'5',analysisMarkdown:'2 加 3 得 5'}]})});
+  mf.mfAiInvoke=async()=>({text:JSON.stringify({leadingFragments:[],questions:[{qno:'1',questionType:'填空',stemMarkdown:'识别题 2+3=____',answerMarkdown:'5',analysisMarkdown:'2 加 3 得 5'}]})});
   try {
     for(const kind of ['recognize','structure','word']) {
       const run=create([{...card('人工题'),answer:'人工原答案',analysis:'人工原解析'}]);
