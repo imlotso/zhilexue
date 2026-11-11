@@ -638,6 +638,11 @@ async function mfIntakeWork(runId) {
       const el = view.querySelector('#' + id);
       if (el) el.disabled = (locked && id !== activeStopId) || !!missing[id];
     }
+    view.querySelectorAll('#wkPages [data-ocr]').forEach(el => { el.disabled = locked; });
+    view.querySelectorAll('#wkPages [data-struct]').forEach(el => {
+      const text = view.querySelector('#wkOcr' + Number(el.dataset.struct));
+      el.disabled = locked || !text || !text.value.trim();
+    });
   }
   function setBusy(value, stopId = '') {
     busy = value; activeStopId = value ? stopId : ''; syncWorkActions();

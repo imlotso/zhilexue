@@ -79,3 +79,20 @@ test('pipe tables render cells safely and preserve raw text outside supported ta
  assert.equal(w.document.querySelectorAll('td').length,2);assert.equal(w.document.querySelectorAll('img').length,0);
  assert.match(w.document.querySelector('td').textContent,/<img/);assert.equal(w.pdRichText('a|b'),'a|b');d.window.close();
 });
+test('page actions lock during recognition and restore according to current OCR text',async()=>{
+ const d=harness(),w=d.window;let finish;const calls=[];
+ const run={id:1,title:'test',pages:[{url:'/test.png'}],drafts:[],ocr_texts:['existing']};
+ w.api=async(url,opts)=>{if(opts)calls.push(url);if(url.endsWith('/recognize')){await new Promise(r=>finish=r);throw Error('synthetic');}if(url.endsWith('/runs/1'))return{run};return{list:[]};};
+ await w.mfIntakeWork(1);
+ const pending=w.document.getElementById('wkAuto').onclick();while(!finish)await new Promise(r=>setImmediate(r));
+ assert.equal(w.document.querySelector('[data-ocr]').disabled,true);
+ assert.equal(w.document.querySelector('[data-struct]').disabled,true);
+ await w.document.querySelector('[data-ocr]').onclick();await w.document.querySelector('[data-struct]').onclick();
+ assert.equal(calls.some(u=>u.endsWith('/ocr')||u.endsWith('/structure')),false);
+ finish();await pending;
+ assert.equal(w.document.querySelector('[data-ocr]').disabled,false);
+ assert.equal(w.document.querySelector('[data-struct]').disabled,false);
+ const ta=w.document.getElementById('wkOcr1');ta.value='';ta.dispatchEvent(new w.Event('input',{bubbles:true}));
+ assert.equal(w.document.querySelector('[data-struct]').disabled,true);
+ ta.value='edited';ta.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(w.document.querySelector('[data-struct]').disabled,false);d.window.close();
+});
