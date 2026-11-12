@@ -111,6 +111,16 @@
   .seg { display:flex; background:var(--ghost); border-radius:10px; overflow:hidden; }
   .seg button { border-radius:0; background:transparent; color:var(--ghost-text); }
   .seg button.on { background:var(--seg-on); color:var(--accent-text); font-weight:700; }
+  /* Keep the timer readable and its controls usable on desktop and phones. */
+  .center{bottom:125px}
+  .clock{font-size:min(28vh,24vw)}
+  .quote{font-size:clamp(24px,4.5vmin,50px)}
+  .quote span{color:var(--text)!important}
+  .bottom{position:relative;z-index:1;padding:12px 0 8px}
+  .row{gap:12px;align-items:end}
+  .row button,.row input{min-height:48px;font-size:16px}
+  .btn-main{min-width:150px}
+  @media(max-width:600px){body{padding:12px}.center{bottom:180px}.clock{font-size:min(20vh,22vw)}.prog{width:80vw}.row{gap:8px}.row button{padding:10px 13px}.btn-main{min-width:130px}.seg{order:3;width:100%}.seg button{flex:1}}
 </style>
 </head>
 <body data-theme="night">

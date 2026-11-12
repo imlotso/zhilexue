@@ -322,3 +322,53 @@ body.wt-stage .rounded-student .round-topbar,body.wt-stage .rounded-student .rou
  .handout-preview .print-h{flex-wrap:wrap;gap:10px;padding:12px}.handout-preview .print-h b{flex-basis:100%;font-size:15px;white-space:normal;overflow-wrap:anywhere}
  .handout-preview .print-acts{width:100%;gap:8px}.handout-preview .print-acts .kb{flex:1;padding:9px 12px}
 }
+
+/* Course detail: inline playback and a compact, readable directory. */
+.rounded-student .round-video-stage{display:block;min-height:0;padding:0;border-radius:18px;aspect-ratio:16/9;background:#103c31;overflow:hidden}
+.rounded-student .course-player-placeholder{height:100%;min-height:240px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:52px 20px 25px;text-align:center;background:linear-gradient(135deg,#386b54,#123f31)}
+.rounded-student .course-player-placeholder h2{font-size:clamp(24px,3vw,40px);margin:0 0 22px}
+.rounded-student .course-player-placeholder p{color:#fff;margin:15px 0 0;font-size:15px}
+.rounded-student .course-player-host,.rounded-student .course-inline-player,.rounded-student .course-inline-player .video-box{width:100%;height:100%;max-width:none;background:#101b17}
+.rounded-student .course-inline-player .video-box{display:flex;flex-direction:column;border-radius:0;overflow:hidden}
+.rounded-student .course-inline-player .player-wrap{position:relative;flex:1;min-height:0;background:#101b17}
+.rounded-student .course-inline-player video,.rounded-student .course-inline-player iframe{display:block;width:100%;height:100%;max-height:none;object-fit:contain;border:0}
+.rounded-student .course-inline-player .st-player-bar{flex:none;min-height:45px;padding:6px 12px;gap:10px}
+.rounded-student .course-inline-player .pb-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rounded-student .round-course-directory{align-self:start}
+.rounded-student .round-lesson-icon{min-width:44px;min-height:44px}
+@media(max-width:700px){
+ .rounded-student .round-video-stage{min-height:0;aspect-ratio:auto}
+ .rounded-student .course-player-placeholder{min-height:220px}
+ .rounded-student .course-player-host{aspect-ratio:16/9}
+ .rounded-student .course-inline-player .st-player-bar{min-height:42px;font-size:12px}
+ .rounded-student .course-inline-player .pb-title{display:none}
+ .rounded-student .course-inline-player .pb-right{width:100%;justify-content:center}
+ .rounded-student .course-inline-player .spd-b{min-width:36px;min-height:32px}
+}
+.rounded-student .course-inline-player .st-player-bar{background:#123c30;color:#fff}
+.rounded-student .course-inline-player .spd-b.on{background:#278257;color:#fff}
+.rounded-student .course-inline-player .spd-b:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.rounded-student .round-course-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:18px 0}
+.rounded-student .round-course-actions .round-practice-banner,.rounded-student .round-course-actions .round-handout{margin:0;min-width:0;padding:16px;gap:10px}
+.rounded-student .round-course-actions .round-practice-banner{flex-wrap:wrap}
+.rounded-student .round-course-actions .round-practice-banner span{min-width:0;flex:1}
+.rounded-student .round-course-actions .round-practice-banner button{min-height:44px;font-size:15px;padding:8px 14px}
+.rounded-student .round-course-actions .round-handout{flex-wrap:wrap}
+.rounded-student .round-continue-learning{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:8px 16px;margin:0 0 12px;border:1px solid #086348;border-radius:12px;background:#fff;color:#075c42;font-weight:700;cursor:pointer}
+.rounded-student .round-continue-learning .ai{width:18px;height:18px}
+@media(max-width:700px){.rounded-student .round-course-actions{grid-template-columns:1fr}.rounded-student .round-course-actions .round-practice-banner,.rounded-student .round-course-actions .round-handout{padding:14px}}
+/* Student papers, review and word-training entry points. */
+.rounded-student #papersHost .bk-tabs a.on{background:#086348;border-color:#086348;color:#fff}
+.rounded-student #papersHost .pk-entry .btn.primary,.rounded-student #papersHost #pkSearch{min-height:44px;background:#086348;border-color:#086348;color:#fff}
+.rounded-student #papersHost .pk-categories button.on{background:#deeee3;color:#075c42}
+.rounded-student #papersHost .t10-q:focus{border-color:#086348;box-shadow:0 0 0 3px #b6dfc4}
+.round-mist-review-entry{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 18px;padding:14px 18px;border-radius:18px;background:#e1f1e5;color:#124e37;font-weight:700}
+.round-mist-review-entry .round-review-due{width:auto;min-height:44px;padding:10px 18px;background:#086348;border-color:#086348;color:#fff;font-weight:700}
+.rounded-student .round-export{min-height:44px;background:#fff;color:#075c42;border:1px solid #086348;font-size:16px}
+.rounded-student .wt-panel-btns .btn{min-height:44px;padding:9px 14px;border:1px solid #75a98a!important;border-radius:12px;background:#fff!important;color:#075c42!important;font-size:15px;font-weight:700}
+.rounded-student .wt-panel-btns .btn:hover{background:#e1f1e5!important}
+.rounded-student .wt-flow b,.rounded-student .wt-flow .ai{color:#086348}
+.rounded-student .wt-choose-unit .empty{padding:32px 16px;color:#315b47;line-height:1.6}
+.rounded-student .wt-choose-unit .empty b{display:block;font-size:19px;color:#0b513a}
+.rounded-student .wt-choose-unit .empty p{margin:8px 0 0}
+@media(max-width:700px){.round-mist-review-entry .round-review-due{width:100%}.rounded-student .wt-panel-btns{margin-left:0;width:100%}.rounded-student .wt-panel-btns .btn{flex:1 1 auto}}

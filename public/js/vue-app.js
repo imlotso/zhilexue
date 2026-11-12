@@ -166,6 +166,9 @@ const App = {
       mobileNavOpen: false,
       desktopNav: typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 961px)').matches,
       selectedLessonId: null,
+      playerActive: false,
+      playerLoading: false,
+      playerError: '',
     };
   },
   computed: {
@@ -255,6 +258,7 @@ const App = {
     document.addEventListener('click', () => { this.themeOpen = false; });
   },
   beforeUnmount() {
+    this.stopCourseVideo();
     if (this._navMedia && this._navMediaChange) {
       if (this._navMedia.removeEventListener) this._navMedia.removeEventListener('change', this._navMediaChange);
       else if (this._navMedia.removeListener) this._navMedia.removeListener(this._navMediaChange);
@@ -312,7 +316,18 @@ const App = {
       event.preventDefault(); event.stopPropagation(); this.closeLearningNav();
     },
     courseSub,
-    selectLesson(lesson, groupId) { this.selectedLessonId = lesson.video_id; this.activeGroupId = groupId; },
+    stopCourseVideo() {
+      this._videoRequest = (this._videoRequest || 0) + 1;
+      if (this._closeCourseVideo) this._closeCourseVideo();
+      this._closeCourseVideo = null;
+      this.playerActive = false;
+      this.playerLoading = false;
+    },
+    selectLesson(lesson, groupId) {
+      if (!this.focusLesson || this.focusLesson.video_id !== lesson.video_id) this.stopCourseVideo();
+      this.playerError = '';
+      this.selectedLessonId = lesson.video_id; this.activeGroupId = groupId;
+    },
     /** 习题正确率标签（T6）：a = { total, answered, correct, rate }；没有绑题的视频 / 分组不显示 */
     accText(a, short) {
       if (!a || !a.total) return '';
@@ -335,6 +350,8 @@ const App = {
       this.page = 'courses';
     },
     async load() {
+      const route = parseHash();
+      if (this.page === 'course' && (route.key !== 'course' || route.arg !== this.courseId)) this.stopCourseVideo();
       this.syncRoute();
       const request = this.loadRequest = (this.loadRequest || 0) + 1;
       if (this.page !== 'words' && typeof wtCancelDataLoad === 'function') wtCancelDataLoad();
@@ -459,6 +476,7 @@ const App = {
       if (!cats.includes(this.category)) this.category = cats[0];
     },
     async loadCourse() {
+      this.stopCourseVideo();
       this.selectedLessonId = null;
       const request = this.courseRequest = (this.courseRequest || 0) + 1;
       const courseId = this.courseId, page = this.page, loadRequest = this.loadRequest;
@@ -702,17 +720,28 @@ const App = {
     },
     fileKind, fmtSize, canPreview,
     async playVideo(lesson) {
+      if (!lesson || this.page !== 'course') return;
+      this.stopCourseVideo();
+      this.selectedLessonId = lesson.video_id;
+      const group = this.courseDisplayGroups.find(g => g.lessons.some(l => l.video_id === lesson.video_id));
+      if (group && this.course.grouped) this.activeGroupId = group.id;
+      this.playerError = ''; this.playerLoading = true;
+      const request = this._videoRequest;
       const videoId = lesson.video_id;
-      const v = await api('/api/stu/videos/' + videoId + '/play').catch((e) => { toast(e.message || '视频加载失败'); return null; });
+      const v = await api('/api/stu/videos/' + videoId + '/play').catch((e) => {
+        if (request === this._videoRequest) this.playerError = e.message || '视频加载失败，请重试';
+        return null;
+      });
+      if (request !== this._videoRequest || this.page !== 'course') return;
+      this.playerLoading = false;
       if (!v) return;
-      if (!v.src) { toast('该知识点还没有上传视频文件，请联系老师'); return; }
+      if (!v.src) { this.playerError = '该知识点还没有上传视频文件，请联系老师'; return; }
       const isFile = v.is_file !== undefined ? v.is_file : /\/api\/file|\.(mp4|webm|ogg|mov|m3u8)(\?|$)/i.test(v.src);
       const canSpeed = v.allow_speed !== 0;
       const rates = [0.75, 1, 1.25, 1.5, 2];
       const wrap = document.createElement('div');
-      wrap.className = 'mask video-mask';
+      wrap.className = 'course-inline-player';
       wrap.innerHTML = `<div class="video-box">
-        <div class="video-h"><b>${esc(lesson.title || v.title)}</b><button class="close-x">&times;</button></div>
         <div class="player-wrap t1-pw">${isFile
           ? `<video id="stVideo" src="${esc(withTicket(v.src))}" controls playsinline webkit-playsinline x5-playsinline x5-video-player-type="h5-page" x5-video-player-fullscreen="false" preload="metadata"></video><div class="t1-vp-layer" hidden></div>`
           : `<iframe src="${esc(withTicket(v.src))}" allowfullscreen></iframe>`}</div>
@@ -721,12 +750,14 @@ const App = {
             ? `<span class="pb-lbl">倍速</span><div class="spd">${rates.map((r) => `<button class="spd-b ${r === this.speed ? 'on' : ''}" data-rate="${r}">${r === 1 ? '1.0' : r}</button>`).join('')}</div>`
             : '<span class="pb-lock">播放</span>'}</div></div>
       </div>`;
-      document.body.appendChild(wrap);
+      const host = this.$refs.inlinePlayer;
+      if (!host) return;
+      host.appendChild(wrap);
+      this.playerActive = true;
       const vid = wrap.querySelector('#stVideo');
       let closed = false, stallTimer = 0;
-      const close = () => { closed = true; clearTimeout(stallTimer); if (vid) vid.pause(); wrap.remove(); };
-      wrap.querySelector('.close-x').onclick = close;
-      wrap.onclick = (e) => { if (e.target === wrap) close(); };
+      const close = () => { closed = true; clearTimeout(stallTimer); if (vid) { vid.pause(); vid.removeAttribute('src'); vid.load(); } wrap.remove(); };
+      this._closeCourseVideo = close;
       if (!vid) return;
       // ---- 手机播放兜底：播放被拒 / 加载出错 / 卡住 / 只有声音没有画面（H.265 等），都给出明确提示 ----
       const layer = wrap.querySelector('.t1-vp-layer');
@@ -751,7 +782,7 @@ const App = {
         if (closed) return;
         clearTimeout(stallTimer);
         layer.className = 't1-vp-layer t1-vp-err' + (soft ? ' t1-vp-soft' : '');
-        layer.innerHTML = `<div class="t1-vp-msg">${esc(msg)}</div><div class="t1-vp-acts"><button type="button" class="t1-vp-btn t1-vp-reload">重新加载</button><a class="t1-vp-btn t1-vp-open" target="_blank" rel="noopener" href="${esc(withTicket(v.src))}">用浏览器打开</a></div>`;
+        layer.innerHTML = `<div class="t1-vp-msg">${esc(msg)}</div><div class="t1-vp-acts"><button type="button" class="t1-vp-btn t1-vp-reload">重新加载</button></div>`;
         layer.hidden = false;
         layer.querySelector('.t1-vp-reload').onclick = reload;
       };
@@ -794,7 +825,7 @@ const App = {
         if (closed || noPic || !(vid.duration > 0) || vid.videoWidth !== 0) return;
         noPic = true;
         vid.pause();
-        showErr('这个视频只有声音、没有可显示的画面：画面编码（如 H.265）当前浏览器不支持。可以点“用浏览器打开”换个浏览器试试，或联系老师重新上传 H.264 编码的 MP4');
+        showErr('这个视频只有声音、没有可显示的画面：画面编码（如 H.265）当前浏览器不支持。请联系老师重新上传 H.264 编码的 MP4');
       };
       vid.addEventListener('loadeddata', checkNoPicture);
       // 竖屏视频（高>宽）不套固定 16:9，保持按视频比例显示，否则在手机上会缩成一条
@@ -812,7 +843,7 @@ const App = {
       }
       let marked = false;
       const mark = async () => {
-        if (marked) return;
+        if (marked || closed) return;
         marked = true;
         try { await api('/api/stu/progress', { method: 'POST', body: { video_id: videoId, video_done: 1 }, silent: true }); }
         catch (e) { marked = false; return; }
@@ -1097,22 +1128,27 @@ const App = {
         <div class="round-course-layout">
           <section class="round-course-main">
             <div class="r8-hero round-video-stage">
-              <div class="round-video-label"><i class="ai ai-video"></i>课程视频</div>
-              <h2>{{focusLesson ? focusLesson.title : '暂无课程视频'}}</h2>
-              <img class="round-video-art" src="/img/ui-rounded-learning-hero-20261108.png" alt="" aria-hidden="true">
-              <button class="round-video-play" :disabled="!focusLesson" @click="playVideo(focusLesson)" :aria-label="focusLesson ? '播放'+focusLesson.title : '暂无视频'"><i class="ai ai-play"></i></button>
-              <div class="round-video-foot"><i class="ai ai-play"></i><span>{{focusLesson ? '点击播放课程视频' : '等待老师添加视频'}}</span><button v-if="course.kp_total" @click="continueLearn">继续学习<i class="ai ai-arrow-right"></i></button></div>
+              <div ref="inlinePlayer" class="course-player-host" v-show="playerActive"></div>
+              <div v-if="!playerActive" class="course-player-placeholder">
+                <span class="round-video-label"><i class="ai ai-video"></i>课程视频</span>
+                <h2>{{focusLesson ? focusLesson.title : '暂无课程视频'}}</h2>
+                <button class="round-video-play" :disabled="!focusLesson || playerLoading" @click="playVideo(focusLesson)" :aria-label="focusLesson ? '播放'+focusLesson.title : '暂无视频'"><i class="ai ai-play"></i></button>
+                <p role="status">{{playerLoading ? '视频加载中…' : (playerError || (focusLesson ? '点击播放课程视频' : '等待老师添加视频'))}}</p>
+              </div>
             </div>
             <template v-if="focusLesson">
+              <div class="round-course-actions">
+              <div class="round-practice-banner"><i class="ai ai-edit"></i><span><b>配套练习</b><small>{{focusLesson.qcount ? '完成学习后，用练习巩固知识。' : '这节课程暂无配套习题。'}}</small></span><button v-if="focusLesson.qcount" @click="doPractice(focusLesson)">开始练习<i class="ai ai-arrow-right"></i></button></div>
+              <div v-if="focusLesson.handout" class="round-handout"><i class="ai ai-doc"></i><span>{{focusLesson.handout.title}}</span><button class="kb kb-print" @click="printDoc(focusLesson.handout.id,focusLesson.handout.title)">查看讲义</button></div>
+              </div>
               <h2 class="round-lesson-title">{{focusLesson.title}}</h2>
               <div class="round-lesson-stats"><div><i class="ai ai-book"></i><span>学习进度<b>{{focusLesson.done ? '已学完' : '未开始'}}</b></span></div><div><i class="ai ai-doc"></i><span>配套习题<b>{{focusLesson.qcount || 0}} 题</b></span></div><div><i class="ai ai-chart"></i><span>习题正确率<b>{{focusLesson.acc&&focusLesson.acc.total ? (focusLesson.acc.rate===null ? '未作答' : focusLesson.acc.rate+'%') : '—'}}</b></span></div></div>
               <div v-if="focusLesson.nodes&&focusLesson.nodes.length" class="r8-ktags"><span class="r8-ktags-l">知识点</span><button v-for="n in focusLesson.nodes" :key="n.id" class="r8-ktag" @click="showNodeMastery(n)">{{n.name}}</button></div>
-              <div class="round-practice-banner"><i class="ai ai-edit"></i><span><b>配套练习</b><small>{{focusLesson.qcount ? '完成学习后，用练习巩固知识。' : '这节课程暂无配套习题。'}}</small></span><button v-if="focusLesson.qcount" @click="doPractice(focusLesson)">开始练习<i class="ai ai-arrow-right"></i></button></div>
-              <div v-if="focusLesson.handout" class="round-handout"><i class="ai ai-doc"></i><span>{{focusLesson.handout.title}}</span><button class="kb kb-print" @click="printDoc(focusLesson.handout.id,focusLesson.handout.title)">查看讲义</button></div>
+
             </template>
             <div v-if="course.exercises&&course.exercises.length" class="st-sec round-exercises"><div class="sec-h"><b>课程资料</b></div><div class="ex-list"><div v-for="h in course.exercises" :key="h.id" class="ex-row"><div class="doc-ic" :class="fileKind(h.file_name).cls">{{fileKind(h.file_name).txt}}</div><div class="ex-info"><b>{{h.title}}</b><span>{{fmtSize(h.size)}}</span></div><div class="ex-acts"><button v-if="canPreview(h.file_name)" class="kb kb-print" @click="printDoc(h.id,h.title)"><i class="ai ai-print"></i>打印</button><button class="kb kb-dl" @click="downloadDoc(h.id)"><i class="ai ai-download"></i>下载</button></div></div></div></div>
           </section>
-          <aside class="round-course-directory"><h2><i class="ai ai-folder"></i>单元目录</h2>
+          <aside class="round-course-directory"><h2><i class="ai ai-folder"></i>单元目录</h2><button v-if="course.kp_total" class="round-continue-learning" @click="continueLearn">继续学习<i class="ai ai-arrow-right"></i></button>
             <section v-for="g in courseDisplayGroups" :key="g.id" class="round-course-group" :class="{on:!course.grouped||activeGroupId===g.id}">
               <button class="round-group-title" @click="activeGroupId=g.id"><span v-if="course.grouped">小分组</span><b>{{g.name}}</b><i class="ai ai-arrow-right"></i></button>
               <template v-if="!course.grouped||activeGroupId===g.id">
@@ -1131,7 +1167,7 @@ const App = {
         </div>
       </template>
       <div v-else-if="page==='tool'" class="tool-page">
-        <iframe class="tool-frame" src="/apps/timer.html" title="计时"></iframe>
+        <iframe class="tool-frame" src="/apps/timer.html?v=20261113-student-usability" title="计时"></iframe>
       </div>
       <section v-else-if="page==='papers' || page==='mistakes'" class="round-bank-page"><div v-if="page==='mistakes'" id="bkTabsMount"></div><div class="bank-host" :id="page + 'Host'"></div></section>
       <div v-else-if="page==='words'" class="wt-layout" :class="{ 'side-closed': sideSubs.length>1 && !wtSideOpen }">
