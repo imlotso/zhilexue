@@ -81,6 +81,7 @@ jobs:
       - run: node drawing-answer-test.js
       - run: node question-ticket-test.js    # 学生题目票据的身份绑定、到期与篡改
       - run: node mfpack-adapter-test.js
+      - run: node --test skill-download-release-test.js capture-images-synthetic-test.js
       - run: node english-workflow-test.js
       - run: node intake-recovery-ui-test.js
       - run: node --test astra-import-ui-regression-test.js

@@ -43,6 +43,8 @@ cd /www/xuexi-system && (git rev-parse HEAD 2>/dev/null || echo "（不是 git �
 
 ## 2. 同步代码到服务器
 
+技能包下载依赖随代码交付的 `src/assets/zhilexue-question-transcribe.zip`。打包时必须包含并校验该文件；不要通过覆盖或重建生产 `data` 目录提供它。
+
 **排除**：`node_modules`（在服务器上重新装）、`data/uploads`（学生和老师上传的文件，千万不能被覆盖或删除）、TTS 缓存、`data/tmp`、`data/logs`、`.git`、`public/uploads`。
 
 在**能访问仓库的电脑**上（先 `git checkout <要发布的标签或 main>`），先 `--dry-run` 看会改哪些文件，确认无误再去掉 `--dry-run`：

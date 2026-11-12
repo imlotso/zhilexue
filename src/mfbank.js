@@ -2358,7 +2358,7 @@ admin.delete('/intake/runs/:id', (req, res) => {
 const path = require('path');
 const { ZipReader } = require('./mfzip');
 const upBig = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 4, fieldArrayIndexLimit: 100, fileSize: 60 * 1024 * 1024 } });
-const SKILL_ZIP = path.join(__dirname, '..', 'data', 'zhilexue-question-transcribe.zip');
+const SKILL_ZIP = path.join(__dirname, 'assets', 'zhilexue-question-transcribe.zip');
 
 /** 技能包下载（导入弹窗里的「获取转写skill」） */
 admin.get('/import-skill', (req, res) => {
@@ -2367,7 +2367,7 @@ admin.get('/import-skill', (req, res) => {
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', 'attachment; filename="zhilexue-question-transcribe.zip"');
     return res.send(buf);
-  } catch (e) { return fail(res, '智学课堂技能包文件缺失，请运行 scripts/build-zhilexue-skill.py 生成'); }
+  } catch (e) { return fail(res, '智学课堂技能包暂不可用，请联系管理员检查发布文件'); }
 });
 
 const MF_TYPE_MAP = [['判断', 'judge'], ['多选', 'multi'], ['单选', 'single'], ['选择', 'single'], ['填空', 'fill'], ['排序', 'sort'], ['解答', 'answer'], ['计算', 'answer'], ['证明', 'answer'], ['简答', 'answer'], ['问答', 'answer'], ['应用', 'answer']];

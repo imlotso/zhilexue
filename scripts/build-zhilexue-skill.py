@@ -6,7 +6,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 root = Path(__file__).resolve().parent.parent
 source = root / 'data/mofang-question-transcribe.zip'
-target = root / 'data/zhilexue-question-transcribe.zip'
+target = root / 'src/assets/zhilexue-question-transcribe.zip'
 overlay = root / 'data/zhilexue-transcribe'
 prefix = 'mofang-question-transcribe/'
 

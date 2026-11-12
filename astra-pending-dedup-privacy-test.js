@@ -187,3 +187,16 @@ for (const row of [
     assert.equal(cards.length,1);assert.equal(cards[0].stem,'合法初中题');
   });
 }
+test('skill import reports blank stems and missing images without silently staging them',async t=>{
+  const f=fixture(t,null,'skill');
+  const result=await f.importRaw({subject:'数学',stage:'junior',pack:{format:'mofang-question-pack',schemaVersion:1,packageId:'synthetic-visibility',questions:[
+    {recordKey:'good',content:{stem:'合成完整题'},metadata:{}},
+    {recordKey:'empty',content:{stem:'   '},metadata:{}},
+    {recordKey:'missing-image',content:{stem:'合成缺图题 [图1]',figures:[{ref:1,assetId:'missing'}]},metadata:{}}
+  ],assets:[]}});
+  assert.equal(result.code,0,result.msg);assert.equal(result.data.staged,1);assert.equal(result.data.failed,2);
+  assert.match(result.data.errors.find(e=>e.recordKey==='empty').msg,/题干为空/);
+  assert.match(result.data.errors.find(e=>e.recordKey==='missing-image').msg,/缺少图片资产/);
+  const cards=JSON.parse(f.db.prepare('SELECT drafts FROM mf_recog_runs WHERE id=?').get(result.data.run_id).drafts);
+  assert.deepEqual(cards.map(c=>c.stem),['合成完整题']);
+});
