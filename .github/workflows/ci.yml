@@ -83,6 +83,7 @@ jobs:
       - run: node mfpack-adapter-test.js
       - run: node --test skill-download-release-test.js capture-images-synthetic-test.js
       - run: node handout-controls-browser-test.js
+      - run: node --test words-animation-wait-test.js words-layout-isolation-test.js
       - run: node --test course-inline-player-browser-test.js student-entries-browser-test.js
       - run: node english-workflow-test.js
       - run: node intake-recovery-ui-test.js
@@ -149,6 +150,10 @@ jobs:
           BASE: http://127.0.0.1:3000
           ZLX_AUDIT_ALLOW_SYNTHETIC_HTTP: '1'
       - run: node smoke.js
+      - name: Check word layout after learning animations
+        run: node words-layout-test.js
+        env:
+          BASE: http://127.0.0.1:3000
       - run: node word-test.js
         if: ${{ !cancelled() }}   # smoke 失败时也要跑出结果，不能被跳过
       - run: node wrong-test.js

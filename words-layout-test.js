@@ -1,7 +1,7 @@
 'use strict';
 /**
  * 单词页固定布局（T13）自测： node words-layout-test.js
- * 需先启动服务（默认 http://localhost:3000）。用真实浏览器（Playwright）量布局，所以 CI 里没有浏览器时会提示并跳过（退出码 0）。
+ * 必须提供隔离测试数据库与显式 BASE，并先启动隔离服务。用真实浏览器（Playwright）量布局，所以 CI 里没有浏览器时会提示并跳过（退出码 0）。
  * 做法：造一本"极端长短单词"的词书（a / extraordinarily / I / telecommunications / be responsible for … 释义从 1 个字到 40 个字），
  *       进入学习舞台，走完「单词学习 / 记忆学习 / 听音拼选 / 默写练习」四步，每一帧都量：
  *       学习卡片的高度、卡片里各区域（标签 / 单词 / 音标 / 释义 / 提示 / 选项 / 格子）相对卡片顶部的位置，
@@ -9,10 +9,12 @@
  */
 let chromium;
 try { ({ chromium } = require('playwright')); } catch (e) { console.log('本机没有 Playwright，跳过单词页布局测试（需要真实浏览器量布局）'); process.exit(0); }
+require('./test/words-layout-isolation.cjs').assertIsolatedWordsLayout(process.env);
 const { db } = require('./src/db');
 const { hash } = require('./src/auth');
+const { waitForMemoryAnimation } = require('./test/words-layout-animation.cjs');
 
-const BASE = process.env.BASE || 'http://localhost:3000';
+const BASE = process.env.BASE;
 let pass = 0, fail = 0;
 const log = (c, name, extra = '') => { console.log(`  ${c ? '✅' : '❌'} ${name}${extra ? '  →  ' + extra : ''}`); c ? pass++ : fail++; };
 const now = '2026-11-02 00:00:00';
@@ -44,7 +46,12 @@ async function walk(page, step, frames, tierBtn) {
   await page.evaluate((k) => { WT.quick.maxStep = 3; wtGoto(k); }, step);
   await page.waitForTimeout(500);
   const rows = [];
+  let animationChecks = 0;
   for (let it = 0; it < frames; it++) {
+    // “learn” deliberately animates English first and Chinese 1.7 seconds
+    // later. Screen rectangles during transforms are not layout positions.
+    const learning = step === 'memorize' && await page.evaluate(() => WT.quick.mem.phase === 'learn');
+    if (learning) { await waitForMemoryAnimation(page); animationChecks++; }
     const info = await page.evaluate((KEYS) => {
       const c = document.querySelector('.wt-card'); if (!c) return null;
       const cr = c.getBoundingClientRect();
@@ -60,13 +67,18 @@ async function walk(page, step, frames, tierBtn) {
       let r = c('#wqYes') || c('#wtNext') || c('#wtNextGrp'); if (r) return r;
       const inp = document.querySelector('#wsInput'); if (inp) { inp.value = 'zzz'; inp.dispatchEvent(new Event('input', { bubbles: true })); const ok = document.querySelector('#wsOk'); if (ok) { ok.click(); return 'spell'; } }
       const tl = [...document.querySelectorAll('.wq-ls-tile:not(.used):not([disabled])')]; if (tl.length) { tl[0].click(); return 'tile'; }
-      const opt = document.querySelector('.wt-opt:not([disabled])'); if (opt) { opt.click(); return 'opt'; }
+      const opts = [...document.querySelectorAll('.wt-opt:not([disabled])')];
+      // Exercise the feedback/animation path deterministically, not by chance.
+      const word = WT.quick.step === 'memorize' && WT.quick.words[WT.quick.mem.i];
+      const opt = (word && opts.find((x) => x.textContent.trim() !== word.meaning)) || opts[0];
+      if (opt) { opt.click(); return 'opt'; }
       r = c('#wqNext') || c('#wsNext'); if (r) return r;
       const b = [...document.querySelectorAll('.wt-acts .btn')].find((x) => x.offsetParent !== null && !x.disabled); if (b) { b.click(); return 'acts'; }
       return '';
     });
     await page.waitForTimeout(acted === 'spell' ? 450 : 230);
   }
+  rows.animationChecks = animationChecks;
   return rows;
 }
 const distinct = (rows, f) => [...new Set(rows.map(f).filter((v) => v !== undefined))];
@@ -89,6 +101,7 @@ const distinct = (rows, f) => [...new Set(rows.map(f).filter((v) => v !== undefi
       const labels = { read: '① 单词学习', memorize: '② 记忆学习', match: '③ 听音拼选', spell: '④ 默写练习' };
       for (const step of ['read', 'memorize', 'match', 'spell']) {
         const rows = await walk(page, step, step === 'read' ? 8 : 26, tier);
+        if (step === 'memorize') log(rows.animationChecks > 0, `字号「${tier}」：英文和中文放大动画真实发生并完成`, `已验证 ${rows.animationChecks} 次`);
         const words = distinct(rows, (r) => r.word);
         const sampled = rows.length >= 6;
         log(sampled, `字号「${tier}」${labels[step]}：采集到 ${rows.length} 帧，覆盖 ${words.length} 个不同的词（含 1 字母和 18 字符的短语）`);
