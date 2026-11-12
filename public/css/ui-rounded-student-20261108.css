@@ -301,3 +301,24 @@ body.wt-stage .rounded-student .round-topbar,body.wt-stage .rounded-student .rou
  .rounded-student .learn-practice-row b{font-size:21px;}
  .rounded-student .learn-practice-row>.ai:first-child{width:30px;height:30px;}
 }
+
+/* 讲义入口与预览操作：沿用学习空间的绿色，保持清晰可触控。 */
+.round-handout>span{min-width:0;overflow-wrap:anywhere;color:#143f32;font-size:16px;line-height:1.45}
+.st-layout.st-biz.rounded-student .round-handout .kb-print{flex:none;min-height:44px;padding:10px 20px;border:1px solid #086348!important;border-radius:14px!important;background:#fff!important;color:#075c42!important;font-size:15px;font-weight:700;white-space:nowrap;box-shadow:none}
+.st-layout.st-biz.rounded-student .round-handout .kb-print:hover{background:#d4eade!important;color:#064b38!important;border-color:#064b38!important}
+.handout-preview.mask{padding:0;overflow:hidden}
+.handout-preview .print-box{height:100vh;height:100dvh;background:#f3f7f2}
+.handout-preview .print-h{gap:16px;padding:14px 22px;background:#f7fbf7;border-bottom:1px solid #c6dcd0;color:#103e31}
+.handout-preview .print-h b{min-width:0;flex:1;font-size:17px;line-height:1.4}
+.handout-preview .print-acts{gap:10px}
+.handout-preview .print-acts .kb,.handout-preview .print-acts .close-x{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:9px 18px;border:1px solid #096548;border-radius:12px;font-size:15px;font-weight:700;line-height:1.2;box-shadow:none;cursor:pointer}
+.handout-preview .print-acts .kb-dl,.handout-preview .print-acts .close-x{background:#fff;color:#07563e}
+.handout-preview .print-acts .kb-play{background:#086348;color:#fff}
+.handout-preview .print-acts .close-x{padding:6px 12px;font-size:24px}
+.handout-preview .print-acts button:hover{filter:brightness(.94)}
+.handout-preview .print-acts button:focus-visible,.round-handout .kb-print:focus-visible{outline:3px solid #cf8b00;outline-offset:2px}
+@media(max-width:600px){
+ .round-handout{gap:10px;padding:14px}.round-handout>span{font-size:14px}.rounded-student .round-handout .kb-print{font-size:14px;padding:9px 16px}
+ .handout-preview .print-h{flex-wrap:wrap;gap:10px;padding:12px}.handout-preview .print-h b{flex-basis:100%;font-size:15px;white-space:normal;overflow-wrap:anywhere}
+ .handout-preview .print-acts{width:100%;gap:8px}.handout-preview .print-acts .kb{flex:1;padding:9px 12px}
+}

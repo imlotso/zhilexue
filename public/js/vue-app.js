@@ -856,12 +856,12 @@ const App = {
       this.courses = null;
       if (!canPreview(d.name)) { toast('该格式暂不支持在线打印，已为你下载文件'); downloadUrl(d.key, d.name); return; }
       const wrap = document.createElement('div');
-      wrap.className = 'mask print-mask';
+      wrap.className = 'mask print-mask handout-preview';
       wrap.innerHTML = `<div class="print-box">
         <div class="print-h"><b>${esc(title || d.name)}</b>
-          <div class="print-acts"><button class="kb kb-dl" id="pDl">下载</button><button class="kb kb-play" id="pDo">打印</button><button class="close-x">&times;</button></div>
+          <div class="print-acts"><button class="kb kb-dl" id="pDl">下载</button><button class="kb kb-play" id="pDo">打印</button><button class="close-x" type="button" aria-label="关闭讲义预览">&times;</button></div>
         </div>
-        <iframe class="print-frame" src="${fileUrl(d.key, '', true)}" title="讲义预览"></iframe>
+        <iframe class="print-frame" src="${fileUrl(d.key, '', true)}${fileKind(d.name).cls === 'pdf' ? '#toolbar=0' : ''}" title="讲义预览"></iframe>
       </div>`;
       document.body.appendChild(wrap);
       const close = () => wrap.remove();
