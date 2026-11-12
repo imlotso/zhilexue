@@ -527,7 +527,7 @@ async function wtShell(sub, inner) {
   const needUnit = (units || []).length > 0 && !WT.unit && !subSt.unitAll;
   const noun = sub === 'phrase' ? '短语' : '单词';
   const innerHtml = needUnit
-    ? `<div class="card"><div class="empty">请先选择单元</div></div>`
+    ? `<div class="card wt-choose-unit"><div class="empty"><b>选择单元开始学习</b><p>请在上方选择一个单元，或选择全部单元。</p></div></div>`
     : (typeof inner === 'string' ? inner : (inner && inner.html) || '');
 
   // 课文分组（课文朗读 / 连词成句 / 听音拼句共用句子库）：当前单元下有分组数据才显示筛选条
