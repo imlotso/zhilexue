@@ -1030,7 +1030,7 @@ const App = {
       <div v-else-if="error" class="empty">{{ error }}</div>
 
       <section v-else-if="page==='home'" class="learn-home">
-        <div class="learn-greeting"><p class="round-kicker">{{ homeSubtitle }}</p><h2><span class="round-desktop-greeting">今天，从一个知识点开始</span><span class="round-mobile-greeting">今天，学懂一个知识点。</span></h2><p class="round-intro">把课堂知识学懂，再用练习巩固。</p></div>
+        <div class="learn-greeting"><p class="round-kicker">{{ homeSubtitle }}</p><h2><span class="round-desktop-greeting">今天，从一个知识点开始</span><span class="round-mobile-greeting">今天，学懂一个知识点。</span></h2></div>
         <div class="round-home-top">
           <section class="learn-hero" aria-labelledby="learnHeroTitle">
             <div class="learn-hero-copy">
@@ -1040,7 +1040,6 @@ const App = {
                 <p class="learn-next">{{ homeDetail && homeDetail.next ? homeDetail.next.title : (homeCourse.kp_total ? (homeCourse.kp_done >= homeCourse.kp_total ? '已学完本课程，可以继续练习巩固' : courseSub(homeCourse)) : '查看课程资料与配套练习') }}</p>
                 <div class="learn-progress-row"><template v-if="homeCourse.kp_total"><span>已完成 <b>{{ homeCourse.kp_done }}</b> / {{ homeCourse.kp_total }} 课</span><progress :value="homeProgress" max="100" :aria-label="'课程完成 ' + homeProgress + '%'"></progress></template><span v-else>暂无视频课程</span></div>
                 <button class="learn-primary" @click="openCourse(homeCourse.id)">{{ homeCourse.kp_done ? '继续学习' : '进入课程' }}<i class="ai ai-arrow-right"></i></button>
-                <p class="learn-accuracy">练习正确率 <b :class="{ 'learn-no-rate': !(homeCourse.acc && homeCourse.acc.total && homeCourse.acc.rate !== null) }">{{ homeAccuracy }}</b></p>
               </template>
               <template v-else>
                 <h2 id="learnHeroTitle">{{ homeCourseError ? '课程暂时未能加载' : '准备好开始学习了吗' }}</h2><p class="learn-next">{{ homeCourseError || '暂无可学习课程，开通后会显示在这里。' }}</p>
@@ -1052,7 +1051,7 @@ const App = {
           <section class="learn-tasks" aria-labelledby="learnTaskTitle">
             <div class="learn-section-heading"><h2 id="learnTaskTitle"><i class="ai ai-doc"></i>我的任务</h2><a class="round-task-link" href="#/papers" @click.prevent="goHomeTasks"><i class="ai ai-arrow-right"></i><span class="sr-only">查看试卷</span></a></div>
             <div v-if="homeTaskError" class="learn-empty">{{ homeTaskError }}<button @click="load">重新加载</button></div>
-            <div v-else-if="!homeTasks.length" class="learn-empty"><i class="ai ai-doc"></i><b>暂无学习任务</b><span>老师下发的试卷会显示在这里。</span><button class="round-view-tasks" @click="goHomeTasks">查看试卷<i class="ai ai-arrow-right"></i></button></div>
+            <div v-else-if="!homeTasks.length" class="learn-empty"><i class="ai ai-doc"></i><b>暂无学习任务</b><button class="round-view-tasks" @click="goHomeTasks">查看试卷<i class="ai ai-arrow-right"></i></button></div>
             <div v-else class="round-task-list"><article v-for="task in homeTasks.slice(0,3)" :key="task.id" class="learn-task-row">
               <div class="learn-task-name"><h3>{{ task.title }}</h3><p>{{ [task.subject, task.q_count + ' 题'].filter(Boolean).join(' · ') }}</p><small v-if="task.due_at">{{ homeTaskDeadline(task) }}</small></div>
               <span class="learn-task-status" :class="{done:task.tried}">{{ homeTaskStatus(task) }}</span>
@@ -1069,7 +1068,6 @@ const App = {
           <section class="learn-practice" aria-labelledby="learnPracticeTitle"><div class="learn-section-heading"><h2 id="learnPracticeTitle"><i class="ai ai-edit"></i>自主练习</h2></div>
             <button class="learn-practice-row" @click="goSelfPractice('textbook')"><i class="ai ai-folder"></i><span><b>章节组卷</b><small>按教材章节选择练习</small></span><i class="ai ai-arrow-right"></i></button>
             <button class="learn-practice-row" @click="goSelfPractice('knowledge')"><i class="ai ai-puzzle"></i><span><b>知识点组卷</b><small>针对知识点巩固</small></span><i class="ai ai-arrow-right"></i></button>
-            <p class="round-practice-tip">学习报告在完成练习后生成。</p>
           </section>
         </div>
       </section>
