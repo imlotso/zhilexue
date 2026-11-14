@@ -1799,23 +1799,41 @@ const BankPages = {
       const sources = [...new Set(list.map((q) => q.source || '练习'))].sort();
       const points = [...new Set(list.map((q) => q.point).filter(Boolean))].sort();
       host.innerHTML = `
-        <div class="t9-root round-mist-root">
-          <header class="round-mist-heading"><div><h1>错题本</h1><p>把容易错的地方，变成下一次会做的题。</p></div><button class="round-mist-upload" id="bkUpBtn"><i class="ai ai-upload"></i>手机扫码上传</button></header>
-          <div class="round-mist-toolbar"><div id="roundMistTabs"></div><label>知识点<select name="point">${opts([['','全部知识点'],...points.map(x=>[x,x])],mistFilter.point)}</select></label><label>来源<select name="source">${opts([['','全部来源'],...sources.map(x=>[x,x])],mistFilter.source)}</select></label><label>时间<select name="days">${opts([['','全部时间'],['7','最近 7 天'],['30','最近 30 天'],['90','最近 90 天']],mistFilter.days)}</select></label><label>次数<select name="count">${opts([['','全部次数'],['1','错过 1 次'],['2','错过 2 次及以上']],mistFilter.count)}</select></label></div>
-          ${due ? `<div class="round-mist-review-entry"><span>今天有 ${due} 题需要复习</span><button class="round-review-due" id="bkReview"><i class="ai ai-flash"></i>开始今日复习（${due}题）</button></div>` : ''}
-          <div class="round-mist-layout">
-            <section class="round-mist-results"><div class="round-mist-count">共 ${filtered.length} 题<span>待攻克 ${open} 题 · 已掌握 ${mastered} 题</span><button id="bkAll">全部错题与筛选<i class="ai ai-arrow-right"></i></button></div>
-              ${filtered.length ? `<div class="bk-mist-list">${filtered.map(mistCard).join('')}</div>` : '<div class="round-mist-empty"><i class="ai ai-book"></i><h2>这里还没有错题</h2><p>完成练习后，错题会自动记录在这里。</p></div>'}
-              <p class="round-mist-note"><i class="ai ai-help"></i>拍照题目会标注来源，并进入待审核队列。</p>
-            </section>
-            <aside class="round-mist-organize"><h2><i class="ai ai-print"></i>整理与导出</h2><p class="round-mist-total">${subject} · 累计 ${list.length} 题</p><h3>导出错题 Word</h3><p>选择题目范围，导出可编辑的文档。支持仅题目或题目与解析。</p><button id="bkDocx" class="round-export"><i class="ai ai-download"></i>选择范围并导出 Word</button>
-              <div class="round-mist-review"><h3>按时间强化</h3><div class="t9-buckets">
-                <button class="t9-bucket" id="bkD2" ${d2 ? '' : 'disabled'}><em>${d2}</em><span>2天内</span></button><button class="t9-bucket" id="bkD7" ${d7 ? '' : 'disabled'}><em>${d7}</em><span>3–7天</span></button><button class="t9-bucket" id="bkD180" ${d180 ? '' : 'disabled'}><em>${d180}</em><span>8–180天</span></button>
-              </div>${due ? '' : '<p class="round-review-empty">今天暂无到期复习题。</p>'}</div>
-              <nav class="round-mist-more" aria-label="错题工具"><button id="bkPts"><i class="ai ai-puzzle"></i><span>薄弱知识点</span><i class="ai ai-arrow-right"></i></button><button id="bkHis"><i class="ai ai-clock"></i><span>历史错题（${his}）</span><i class="ai ai-arrow-right"></i></button><button id="bkUps"><i class="ai ai-upload"></i><span>上传的错题与审核进度</span><i class="ai ai-arrow-right"></i></button></nav>
-            </aside>
-          </div>
-        </div>`;
+        ${due ? `<button class="bk-review-strip" id="bkReview"><i class="ai ai-flash"></i> 今日待复习 <b>${due}</b> 题，点击开始复习</button>` : ''}
+        <div class="bk2-buckets">
+          <button class="bk2-bucket c-red" id="bkD2" ${d2 ? '' : 'disabled'}>
+            <em>${d2}</em><span>2天内错题</span><i>${d2 ? '去强化 ›' : '暂无'}</i>
+          </button>
+          <button class="bk2-bucket c-orange" id="bkD7" ${d7 ? '' : 'disabled'}>
+            <em>${d7}</em><span>3-7天内错题</span><i>${d7 ? '去强化 ›' : '暂无'}</i>
+          </button>
+          <button class="bk2-bucket c-blue" id="bkD180" ${d180 ? '' : 'disabled'}>
+            <em>${d180}</em><span>7-180天内错题</span><i>${d180 ? '去强化 ›' : '暂无'}</i>
+          </button>
+        </div>
+        <div class="bk2-funcs">
+          <button class="bk2-func" id="bkPts">
+            <span class="bkf-ic i-purple">${bkIcon('points', 21)}</span>
+            <span class="bkf-m"><b>薄弱知识点<em class="bkf-ai">AI</em></b><span>AI 自动识别错题考点，归类强化</span></span>
+            <i class="bkf-arrow">›</i>
+          </button>
+          <button class="bk2-func" id="bkHis">
+            <span class="bkf-ic i-blue">${bkIcon('history', 21)}</span>
+            <span class="bkf-m"><b>历史错题</b><span>${his ? `${his} 题 · 已掌握或超期` : '暂无历史错题'}</span></span>
+            <i class="bkf-arrow">›</i>
+          </button>
+          <button class="bk2-func" id="bkDocx">
+            <span class="bkf-ic i-amber">${bkIcon('fav', 21)}</span>
+            <span class="bkf-m"><b>导出错题 Word</b><span>选择题目范围及解析</span></span>
+          </button>
+          <button class="bk2-func" id="bkUps">
+            <span class="bkf-ic i-pink">${bkIcon('upload', 21)}</span>
+            <span class="bkf-m"><b>上传的错题</b><span>自己拍照上传的题</span></span>
+            <i class="bkf-arrow">›</i>
+          </button>
+        </div>
+        <button class="btn" id="bkAll">全部错题与筛选</button>
+        <button class="bk-up-fab" id="bkUpBtn">📷 拍照上传错题</button>`;
       bindTabs();
       bindMistCards(host, filtered);
       host.querySelectorAll('.round-mist-toolbar select').forEach(el => el.onchange = () => { mistFilter[el.name] = el.value; paint(); });

@@ -1,0 +1,31 @@
+const { chromium }=require('playwright'),fs=require('fs'),path=require('path'),assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||chromium.executablePath(),headless:true,args:['--no-sandbox']});let total=0;fs.mkdirSync('evidence',{recursive:true});
+for(const width of [1440,390]){const p=await browser.newPage({viewport:{width,height:900}}),errors=[];p.on('pageerror',e=>errors.push(e.message));
+await p.route('**/*',async r=>{const u=new URL(r.request().url());if(u.pathname.startsWith('/api/')){let data=[];
+if(u.pathname==='/api/me')data={id:1,name:'测试学生',role:'student',stage:'primary'};
+if(u.pathname==='/api/stu/bank/tasks')data=[{id:7,title:'合成任务',subject:'数学',q_count:1,tried:false}];
+if(u.pathname==='/api/stu/courses')data=[{id:1,name:'合成课程',subject:'数学',category:'同步培优',kp_total:1,kp_done:0}];
+if(u.pathname==='/api/stu/course-detail')data={id:1,name:'合成课程',subject:'数学',category:'同步培优',grouped:true,kp_total:1,kp_done:0,percent:0,groups:[{id:2,name:'第一单元',lessons:[{video_id:5,title:'合成视频',qcount:2,handout:{id:9,title:'讲义.pdf'}}]}],exercises:[]};
+if(u.pathname==='/api/stu/bank/mistakes')data={list:[{question_id:10,type:'single',subject:'英语',stem:'测试',options:['A','B'],source:'练习',wrong_count:1,updated_at:new Date().toISOString()}],counts:{英语:1},review:{due:1}};
+if(u.pathname==='/api/stu/bank/mfpapers/filters')data={subjects:['数学'],grades:[],years:[]};
+if(u.pathname==='/api/stu/bank/subjective-responses')data={list:[]};
+if(u.pathname.includes('/videos/'))data={src:'/test.mp4',is_file:true,allow_speed:1};
+if(u.pathname.includes('/word/books'))data=[{id:1,title:'测试词书',kind:'word',word_count:1}];
+if(u.pathname.includes('/word/words'))data=[{id:1,unit:'第一单元',word:'hello',meaning:'你好'}];
+return r.fulfill({json:{code:0,data}})}
+const file=path.resolve('public','.'+u.pathname);if(fs.existsSync(file)&&fs.statSync(file).isFile())return r.fulfill({path:file});
+if(u.pathname.endsWith('.js'))return r.fulfill({contentType:'application/javascript',body:''});
+return r.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect width="48" height="48" fill="#b9cdf2"/></svg>'});
+});
+await p.addInitScript(()=>{localStorage.setItem('xuexi_token','fixture');localStorage.setItem('xuexi_user',JSON.stringify({id:1,name:'测试学生',role:'student',stage:'primary'}));});
+await p.goto('http://test.invalid/index.html#/home');await p.waitForSelector('.st-side');assert.equal(await p.locator('.rounded-student').count(),0);assert.equal(await p.locator('.st-side .st-subj a').count(),7);total+=2;
+await p.waitForSelector('.legacy-task'); assert.equal(await p.locator('.legacy-task').count(),1); assert.equal(await p.getByText('章节组卷',{exact:true}).count(),1); await p.screenshot({path:`evidence/home-${width}.png`}); await p.evaluate(()=>location.hash='#/courses'); await p.getByText('同步培优',{exact:true}).click(); await p.waitForSelector('.st-cards'); await p.screenshot({path:`evidence/courses-${width}.png`});
+await p.evaluate(()=>location.hash='#/course/1');await p.waitForSelector('.kp-layout');assert.equal(await p.locator('.kb-quiz').count(),1);await p.locator('.kb-play').first().click();await p.waitForSelector('.video-mask video');assert.equal(await p.locator('.video-mask').count(),1);await p.locator('.video-mask .close-x').click();assert.equal(await p.locator('.video-mask').count(),0);total+=3;
+await p.screenshot({path:`evidence/course-${width}.png`});
+await p.evaluate(()=>location.hash='#/mistakes');await p.waitForSelector('.bk2-buckets');assert.equal(await p.locator('#bkTabsMount .bk2-tabs').count(),1);await p.locator('#bkDocx').click();await p.waitForSelector('#t9xClose');await p.locator('#t9xClose').click();assert.equal(await p.locator('#t9xClose').count(),0);total+=2;
+await p.screenshot({path:`evidence/mistakes-${width}.png`});
+await p.evaluate(()=>location.hash='#/papers');await p.waitForSelector('#pkScan');total++;
+await p.evaluate(()=>location.hash='#/words/quick');await p.waitForSelector('#wtReviewBtn');total++;
+await p.evaluate(()=>location.hash='#/login');await p.waitForSelector('.lg2-wrap');assert.equal(await p.locator('.lg2-submit').count(),1);total++;
+await p.screenshot({path:`evidence/login-${width}.png`});assert.deepEqual(errors,[]);total++;await p.close();console.log('PASS',width);}
+console.log('checks',total);await browser.close()})().catch(e=>{console.error(e);process.exit(1)});

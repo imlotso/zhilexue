@@ -734,14 +734,15 @@ const App = {
       });
       if (request !== this._videoRequest || this.page !== 'course') return;
       this.playerLoading = false;
-      if (!v) return;
-      if (!v.src) { this.playerError = '该知识点还没有上传视频文件，请联系老师'; return; }
+      if (!v) { if (this.playerError) toast(this.playerError, 'err'); return; }
+      if (!v.src) { this.playerError = '该知识点还没有上传视频文件，请联系老师'; toast(this.playerError, 'err'); return; }
       const isFile = v.is_file !== undefined ? v.is_file : /\/api\/file|\.(mp4|webm|ogg|mov|m3u8)(\?|$)/i.test(v.src);
       const canSpeed = v.allow_speed !== 0;
       const rates = [0.75, 1, 1.25, 1.5, 2];
       const wrap = document.createElement('div');
-      wrap.className = 'course-inline-player';
+      wrap.className = 'mask video-mask';
       wrap.innerHTML = `<div class="video-box">
+        <div class="video-h"><b>${esc(lesson.title || v.title)}</b><button class="close-x" aria-label="关闭视频">&times;</button></div>
         <div class="player-wrap t1-pw">${isFile
           ? `<video id="stVideo" src="${esc(withTicket(v.src))}" controls playsinline webkit-playsinline x5-playsinline x5-video-player-type="h5-page" x5-video-player-fullscreen="false" preload="metadata"></video><div class="t1-vp-layer" hidden></div>`
           : `<iframe src="${esc(withTicket(v.src))}" allowfullscreen></iframe>`}</div>
@@ -750,14 +751,14 @@ const App = {
             ? `<span class="pb-lbl">倍速</span><div class="spd">${rates.map((r) => `<button class="spd-b ${r === this.speed ? 'on' : ''}" data-rate="${r}">${r === 1 ? '1.0' : r}</button>`).join('')}</div>`
             : '<span class="pb-lock">播放</span>'}</div></div>
       </div>`;
-      const host = this.$refs.inlinePlayer;
-      if (!host) return;
-      host.appendChild(wrap);
+      document.body.appendChild(wrap);
       this.playerActive = true;
       const vid = wrap.querySelector('#stVideo');
       let closed = false, stallTimer = 0;
       const close = () => { closed = true; clearTimeout(stallTimer); if (vid) { vid.pause(); vid.removeAttribute('src'); vid.load(); } wrap.remove(); };
       this._closeCourseVideo = close;
+      wrap.querySelector('.close-x').onclick = () => this.stopCourseVideo();
+      wrap.onclick = e => { if (e.target === wrap) this.stopCourseVideo(); };
       if (!vid) return;
       // ---- 手机播放兜底：播放被拒 / 加载出错 / 卡住 / 只有声音没有画面（H.265 等），都给出明确提示 ----
       const layer = wrap.querySelector('.t1-vp-layer');
@@ -936,7 +937,7 @@ const App = {
   <div v-else-if="page==='login'" class="lg2-wrap">
     <section class="lg2-brand">
       <div class="lg2-top">
-        <img class="lg2-logo" src="/img/logo.jpg" alt="智乐学">
+        <img class="lg2-logo" src="/img/logo.jpg" alt="智学课堂">
         <div class="lg2-head">
           <h1>纸屏结合Ai智学系统</h1>
           <p>线上看课&nbsp;&nbsp;线下刷题</p>
@@ -1006,104 +1007,73 @@ const App = {
     </section>
     <section class="lg2-main">
       <div class="lg2-card-form">
-        <div class="lg2-flogo"><img src="/img/logo.jpg" alt="智乐学"><b>学生登录</b></div>
+        <div class="lg2-flogo"><img src="/img/logo.jpg" alt="智学课堂"><b>学生登录</b></div>
         <div v-if="loginErr" class="alert">{{ loginErr }}</div>
         <form @submit.prevent="onLogin">
-          <div class="field"><label for="student-login-username">账号</label>
-            <input id="student-login-username" class="input" v-model="username" placeholder="请输入账号" autocomplete="username" required></div>
-          <div class="field"><label for="student-login-password">密码</label>
-            <input id="student-login-password" class="input" v-model="password" type="password" placeholder="请输入密码" autocomplete="current-password" required></div>
+          <div class="field"><label>账号</label>
+            <input class="input" v-model="username" placeholder="请输入账号" autocomplete="username" required></div>
+          <div class="field"><label>密码</label>
+            <input class="input" v-model="password" type="password" placeholder="请输入密码" autocomplete="current-password" required></div>
           <button class="btn lg2-submit" type="submit" :disabled="loginBusy">{{ loginBusy ? '登录中…' : '登录' }}</button>
         </form>
         <p class="lg2-reg">如需注册，请联系工作人员协助开通</p>
       </div>
     </section>
   </div>
-
-  <div v-else class="st-layout st-biz st-rail learn-shell rounded-student" :class="{ 'learn-nav-open': mobileNavOpen, 'learn-is-home': page==='home', 't11-course-list':page==='courses' }">
-    <button v-if="mobileNavOpen && !desktopNav" class="learn-nav-shade" ref="learningNavShade" type="button" tabindex="-1" @click="closeLearningNav" aria-label="关闭导航"></button>
-    <header class="round-topbar">
-      <a class="round-brand" href="#/home" @click.prevent="goHome"><img src="/img/ui-brand-20261108.png" alt=""><b>智乐学</b></a>
-      <span class="t11-desktop-title">{{ page==='home' ? '学习空间' : (page==='courses'||page==='course') ? subject+'课程' : page==='papers' ? '试卷' : page==='mistakes' ? '错题本' : page==='tool' ? '专注计时' : '速记训练' }}</span>
-      <nav class="round-main-nav" aria-label="学习导航">
-        <a href="#/home" :class="{on:page==='home'}" @click.prevent="goHome">学习空间</a>
-        <a href="#/courses" :class="{on:page==='courses'||page==='course'}" @click.prevent="goCourses">学科课程</a>
-        <a href="#/papers" :class="{on:page==='papers'}" @click.prevent="goBank('papers')">试卷</a>
-        <a href="#/mistakes" :class="{on:page==='mistakes'}" @click.prevent="goBank('mistakes')">错题本</a>
+  <div v-else class="st-layout st-biz st-rail">
+    <aside class="st-side">
+      <a class="sbrand" href="#/home" @click.prevent="goHome" title="智学课堂"><img src="/img/logo.jpg" alt="智学课堂"></a>
+      <nav class="st-subj">
+        <a href="#/home" :class="{ on: page==='home' }" @click.prevent="goHome"><span class="ic"><i class="ai ai-home"></i></span><span class="nt">首页</span></a>
+        <a :class="{ on: inWords }" @click.prevent="goWords('quick')"><span class="ic"><img v-if="railImg['训练']" class="st-rail-ic" :src="railImg['训练']" alt=""><i v-else class="ai ai-flash"></i></span><span class="nt">训练</span></a>
+        <a v-for="s in subjects" :key="s" :class="{ on: !inWords && page!=='tool' && page!=='papers' && page!=='mistakes' && page!=='home' && subject===s }" @click.prevent="pickSubject(s)">
+          <span class="ic" :class="'ic-'+s"><img v-if="railImg[s]" class="st-rail-ic" :src="railImg[s]" alt=""><i v-else class="ai" :class="'ai-'+(subjIcon[s]||'book')"></i></span><span class="nt">{{ s }}</span>
+        </a>
+        <a :class="{ on: page==='papers' }" @click.prevent="goBank('papers')"><span class="ic"><img class="st-rail-ic" src="/img/wt/g_paper.png" alt=""></span><span class="nt">试卷</span></a>
       </nav>
-      <div class="round-top-actions">
-        <button v-if="inWords" class="round-accent" @click="toggleAccent" title="切换发音口音"><i class="ai ai-volume"></i>{{ wtAccent==='uk' ? '英音' : '美音' }}</button>
-        <button class="st-theme-btn" ref="themeBtn" aria-label="切换显示主题" title="切换显示主题" :aria-expanded="themeOpen" @click="toggleTheme"><i class="ai ai-leaf"></i><span>{{ theme==='day' ? '护眼' : curTheme.t }}</span></button>
-        <button class="learn-menu" ref="learningNavTrigger" type="button" :aria-label="mobileNavOpen ? '关闭学习导航' : '打开学习导航'" aria-controls="student-learning-nav" :aria-expanded="mobileNavOpen" @keydown="onLearningNavKeydown" @click="mobileNavOpen ? closeLearningNav() : mobileNavOpen=true"><img class="learn-account" :src="avatar.src" :alt="avatar.name"></button>
+      <div class="st-me" :title="user.name">
+        <img class="avatar av-face" :src="avatar.src" alt="">
+        <b class="st-me-name">{{ user.name }}</b>
+        <button class="st-out" title="退出登录" @click="logout"><i class="ai ai-logout"></i><span>退出</span></button>
       </div>
-    </header>
-    <aside class="st-side" id="student-learning-nav" ref="learningNav" aria-label="学习导航" :inert="desktopNav || mobileNavOpen ? null : ''" :aria-hidden="!desktopNav && !mobileNavOpen" @keydown="onLearningNavKeydown">
-      <button class="round-drawer-close" type="button" @click="closeLearningNav" aria-label="关闭导航"><i class="ai ai-arrow-left"></i>返回学习</button>
-      <a class="sbrand" aria-label="智乐学学习空间" href="#/home" @click.prevent="closeLearningNav(); goHome()"><img src="/img/ui-brand-20261108.png" alt=""><span class="learn-brand-text"><b>智乐学</b></span></a>
-      <nav class="st-subj" aria-label="学科导航">
-        <a href="#/home" :class="{on:page==='home'}" :aria-current="page==='home' ? 'page' : null" @click.prevent="closeLearningNav(); goHome()"><span class="ic" aria-hidden="true"><i class="ai ai-home"></i></span><span class="nt">学习空间</span></a>
-        <a v-for="s in ['数学','英语','物理','化学']" :key="s" href="#/courses" :class="{on:(page==='courses'||page==='course')&&subject===s}" :aria-current="(page==='courses'||page==='course')&&subject===s ? 'page' : null" @click.prevent="closeLearningNav(); pickSubject(s)"><span class="ic" aria-hidden="true"><i class="ai" :class="'ai-'+(subjIcon[s]||'book')"></i></span><span class="nt">{{ s }}</span></a>
-        <a href="#/papers" :class="{on:page==='papers'}" :aria-current="page==='papers' ? 'page' : null" @click.prevent="closeLearningNav(); goBank('papers')"><span class="ic" aria-hidden="true"><i class="ai ai-doc"></i></span><span class="nt">试卷</span></a>
-        <a href="#/mistakes" :class="{on:page==='mistakes'}" :aria-current="page==='mistakes' ? 'page' : null" @click.prevent="closeLearningNav(); goBank('mistakes')"><span class="ic" aria-hidden="true"><i class="ai ai-list"></i></span><span class="nt">错题本</span><small v-if="mistCount" class="learn-mist-count">{{mistCount}}</small></a>
-      </nav>
-      <nav class="learn-tools" aria-label="学习工具">
-        <a href="#/words/quick" :class="{on:page==='words'&&wordSub==='quick'}" :aria-current="page==='words'&&wordSub==='quick' ? 'page' : null" @click.prevent="closeLearningNav(); goWords('quick')"><span class="ic" aria-hidden="true"><i class="ai ai-flash"></i></span><span class="nt">速记训练</span></a>
-        <a href="#/timer" :class="{on:page==='tool'}" :aria-current="page==='tool' ? 'page' : null" @click.prevent="closeLearningNav(); goTool()"><span class="ic" aria-hidden="true"><i class="ai ai-clock"></i></span><span class="nt">专注计时</span></a>
-      </nav>
-      <div class="st-me"><img class="t11-rail-avatar" :src="avatar.src" :alt="avatar.name"><span class="st-me-name">{{user.name}}</span><button class="st-out" @click="logout"><i class="ai ai-logout"></i>退出</button></div>
     </aside>
     <div class="st-main">
-    <header v-if="inWords" class="st-top">
-      <div class="st-tabs"><a v-for="g in wordGroups" :key="g.k" :class="{on:curWordGroup&&curWordGroup.k===g.k}" @click.prevent="goWords(g.subs[0])"><img v-if="g.img" class="wt-tab-ic" :src="g.img" alt="">{{g.t}}</a></div>
+    <header class="st-top">
+      <div class="st-tabs">
+        <template v-if="inWords">
+          <a v-for="g in wordGroups" :key="g.k" :class="{ on: curWordGroup && curWordGroup.k===g.k }" @click.prevent="goWords(g.subs[0])"><img v-if="g.img" class="wt-tab-ic" :src="g.img" alt=""><i v-else class="ai" :class="'ai-'+g.i"></i>{{ g.t }}</a>
+        </template>
+        <template v-else-if="page==='papers' || page==='mistakes'">
+          <a v-if="page==='papers'" class="on st-page-title">试卷</a>
+          <!-- 错题本：学科 tab 由 bank.js 渲染到顶栏这里的挂载点 -->
+          <span v-if="page==='mistakes'" id="bkTabsMount"></span>
+        </template>
+        <template v-else-if="page!=='tool'">
+          <a v-for="c in cats" :key="c" :class="{ on: category===c }" @click.prevent="pickCat(c)"><img v-if="catIcon[c]" class="wt-tab-ic" :src="catIcon[c]" alt="">{{ c }}<i v-if="counts[c]" class="n">{{ counts[c] }}</i></a>
+        </template>
+      </div>
+      <div class="st-top-r">
+        <button v-if="inWords" class="st-report" @click="toggleAccent" title="切换发音口音：美音(女声) / 英音(男声)"><i class="ai ai-volume"></i><span>{{ wtAccent==='uk' ? '英音' : '美音' }}</span></button>
+        <button class="st-report" @click="goTool" title="专注计时"><i class="ai ai-clock"></i><span>计时</span></button>
+        <button class="st-report st-theme-btn" ref="themeBtn" :class="{ on: themeOpen }" @click="toggleTheme">
+          <i class="ai" :class="'ai-'+curTheme.ic"></i><span>{{ curTheme.t }}</span>
+        </button>
+        <button class="st-mist-btn" :class="{ on: page==='mistakes' }" @click="goBank('mistakes')" title="错题本：做错的题都在这里，可重做和复习"><img src="/img/wt/g_mistake.png" alt=""><span>错题本</span><i v-if="mistCount" class="st-mist-n">{{ mistCount }}</i></button>
+      </div>
     </header>
     <div class="st-content wt-root" id="view" :class="{ 'wt-fluid': inWords, 'tool-full': page==='tool' }">
       <div v-if="loading" class="loading-page">加载中…</div>
       <div v-else-if="error" class="empty">{{ error }}</div>
-
-      <section v-else-if="page==='home'" class="learn-home">
-        <div class="learn-greeting"><p class="round-kicker">{{ homeSubtitle }}</p><h2><span class="round-desktop-greeting">今天，从一个知识点开始</span><span class="round-mobile-greeting">今天，学懂一个知识点。</span></h2></div>
-        <div class="round-home-top">
-          <section class="learn-hero" aria-labelledby="learnHeroTitle">
-            <div class="learn-hero-copy">
-              <div class="learn-eyebrow"><i class="ai ai-book"></i>{{ homeCourse && homeCourse.kp_done ? '继续学习' : '开始学习' }}</div>
-              <template v-if="homeCourse">
-                <h2 id="learnHeroTitle">{{ homeCourse.name }}</h2>
-                <p class="learn-next">{{ homeDetail && homeDetail.next ? homeDetail.next.title : (homeCourse.kp_total ? (homeCourse.kp_done >= homeCourse.kp_total ? '已学完本课程，可以继续练习巩固' : courseSub(homeCourse)) : '查看课程资料与配套练习') }}</p>
-                <div class="learn-progress-row"><template v-if="homeCourse.kp_total"><span>已完成 <b>{{ homeCourse.kp_done }}</b> / {{ homeCourse.kp_total }} 课</span><progress :value="homeProgress" max="100" :aria-label="'课程完成 ' + homeProgress + '%'"></progress></template><span v-else>暂无视频课程</span></div>
-                <button class="learn-primary" @click="openCourse(homeCourse.id)">{{ homeCourse.kp_done ? '继续学习' : '进入课程' }}<i class="ai ai-arrow-right"></i></button>
-              </template>
-              <template v-else>
-                <h2 id="learnHeroTitle">{{ homeCourseError ? '课程暂时未能加载' : '准备好开始学习了吗' }}</h2><p class="learn-next">{{ homeCourseError || '暂无可学习课程，开通后会显示在这里。' }}</p>
-                <button class="learn-primary" @click="homeCourseError ? load() : pickSubject(subject)">{{ homeCourseError ? '重新加载' : '查看课程' }}<i class="ai ai-arrow-right"></i></button>
-              </template>
-            </div>
-            <img class="learn-hero-art" src="/img/ui-rounded-learning-hero-20261108.png" alt="" aria-hidden="true">
-          </section>
-          <section class="learn-tasks" aria-labelledby="learnTaskTitle">
-            <div class="learn-section-heading"><h2 id="learnTaskTitle"><i class="ai ai-doc"></i>我的任务</h2><a class="round-task-link" href="#/papers" @click.prevent="goHomeTasks"><i class="ai ai-arrow-right"></i><span class="sr-only">查看试卷</span></a></div>
-            <div v-if="homeTaskError" class="learn-empty">{{ homeTaskError }}<button @click="load">重新加载</button></div>
-            <div v-else-if="!homeTasks.length" class="learn-empty"><i class="ai ai-doc"></i><b>暂无学习任务</b><button class="round-view-tasks" @click="goHomeTasks">查看试卷<i class="ai ai-arrow-right"></i></button></div>
-            <div v-else class="round-task-list"><article v-for="task in homeTasks.slice(0,3)" :key="task.id" class="learn-task-row">
-              <div class="learn-task-name"><h3>{{ task.title }}</h3><p>{{ [task.subject, task.q_count + ' 题'].filter(Boolean).join(' · ') }}</p><small v-if="task.due_at">{{ homeTaskDeadline(task) }}</small></div>
-              <span class="learn-task-status" :class="{done:task.tried}">{{ homeTaskStatus(task) }}</span>
-              <button :class="task.tried ? 'learn-task-again' : 'learn-task-start'" @click="openHomeTask(task)">{{task.tried ? '重新练习' : '开始练习'}}<i class="ai ai-arrow-right"></i></button>
-            </article></div>
-            <a v-if="homeTasks.length>3" class="learn-all-tasks" href="#/papers" @click.prevent="goHomeTasks">按学科查看任务<i class="ai ai-arrow-right"></i></a>
-          </section>
+      <section v-else-if="page==='home'" class="legacy-home">
+        <div class="st-sec"><div class="sec-h"><b>我的任务</b><button class="kb kb-print" @click="goHomeTasks">查看试卷</button></div>
+          <div v-if="homeTaskError" role="alert">{{ homeTaskError }} <button class="kb kb-print" @click="load">重新加载</button></div>
+          <div v-else-if="!homeTasks.length" class="ch-empty">暂无学习任务</div>
+          <div v-for="task in homeTasks" :key="task.id" class="legacy-task"><div><b>{{ task.title }}</b><p>{{ task.subject }} · {{ task.q_count }} 题 <span v-if="task.due_at"> · {{ homeTaskDeadline(task) }}</span></p></div><span>{{ homeTaskStatus(task) }}</span><button class="kb kb-play" @click="openHomeTask(task)">{{ task.tried ? '重新练习' : '开始练习' }}</button></div>
         </div>
-        <div class="learn-lower">
-          <section class="learn-path"><div class="learn-section-heading"><h2><i class="ai ai-folder"></i>本章学习路径</h2><span>{{homeLessons.length ? homeLessons.filter(l=>l.done).length + ' / ' + homeLessons.length + ' 已学' : ''}}</span></div>
-            <button v-for="(l,i) in homeLessons.slice(0,3)" :key="l.video_id" class="round-path-row" :class="{on:homeDetail&&homeDetail.next&&homeDetail.next.video_id===l.video_id}" @click="openCourse(homeCourse.id)"><span class="round-path-index">{{String(i+1).padStart(2,'0')}}</span><b>{{l.title}}</b><span>{{l.done ? '已学完' : (homeDetail&&homeDetail.next&&homeDetail.next.video_id===l.video_id ? '开始学习' : '未开始')}}</span><i class="ai ai-arrow-right"></i></button>
-            <div v-if="!homeLessons.length" class="learn-empty">课程开通后，学习路径会显示在这里。</div>
-          </section>
-          <section class="learn-practice" aria-labelledby="learnPracticeTitle"><div class="learn-section-heading"><h2 id="learnPracticeTitle"><i class="ai ai-edit"></i>自主练习</h2></div>
-            <button class="learn-practice-row" @click="goSelfPractice('textbook')"><i class="ai ai-folder"></i><span><b>章节组卷</b><small>按教材章节选择练习</small></span><i class="ai ai-arrow-right"></i></button>
-            <button class="learn-practice-row" @click="goSelfPractice('knowledge')"><i class="ai ai-puzzle"></i><span><b>知识点组卷</b><small>针对知识点巩固</small></span><i class="ai ai-arrow-right"></i></button>
-          </section>
-        </div>
+        <div class="st-sec"><div class="sec-h"><b>继续学习</b></div><div v-if="homeCourseError" role="alert">{{ homeCourseError }} <button @click="load">重新加载</button></div><div v-else-if="homeCourse"><b>{{homeCourse.name}}</b><p>{{homeDetail && homeDetail.next ? homeDetail.next.title : courseSub(homeCourse)}}</p><button class="kb kb-play" @click="openCourse(homeCourse.id)">进入课程</button></div><div v-else class="ch-empty">暂无课程</div><button class="kb kb-print" @click="goCourses">查看课程</button></div>
+        <div class="st-sec"><div class="sec-h"><b>自主练习</b></div><button class="kb kb-print" @click="goSelfPractice('textbook')">章节组卷</button> <button class="kb kb-print" @click="goSelfPractice('knowledge')">知识点组卷</button></div>
       </section>
       <template v-else-if="page==='courses'">
-        <div class="round-course-heading"><p class="round-kicker">{{gradeText}}</p><h1>学科课程</h1><div class="round-subjects"><button v-for="s in subjects" :key="s" :class="{on:subject===s}" @click="pickSubject(s)">{{s}}</button></div><div class="round-categories"><button v-for="c in cats" :key="c" :class="{on:category===c}" @click="pickCat(c)">{{c}}<small v-if="counts[c]"> {{counts[c]}}</small></button></div></div>
         <div v-if="courseList.length" class="st-cards">
           <div v-for="c in courseList" :key="c.id" class="st-card" :class="['st-'+c.subject, 'cat-'+c.category]" @click="openCourse(c.id)">
             <div class="sc-face">
@@ -1116,60 +1086,85 @@ const App = {
             <div class="sc-prog">
               <div class="fb-top"><span>知识点进度</span><b :class="{ full: c.percent>=100 }">{{ c.kp_total ? (c.kp_done+' / '+c.kp_total) : '—' }}</b></div>
               <div class="pbar"><i :style="{ width: (c.percent||0)+'%' }"></i></div>
-              <div class="r8-sc-acc" :class="accCls(c.acc)"><span>习题正确率</span><b>{{ c.acc && c.acc.total ? (c.acc.rate === null ? '未做' : c.acc.rate + '%') : '暂无习题' }}</b><em v-if="c.acc && c.acc.answered">已做 {{ c.acc.answered }} / {{ c.acc.total }} 题</em></div>
             </div>
           </div>
         </div>
         <div v-else class="empty">暂无课程</div>
       </template>
-
       <template v-else-if="page==='course' && course">
-        <div class="round-course-heading"><button class="round-back" @click="goCourses"><i class="ai ai-arrow-left"></i>学科课程</button><p class="round-kicker">{{[course.subject,courseSub(course)].filter(Boolean).join(' / ')}}</p><h1>{{course.name}}</h1><div class="round-categories"><button v-for="c in cats" :key="c" :class="{on:course.category===c}" @click="pickCat(c);goCourses()">{{c}}</button></div></div>
-        <div class="round-course-layout">
-          <section class="round-course-main">
-            <div class="r8-hero round-video-stage">
-              <div ref="inlinePlayer" class="course-player-host" v-show="playerActive"></div>
-              <div v-if="!playerActive" class="course-player-placeholder">
-                <span class="round-video-label"><i class="ai ai-video"></i>课程视频</span>
-                <h2>{{focusLesson ? focusLesson.title : '暂无课程视频'}}</h2>
-                <button class="round-video-play" :disabled="!focusLesson || playerLoading" @click="playVideo(focusLesson)" :aria-label="focusLesson ? '播放'+focusLesson.title : '暂无视频'"><i class="ai ai-play"></i></button>
-                <p role="status">{{playerLoading ? '视频加载中…' : (playerError || (focusLesson ? '点击播放课程视频' : '等待老师添加视频'))}}</p>
+        <div class="st-backbar" :class="'st-'+course.subject">
+          <button class="st-back" @click="goCourses"><i class="ai ai-arrow-left"></i> 返回</button>
+          <div class="bb-tt"><b>{{ course.name }}</b><span>{{ [course.subject, course.category, courseSub(course)].filter(Boolean).join(' · ') }}</span></div>
+          <div class="bb-prog">
+            <div class="fb-top"><span>进度</span><b :class="{ full: course.percent>=100 }">{{ course.kp_done }} / {{ course.kp_total }}</b></div>
+            <div class="pbar"><i :style="{ width: (course.percent||0)+'%' }"></i></div>
+          </div>
+        </div>
+        <div class="st-sec">
+          <div class="sec-h"><b>知识点</b></div>
+          <div v-if="course.grouped && course.groups && course.groups.length" class="kp-layout">
+            <aside class="kp-side">
+              <a v-for="g in course.groups" :key="g.id" class="kp-side-item" :class="{ on: activeGroup && activeGroup.id===g.id }" @click.prevent="activeGroupId=g.id">
+                <span class="gs-name">{{ g.name }}</span>
+                <span class="gs-meta">{{ g.kp_done }}/{{ g.kp_total }}</span>
+              </a>
+            </aside>
+            <div class="kp-list kp-main-list">
+              <div v-if="activeGroup" class="legacy-group-actions"><button v-if="activeGroup.id && activeGroup.practice_count" class="kb kb-quiz" @click="doSectionPractice(activeGroup)">分组练习</button><span>正确率 {{activeGroup.acc && activeGroup.acc.total ? (activeGroup.acc.rate===null ? '未作答' : activeGroup.acc.rate+'%') : '—'}}</span></div>
+              <div v-for="(l, i) in activeGroupLessons" :key="l.video_id" class="kp-box" :class="{ done: l.done }">
+                <div class="kp-idx">{{ String(i+1).padStart(2,'0') }}</div>
+                <div class="kp-main">
+                  <div class="kp-tt"><b>{{ l.title }}</b><span class="kp-state">{{ l.done ? '✓ 已学完' : '未学习' }}</span></div>
+                  <div v-if="l.handout" class="kp-doc"><i class="doc-dot"></i><span class="dl">讲义：</span><span class="dn">{{ l.handout.title }}</span><span class="ds">{{ fmtSize(l.handout.size) }}</span></div>
+                  <div v-else class="kp-doc off"><i class="doc-dot"></i>暂无配套讲义</div>
+                  <div v-if="l.nodes && l.nodes.length" class="legacy-node-tags"><span>知识点：</span><button v-for="n in l.nodes" :key="n.id" class="kb kb-print" @click="showNodeMastery(n)">{{n.name}}</button></div>
+                  <div class="kp-acts">
+                    <button class="kb kb-play" @click="playVideo(l)"><i class="ai ai-play"></i> 播放</button>
+                    <button v-if="l.handout" class="kb kb-print" @click="printDoc(l.handout.id, l.handout.title)"><i class="ai ai-print"></i> 讲义</button>
+                    <button v-if="l.qcount" class="kb kb-quiz" @click="doPractice(l)"><i class="ai ai-doc"></i> 练习<span class="kb-n">{{ l.qcount }}</span></button>
+                  </div>
+                </div>
+              </div>
+              <div v-if="!activeGroupLessons.length" class="ch-empty">暂无知识点</div>
+            </div>
+          </div>
+          <div v-else-if="course.lessons && course.lessons.length" class="kp-list">
+            <div v-for="(l, i) in course.lessons" :key="l.video_id" class="kp-box" :class="{ done: l.done }">
+              <div class="kp-idx">{{ String(i+1).padStart(2,'0') }}</div>
+              <div class="kp-main">
+                <div class="kp-tt"><b>{{ l.title }}</b><span class="kp-state">{{ l.done ? '✓ 已学完' : '未学习' }}</span></div>
+                <div v-if="l.handout" class="kp-doc"><i class="doc-dot"></i><span class="dl">讲义：</span><span class="dn">{{ l.handout.title }}</span><span class="ds">{{ fmtSize(l.handout.size) }}</span></div>
+                <div v-else class="kp-doc off"><i class="doc-dot"></i>暂无配套讲义</div>
+                <div v-if="l.nodes && l.nodes.length" class="legacy-node-tags"><span>知识点：</span><button v-for="n in l.nodes" :key="n.id" class="kb kb-print" @click="showNodeMastery(n)">{{n.name}}</button></div>
+                  <div class="kp-acts">
+                  <button class="kb kb-play" @click="playVideo(l)"><i class="ai ai-play"></i> 播放</button>
+                  <button v-if="l.handout" class="kb kb-print" @click="printDoc(l.handout.id, l.handout.title)"><i class="ai ai-print"></i> 讲义</button>
+                  <button v-if="l.qcount" class="kb kb-quiz" @click="doPractice(l)"><i class="ai ai-doc"></i> 练习<span class="kb-n">{{ l.qcount }}</span></button>
+                </div>
               </div>
             </div>
-            <template v-if="focusLesson">
-              <div class="round-course-actions">
-              <div class="round-practice-banner"><i class="ai ai-edit"></i><span><b>配套练习</b><small>{{focusLesson.qcount ? '完成学习后，用练习巩固知识。' : '这节课程暂无配套习题。'}}</small></span><button v-if="focusLesson.qcount" @click="doPractice(focusLesson)">开始练习<i class="ai ai-arrow-right"></i></button></div>
-              <div v-if="focusLesson.handout" class="round-handout"><i class="ai ai-doc"></i><span>{{focusLesson.handout.title}}</span><button class="kb kb-print" @click="printDoc(focusLesson.handout.id,focusLesson.handout.title)">查看讲义</button></div>
+          </div>
+          <div v-else class="ch-empty">暂无知识点</div>
+        </div>
+        <div class="st-sec">
+          <div class="sec-h"><b>配套练习</b></div>
+          <div v-if="course.exercises && course.exercises.length" class="ex-list">
+            <div v-for="h in course.exercises" :key="h.id" class="ex-row">
+              <div class="doc-ic" :class="fileKind(h.file_name).cls">{{ fileKind(h.file_name).txt }}</div>
+              <div class="ex-info"><b>{{ h.title }}</b><span>{{ fmtSize(h.size) }}</span></div>
+              <div class="ex-acts">
+                <button v-if="canPreview(h.file_name)" class="kb kb-print" @click="printDoc(h.id, h.title)"><i class="ai ai-print"></i> 打印</button>
+                <button class="kb kb-dl" @click="downloadDoc(h.id)"><i class="ai ai-download"></i> 下载</button>
               </div>
-              <h2 class="round-lesson-title">{{focusLesson.title}}</h2>
-              <div class="round-lesson-stats"><div><i class="ai ai-book"></i><span>学习进度<b>{{focusLesson.done ? '已学完' : '未开始'}}</b></span></div><div><i class="ai ai-doc"></i><span>配套习题<b>{{focusLesson.qcount || 0}} 题</b></span></div><div><i class="ai ai-chart"></i><span>习题正确率<b>{{focusLesson.acc&&focusLesson.acc.total ? (focusLesson.acc.rate===null ? '未作答' : focusLesson.acc.rate+'%') : '—'}}</b></span></div></div>
-              <div v-if="focusLesson.nodes&&focusLesson.nodes.length" class="r8-ktags"><span class="r8-ktags-l">知识点</span><button v-for="n in focusLesson.nodes" :key="n.id" class="r8-ktag" @click="showNodeMastery(n)">{{n.name}}</button></div>
-
-            </template>
-            <div v-if="course.exercises&&course.exercises.length" class="st-sec round-exercises"><div class="sec-h"><b>课程资料</b></div><div class="ex-list"><div v-for="h in course.exercises" :key="h.id" class="ex-row"><div class="doc-ic" :class="fileKind(h.file_name).cls">{{fileKind(h.file_name).txt}}</div><div class="ex-info"><b>{{h.title}}</b><span>{{fmtSize(h.size)}}</span></div><div class="ex-acts"><button v-if="canPreview(h.file_name)" class="kb kb-print" @click="printDoc(h.id,h.title)"><i class="ai ai-print"></i>打印</button><button class="kb kb-dl" @click="downloadDoc(h.id)"><i class="ai ai-download"></i>下载</button></div></div></div></div>
-          </section>
-          <aside class="round-course-directory"><h2><i class="ai ai-folder"></i>单元目录</h2><button v-if="course.kp_total" class="round-continue-learning" @click="continueLearn">继续学习<i class="ai ai-arrow-right"></i></button>
-            <section v-for="g in courseDisplayGroups" :key="g.id" class="round-course-group" :class="{on:!course.grouped||activeGroupId===g.id}">
-              <button class="round-group-title" @click="activeGroupId=g.id"><span v-if="course.grouped">小分组</span><b>{{g.name}}</b><i class="ai ai-arrow-right"></i></button>
-              <template v-if="!course.grouped||activeGroupId===g.id">
-                <div v-if="course.grouped" class="round-group-actions"><button :disabled="!g.lessons.length" @click="g.lessons.length&&playVideo(g.lessons[0])"><i class="ai ai-play"></i>分组视频</button><button v-if="g.id&&g.practice_count" @click="doSectionPractice(g)"><i class="ai ai-doc"></i>分组练习</button><span>正确率 {{g.acc&&g.acc.total ? (g.acc.rate===null ? '未作答' : g.acc.rate+'%') : '—'}}</span></div>
-                <article v-for="(l,i) in g.lessons" :key="l.video_id" class="round-lesson-row" :class="{on:focusLesson&&focusLesson.video_id===l.video_id}">
-                  <button class="round-lesson-select" @click="selectLesson(l,g.id)"><span>{{String(i+1).padStart(2,'0')}}</span><b>{{l.title}}</b></button>
-                  <button class="round-lesson-icon" @click="playVideo(l)" :aria-label="'播放'+l.title" title="播放"><i class="ai ai-play"></i></button><button v-if="l.qcount" class="round-lesson-icon" @click="doPractice(l)" :aria-label="'练习'+l.title" title="练习"><i class="ai ai-doc"></i></button>
-                  <span class="round-lesson-state">{{l.done ? '已学完' : (focusLesson&&focusLesson.video_id===l.video_id ? '正在查看' : '未开始')}}</span>
-                </article>
-                <div v-if="!g.lessons.length" class="ch-empty">暂无知识点</div>
-              </template>
-            </section>
-            <div v-if="!courseDisplayGroups.length" class="ch-empty">暂无知识点</div>
-            <div class="round-course-summary"><i class="ai ai-chart"></i><div><span>已学 {{course.kp_done}} / {{course.kp_total}} 课</span><div class="r8-hs" :class="accCls(course.acc)"><span>课程正确率 {{course.acc&&course.acc.total ? (course.acc.rate===null ? '未作答' : course.acc.rate+'%') : '—'}}</span><em>{{ course.acc && course.acc.total ? '已做 ' + course.acc.answered + ' / ' + course.acc.total + ' 题' : '暂无可自动判分的习题' }}</em></div></div></div>
-          </aside>
+            </div>
+          </div>
+          <div v-else class="ch-empty">暂无习题</div>
         </div>
       </template>
       <div v-else-if="page==='tool'" class="tool-page">
-        <iframe class="tool-frame" src="/apps/timer.html?v=20261113-student-usability" title="计时"></iframe>
+        <iframe class="tool-frame" src="/apps/timer.html" title="计时"></iframe>
       </div>
-      <section v-else-if="page==='papers' || page==='mistakes'" class="round-bank-page"><div v-if="page==='mistakes'" id="bkTabsMount"></div><div class="bank-host" :id="page + 'Host'"></div></section>
+      <div v-else-if="page==='papers' || page==='mistakes'" class="bank-host" :id="page + 'Host'"></div>
       <div v-else-if="page==='words'" class="wt-layout" :class="{ 'side-closed': sideSubs.length>1 && !wtSideOpen }">
         <aside class="wt-sidenav" v-if="sideSubs.length>1 && wtSideOpen">
           <div class="wt-side-bar"><button class="wt-side-fold" type="button" title="收起导航" @click="toggleWtSide(false)"><i class="ai ai-arrow-left"></i></button></div>
@@ -1179,13 +1174,6 @@ const App = {
         <words-pane ref="wordsPane" :sub="wordSub"></words-pane>
       </div>    </div>
     </div>
-
-    <nav class="round-bottom-nav" aria-label="底部学习导航">
-      <a href="#/home" :class="{on:page==='home'}" @click.prevent="goHome"><i class="ai ai-book"></i><span>学习</span></a>
-      <a href="#/courses" :class="{on:page==='course'||page==='courses'}" @click.prevent="goCourses"><i class="ai ai-folder"></i><span>课程</span></a>
-      <a href="#/papers" :class="{on:page==='papers'}" @click.prevent="goBank('papers')"><i class="ai ai-doc"></i><span>试卷</span></a>
-      <a href="#/mistakes" :class="{on:page==='mistakes'}" @click.prevent="goBank('mistakes')"><i class="ai ai-list"></i><span>错题</span></a>
-    </nav>
     <teleport to="body">
       <div v-if="themeOpen" class="theme-menu" :style="themeStyle" @click.stop>
         <div class="theme-menu-h"><b>选择主题</b><button class="tm-close" type="button" @click="themeOpen=false">×</button></div>

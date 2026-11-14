@@ -1,0 +1,38 @@
+name: Student restoration browser checks
+on:
+  push:
+    branches: ['feat/t14-original-student-ui-acceptance']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  candidate-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      STORAGE_DRIVER: local
+      AI_MOCK: '1'
+      TTS_MOCK: '1'
+      ZLX_ISOLATED_TEST: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Candidate static checks
+        run: |
+          node --check public/js/vue-app.js
+          node --check public/js/bank.js
+          node --test restore-contract-test.js restoration-entries.test.js
+      - name: Candidate fixture browser checks
+        run: node restore-browser-ci.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: student-restoration-evidence
+          path: evidence/
+          if-no-files-found: warn
