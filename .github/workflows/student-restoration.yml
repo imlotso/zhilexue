@@ -2,6 +2,7 @@ name: Student restoration browser checks
 on:
   push:
     branches: ['feat/t14-original-student-ui-acceptance']
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
