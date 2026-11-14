@@ -18,7 +18,7 @@ if(u.pathname.endsWith('.js'))return r.fulfill({contentType:'application/javascr
 return r.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect width="48" height="48" fill="#b9cdf2"/></svg>'});
 });
 await p.addInitScript(()=>{localStorage.setItem('xuexi_token','fixture');localStorage.setItem('xuexi_user',JSON.stringify({id:1,name:'测试学生',role:'student',stage:'primary'}));});
-await p.goto('http://test.invalid/index.html#/home');await p.waitForSelector('.st-side');assert.equal(await p.locator('.rounded-student').count(),0);assert.equal(await p.locator('.st-side .st-subj a').count(),6);total+=2;
+await p.goto('http://test.invalid/index.html#/home');await p.waitForSelector('.st-side');assert.equal(await p.locator('.rounded-student').count(),0);assert.equal(await p.locator('.st-side .st-subj a').count(),7);total+=2;
 await p.waitForSelector('.legacy-task'); assert.equal(await p.locator('.legacy-task').count(),1); assert.equal(await p.getByText('章节组卷',{exact:true}).count(),1); await p.screenshot({path:`evidence/home-${width}.png`}); await p.evaluate(()=>location.hash='#/courses'); await p.waitForSelector('.st-cards'); await p.screenshot({path:`evidence/courses-${width}.png`});
 await p.evaluate(()=>location.hash='#/course/1');await p.waitForSelector('.kp-layout');assert.equal(await p.locator('.kb-quiz').count(),1);await p.locator('.kb-play').first().click();await p.waitForSelector('.video-mask video');assert.equal(await p.locator('.video-mask').count(),1);await p.locator('.video-mask .close-x').click();assert.equal(await p.locator('.video-mask').count(),0);total+=3;
 await p.screenshot({path:`evidence/course-${width}.png`});
