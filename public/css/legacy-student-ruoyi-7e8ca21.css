@@ -1691,3 +1691,11 @@ body:has(.admin-app){overflow:auto!important}
 .up-img{width:150px;height:150px;object-fit:cover;border-radius:8px;border:1px solid #e5e9f2;cursor:zoom-in;background:#fff}
 .up-note{font-size:13px;color:#64748b;margin-top:8px}
 .up-note.ok{color:#12b76a;font-weight:600}
+
+/* Keep student actions readable when the original rail becomes a bottom bar. */
+@media (max-width: 600px) {
+  .st-layout.st-biz.st-rail .st-subj { justify-content: flex-start; overflow-x: auto; overflow-y: hidden; }
+  .st-layout.st-biz.st-rail .st-subj a { flex: 0 0 43px; min-width: 43px; }
+  .st-layout.st-biz.st-rail .st-me { flex: 0 0 auto; }
+  .kp-acts .kb { flex: 0 0 auto; white-space: nowrap; }
+}
