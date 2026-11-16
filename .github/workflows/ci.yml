@@ -93,6 +93,7 @@ jobs:
       - run: node writing-translation-test.js
       - run: node match-export-test.js
       - run: node docx-solution-images-test.js
+      - run: node --test wrongbook-format-test.js
       - run: node group-basket-test.js   # 组合题篮顺序、已有分值与去重
       - name: Upload word geometry evidence
         if: always()

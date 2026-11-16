@@ -807,3 +807,17 @@
 - 后台 MathJax 加载同版本本地 mhchem 扩展（来源为项目依赖 mathjax-full，保留许可证），支持原文中的 `\ce{...}`。不猜测或改写普通文本中的化学式。
 - 审核预览将规范管道表格渲染为安全转义的表格，不解释原始 HTML 或 Markdown 链接；长公式和表格在自身区域滚动，避免挤压中文和撑宽页面。
 - 7 项导入/安全展示单测通过；本地浏览器验证 `\ce{2Fe2O3 + 3C -> 4Fe + 3CO2}` 无错误节点且手机无页面横向溢出。真实试卷内容准确性仍须独立核验。
+
+## 2026-11-16 错题 Word 中文排版兼容修复
+
+- 错题导出正文显式左对齐，默认段落采用左对齐；启用 `doNotExpandShiftReturn`，避免 Word/WPS 两端对齐环境把软换行中文拉散。保留题目、答案、解析原文、换行和居中标题/页码。
+- 增加 `wrongbook-format-test.js` 并加入 CI：中文多行解析、第 7 张解析图位置、仅题目模式不泄露答案图、可编辑分式。
+- 本地：新增 3 项测试通过；`docx-solution-images-test.js`、`match-export-test.js` 通过；`node --check src/mistake-docx.js` 通过。
+- 全站 `node smoke.js` 未完成：隔离环境未启动测试服务，连接 localhost 被拒绝。没有连接或修改生产数据库，没有部署。
+- 截图中的具体 `[图7]` 是否为旧文件或图片数据缺失，不能仅凭截图确认；最新 main 对完整第 7 张图片数据的内嵌回归已通过。
+### 补充真实学生导出验收
+
+- 在独立本地 MySQL 8.4.13 (`127.0.0.1:33317`, 专用 test 库) 启动应用，创建虚构测试学生和 3 道题。Chrome 实际填写账号密码登录 → 错题本 → 下载 Word（3 题），未模拟下载接口。
+- 将下载的 `student-real-export.docx` 直接用 Microsoft Word 打开并导出 PDF，检查 4 页渲染：中文解析字距正常，第 7 张解析图片正确内嵌，分式正确显示。截图来自实际 Word 排版，不是设计图；题目与学生均是测试数据，不是用户截图原学生的数据。
+- `mistake-test.js --ui-only` 10/10、`astra-mistake-export-scope-test.js` 14/14 通过。初次全站 smoke 在服务启动前因 ECONNREFUSED 中止，未声称全站全量通过。
+- 安装完整依赖的首次尝试因 Node 24 缺少 better-sqlite3 预编译和 VS 编译器失败；隔离 MySQL 验收采用锁定依赖的 `npm ci --ignore-scripts`，不导入 SQLite 历史数据，实际服务与导出成功。

@@ -193,7 +193,7 @@ const lines = (text, o = {}) => {
   appendText(source.slice(pos));
   return out;
 };
-const P = (children, o = {}) => new Paragraph(Object.assign({ children, spacing: { after: 80, line: 340 } }, o));
+const P = (children, o = {}) => new Paragraph(Object.assign({ children, alignment: AlignmentType.LEFT, spacing: { after: 80, line: 340 } }, o));
 const NOBORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
 const NOBORDERS = { top: NOBORDER, bottom: NOBORDER, left: NOBORDER, right: NOBORDER };
 
@@ -363,7 +363,9 @@ async function buildMistakeDocx({ student, subject, items, generatedAt, from, to
 
   const doc = new Document({
     creator: '智学课堂', title: `${(student && student.name) || ''}${subject || ''}错题集`.trim() || '错题集',
-    styles: { default: { document: { run: { font: BODY_FONT, size: 22 } } } },
+    // Prevent Word/WPS from stretching Chinese soft-return lines under inherited justification.
+    compatibility: { doNotExpandShiftReturn: true },
+    styles: { default: { document: { run: { font: BODY_FONT, size: 22 }, paragraph: { alignment: AlignmentType.LEFT } } } },
     sections: [{
       properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1134, bottom: 1134, left: 1134, right: 1134 } } },
       footers: {
