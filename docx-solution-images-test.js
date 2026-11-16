@@ -43,7 +43,7 @@ async function inspect(buf) {
   const without = await inspect(await buildMistakeDocx({ student: {}, items: [mistake], includeAnswers: false }));
   assert.deepStrictEqual(without, ['题干前', '图1', '题干后', '图4', '图5'], '错题练习不泄露答案或解析图，图号不因第 4 张限制而移位');
   const withAnswers = await inspect(await buildMistakeDocx({ student: {}, items: [mistake], includeAnswers: true }));
-  assert.deepStrictEqual(withAnswers, ['题干前', '图1', '题干后', '图4', '图5', '错题解析', '答前', '图2', '答中', '图2', '答后', '解析前', '图3', '解析后', '图1'], '错题解析中答案和解析图片应出现在原文位置');
+  assert.deepStrictEqual(withAnswers, ['题干前', '图1', '题干后', '图4', '图5', '答前', '图2', '答中', '图2', '答后', '解析前', '图3', '解析后', '图1'], '错题解析中答案和解析图片应出现在原文位置');
   const sparse = { ...q, stem: '题干前题干后', answer: '答前[图5]答后', analysis: '', images: JSON.stringify([null, null, null, null, sources[4]]) };
   assert.deepStrictEqual(await inspect(await buildPaperDocx(paper, [sparse], 'student')), ['题干前', '题干后'], '稀疏图片列表不得在题面泄漏第 5 张答案图');
   assert.deepStrictEqual(await inspect(await buildPaperDocx(paper, [sparse], 'teacher')), ['题干前', '题干后', '答前', '图5', '答后'], '稀疏图号按原索引解析');

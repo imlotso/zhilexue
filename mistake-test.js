@@ -180,14 +180,14 @@ const xmlText = (xml) => xml.replace(/<w:br\/>/g, '\n').replace(/<\/w:p>/g, '\n'
   const text = xmlText(docXml);
   log(/错题集/.test(text) && /共10道错题/.test(text) && /2026年10月28日 - 2026年10月28日/.test(text), '封面：错题集 / 共10道错题 / 日期范围', (text.match(/共\d+道错题/) || [''])[0]);
   log(/姓名：马英惠/.test(text) && /科目：数学/.test(text) && /日期：\d{4}年/.test(text), '封面：姓名 / 科目 / 日期');
-  const iEx = text.indexOf('错题练习'), iAn = text.indexOf('错题解析');
-  log(iEx > 0 && iAn > iEx, '先「错题练习」、后「错题解析」');
-  const exPart = text.slice(iEx, iAn), anPart = text.slice(iAn);
+  const iEx = text.indexOf('错题练习');
+  const exPart = text.slice(iEx), anPart = exPart;
+  log(iEx > 0 && /1\. T9测试多项式[\s\S]*?答案：[\s\S]*?解析：[\s\S]*?答题记录：[\s\S]*?2\. T9测试下列从左边/.test(exPart), '每题后紧跟答案、解析和答题记录');
   log(['1. T9测试多项式', '2. T9测试下列从左边', '3. T9测试把下列各多项式', '10. T9测试下列各式从等号左边'].map((x) => exPart.indexOf(x)).every((v, i, a) => v > 0 && (i === 0 || v > a[i - 1])), '同一天的错题按录入先后排列（样本里的第 1、2、3 … 10 题顺序）');
   log([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].every((n) => new RegExp('(^|\\n)' + n + '\\. ').test(exPart)), '错题练习里有 1~10 题的题号');
   log(/知识点： 公因式/.test(exPart) && /知识点： 完全平方式/.test(exPart) && /知识点： 因式分解-完全平方公式法/.test(exPart), '每题带「知识点」');
   log(/A\. -a\(a-b\)2/.test(exPart) && /D\. x2\+3x-4=\(x-1\)\(x\+4\)/.test(exPart) && /<m:oMath>/.test(docXml) && /<m:sSup>/.test(docXml), '选择题选项完整，公式以上标等可编辑 Word 公式保存');
-  log((exPart.match(/⚑ 多次答错/g) || []).length === 5 && (anPart.match(/⚑ 多次答错/g) || []).length === 5, '答错 2 次及以上的题（样本里的第 2、3、5、9、10 题）标「多次答错」，练习和解析两部分各 5 处', String((exPart.match(/多次答错/g) || []).length));
+  log((exPart.match(/⚑ 多次答错/g) || []).length === 5, '答错 2 次及以上的题（样本里的第 2、3、5、9、10 题）标「多次答错」，每题显示一次', String((exPart.match(/多次答错/g) || []).length));
   log(/答案：D/.test(anPart) && /答案：\(2a\+3b\)2；\(3p-3q-1\)2/.test(anPart) && /答案：3/.test(anPart), '错题解析：答案（选择题字母 / 填空多个空用「；」隔开）');
   log(/解析：A\.左边是单项式,不是因式分解,故选项A错误;/.test(anPart) && /D\.是因式分解,故选项D正确\./.test(anPart), '错题解析：解析原文多行保留');
   log(/答题记录：/.test(anPart) && /✗ C\s+2026-10-26 11:50/.test(anPart) && /✗ B\s+2026-10-21 15:34/.test(anPart), '错题解析：答题记录（对错 + 当时的答案 + 时间，按时间倒序）');
@@ -223,7 +223,7 @@ const xmlText = (xml) => xml.replace(/<w:br\/>/g, '\n').replace(/<\/w:p>/g, '\n'
     made.files.push(pdfPath);
     const pt = spawnSync('pdftotext', ['-layout', pdfPath, '-'], { encoding: 'utf8' });
     const pages = (pt.stdout || '').split('\f').filter((x) => x.trim()).length;
-    log(pages >= 4 && /错题练习/.test(pt.stdout) && /错题解析/.test(pt.stdout), 'LibreOffice 能打开并排版成 PDF（多页，含「错题练习」「错题解析」）', pages + ' 页');
+    log(pages >= 4 && /错题练习/.test(pt.stdout) && /答题记录/.test(pt.stdout), 'LibreOffice 能打开并排版成 PDF（多页，含题目和答题记录）', pages + ' 页');
     log(/第 1 页 \/ 共 \d+ 页/.test(pt.stdout) || /第\s*\d+\s*页\s*\/\s*共\s*\d+\s*页/.test(pt.stdout), '排版后页脚显示 "第 X 页 / 共 Y 页"');
   } else console.log('  ⏭  本机没有 LibreOffice，跳过"转 PDF 排版"检查');
 

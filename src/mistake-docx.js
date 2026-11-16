@@ -5,7 +5,7 @@
  * 版式沿用客户给的《错题集》样本（docs/原始需求/马英惠-数学…错题集.pdf）：
  *   封面（错题集 / 共 N 道错题 / 日期范围 / 姓名·科目·日期）
  *   → 「错题练习」：每题 日期 · [多次答错] · 题号 + 题干（含图片）· 选项 · 知识点
- *   → 「错题解析」：每题 日期 · 题号 · 答案 · 解析 · 答题记录（对错 + 当时的答案 + 时间）
+ *   → 每题后显示答案、解析与答题记录（对错 + 当时的答案 + 时间）
  *   页脚：第 X 页 / 共 Y 页
  * 常见分式、根式和上下标转为可编辑 Word 公式；其他可识别的公式转为图片，无法安全渲染时保留原文。
  *
@@ -327,20 +327,7 @@ async function buildMistakeDocx({ student, subject, items, generatedAt, from, to
     for (const [j, src] of images.entries()) if (src && !used.has(j) && !answerRefs.has(j)) children.push(await imageParagraph(src));
     if (m.point) children.push(P([T('知识点： ', { bold: true, font: SANS_FONT, size: 20 }), T(m.point, { size: 20 })], { spacing: { before: 80, after: 160 } }));
     else children.push(P([T('')], { spacing: { after: 120 } }));
-  }
-  if (!list.length) children.push(P([T('（没有符合条件的错题）', { color: '999999' })], { alignment: AlignmentType.CENTER }));
-  // 仅题目模式不包含答案、解析或作答记录。
-  if (includeAnswers) {
-  children.push(new Paragraph({ children: [new PageBreak()] }));
-
-  // ---- 错题解析
-  children.push(band('错题解析'));
-  for (let i = 0; i < list.length; i++) {
-    const m = list[i];
-    children.push(P([T(dateOf(m.updated_at), { bold: true, size: 26, font: SANS_FONT })], { keepNext: true, spacing: { before: 200, after: 60 } }));
-    if (Number(m.wrong_count) >= 2) children.push(P([T('⚑ 多次答错', { bold: true, size: 18, color: 'D93025', font: SANS_FONT })], { keepNext: true, spacing: { after: 40 } }));
-    children.push(P([T(`${i + 1}.`, { bold: true })], { keepNext: true }));
-    const images = Array.isArray(m.images) ? m.images : [];
+    if (includeAnswers) {
     children.push(...await imageTextBlocks(answerText(m, m.answer) || '（暂无）', images, [T('答案：', { bold: true, font: SANS_FONT, size: 20 })], { keepNext: true }));
     children.push(...await imageTextBlocks(m.analysis || '（暂无解析）', images, [T('解析：', { bold: true, font: SANS_FONT, size: 20 })], { keepLines: false }));
     const recs = m.records || [];
@@ -355,11 +342,9 @@ async function buildMistakeDocx({ student, subject, items, generatedAt, from, to
         ], { indent: { left: 360 }, spacing: { after: 20, line: 300 } }));
       });
     }
-    children.push(P([T('')], { spacing: { after: 100 } }));
+    }
   }
   if (!list.length) children.push(P([T('（没有符合条件的错题）', { color: '999999' })], { alignment: AlignmentType.CENTER }));
-
-  }
 
   const doc = new Document({
     creator: '智学课堂', title: `${(student && student.name) || ''}${subject || ''}错题集`.trim() || '错题集',

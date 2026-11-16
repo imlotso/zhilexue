@@ -821,3 +821,7 @@
 - 将下载的 `student-real-export.docx` 直接用 Microsoft Word 打开并导出 PDF，检查 4 页渲染：中文解析字距正常，第 7 张解析图片正确内嵌，分式正确显示。截图来自实际 Word 排版，不是设计图；题目与学生均是测试数据，不是用户截图原学生的数据。
 - `mistake-test.js --ui-only` 10/10、`astra-mistake-export-scope-test.js` 14/14 通过。初次全站 smoke 在服务启动前因 ECONNREFUSED 中止，未声称全站全量通过。
 - 安装完整依赖的首次尝试因 Node 24 缺少 better-sqlite3 预编译和 VS 编译器失败；隔离 MySQL 验收采用锁定依赖的 `npm ci --ignore-scripts`，不导入 SQLite 历史数据，实际服务与导出成功。
+### 错题 Word 答案与作答记录位置
+
+- 选择“打印题目和解析”时，将答案、解析及答题记录放在各自题目后，避免集中在文末导致误认为缺失；仅题目模式仍不包含这些内容。
+- 使用隔离 MySQL 和合成测试数据验证学生导出，`mistake-test.js` 60 项通过，Word 实际生成并经 LibreOffice 排版检查。
